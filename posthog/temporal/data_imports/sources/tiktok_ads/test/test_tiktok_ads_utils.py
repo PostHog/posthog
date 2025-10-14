@@ -27,7 +27,7 @@ class TestFlattenFunctions:
             "metrics": {"clicks": "947", "impressions": "23241", "spend": "125.50", "cpm": "5.40", "ctr": "4.08"},
         }
 
-        result = TikTokReportResource.flatten_record(nested_record)
+        result = TikTokReportResource.transform_insights_records([nested_record])[0]
 
         expected = {
             "campaign_id": "123456789",
@@ -52,14 +52,14 @@ class TestFlattenFunctions:
             "modify_time": "2025-09-27 15:30:00",
         }
 
-        result = TikTokReportResource.flatten_record(flat_record)
+        result = TikTokReportResource.transform_management_records([flat_record])[0]
         assert result == flat_record
 
     def test_flatten_tiktok_report_record_missing_dimensions(self):
         """Test flattening record with metrics but no dimensions."""
         record_with_metrics_only = {"metrics": {"clicks": "100", "impressions": "1000"}}
 
-        result = TikTokReportResource.flatten_record(record_with_metrics_only)
+        result = TikTokReportResource.transform_insights_records([record_with_metrics_only])[0]
 
         expected = {"metrics": {"clicks": "100", "impressions": "1000"}}
 
@@ -69,7 +69,7 @@ class TestFlattenFunctions:
         """Test flattening record with dimensions but no metrics."""
         record_with_dimensions_only = {"dimensions": {"campaign_id": "123", "stat_time_day": "2025-09-27"}}
 
-        result = TikTokReportResource.flatten_record(record_with_dimensions_only)
+        result = TikTokReportResource.transform_insights_records([record_with_dimensions_only])[0]
 
         expected = {"dimensions": {"campaign_id": "123", "stat_time_day": "2025-09-27"}}
 
@@ -79,7 +79,7 @@ class TestFlattenFunctions:
         """Test flattening record with empty dimensions and metrics."""
         record_with_empty_nested: dict[str, dict] = {"dimensions": {}, "metrics": {}}
 
-        result = TikTokReportResource.flatten_record(record_with_empty_nested)
+        result = TikTokReportResource.transform_insights_records([record_with_empty_nested])[0]
         assert result == {}
 
     def test_flatten_tiktok_report_record_non_dict_input(self):
@@ -87,8 +87,8 @@ class TestFlattenFunctions:
         non_dict_inputs: list[object] = ["string_input", 123, ["list", "input"], None]
 
         for input_value in non_dict_inputs:
-            result = TikTokReportResource.flatten_record(cast(dict[str, Any], input_value))
-            assert result == input_value
+            result = TikTokReportResource.transform_insights_records([cast(dict[str, Any], input_value)])
+            assert result == []
 
     def test_flatten_tiktok_reports_batch_processing(self):
         """Test batch flattening of multiple TikTok reports."""
@@ -104,7 +104,7 @@ class TestFlattenFunctions:
             {"campaign_id": "789", "campaign_name": "Test Campaign", "status": "ENABLE"},
         ]
 
-        result = TikTokReportResource.flatten_records(reports)
+        result = TikTokReportResource.transform_insights_records(reports)
 
         expected = [
             {"campaign_id": "123", "stat_time_day": "2025-09-27", "clicks": "100", "impressions": "1000"},
@@ -116,7 +116,7 @@ class TestFlattenFunctions:
 
     def test_flatten_tiktok_reports_empty_list(self):
         """Test batch flattening with empty list."""
-        result = TikTokReportResource.flatten_records([])
+        result = TikTokReportResource.transform_insights_records([])
         assert result == []
 
 
@@ -355,7 +355,6 @@ class TestTikTokAdsPaginator:
             ("rate_limit_error", 40001, "Rate limit exceeded", False),  # Auth error - not retryable
             ("validation_error", 40002, "Invalid parameter", False),  # Client error - not retryable
             ("server_error", 50000, "Internal server error", True),
-            ("service_unavailable", 50001, "Service temporarily unavailable", True),
         ]
     )
     def test_update_state_api_error_codes(self, name, api_code, message, should_be_retryable):

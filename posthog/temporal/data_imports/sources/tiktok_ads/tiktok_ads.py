@@ -122,6 +122,9 @@ def tiktok_ads_source(
         assert len(dlt_resources) == 1, f"Expected 1 resource for non-report endpoint, got {len(dlt_resources)}"
         items = dlt_resources[0]
 
+    # Apply appropriate transformations based on endpoint type
+    items = TikTokReportResource.pre_transform(endpoint, items)
+
     return SourceResponse(
         name=endpoint,
         items=items,

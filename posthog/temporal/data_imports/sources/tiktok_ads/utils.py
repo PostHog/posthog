@@ -1,6 +1,6 @@
 import copy
 from collections.abc import Iterable
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import structlog
@@ -12,6 +12,9 @@ from requests import PreparedRequest
 from requests.exceptions import HTTPError, RequestException, Timeout
 
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
+    ENDPOINT_AD_MANAGEMENT,
+    ENDPOINT_ADVERTISERS,
+    ENDPOINT_INSIGHTS,
     MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS,
     MAX_TIKTOK_DAYS_TO_QUERY,
 )
@@ -91,7 +94,7 @@ class TikTokDateRangeManager:
         start_date: str, end_date: str, chunk_days: int = MAX_TIKTOK_DAYS_TO_QUERY
     ) -> list[tuple[str, str]]:
         """
-        Generate date chunks that respect TikTok's 30-day limit.
+        Generate date chunks that respect TikTok's 29-day limit.
         Returns list of (start_date, end_date) tuples for sequential API calls.
         """
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
@@ -117,39 +120,90 @@ class TikTokReportResource:
     """Handles report-specific operations like flattening and date chunking."""
 
     @staticmethod
-    def flatten_record(record: dict[str, Any]) -> dict[str, Any]:
+    def transform_insights_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
-        Flatten TikTok's nested report structure.
+        Transform TikTok insights records.
 
-        TikTok returns reports with nested structure:
-        {
-            "dimensions": {"campaign_id": "123", "stat_time_day": "2025-09-27"},
-            "metrics": {"clicks": "947", "impressions": "23241"}
-        }
-
-        We flatten it to:
-        {
-            "campaign_id": "123",
-            "stat_time_day": "2025-09-27",
-            "clicks": "947",
-            "impressions": "23241"
-        }
+        Reference: https://github.com/singer-io/tap-tiktok-ads/blob/master/tap_tiktok_ads/streams.py
         """
-        flattened = {}
-        if isinstance(record, dict) and "metrics" in record:
-            flattened.update(record.get("metrics", {}))
+        transformed_records = []
+        for record in records:
+            if "metrics" in record and "dimensions" in record:
+                # Merging of 2 dicts by not using '|' for older python version compatibility
+                transformed_record = {**record["metrics"], **record["dimensions"]}
 
-        if isinstance(record, dict) and "dimensions" in record:
-            flattened.update(record.get("dimensions", {}))
+                # Handle TikTok's '-' values for specific fields
+                if "secondary_goal_result" in transformed_record and transformed_record["secondary_goal_result"] == "-":
+                    transformed_record["secondary_goal_result"] = None
+                if (
+                    "cost_per_secondary_goal_result" in transformed_record
+                    and transformed_record["cost_per_secondary_goal_result"] == "-"
+                ):
+                    transformed_record["cost_per_secondary_goal_result"] = None
+                if (
+                    "secondary_goal_result_rate" in transformed_record
+                    and transformed_record["secondary_goal_result_rate"] == "-"
+                ):
+                    transformed_record["secondary_goal_result_rate"] = None
 
-        if flattened:
-            return flattened
-        return record
+                transformed_records.append(transformed_record)
+        return transformed_records
 
     @staticmethod
-    def flatten_records(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Transform TikTok report data by flattening nested structure."""
-        return [TikTokReportResource.flatten_record(item) for item in items]
+    def transform_management_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        Transform TikTok management records.
+
+        Reference: https://github.com/singer-io/tap-tiktok-ads/blob/master/tap_tiktok_ads/streams.py
+        """
+        transformed_records = []
+        for record in records:
+            # Setting the custom 'current_status' as 'ACTIVE', TikTok does not differentiate between ACTIVE/DELETE records in response.
+            if "current_status" not in record:
+                record["current_status"] = "ACTIVE"
+
+            # Handle missing modify_time - use create_time as fallback
+            if "modify_time" not in record and "create_time" in record:
+                record["modify_time"] = record["create_time"]
+
+            # In case of an adgroup request, transform 'is_comment_disabled' type from integer to boolean
+            if "is_comment_disable" in record:
+                record["is_comment_disable"] = bool(record["is_comment_disable"] == 0)
+
+            transformed_records.append(record)
+        return transformed_records
+
+    @staticmethod
+    def transform_advertisers_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        Transform TikTok advertisers records.
+
+        Reference: https://github.com/singer-io/tap-tiktok-ads/blob/master/tap_tiktok_ads/streams.py
+        """
+        transformed_records = []
+        for record in records:
+            # Convert timestamp to datetime with timezone
+            if "create_time" in record and isinstance(record["create_time"], int | float):
+                record["create_time"] = datetime.fromtimestamp(record["create_time"], tz=UTC)
+
+            transformed_records.append(record)
+        return transformed_records
+
+    @classmethod
+    def pre_transform(cls, stream_name: str, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        Transform records for every stream before writing to output as per stream category.
+
+        Reference: https://github.com/singer-io/tap-tiktok-ads/blob/master/tap_tiktok_ads/streams.py
+        """
+        if stream_name in ENDPOINT_INSIGHTS:
+            return cls.transform_insights_records(records)
+        elif stream_name in ENDPOINT_AD_MANAGEMENT:
+            return cls.transform_management_records(records)
+        elif stream_name in ENDPOINT_ADVERTISERS:
+            return cls.transform_advertisers_records(records)
+        else:
+            return records
 
     @classmethod
     def create_chunked_resources(
@@ -212,9 +266,9 @@ class TikTokReportResource:
         result = []
         for item in resource:
             if isinstance(item, list):
-                result.extend(cls.flatten_records(item))
+                result.extend(item)
             elif isinstance(item, dict):
-                result.append(cls.flatten_record(item))
+                result.append(item)
             else:
                 result.append(item)
         return result

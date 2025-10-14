@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from typing import Optional
 
@@ -5,11 +6,71 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFo
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
-MAX_TIKTOK_DAYS_TO_QUERY = 30
+MAX_TIKTOK_DAYS_TO_QUERY = 29
 BASE_URL = "https://business-api.tiktok.com/open_api/v1.3"
 MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS = 365
 
-TIKTOK_REPORT_METRICS = '["cpm", "ctr", "spend", "clicks", "conversion", "impressions", "conversion_rate", "cost_per_conversion", "real_time_conversion", "real_time_conversion_rate", "real_time_cost_per_conversion", "currency"]'
+# Comprehensive metrics fields based on Singer implementation
+# Reference: https://github.com/singer-io/tap-tiktok-ads/blob/master/tap_tiktok_ads/streams.py
+
+AUCTION_FIELDS = [
+    "campaign_name",
+    "spend",
+    "cpc",
+    "cpm",
+    "impressions",
+    "currency",
+    "clicks",
+    "ctr",
+    "reach",
+    "cost_per_1000_reached",
+    "conversion",
+    "cost_per_conversion",
+    "conversion_rate",
+    "real_time_conversion",
+    "real_time_cost_per_conversion",
+    "real_time_conversion_rate",
+    "result",
+    "cost_per_result",
+    "result_rate",
+    "real_time_result",
+    "real_time_cost_per_result",
+    "real_time_result_rate",
+    "secondary_goal_result",
+    "cost_per_secondary_goal_result",
+    "secondary_goal_result_rate",
+    "frequency",
+    "video_play_actions",
+    "video_watched_2s",
+    "video_watched_6s",
+    "average_video_play",
+    "average_video_play_per_user",
+    "video_views_p25",
+    "video_views_p50",
+    "video_views_p75",
+    "video_views_p100",
+    "profile_visits",
+    "profile_visits_rate",
+    "likes",
+    "comments",
+    "shares",
+    "follows",
+    "clicks_on_music_disc",
+    "gross_impressions",
+    "conversion_rate_v2",
+    "real_time_conversion_rate_v2",
+    "app_promotion_type",
+    "split_test",
+    "campaign_budget",
+    "campaign_dedicate_type",
+    "billing_event",
+]
+
+TIKTOK_REPORT_METRICS = json.dumps(AUCTION_FIELDS)
+
+ENDPOINT_ADVERTISERS = ["advertisers"]
+ENDPOINT_AD_MANAGEMENT = ["campaigns", "adgroups", "ads"]
+ENDPOINT_INSIGHTS = ["campaign_report", "ad_group_report", "ad_report"]
 
 
 @dataclass
