@@ -89,7 +89,7 @@ class Migration(migrations.Migration):
 - Safe to leave unused tables temporarily, but long-term they can clutter schema introspection and slow migrations
 - Ensure no other models reference this table via foreign keys before dropping (Django won't cascade automatically)
 - If you must drop it, use `RunSQL` with raw SQL (see example below)
-- Document why the table is safe to drop
+- In the PR description, reference the model removal PR (e.g., "Model removed in #12345, deployed X days ago") so reviewers can verify the safety window
 
 **Important notes:**
 
