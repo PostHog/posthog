@@ -13,7 +13,6 @@ from requests.exceptions import HTTPError, RequestException, Timeout
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
     MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS,
     MAX_TIKTOK_DAYS_TO_QUERY,
-    TIKTOK_ADS_CONFIG,
 )
 
 logger = structlog.get_logger(__name__)

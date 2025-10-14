@@ -1,7 +1,6 @@
-import asyncio
 from typing import Any, Optional, cast
 
-from posthog.temporal.common.utils import asyncify, make_retryable_with_exponential_backoff
+from posthog.temporal.common.utils import make_sync_retryable_with_exponential_backoff
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import BASE_URL, TIKTOK_ADS_CONFIG
@@ -107,23 +106,22 @@ def tiktok_ads_source(
                     resource_endpoint["paginator"] = TikTokAdsPaginator()
 
     # Apply retry logic to the entire resource creation process
-    @asyncify
-    def async_get_dlt_resources():
-        """Get DLT resources with retry logic - creates fresh generators on each attempt."""
+    def get_dlt_resources():
+        """Get DLT resources - creates fresh generators on each attempt."""
         return rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
 
     # Apply TikTok-specific retry settings
-    retryable_get_resources = make_retryable_with_exponential_backoff(
-        async_get_dlt_resources,
+    retryable_get_resources = make_sync_retryable_with_exponential_backoff(
+        get_dlt_resources,
         max_attempts=5,
-        initial_retry_delay=301.0,  # TikTok's 5-minute circuit breaker (5 minutes + 1 second)
-        max_retry_delay=301.0 * 60,  # Cap at ~5 hours
+        initial_retry_delay=300,  # TikTok's 5-minute circuit breaker
+        max_retry_delay=3600 * 5,  # Cap at 5 hours
         exponential_backoff_coefficient=2,  # Standard exponential backoff: attempt^2
         retryable_exceptions=(TikTokAdsAPIError, Exception),
         is_exception_retryable=TikTokErrorHandler.is_retryable,
     )
 
-    dlt_resources = asyncio.run(retryable_get_resources())
+    dlt_resources = retryable_get_resources()
 
     if is_report:
         items = TikTokReportResource.process_resources(dlt_resources)
