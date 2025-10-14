@@ -8,7 +8,8 @@ use num_cpus;
 use once_cell::sync::Lazy;
 use rocksdb::{
     checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, Cache, ColumnFamilyDescriptor,
-    DBWithThreadMode, MultiThreaded, Options, WriteBatch, WriteBufferManager, WriteOptions,
+    DBWithThreadMode, MultiThreaded, Options, SliceTransform, WriteBatch, WriteBufferManager,
+    WriteOptions,
 };
 use std::time::Instant;
 
@@ -76,6 +77,10 @@ fn rocksdb_options() -> Options {
     opts.optimize_universal_style_compaction(512 * 1024 * 1024); // 512MB
 
     let mut block_opts = block_based_table_factory();
+    // Timestamp CF
+    let mut ts_cf = Options::default();
+    ts_cf.set_block_based_table_factory(&block_opts);
+    ts_cf.set_prefix_extractor(SliceTransform::create_fixed_prefix(8));
 
     // CRITICAL: Use shared block cache across all stores
     block_opts.set_block_cache(&SHARED_BLOCK_CACHE);
@@ -88,7 +93,7 @@ fn rocksdb_options() -> Options {
     // Reduced memory budget per store (with 50 partitions per pod)
     opts.set_write_buffer_size(8 * 1024 * 1024); // Reduced to 8MB per memtable
     opts.set_max_write_buffer_number(3); // Max 3 buffers = 24MB per partition
-    opts.set_target_file_size_base(32 * 1024 * 1024); // SST files ~32MB
+    opts.set_target_file_size_base(128 * 1024 * 1024); // SST files ~128MB
 
     // Parallelism
     opts.increase_parallelism(num_threads as i32);
@@ -96,8 +101,11 @@ fn rocksdb_options() -> Options {
 
     // IO & safety
     opts.set_paranoid_checks(true);
-    opts.set_bytes_per_sync(1024 * 1024);
-    opts.set_wal_bytes_per_sync(1024 * 1024);
+    opts.set_bytes_per_sync(1 * 1024 * 1024);
+    opts.set_wal_bytes_per_sync(1 * 1024 * 1024);
+    opts.set_use_direct_reads(true);
+    opts.set_use_direct_io_for_flush_and_compaction(true);
+    opts.set_compaction_readahead_size(2 * 1024 * 1024);
 
     // Reduce background IO impact
     opts.set_disable_auto_compactions(false);
