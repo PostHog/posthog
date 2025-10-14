@@ -6,6 +6,7 @@ import { Popover } from '@posthog/lemon-ui'
 import { Chart, ChartItem, ScaleOptions, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { useEventListener } from 'lib/hooks/useEventListener'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { humanFriendlyNumber } from 'lib/utils'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
@@ -231,12 +232,24 @@ export function Sparkline({
     const hoveredElementX = toolTipDataPoints[0]?.element?.x ?? 0
     const hoveredElementWidth = (toolTipDataPoints[0]?.element as any)?.width ?? 0
 
+    useKeyboardHotkeys({
+        escape: {
+            action: () => {
+                setIsDragging(false)
+            },
+        },
+    })
+
     useEventListener(
         'mouseup',
         () => {
+            if (!isDragging) {
+                return
+            }
+
             setIsDragging(false)
 
-            if (!onSelectionChange || !isDragging || !toolTipDataPoints.length || !dragStartRef.current) {
+            if (!onSelectionChange || !toolTipDataPoints.length || !dragStartRef.current) {
                 return
             }
 
@@ -270,7 +283,7 @@ export function Sparkline({
     let selectionLeft = hoveredElementX
     let selectionWidth = 1
 
-    if (dragStartRef.current) {
+    if (isDragging && dragStartRef.current) {
         if (hoveredElementX === dragStartRef.current.x) {
             // If the same we just show it in the middle of the bar
         } else if (hoveredElementX > dragStartRef.current.x) {
