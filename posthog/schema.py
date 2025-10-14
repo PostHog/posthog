@@ -14816,6 +14816,7 @@ class DataTableNode(BaseModel):
         TracesQuery,
         TraceQuery,
     ] = Field(..., description="Source of the events")
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
