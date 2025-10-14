@@ -343,20 +343,22 @@ ${sceneKeysArray.map((key) => `    ${key}: '${key}' as const,`).join('\n')}
             // Generate the extension to the Scene enum
             const sceneExtension = newSceneKeys.map((key) => `    ${key} = '${key}',`).join('\n')
 
-            // Replace the comment marker with the generated scene keys
-            const marker = '    // AUTO-GENERATED PRODUCT SCENES - DO NOT EDIT MANUALLY'
-            const replacement = `${marker}\n${sceneExtension}`
+            // Use the simple marker approach
+            const marker = '    // MARKER DO NOT REMOVE THIS COMMENT'
+            const generatedMarker = '    // AUTO-GENERATED PRODUCT SCENES - DO NOT EDIT MANUALLY'
 
-            if (sceneTypesContent.includes(marker)) {
+            if (sceneTypesContent.includes(generatedMarker)) {
                 // Replace existing generated content
-                const regex = new RegExp(`${marker}[\\s\\S]*?(?=\\n})`)
-                sceneTypesContent = sceneTypesContent.replace(regex, replacement)
-            } else {
-                // Add marker and content before the closing brace of the Scene enum
+                const regex = new RegExp(`${generatedMarker}[\\s\\S]*?(?=\\n})`)
+                sceneTypesContent = sceneTypesContent.replace(regex, `${generatedMarker}\n${sceneExtension}`)
+            } else if (sceneTypesContent.includes(marker)) {
+                // Insert after the marker
                 sceneTypesContent = sceneTypesContent.replace(
-                    /(\s+)(Wizard = 'Wizard',)\n(\s*})/,
-                    `$1$2\n$1${marker}\n${sceneExtension}\n$3`
+                    marker,
+                    `${marker}\n\n${generatedMarker}\n${sceneExtension}`
                 )
+            } else {
+                console.warn('Warning: Could not find marker comment in sceneTypes.ts')
             }
 
             fse.writeFileSync(sceneTypesPath, sceneTypesContent)

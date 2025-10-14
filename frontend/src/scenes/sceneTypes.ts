@@ -125,6 +125,8 @@ export enum Scene {
     QueryEndpoints = 'QueryEndpoints',
     Wizard = 'Wizard',
 
+    // MARKER DO NOT REMOVE THIS COMMENT
+
     // AUTO-GENERATED PRODUCT SCENES - DO NOT EDIT MANUALLY
     ActionNew = 'ActionNew',
     EarlyAccessFeature = 'EarlyAccessFeature',
