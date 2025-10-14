@@ -22,32 +22,20 @@ export interface DecompressionResponse {
     error?: string
 }
 
-// Handle messages from the main thread
 self.addEventListener('message', async (event: MessageEvent<DecompressionRequest>) => {
     const { id, compressedData } = event.data
 
     try {
-        // Ensure snappy is initialized
         await initSnappy()
-
-        // Decompress using raw snappy format (matches Python's snappy.compress/decompress)
         const decompressed = decompress_raw(compressedData)
-
-        // Send the result back to the main thread
-        const response: DecompressionResponse = {
-            id,
-            decompressedData: decompressed,
-        }
-        self.postMessage(response)
+        self.postMessage({ id, decompressedData: decompressed })
     } catch (error) {
         console.error('Decompression error:', error)
-        // Send error back to the main thread
-        const response: DecompressionResponse = {
+        self.postMessage({
             id,
             decompressedData: null,
             error: error instanceof Error ? error.message : 'Unknown error',
-        }
-        self.postMessage(response)
+        })
     }
 })
 

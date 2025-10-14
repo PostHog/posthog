@@ -1,4 +1,4 @@
-import type { DecompressionRequest, DecompressionResponse } from './decompressionWorker'
+import type { DecompressionResponse } from './decompressionWorker'
 
 export class DecompressionWorkerManager {
     private worker: Worker | null = null
@@ -42,12 +42,6 @@ export class DecompressionWorkerManager {
                 }, 5000)
 
                 this.worker.addEventListener('message', (event: MessageEvent) => {
-                    // Check for debug messages from worker
-                    if (event.data.type === 'debug') {
-                        return
-                    }
-
-                    // Check for ready signal
                     if (event.data.type === 'ready') {
                         clearTimeout(timeoutId)
                         resolve()
@@ -79,7 +73,6 @@ export class DecompressionWorkerManager {
     }
 
     async decompress(compressedData: Uint8Array): Promise<Uint8Array> {
-        // Wait for worker to be ready
         await this.readyPromise
 
         if (!this.worker) {
@@ -90,20 +83,8 @@ export class DecompressionWorkerManager {
             const id = this.nextRequestId++
             this.pendingRequests.set(id, { resolve, reject })
 
-            const request: DecompressionRequest = {
-                id,
-                compressedData,
-            }
-
-            this.worker!.postMessage(request)
+            this.worker!.postMessage({ id, compressedData })
         })
-    }
-
-    /**
-     * Decompress multiple blocks in parallel
-     */
-    async decompressBatch(compressedBlocks: Uint8Array[]): Promise<Uint8Array[]> {
-        return Promise.all(compressedBlocks.map((block) => this.decompress(block)))
     }
 
     terminate(): void {
