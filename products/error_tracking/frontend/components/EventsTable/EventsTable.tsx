@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 
-import { IconAI } from '@posthog/icons'
+import { IconAI, IconExpand45, IconEye } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
@@ -8,7 +8,7 @@ import { getExceptionAttributes, getRecordingStatus, getSessionId } from 'lib/co
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { IconLink, IconOpenInApp, IconOpenInNew, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { isString } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -132,15 +132,6 @@ export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: E
         )
     }
 
-    function renderRecording(record: ErrorEventType): JSX.Element {
-        return (
-            <div className="flex justify-end items-center gap-x-1">
-                {renderViewRecordingButton(record)}
-                {renderMoreButton(record)}
-            </div>
-        )
-    }
-
     function renderTime(record: ErrorEventType): JSX.Element {
         return <TZLabel time={record.timestamp} />
     }
@@ -156,14 +147,22 @@ export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: E
             <DataSourceTableColumn<ErrorEventType> title="Person" cellRenderer={renderPerson} />
             <DataSourceTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
             <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
-            <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={renderRecording} />
+            <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={Actions} />
         </DataSourceTable>
     )
 }
 
-export function EventsV2Table({ query, queryKey, selectedEvent, onEventSelect }: EventsTableProps): JSX.Element {
+export function EventsTableV2({ query, queryKey, onEventSelect }: EventsTableProps): JSX.Element {
     const tagRenderer = useErrorTagRenderer()
     const dataSource = eventsSourceLogic({ queryKey, query })
+
+    function renderUUID(record: ErrorEventType): JSX.Element {
+        return (
+            <ButtonPrimitive onClick={() => onEventSelect(record)} tooltip="View exception">
+                <IconOpenInNew />
+            </ButtonPrimitive>
+        )
+    }
 
     function renderPerson(record: ErrorEventType): JSX.Element {
         const display = asDisplay(record.person)
@@ -171,9 +170,9 @@ export function EventsV2Table({ query, queryKey, selectedEvent, onEventSelect }:
             <div className="flex items-center">
                 <span onClick={cancelEvent}>
                     <PersonDisplay person={record.person} noLink>
-                        <Link subtle className="flex items-center">
+                        <Link subtle className={clsx('flex items-center')}>
                             <PersonIcon displayName={display} person={record.person} size="md" />
-                            <span className="ph-no-capture truncate">{display}</span>
+                            <span className={clsx('ph-no-capture', 'truncate')}>{display}</span>
                         </Link>
                     </PersonDisplay>
                 </span>
@@ -181,37 +180,26 @@ export function EventsV2Table({ query, queryKey, selectedEvent, onEventSelect }:
         )
     }
 
-    function renderTitle(record: ErrorEventType): JSX.Element {
+    function renderAttributes(record: ErrorEventType): JSX.Element {
         return (
-            <div>
-                {renderPerson(record)}
-                <div className="flex gap-1">
-                    <TZLabel time={record.timestamp} />
-                    {tagRenderer(record)}
-                </div>
+            <div className="flex justify-end gap-1">
+                {tagRenderer(record)}
+                <ExceptionAttributesPreview attributes={getExceptionAttributes(record.properties)} />
             </div>
         )
     }
 
-    function renderAttributes(record: ErrorEventType): JSX.Element {
-        return (
-            <div className="flex space-x-1">
-                <ExceptionAttributesPreview attributes={getExceptionAttributes(record.properties)} iconOnly />
-            </div>
-        )
+    function renderTime(record: ErrorEventType): JSX.Element {
+        return <TZLabel time={record.timestamp} />
     }
 
     return (
-        <DataSourceTable<ErrorEventType>
-            dataSource={dataSource}
-            embedded
-            onRowClick={onEventSelect}
-            className="overflow-auto"
-            rowRibbonColor={({ uuid }) => (uuid === selectedEvent?.uuid ? 'var(--primary)' : 'transparent')}
-        >
-            <DataSourceTableColumn<ErrorEventType> cellRenderer={renderTitle} />
-            <DataSourceTableColumn<ErrorEventType> align="center" cellRenderer={renderAttributes} />
-            <DataSourceTableColumn<ErrorEventType> align="right" cellRenderer={Actions} />
+        <DataSourceTable<ErrorEventType> dataSource={dataSource} embedded className="overflow-auto">
+            <DataSourceTableColumn<ErrorEventType> width="40px" cellRenderer={renderUUID} />
+            <DataSourceTableColumn<ErrorEventType> title="Person" cellRenderer={renderPerson} />
+            <DataSourceTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
+            <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
+            <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={Actions} />
         </DataSourceTable>
     )
 }
@@ -229,6 +217,7 @@ const Actions = (record: ErrorEventType): JSX.Element => {
             <ButtonPrimitive
                 disabledReasons={isString(disabledReason) ? { [disabledReason]: true } : {}}
                 onClick={onClick}
+                tooltip="View recording"
             >
                 <IconPlayCircle />
             </ButtonPrimitive>

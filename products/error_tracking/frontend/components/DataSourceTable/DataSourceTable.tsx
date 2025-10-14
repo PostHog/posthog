@@ -11,6 +11,7 @@ export interface DataSourceTableProps<T extends Record<string, any>> {
     className?: string
     children?: React.ReactNode
     embedded?: boolean
+    expandable?: LemonTableProps<T>['expandable']
     onRowClick?: (item: T, evt: MouseEvent) => void
     rowRibbonColor?: LemonTableProps<T>['rowRibbonColor']
 }
@@ -21,6 +22,7 @@ export function DataSourceTable<T extends Record<string, any>>({
     embedded = false,
     onRowClick,
     rowRibbonColor,
+    expandable,
     children,
 }: DataSourceTableProps<T>): JSX.Element {
     const { items, itemsLoading } = useValues(dataSource)
@@ -64,6 +66,7 @@ export function DataSourceTable<T extends Record<string, any>>({
             className={className}
             footer={<DataSourceTableFooter dataSource={dataSource} />}
             rowRibbonColor={rowRibbonColor}
+            expandable={expandable}
         />
     )
 }
