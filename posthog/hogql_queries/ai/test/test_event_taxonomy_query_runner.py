@@ -16,7 +16,8 @@ from django.utils import timezone
 from posthog.schema import CachedEventTaxonomyQueryResponse, EventTaxonomyQuery
 
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
-from posthog.models import Action
+from posthog.models import Action, PropertyDefinition
+from posthog.models.property_definition import PropertyType
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -513,12 +514,23 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 2)
         self.assertListEqual([item.property for item in response.results], ["ai", "dashboard"])
 
-    def test_property_taxonomy_handles_numeric_property_values_and_empty_string_values(self):
+    @snapshot_clickhouse_queries
+    def test_property_taxonomy_handles_numeric_property_values(self):
         _create_person(
             distinct_ids=["person1"],
             properties={"email": "person1@example.com"},
             team=self.team,
         )
+
+        # Create numeric property definition
+        PropertyDefinition.objects.create(
+            project=self.team.project,
+            team=self.team,
+            name="zero_duration_recording_count_in_period",
+            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.Numeric,
+        )
+
         # Numeric property value event
         _create_event(
             event="organization usage report",
@@ -566,3 +578,28 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("0", response.results[0].sample_values)
         self.assertIn("10", response.results[0].sample_values)
         self.assertIn("100", response.results[0].sample_values)
+        self.assertNotIn('""', response.results[0].sample_values)
+
+    def test_property_taxonomy_handles_empty_string_values(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+
+        # Empty string value for numeric property event
+        _create_event(
+            event="organization usage report",
+            distinct_id="person1",
+            properties={"organization_id": "org000", "zero_duration_recording_count_in_period": ""},
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(
+            team=self.team,
+            query=EventTaxonomyQuery(
+                event="organization usage report", properties=["zero_duration_recording_count_in_period"]
+            ),
+        ).calculate()
+
+        self.assertEqual(len(response.results), 0)
