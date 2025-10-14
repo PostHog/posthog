@@ -85,7 +85,7 @@ export function LogsScene(): JSX.Element {
             </div>
             <SceneDivider />
             <DisplayOptions />
-            <div className="flex-1 overflow-y-auto border rounded bg-white">
+            <div className="flex-1 overflow-y-auto border rounded bg-bg-light">
                 <LemonTable
                     hideScrollbar
                     dataSource={logs}

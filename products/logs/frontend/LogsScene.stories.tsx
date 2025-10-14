@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'
+import { deterministicRandom } from 'lib/utils/random'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -123,7 +124,7 @@ const generateLogs = (): LogMessage[] => {
 
     while (currentTime.isBefore(endTime)) {
         Object.values(EXAMPLES).forEach((example) => {
-            const logsToAdd = Math.floor(Math.random() * 10)
+            const logsToAdd = Math.floor(deterministicRandom() * 10)
             for (let i = 0; i < logsToAdd; i++) {
                 const log = sampleOne<(typeof example.logs)[0]>(example.logs)
                 results.push({
