@@ -386,12 +386,14 @@ class RunSQLAnalyzer(OperationAnalyzer):
                             score=2,
                             reason="DROP TABLE IF EXISTS - properly staged (prior state removal found)",
                             details={"sql": sql, "table": table_name},
-                            guidance="""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed model from state.
+                            guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed model from state.
 
 Remaining checklist:
 - Ensure all code references removed (API, models, imports)
-- Waited 1-2 weeks since state removal for safe rollback window
-- No other models reference this table via foreign keys""",
+- Waited at least one full deployment cycle since state removal
+- No other models reference this table via foreign keys
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
                         )
 
                 # Not properly staged or can't validate
@@ -400,13 +402,15 @@ Remaining checklist:
                     score=5,
                     reason="DROP TABLE IF EXISTS - no prior state removal found",
                     details={"sql": sql},
-                    guidance="""❌ **Missing state removal:** Could not find prior SeparateDatabaseAndState that removed this model.
+                    guidance=f"""❌ **Missing state removal:** Could not find prior SeparateDatabaseAndState that removed this model.
 
 Safe pattern requires:
 1. Prior migration with SeparateDatabaseAndState removes model from Django state
 2. All code references removed (API, models, imports)
-3. Wait 1-2 weeks for deployment safety window
-4. Then DROP TABLE in later migration""",
+3. Wait at least one full deployment cycle
+4. Then DROP TABLE in later migration
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
                 )
 
             # Check if using IF EXISTS for other DROP operations (safer but still dangerous)
