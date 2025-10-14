@@ -43,7 +43,8 @@ export function StepTriggerConfiguration({
                 <IconBolt className="text-lg" />
                 <span className="text-md font-semibold">Trigger type</span>
             </span>
-            <LemonField.Pure label="What causes this workflow to begin?" error={validationResult?.errors?.type}>
+            <span>What causes this workflow to begin?</span>
+            <LemonField.Pure error={validationResult?.errors?.type}>
                 <LemonSelect
                     options={[
                         {
@@ -132,7 +133,7 @@ function StepTriggerConfigurationEvents({
     return (
         <>
             <div className="flex flex-col">
-                <p className="mb-0">Choose which events or actions will enter a user into the campaign.</p>
+                <p className="mb-0">Choose which events or actions will enter a user into the campaign</p>
             </div>
 
             <LemonField.Pure error={validationResult?.errors?.filters}>
@@ -306,13 +307,7 @@ function FrequencySection(): JSX.Element {
             </span>
             <p>Limit how often users can enter this campaign</p>
 
-            <LemonField.Pure
-                label="Trigger options"
-                info={`
-                        You can configure the destination to only run once within a given time interval or until a certain number of events have been processed.
-                        This is useful for rate limiting the destination for example if you only want to receive one message per day.
-                    `}
-            >
+            <LemonField.Pure>
                 <div className="flex flex-wrap gap-1 items-center">
                     <LemonSelect
                         options={[
