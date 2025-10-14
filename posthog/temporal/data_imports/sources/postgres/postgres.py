@@ -727,6 +727,7 @@ def postgres_source(
                 )
 
                 offset = 0
+                successive_errors = 0
                 while True:
                     try:
                         with get_connection() as connection:
@@ -748,9 +749,18 @@ def postgres_source(
                                 offset += len(rows)
 
                                 yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+
+                                successive_errors = 0
                     except psycopg.errors.SerializationFailure as e:
                         # This error happens when the read replica is out of sync with the primary
                         logger.debug(f"SerializationFailure error: {e}. Retrying chunk at offset {offset}")
+
+                        successive_errors += 1
+                        if successive_errors >= 30:
+                            logger.debug(f"SerializationFailure error: {e}. Retrying chunk at offset {offset}")
+                            raise Exception(
+                                f"Hit {successive_errors} successive SerializationFailure errors. Aborting."
+                            ) from e
                         continue
             else:
                 with get_connection() as connection:
