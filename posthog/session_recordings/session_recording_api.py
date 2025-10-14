@@ -1367,6 +1367,139 @@ class SessionRecordingViewSet(
             response["Content-Disposition"] = "inline"
             return response
 
+    async def _fetch_and_validate_blocks(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        min_blob_key: int,
+        max_blob_key: int,
+    ) -> list:
+        with (
+            timer("list_blocks__stream_blob_v2_to_client"),
+            tracer.start_as_current_span("list_blocks__stream_blob_v2_to_client"),
+        ):
+            blocks = list_blocks(recording)
+            if not blocks:
+                raise exceptions.NotFound("Session recording not found")
+
+        if max_blob_key >= len(blocks):
+            raise exceptions.NotFound("Block index out of range")
+
+        return blocks
+
+    async def _fetch_blocks_parallel(
+        self,
+        blocks: list,
+        min_blob_key: int,
+        max_blob_key: int,
+        recording: SessionRecording,
+        async_storage_client,
+        decompress: bool,
+    ) -> list:
+        async def fetch_single_block(block_index: int) -> tuple[int, str | bytes | None]:
+            try:
+                block = blocks[block_index]
+                if decompress:
+                    content = await async_storage_client.fetch_block(block.url)
+                else:
+                    content = await async_storage_client.fetch_block_bytes(block.url)
+                return block_index, content
+            except BlockFetchError:
+                logger.exception(
+                    "Failed to fetch block",
+                    recording_id=recording.session_id,
+                    team_id=self.team.id,
+                    block_index=block_index,
+                )
+                return block_index, None
+
+        tasks = [fetch_single_block(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
+        results = await asyncio.gather(*tasks)
+
+        blocks_data = [None] * len(results)
+        block_errors = []
+
+        for block_index, content in results:
+            if content is None:
+                block_errors.append(block_index)
+            else:
+                blocks_data[block_index - min_blob_key] = content
+
+        if block_errors:
+            raise exceptions.APIException("Failed to load recording block")
+
+        return cast(list[str | bytes], blocks_data)
+
+    async def _stream_decompressed_blocks(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        min_blob_key: int,
+        max_blob_key: int,
+    ) -> HttpResponse:
+        blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
+
+        async with session_recording_v2_object_storage.async_client() as async_storage:
+            with (
+                timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
+                tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
+            ):
+                blocks_data = await self._fetch_blocks_parallel(
+                    blocks,
+                    min_blob_key,
+                    max_blob_key,
+                    recording,
+                    async_storage,
+                    decompress=True,
+                )
+
+        response = HttpResponse(
+            content="\n".join(blocks_data),
+            content_type="application/jsonl",
+        )
+        response["Cache-Control"] = "max-age=3600"
+        response["Content-Disposition"] = "inline"
+        return response
+
+    async def _stream_compressed_blocks(
+        self,
+        recording: SessionRecording,
+        timer: ServerTimingsGathered,
+        min_blob_key: int,
+        max_blob_key: int,
+    ) -> HttpResponse:
+        import struct
+
+        blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
+
+        async with session_recording_v2_object_storage.async_client() as async_storage:
+            with (
+                timer("fetch_compressed_blocks__stream_blob_v2_to_client"),
+                tracer.start_as_current_span("fetch_compressed_blocks__stream_blob_v2_to_client"),
+            ):
+                blocks_data = await self._fetch_blocks_parallel(
+                    blocks,
+                    min_blob_key,
+                    max_blob_key,
+                    recording,
+                    async_storage,
+                    decompress=False,
+                )
+
+        payload_chunks = []
+        for block in blocks_data:
+            payload_chunks.append(struct.pack(">I", len(block)))
+            payload_chunks.append(block)
+
+        response = HttpResponse(
+            content=b"".join(payload_chunks),
+            content_type="application/octet-stream",
+        )
+        response["Cache-Control"] = "max-age=3600"
+        response["Content-Disposition"] = "inline"
+        response["Content-Encoding"] = "snappy"
+        return response
+
     async def _stream_blob_v2_to_client_async(
         self,
         recording: SessionRecording,
@@ -1376,105 +1509,10 @@ class SessionRecordingViewSet(
         decompress: bool = True,
     ) -> HttpResponse:
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
-            with (
-                timer("list_blocks__stream_blob_v2_to_client"),
-                tracer.start_as_current_span("list_blocks__stream_blob_v2_to_client"),
-            ):
-                blocks = list_blocks(recording)
-                if not blocks:
-                    raise exceptions.NotFound("Session recording not found")
-
-            if max_blob_key >= len(blocks):
-                raise exceptions.NotFound("Block index out of range")
-
-            async def fetch_single_block_async(block_index: int) -> tuple[int, str | bytes | None]:
-                try:
-                    block = blocks[block_index]
-                    content: str | bytes
-                    if decompress:
-                        content = await asyncio.to_thread(
-                            session_recording_v2_object_storage.client().fetch_block, block.url
-                        )
-                    else:
-                        # Fetch compressed bytes - each block is independently compressed
-                        content = await asyncio.to_thread(
-                            session_recording_v2_object_storage.client().fetch_block_bytes, block.url
-                        )
-                    return block_index, content
-                except BlockFetchError:
-                    logger.exception(
-                        "Failed to fetch block",
-                        recording_id=recording.session_id,
-                        team_id=self.team.id,
-                        block_index=block_index,
-                    )
-                    return block_index, None
-
             if decompress:
-                # When decompressing: fetch all blocks, decompress, join with newlines
-                with (
-                    timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
-                    tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
-                ):
-                    tasks = [fetch_single_block_async(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
-                    results = await asyncio.gather(*tasks)
-
-                    blocks_data: list[str | None] = [None] * len(results)
-                    block_errors: list[int] = []
-
-                    for block_index, content in results:
-                        if content is None:
-                            block_errors.append(block_index)
-                        else:
-                            blocks_data[block_index - min_blob_key] = cast(str, content)
-
-                if block_errors:
-                    raise exceptions.APIException("Failed to load recording block")
-
-                response = HttpResponse(
-                    content="\n".join(cast(list[str], blocks_data)),
-                    content_type="application/jsonl",
-                )
+                return await self._stream_decompressed_blocks(recording, timer, min_blob_key, max_blob_key)
             else:
-                # When not decompressing: fetch all blocks and build length-prefixed payload
-                # We collect blocks concurrently but send as one payload to avoid streaming issues
-                import struct
-
-                with (
-                    timer("fetch_compressed_blocks__stream_blob_v2_to_client"),
-                    tracer.start_as_current_span("fetch_compressed_blocks__stream_blob_v2_to_client"),
-                ):
-                    tasks = [fetch_single_block_async(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
-                    results = await asyncio.gather(*tasks)
-
-                    blocks_data: list[bytes | None] = [None] * len(results)
-                    block_errors: list[int] = []
-
-                    for block_index, content in results:
-                        if content is None:
-                            block_errors.append(block_index)
-                        else:
-                            blocks_data[block_index - min_blob_key] = cast(bytes, content)
-
-                if block_errors:
-                    raise exceptions.APIException("Failed to load recording block")
-
-                # Build length-prefixed binary payload
-                payload_chunks = []
-                for block in cast(list[bytes], blocks_data):
-                    # Add 4-byte length prefix (big-endian)
-                    payload_chunks.append(struct.pack('>I', len(block)))
-                    # Add the compressed block
-                    payload_chunks.append(block)
-
-                response = HttpResponse(
-                    content=b"".join(payload_chunks),
-                    content_type="application/octet-stream",
-                )
-
-            response["Cache-Control"] = "max-age=3600"
-            response["Content-Disposition"] = "inline"
-            return response
+                return await self._stream_compressed_blocks(recording, timer, min_blob_key, max_blob_key)
 
     def _stream_blob_v2_to_client(
         self,
