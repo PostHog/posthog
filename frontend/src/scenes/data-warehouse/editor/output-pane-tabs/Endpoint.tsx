@@ -21,6 +21,10 @@ import { endpointsLogic } from 'products/endpoints/frontend/endpointsLogic'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 
+interface EndpointProps {
+    tabId: string
+}
+
 export function Endpoint({ tabId }: EndpointProps): JSX.Element {
     const {
         setEndpointName,
@@ -66,25 +70,25 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                           }
                           return acc
                       },
-                      {} as Record<string, { variableId: string; code_name: string; value: any }>
+                      {} as Record<string, { variableId: string; code_name: string; value?: any }>
                   )
                 : {}
 
         const queryPayload = {
-            kind: NodeKind.HogQLQuery,
+            kind: NodeKind.HogQLQuery as const,
             query: sqlQuery,
             variables: transformedVariables,
         }
 
         if (isUpdateMode && selectedEndpointName) {
             updateEndpoint(selectedEndpointName, {
-                description: endpointDescription || '',
+                description: endpointDescription || undefined,
                 query: queryPayload,
             })
         } else {
             createEndpoint({
                 name: endpointName,
-                description: endpointDescription || '',
+                description: endpointDescription || undefined,
                 query: queryPayload,
             })
         }

@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { projectLogic } from 'scenes/projectLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -28,16 +27,12 @@ function generateVariablesJson(variables: Record<string, any>): string {
         .join('\n')
 }
 
-function getEndpointUrl(projectId: number | undefined, endpointPath: string): string {
+function getEndpointUrl(endpointPath: string): string {
     return `${window.location.origin}${endpointPath}`
 }
 
-function generateTerminalExample(
-    endpointPath: string,
-    variables: Record<string, any>,
-    projectId: number | undefined
-): string {
-    return `curl -X POST ${getEndpointUrl(projectId, endpointPath)} \\
+function generateTerminalExample(endpointPath: string, variables: Record<string, any>): string {
+    return `curl -X POST ${getEndpointUrl(endpointPath)} \\
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -47,15 +42,11 @@ ${generateVariablesJson(variables)}
   }'`
 }
 
-function generatePythonExample(
-    endpointPath: string,
-    variables: Record<string, any>,
-    projectId: number | undefined
-): string {
+function generatePythonExample(endpointPath: string, variables: Record<string, any>): string {
     return `import requests
 import json
 
-url = "${getEndpointUrl(projectId, endpointPath)}"
+url = "${getEndpointUrl(endpointPath)}"
 
 headers = {
     'Content-Type': 'application/json',
@@ -72,14 +63,10 @@ response = requests.post(url, headers=headers, data=json.dumps(payload))
 print(response.json())`
 }
 
-function generateNodeExample(
-    endpointPath: string,
-    variables: Record<string, any>,
-    projectId: number | undefined
-): string {
+function generateNodeExample(endpointPath: string, variables: Record<string, any>): string {
     return `const fetch = require('node-fetch');
 
-const url = '${getEndpointUrl(projectId, endpointPath)}';
+const url = '${getEndpointUrl(endpointPath)}';
 
 const headers = {
     'Content-Type': 'application/json',
@@ -105,7 +92,6 @@ fetch(url, {
 export function EndpointCodeExamples({ tabId }: EndpointCodeExamplesProps): JSX.Element {
     const { setActiveCodeExampleTab } = useActions(endpointLogic({ tabId }))
     const { activeCodeExampleTab, endpoint } = useValues(endpointLogic({ tabId }))
-    const { currentProject } = useValues(projectLogic)
 
     if (!endpoint) {
         return <></>
@@ -116,13 +102,13 @@ export function EndpointCodeExamples({ tabId }: EndpointCodeExamplesProps): JSX.
     const getCodeExample = (tab: CodeExampleTab): string => {
         switch (tab) {
             case 'terminal':
-                return generateTerminalExample(endpoint.endpoint_path, variables, currentProject?.id)
+                return generateTerminalExample(endpoint.endpoint_path, variables)
             case 'python':
-                return generatePythonExample(endpoint.endpoint_path, variables, currentProject?.id)
+                return generatePythonExample(endpoint.endpoint_path, variables)
             case 'nodejs':
-                return generateNodeExample(endpoint.endpoint_path, variables, currentProject?.id)
+                return generateNodeExample(endpoint.endpoint_path, variables)
             default:
-                return generateTerminalExample(endpoint.endpoint_path, variables, currentProject?.id)
+                return generateTerminalExample(endpoint.endpoint_path, variables)
         }
     }
 

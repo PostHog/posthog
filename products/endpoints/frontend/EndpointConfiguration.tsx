@@ -29,22 +29,15 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
         return <></>
     }
 
-    const dataFreshness = (endpoint.parameters?.data_freshness as DataFreshnessOption) || '1h'
-
-    const handleDataFreshnessChange = (value: DataFreshnessOption): void => {
-        updateEndpoint(endpoint.name, {
-            parameters: {
-                ...endpoint.parameters,
-                data_freshness: value,
-            },
-        })
+    const handleDataFreshnessChange = (): void => {
+        updateEndpoint(endpoint.name, { ...endpoint.parameters })
     }
 
     return (
         <div className="flex flex-col gap-4 max-w-2xl">
             <LemonField.Pure label="Data freshness">
                 <LemonSelect
-                    value={dataFreshness}
+                    // value={}
                     onChange={handleDataFreshnessChange}
                     options={DATA_FRESHNESS_OPTIONS}
                 />
