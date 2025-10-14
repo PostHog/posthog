@@ -414,6 +414,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # only includes valid session ids
         self.assertEqual(results[0]["aggregations"]["sessions"], 2)
 
+    @freeze_time("2022-01-10 12:11:00")
+    @snapshot_clickhouse_queries
+    def test_correctly_counts_persons(self):
+        results = self._calculate(issueId=self.issue_id_one, withAggregations=True)["results"]
+        self.assertEqual(results[0]["id"], self.issue_id_one)
+        self.assertEqual(results[0]["aggregations"]["users"], 2)
+
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_hogql_filters(self):
