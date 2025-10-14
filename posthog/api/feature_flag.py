@@ -666,7 +666,7 @@ class FeatureFlagSerializer(
 
         # Apply default evaluation environments if enabled and no evaluation tags were provided
         team = instance.team
-        if team.default_evaluation_environments_enabled and not evaluation_tags:
+        if team.default_evaluation_environments_enabled and evaluation_tags is None:
             from posthog.models.feature_flag import TeamDefaultEvaluationTag
 
             default_eval_tags = TeamDefaultEvaluationTag.objects.filter(team=team).select_related("tag")

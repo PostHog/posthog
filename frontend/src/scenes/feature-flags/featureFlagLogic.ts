@@ -69,7 +69,7 @@ import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/fronten
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
-import { defaultEvaluationEnvironmentsLogic } from './DefaultEvaluationEnvironmentsLogic'
+import { defaultEvaluationEnvironmentsLogic } from './defaultEvaluationEnvironmentsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 

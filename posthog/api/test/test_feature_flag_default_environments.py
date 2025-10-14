@@ -1,3 +1,6 @@
+from datetime import datetime as dt
+from typing import cast
+
 from posthog.test.base import APIBaseTest
 
 from rest_framework import status
@@ -5,11 +8,21 @@ from rest_framework import status
 from posthog.models import FeatureFlag, Tag
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
 
+from ee.models.license import License, LicenseManager
+
 
 class TestFeatureFlagDefaultEnvironments(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.feature_flag_url = "/api/projects/@current/feature_flags/"
+
+        # Create a license to enable tagging feature
+        future_year = dt.now().year + 50
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="test_license_key",
+            plan="enterprise",
+            valid_until=dt(future_year, 1, 19, 3, 14, 7),
+        )
 
     def test_create_flag_without_default_environments(self):
         """Test creating a flag when default environments are disabled"""
@@ -82,7 +95,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
                 "key": "test-flag-explicit",
                 "name": "Test Flag with Explicit Tags",
                 "tags": ["custom-tag"],
-                "evaluation_tags": ["custom-eval-tag"],
+                "evaluation_tags": ["custom-tag"],  # must be subset of tags
             },
             format="json",
         )
@@ -92,7 +105,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
         # Verify only explicit tags were applied (defaults not added to evaluation tags)
         eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
-        self.assertEqual(eval_tag_names, {"custom-eval-tag"})
+        self.assertEqual(eval_tag_names, {"custom-tag"})
 
     def test_create_flag_merges_tags_with_defaults(self):
         """Test that provided regular tags are merged with defaults"""

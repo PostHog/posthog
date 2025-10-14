@@ -4,6 +4,7 @@ from functools import cached_property
 from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from loginas.utils import is_impersonated_session
@@ -26,11 +27,13 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.feature_flag import TeamDefaultEvaluationTag
 from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
+from posthog.models.tag import Tag
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
@@ -931,11 +934,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def default_evaluation_tags(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage default evaluation tags for a team"""
-        from django.db import transaction
-
-        from posthog.models.feature_flag import TeamDefaultEvaluationTag
-        from posthog.models.tag import Tag
-
         team = self.get_object()
 
         if request.method == "GET":
@@ -966,12 +964,14 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
                 if created:
                     report_user_action(
-                        request.user, "default evaluation tag added", {"team_id": team.id, "tag_name": tag_name}
+                        cast(User, request.user),
+                        "default evaluation tag added",
+                        {"team_id": team.id, "tag_name": tag_name},
                     )
 
             return response.Response({"id": default_tag.id, "name": tag.name, "created": created})
 
-        elif request.method == "DELETE":
+        else:  # DELETE
             # Remove a default evaluation tag
             # Handle both request.data and query params for DELETE (test client compatibility)
             tag_name = request.data.get("tag_name", "") or request.GET.get("tag_name", "")
@@ -986,7 +986,9 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
                     if deleted_count > 0:
                         report_user_action(
-                            request.user, "default evaluation tag removed", {"team_id": team.id, "tag_name": tag_name}
+                            cast(User, request.user),
+                            "default evaluation tag removed",
+                            {"team_id": team.id, "tag_name": tag_name},
                         )
 
                     return response.Response({"success": True})

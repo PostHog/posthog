@@ -10,7 +10,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { defaultEvaluationEnvironmentsLogic } from './DefaultEvaluationEnvironmentsLogic'
+import { defaultEvaluationEnvironmentsLogic } from './defaultEvaluationEnvironmentsLogic'
 
 export function DefaultEvaluationEnvironments(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
