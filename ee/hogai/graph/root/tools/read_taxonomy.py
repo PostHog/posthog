@@ -1,15 +1,20 @@
+import json
 from typing import Any, Literal, Self, Union
 
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, create_model, field_validator
+
+from posthog.schema import AssistantTool
 
 from posthog.models import Team, User
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.tool import MaxTool
+from ee.hogai.utils.dispatcher import AssistantActionDispatcher
 from ee.hogai.utils.helpers import format_events_yaml
-from ee.hogai.utils.types.base import AssistantState
+from ee.hogai.utils.types.base import ToolResult
+from ee.hogai.utils.types.composed import AssistantMaxGraphState
 
 READ_TAXONOMY_TOOL_DESCRIPTION = """
 Use this tool to explore the user's taxonomy (i.e. data schema).
@@ -117,19 +122,27 @@ ReadTaxonomyQuery = Union[
 class ReadTaxonomyToolArgs(BaseModel):
     query: ReadTaxonomyQuery = Field(..., discriminator="kind")
 
+    @field_validator("query", mode="before")
+    @classmethod
+    def parse_query_string(cls, v):
+        """Parse query if it comes in as a JSON string (LangChain sometimes double-serializes nested models)."""
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
+
 
 class ReadTaxonomyTool(MaxTool):
-    name: Literal["read_taxonomy"] = "read_taxonomy"
+    name = AssistantTool.READ_TAXONOMY
     description: str = READ_TAXONOMY_TOOL_DESCRIPTION
     context_prompt_template: str = (
         "Explores the user's events, actions, properties, and property values (i.e. taxonomy)."
     )
-    thinking_message: str = "Searching the taxonomy"
     show_tool_call_message: bool = False
 
-    def _run_impl(self, query: dict[str, Any]) -> tuple[str, Any]:
+    async def _arun_impl(self, query: dict[str, Any] | str) -> ToolResult:
         # Langchain can't parse a dynamically created Pydantic model, so we need to additionally validate the query here.
-        validated_query = ReadTaxonomyToolArgs(query=query).query
+        # The field validator will handle parsing if query is a JSON string.
+        validated_query = ReadTaxonomyToolArgs(query=query).query  # type: ignore[arg-type]
         toolkit = TaxonomyAgentToolkit(self._team)
         res = ""
         match validated_query:
@@ -147,9 +160,7 @@ class ReadTaxonomyTool(MaxTool):
                 res = toolkit.retrieve_entity_properties(schema.entity)
             case ReadEntitySamplePropertyValues() as schema:
                 res = toolkit.retrieve_entity_property_values(schema.entity, schema.property_name)
-            case _:
-                raise ValueError(f"Invalid query: {query}")
-        return res, None
+        return ToolResult(content=res)
 
     @classmethod
     async def create_tool_class(
@@ -157,10 +168,11 @@ class ReadTaxonomyTool(MaxTool):
         *,
         team: Team,
         user: User,
-        state: AssistantState | None = None,
-        config: RunnableConfig | None = None,
+        state: type[AssistantMaxGraphState],
+        config: RunnableConfig,
+        context_manager: AssistantContextManager,
+        dispatcher: AssistantActionDispatcher,
     ) -> Self:
-        context_manager = AssistantContextManager(team, user, config)
         group_names = await context_manager.get_group_names()
 
         # Create Literal type with actual entity names
@@ -197,4 +209,20 @@ class ReadTaxonomyTool(MaxTool):
         class ReadTaxonomyToolArgsWithGroups(BaseModel):
             query: ReadTaxonomyQueryWithGroups = Field(..., discriminator="kind")
 
-        return cls(team=team, user=user, state=state, config=config, args_schema=ReadTaxonomyToolArgsWithGroups)
+            @field_validator("query", mode="before")
+            @classmethod
+            def parse_query_string(cls, v):
+                """Parse query if it comes in as a JSON string (LangChain sometimes double-serializes nested models)."""
+                if isinstance(v, str):
+                    return json.loads(v)
+                return v
+
+        return cls(
+            team=team,
+            user=user,
+            state=state,
+            config=config,
+            args_schema=ReadTaxonomyToolArgsWithGroups,
+            context_manager=context_manager,
+            dispatcher=dispatcher,
+        )

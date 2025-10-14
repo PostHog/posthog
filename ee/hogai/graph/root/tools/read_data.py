@@ -1,15 +1,21 @@
-from typing import Any, Literal, Self
+from typing import Literal, Self
 
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
+from posthog.schema import AssistantTool
+
 from posthog.models import Team, User
 
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.graph.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.tool import MaxTool
+from ee.hogai.tool.base import ToolResult
+from ee.hogai.utils.dispatcher import AssistantActionDispatcher
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState
+from ee.hogai.utils.types.composed import AssistantMaxGraphState
 
 READ_DATA_BILLING_PROMPT = """
 # Billing information
@@ -51,7 +57,7 @@ class ReadDataAdminAccessToolArgs(BaseModel):
 
 
 class ReadDataTool(HogQLDatabaseMixin, MaxTool):
-    name: Literal["read_data"] = "read_data"
+    name = AssistantTool.READ_DATA
     description: str = READ_DATA_PROMPT
     thinking_message: str = "Reading your PostHog data"
     context_prompt_template: str = "Reads user data created in PostHog (data warehouse schema, billing information)"
@@ -64,8 +70,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         *,
         team: Team,
         user: User,
-        state: AssistantState | None = None,
-        config: RunnableConfig | None = None,
+        state: type[AssistantMaxGraphState],
+        config: RunnableConfig,
+        context_manager: AssistantContextManager,
+        dispatcher: AssistantActionDispatcher,
     ) -> Self:
         """
         Factory that creates a ReadDataTool with a dynamic args schema.
@@ -79,15 +87,24 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             args = ReadDataAdminAccessToolArgs
             billing_prompt = READ_DATA_BILLING_PROMPT
         description = format_prompt_string(READ_DATA_PROMPT, billing_prompt=billing_prompt)
-        return cls(team=team, user=user, state=state, config=config, args_schema=args, description=description)
+        return cls(
+            team=team,
+            user=user,
+            state=state,
+            config=config,
+            args_schema=args,
+            description=description,
+            context_manager=context_manager,
+            dispatcher=dispatcher,
+        )
 
-    async def _arun_impl(self, kind: ReadDataAdminAccessKind | ReadDataKind) -> tuple[str, dict[str, Any] | None]:
+    async def _arun_impl(self, kind: ReadDataAdminAccessKind | ReadDataKind) -> ToolResult:
         match kind:
             case "billing_info":
                 has_access = await self._context_manager.check_user_has_billing_access()
                 if not has_access:
-                    return BILLING_INSUFFICIENT_ACCESS_PROMPT, None
-                # used for routing
-                return "", self.args_schema(kind=kind).model_dump()
+                    return ToolResult(content=BILLING_INSUFFICIENT_ACCESS_PROMPT)
+                return await self._run_legacy_node(BillingNode, AssistantState(root_tool_call_id=self._tool_call_id))
             case "datawarehouse_schema":
-                return await self._serialize_database_schema(), None
+                schema = await self._serialize_database_schema()
+                return ToolResult(content=schema)

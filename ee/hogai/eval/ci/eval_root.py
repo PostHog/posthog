@@ -22,10 +22,6 @@ def call_root(demo_org_team_user):
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
         .add_root(
             {
-                "insights": AssistantNodeName.END,
-                "billing": AssistantNodeName.END,
-                "insights_search": AssistantNodeName.END,
-                "search_documentation": AssistantNodeName.END,
                 "root": AssistantNodeName.ROOT,
                 "end": AssistantNodeName.END,
             }

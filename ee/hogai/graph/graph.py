@@ -9,18 +9,13 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
-from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, StateType
 from ee.hogai.utils.types.base import BaseState
 from ee.hogai.utils.types.composed import MaxNodeName
 
-from .dashboards.nodes import DashboardCreationNode
 from .funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode
-from .inkeep_docs.nodes import InkeepDocsNode
-from .insights.nodes import InsightSearchNode
 from .memory.nodes import (
     MemoryCollectorNode,
     MemoryCollectorToolsNode,
@@ -266,14 +261,8 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
     ):
         path_map = path_map or {
-            "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
-            "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
-            "billing": AssistantNodeName.BILLING,
             "end": AssistantNodeName.END,
-            "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
-            "session_summarization": AssistantNodeName.SESSION_SUMMARIZATION,
-            "create_dashboard": AssistantNodeName.DASHBOARD_CREATION,
         }
         root_node = RootNode(self._team, self._user)
         self.add_node(AssistantNodeName.ROOT, root_node)
@@ -283,13 +272,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self._graph.add_conditional_edges(
             AssistantNodeName.ROOT_TOOLS, root_node_tools.router, path_map=cast(dict[Hashable, str], path_map)
         )
-        return self
-
-    def add_insights(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
-        insights_assistant_graph = InsightsAssistantGraph(self._team, self._user)
-        compiled_graph = insights_assistant_graph.compile_full_graph()
-        self.add_subgraph(AssistantNodeName.INSIGHTS_SUBGRAPH, compiled_graph)
-        self._graph.add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, next_node)
         return self
 
     def add_memory_onboarding(
@@ -369,55 +351,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self._graph.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
         return self
 
-    def add_inkeep_docs(self, path_map: Optional[dict[Hashable, AssistantNodeName]] = None):
-        """Add the Inkeep docs search node to the graph."""
-        path_map = path_map or {
-            "end": AssistantNodeName.END,
-            "root": AssistantNodeName.ROOT,
-        }
-        inkeep_docs_node = InkeepDocsNode(self._team, self._user)
-        self.add_node(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node)
-        self._graph.add_conditional_edges(
-            AssistantNodeName.INKEEP_DOCS,
-            inkeep_docs_node.router,
-            path_map=cast(dict[Hashable, str], path_map),
-        )
-        return self
-
-    def add_billing(self):
-        billing_node = BillingNode(self._team, self._user)
-        self.add_node(AssistantNodeName.BILLING, billing_node)
-        self._graph.add_edge(AssistantNodeName.BILLING, AssistantNodeName.ROOT)
-        return self
-
-    def add_insights_search(self, end_node: AssistantNodeName = AssistantNodeName.END):
-        path_map = {
-            "end": end_node,
-            "root": AssistantNodeName.ROOT,
-        }
-
-        insights_search_node = InsightSearchNode(self._team, self._user)
-        self.add_node(AssistantNodeName.INSIGHTS_SEARCH, insights_search_node)
-        self._graph.add_conditional_edges(
-            AssistantNodeName.INSIGHTS_SEARCH,
-            insights_search_node.router,
-            path_map=cast(dict[Hashable, str], path_map),
-        )
-        return self
-
-    def add_session_summarization(self, end_node: AssistantNodeName = AssistantNodeName.END):
-        session_summarization_node = SessionSummarizationNode(self._team, self._user)
-        self.add_node(AssistantNodeName.SESSION_SUMMARIZATION, session_summarization_node)
-        self._graph.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, AssistantNodeName.ROOT)
-        return self
-
-    def add_dashboard_creation(self, end_node: AssistantNodeName = AssistantNodeName.END):
-        builder = self._graph
-        dashboard_creation_node = DashboardCreationNode(self._team, self._user)
-        builder.add_node(AssistantNodeName.DASHBOARD_CREATION, dashboard_creation_node)
-        builder.add_edge(AssistantNodeName.DASHBOARD_CREATION, AssistantNodeName.ROOT)
-        return self
-
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         return (
             self.add_title_generator()
@@ -425,11 +358,5 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_memory_collector()
             .add_memory_collector_tools()
             .add_root()
-            .add_insights()
-            .add_inkeep_docs()
-            .add_billing()
-            .add_insights_search()
-            .add_session_summarization()
-            .add_dashboard_creation()
             .compile(checkpointer=checkpointer)
         )

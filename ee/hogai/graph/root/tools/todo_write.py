@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ee.hogai.tool import MaxTool
+from ee.hogai.utils.types.base import TodoItem, ToolResult
 
 TODO_WRITE_PROMPT = """
 Use this tool to build and maintain a structured to-do list for the current session. It helps you monitor progress, organize complex work, and show thoroughness. It also makes both task progress and the overall status of the user’s requests clear to the user.
@@ -135,13 +136,9 @@ The assistant did not use the todo list because this is an informational request
   - Use clear, descriptive task names
 
 When unsure, use this tool. Proactive task management shows attentiveness and helps ensure all requirements are met.
+IMPORTANT: Use this tool by itself. Do not use it in combination with other tools. First update the to-do list, then use other tools to complete the tasks.
+IMPORTANT: DO NOT initialize a list with all to-dos as pending. One to-do should be in-progress from the start.
 """.strip()
-
-
-class TodoItem(BaseModel):
-    content: str = Field(..., min_length=1)
-    status: Literal["pending", "in_progress", "completed"]
-    id: str
 
 
 class TodoWriteToolArgs(BaseModel):
@@ -151,12 +148,10 @@ class TodoWriteToolArgs(BaseModel):
 class TodoWriteTool(MaxTool):
     name: Literal["todo_write"] = "todo_write"
     description: str = TODO_WRITE_PROMPT
-    thinking_message: str = "Building and maintaining a structured to-do list"
     args_schema: type[BaseModel] = TodoWriteToolArgs
     show_tool_call_message: bool = False
 
-    async def _arun_impl(self, todos: list[TodoItem]) -> tuple[str, None]:
-        return (
-            "The to-dos were updated successfully. Please keep using the to-do list to track your progress, and continue with any active tasks as appropriate.",
-            None,
+    async def _arun_impl(self, todos: list[TodoItem]) -> ToolResult:
+        return ToolResult(
+            content="The to-dos were updated successfully. Please keep using the to-do list to track your progress, and continue with any active tasks as appropriate."
         )

@@ -1,6 +1,5 @@
 import asyncio
 from collections.abc import Sequence
-from functools import lru_cache
 from typing import Any, Optional, cast
 from uuid import uuid4
 
@@ -70,6 +69,8 @@ class AssistantContextManager(AssistantContextMixin):
         self._team = team
         self._user = user
         self._config = config or {}
+        self._group_names_cache: list[str] | None = None
+        self._group_names_lock = asyncio.Lock()
 
     async def get_state_messages_with_context(
         self, state: BaseStateWithMessages
@@ -108,6 +109,12 @@ class AssistantContextManager(AssistantContextMixin):
 
         return contextual_tools
 
+    def get_tool_context(self, tool_name: str) -> dict[str, Any]:
+        """
+        Extracts the context for a given tool from the runnable config.
+        """
+        return (self._config.get("configurable") or {}).get("contextual_tools", {}).get(tool_name, {})
+
     def get_billing_context(self) -> MaxBillingContext | None:
         """
         Extracts the billing context from the runnable config.
@@ -133,12 +140,21 @@ class AssistantContextManager(AssistantContextMixin):
         """
         return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
 
-    @lru_cache(maxsize=1)
     async def get_group_names(self) -> list[str]:
         """
         Returns the names of the team's groups.
+        Thread-safe caching to avoid duplicate concurrent queries.
         """
-        return [group async for group in self.get_groups().values_list("group_type", flat=True)]
+        if self._group_names_cache is not None:
+            return self._group_names_cache
+
+        async with self._group_names_lock:
+            # Double-check after acquiring lock
+            if self._group_names_cache is not None:
+                return self._group_names_cache
+
+            self._group_names_cache = [group async for group in self.get_groups().values_list("group_type", flat=True)]
+            return self._group_names_cache
 
     async def _format_ui_context(self, ui_context: MaxUIContext | None) -> str | None:
         """
@@ -392,14 +408,14 @@ class AssistantContextManager(AssistantContextMixin):
         return self._deduplicate_context_messages(state, prompts)
 
     def _get_contextual_tools_prompt(self) -> str | None:
-        from ee.hogai.tool import get_contextual_tool_class
+        from ee.hogai.tool import get_assistant_tool_class
 
         contextual_tools_prompt = [
             f"<{tool_name}>\n"
-            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_context_prompt_injection(tool_context)}\n"  # type: ignore
+            f"{get_assistant_tool_class(tool_name)(team=self._team, user=self._user).format_context_prompt_injection(tool_context)}\n"  # type: ignore
             f"</{tool_name}>"
             for tool_name, tool_context in self.get_contextual_tools().items()
-            if get_contextual_tool_class(tool_name) is not None
+            if get_assistant_tool_class(tool_name) is not None
         ]
         if contextual_tools_prompt:
             tools = "\n".join(contextual_tools_prompt)

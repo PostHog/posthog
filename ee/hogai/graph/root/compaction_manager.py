@@ -15,6 +15,7 @@ from posthog.schema import AssistantMessage, AssistantToolCallMessage, HumanMess
 
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.tool.base import MaxTool
 from ee.hogai.utils.types import AssistantMessageUnion
 
 if TYPE_CHECKING:
@@ -71,7 +72,7 @@ class ConversationCompactionManager(ABC):
         return messages
 
     async def should_compact_conversation(
-        self, model: BaseChatModel, messages: list[BaseMessage], tools: LangchainTools | None = None, **kwargs
+        self, model: BaseChatModel, messages: list[BaseMessage], tools: list[MaxTool] | None = None, **kwargs
     ) -> bool:
         """
         Determine if the conversation should be summarized based on token count.
@@ -113,7 +114,7 @@ class ConversationCompactionManager(ABC):
         self,
         model: Any,
         messages: list[BaseMessage],
-        tools: LangchainTools | None = None,
+        tools: list[MaxTool] | None = None,
         thinking_config: dict[str, Any] | None = None,
         **kwargs,
     ) -> int:
@@ -125,10 +126,12 @@ class AnthropicConversationCompactionManager(ConversationCompactionManager):
         self,
         model: ChatAnthropic,
         messages: list[BaseMessage],
-        tools: LangchainTools | None = None,
+        tools: list[MaxTool] | None = None,
         thinking_config: dict[str, Any] | None = None,
         **kwargs,
     ) -> int:
         return await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
-            messages, thinking=thinking_config, tools=tools
+            messages,
+            thinking=thinking_config,
+            tools=[tool.tool_function_description for tool in tools] if tools else None,
         )
