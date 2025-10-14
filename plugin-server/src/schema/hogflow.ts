@@ -163,6 +163,15 @@ export const HogFlowSchema = z.object({
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
     trigger: HogFlowTriggerSchema,
+    trigger_masking: z
+        .object({
+            ttl: z.number().nullable(),
+            hash: z.string(),
+            bytecode: z.any(),
+            threshold: z.number().nullable(),
+        })
+        .optional()
+        .nullable(),
     conversion: z
         .object({
             window_minutes: z.number(),
