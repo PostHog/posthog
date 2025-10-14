@@ -636,7 +636,13 @@ class _Printer(Visitor[str]):
         1. and(expr0, 1, expr2, ...) <=> and(expr0, expr2, ...)
         2. and(expr0, 0, expr2, ...) <=> 0
         """
-        exprs = []
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
+
+        if self.dialect == "hogql":
+            return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+        exprs: list[str] = []
         for expr in node.exprs:
             printed = self.visit(expr)
             if printed == "0":  # optimization 2
@@ -650,9 +656,29 @@ class _Printer(Visitor[str]):
         return f"and({', '.join(exprs)})"
 
     def visit_or(self, node: ast.Or):
+        """
+        optimizations:
+        1. or(expr0, 1, expr2, ...) <=> 1
+        2. or(expr0, 0, expr2, ...) <=> or(expr0, expr2, ...)
+        """
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
-        return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+        if self.dialect == "hogql":
+            return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+        exprs: list[str] = []
+        for expr in node.exprs:
+            printed = self.visit(expr)
+            if printed == "1":
+                return "1"
+            if printed != "0":
+                exprs.append(printed)
+        if len(exprs) == 0:
+            return "0"
+        elif len(exprs) == 1:
+            return exprs[0]
+        return f"or({', '.join(exprs)})"
 
     def visit_not(self, node: ast.Not):
         return f"not({self.visit(node.expr)})"

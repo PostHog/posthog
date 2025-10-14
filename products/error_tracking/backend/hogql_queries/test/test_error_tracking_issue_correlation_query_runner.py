@@ -3,7 +3,9 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickho
 
 from posthog.schema import ErrorTrackingIssueCorrelationQuery
 
-from posthog.hogql_queries.error_tracking_issue_correlation_query_runner import ErrorTrackingIssueCorrelationQueryRunner
+from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
+    ErrorTrackingIssueCorrelationQueryRunner,
+)
 
 
 class TestErrorTrackingIssueCorrelationQueryRunner(ClickhouseTestMixin, APIBaseTest):

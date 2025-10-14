@@ -17,10 +17,11 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 
-from posthog.api.error_tracking import ErrorTrackingIssueSerializer
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models.error_tracking import ErrorTrackingIssue
+
+from products.error_tracking.backend.api.error_tracking import ErrorTrackingIssueSerializer
+from products.error_tracking.backend.models import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
 

@@ -40,8 +40,15 @@ import { AccessControlLevel, AccessControlResourceType, FeatureFlagType } from '
 import { experimentLogic } from './experimentLogic'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { formMode, experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
-        useValues(experimentLogic)
+    const {
+        formMode,
+        experiment,
+        groupTypes,
+        aggregationLabel,
+        hasPrimaryMetricSet,
+        validExistingFeatureFlag,
+        createExperimentLoading,
+    } = useValues(experimentLogic)
     const { addVariant, removeVariant, setExperiment, submitExperiment, setExperimentType, validateFeatureFlag } =
         useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
@@ -384,6 +391,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     type="primary"
                     data-attr="save-experiment"
                     onClick={() => submitExperiment()}
+                    loading={createExperimentLoading}
                 >
                     Save as draft
                 </LemonButton>
