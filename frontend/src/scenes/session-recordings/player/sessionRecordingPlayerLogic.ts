@@ -47,6 +47,7 @@ import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverla
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
+import { AudioMuteReplayerPlugin } from './rrweb/audio/audio-mute-plugin'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { snapshotDataLogic } from './snapshotDataLogic'
@@ -438,6 +439,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setShowingClipParams: (showingClipParams: boolean) => ({ showingClipParams }),
         setIsHovering: (isHovering: boolean) => ({ isHovering }),
         allowPlayerChromeToHide: true,
+        setMuted: (muted: boolean) => ({ muted }),
     }),
     reducers(({ props }) => ({
         showingClipParams: [
@@ -690,6 +692,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 allowPlayerChromeToHide: () => {
                     return false
                 },
+            },
+        ],
+        isMuted: [
+            false,
+            {
+                setMuted: (_, { muted }) => muted,
             },
         ],
     })),
@@ -1094,6 +1102,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
+            plugins.push(AudioMuteReplayerPlugin(values.isMuted))
 
             // we override the console in the player, with one which stores its data instead of logging
             // there is a debounced logger hidden inside that.
@@ -1719,6 +1728,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }, interval)
                 return () => clearTimeout(timerId)
             }, 'playerTimeTracking')
+        },
+        setMuted: () => {
+            // If we have an active player, reinitialize it with the new mute state
+            // The AudioMuteReplayerPlugin will be recreated with the updated mute state
+            if (values.player) {
+                actions.tryInitReplayer()
+            }
         },
     })),
 
