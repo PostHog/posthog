@@ -28,7 +28,7 @@ QUERY = parse_select("""
         COUNT(*) AS event_count
     FROM events
     WHERE
-        timestamp >= now() - INTERVAL 7 DAY
+        created_at >= now() - INTERVAL 7 DAY
         AND lib IS NOT NULL
         AND lib_version IS NOT NULL
     GROUP BY lib, lib_version
