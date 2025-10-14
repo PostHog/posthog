@@ -310,7 +310,7 @@ impl CheckpointWorker {
                     .target
                     .remote_path
                     .split('/')
-                    .last()
+                    .next_back()
                     .ok_or_else(|| {
                         anyhow::anyhow!("Failed to extract checkpoint ID from remote path")
                     })?

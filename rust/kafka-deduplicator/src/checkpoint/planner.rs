@@ -15,6 +15,7 @@ pub struct CheckpointPlan {
 }
 
 /// Create a checkpoint plan with new metadata and list of files to upload
+#[allow(clippy::too_many_arguments)]
 pub fn plan_checkpoint(
     local_checkpoint_dir: &Path,
     new_checkpoint_id: String,
@@ -117,7 +118,7 @@ fn collect_local_files(base_path: &Path) -> Result<Vec<(String, String)>> {
 
     while let Some(current_path) = stack.pop() {
         let entries = std::fs::read_dir(&current_path)
-            .with_context(|| format!("Failed to read directory: {:?}", current_path))?;
+            .with_context(|| format!("Failed to read directory: {current_path:?}"))?;
 
         for entry in entries {
             let entry = entry?;
@@ -128,7 +129,7 @@ fn collect_local_files(base_path: &Path) -> Result<Vec<(String, String)>> {
             } else {
                 let relative_path = path
                     .strip_prefix(base_path)
-                    .with_context(|| format!("Failed to get relative path for: {:?}", path))?;
+                    .with_context(|| format!("Failed to get relative path for: {path:?}"))?;
 
                 let filename = relative_path.to_string_lossy().replace('\\', "/");
                 let local_path = path.to_string_lossy().to_string();

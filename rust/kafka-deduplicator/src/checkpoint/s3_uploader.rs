@@ -151,7 +151,7 @@ impl CheckpointUploader for S3Uploader {
             .files_to_upload
             .iter()
             .map(|(filename, local_path)| {
-                let s3_key = format!("{}/{}", remote_key_prefix, filename);
+                let s3_key = format!("{remote_key_prefix}/{filename}");
                 let local_path = local_path.clone();
                 async move {
                     self.upload_file(Path::new(&local_path), &s3_key).await?;
@@ -166,7 +166,7 @@ impl CheckpointUploader for S3Uploader {
         let metadata_json = serde_json::to_string_pretty(&plan.metadata)
             .context("Failed to serialize checkpoint metadata")?;
 
-        let metadata_key = format!("{}/metadata.json", remote_key_prefix);
+        let metadata_key = format!("{remote_key_prefix}/metadata.json");
         let put_object = self
             .client
             .put_object()
@@ -176,9 +176,9 @@ impl CheckpointUploader for S3Uploader {
 
         let result = tokio::time::timeout(self.config.s3_timeout, put_object.send())
             .await
-            .with_context(|| format!("S3 upload timeout for key: {}", metadata_key))?;
+            .with_context(|| format!("S3 upload timeout for key: {metadata_key}"))?;
 
-        result.with_context(|| format!("Failed to upload metadata to S3 key: {}", metadata_key))?;
+        result.with_context(|| format!("Failed to upload metadata to S3 key: {metadata_key}"))?;
 
         info!(
             "Uploaded {} files and metadata to s3://{}/{}",

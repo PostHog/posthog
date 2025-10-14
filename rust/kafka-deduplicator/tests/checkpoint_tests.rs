@@ -197,13 +197,13 @@ impl CheckpointUploader for MockUploader {
 
         let mut files_to_upload = Vec::new();
         for (filename, local_path) in &plan.files_to_upload {
-            let key = format!("{}/{}", key_prefix, filename);
+            let key = format!("{key_prefix}/{filename}");
             files_to_upload.push((PathBuf::from(local_path), key));
         }
 
         let mut uploaded_keys = self.upload_files(files_to_upload).await?;
 
-        let metadata_key = format!("{}/metadata.json", key_prefix);
+        let metadata_key = format!("{key_prefix}/metadata.json");
         let metadata_path = self.upload_dir.join(&metadata_key);
         if let Some(parent) = metadata_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -321,9 +321,7 @@ async fn test_manual_checkpoint_export_incremental() {
     let (remote_path, _metadata) = result.as_ref().unwrap();
     assert!(
         remote_path == &expected,
-        "remote path should match {}, got: {:?}",
-        expected,
-        remote_path
+        "remote path should match {expected}, got: {remote_path:?}",
     );
 
     let remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
@@ -656,8 +654,7 @@ async fn test_incremental_checkpoint_with_no_changes() {
     let new_files_count = files_after.len() - file_count_checkpoint1;
     assert!(
         new_files_count <= 2,
-        "Expected only metadata.json and maybe one other file, got {} new files",
-        new_files_count
+        "Expected only metadata.json and maybe one other file, got {new_files_count} new files",
     );
 
     let reused_file_count = metadata2
@@ -673,9 +670,7 @@ async fn test_incremental_checkpoint_with_no_changes() {
     let total_files = metadata2.files.len();
     assert!(
         reused_file_count >= total_files - 5,
-        "Expected most files to be reused: {}/{} reused",
-        reused_file_count,
-        total_files
+        "Expected most files to be reused: {reused_file_count}/{total_files} reused",
     );
 }
 
@@ -755,8 +750,7 @@ async fn test_incremental_checkpoint_with_new_data() {
     let new_files_count = files_after.len() - file_count_checkpoint1;
     assert!(
         new_files_count >= 1,
-        "Expected at least metadata.json to be uploaded, got {} new files",
-        new_files_count
+        "Expected at least metadata.json to be uploaded, got {new_files_count} new files",
     );
 
     let reused_file_count = metadata2
