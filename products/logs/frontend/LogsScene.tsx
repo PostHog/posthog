@@ -53,8 +53,8 @@ export function LogsScene(): JSX.Element {
     const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> =
         timestampFormat === 'absolute'
             ? {
-                  formatDate: 'MMM DD,YYYY',
-                  formatTime: 'HH:mm',
+                  formatDate: 'YYYY-MM-DD',
+                  formatTime: 'HH:mm:ss',
               }
             : {}
 
