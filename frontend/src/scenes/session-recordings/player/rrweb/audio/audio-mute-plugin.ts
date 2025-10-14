@@ -5,6 +5,11 @@ export const AudioMuteReplayerPlugin = (isMuted: boolean): ReplayPlugin => {
     const applyMuteToMediaElement = (element: HTMLElement): void => {
         const mediaElement = element as HTMLMediaElement
 
+        // Clean up any existing listeners first
+        if ((mediaElement as any).__muteListenersCleanup) {
+            ;(mediaElement as any).__muteListenersCleanup()
+        }
+
         if (isMuted) {
             element.setAttribute('muted', 'true')
             mediaElement.muted = true
@@ -14,16 +19,24 @@ export const AudioMuteReplayerPlugin = (isMuted: boolean): ReplayPlugin => {
                 mediaElement.pause()
             }
 
-            // Add event listeners to maintain mute state
-            mediaElement.addEventListener('play', () => {
+            // Store listeners to clean them up later
+            const playListener = (): void => {
                 mediaElement.muted = true
-            })
-
-            mediaElement.addEventListener('volumechange', () => {
+            }
+            const volumeChangeListener = (): void => {
                 if (!mediaElement.muted) {
                     mediaElement.muted = true
                 }
-            })
+            }
+
+            mediaElement.addEventListener('play', playListener)
+            mediaElement.addEventListener('volumechange', volumeChangeListener)
+
+            // Store cleanup function on the element for later removal
+            ;(mediaElement as any).__muteListenersCleanup = (): void => {
+                mediaElement.removeEventListener('play', playListener)
+                mediaElement.removeEventListener('volumechange', volumeChangeListener)
+            }
         } else {
             element.removeAttribute('muted')
             mediaElement.muted = false
