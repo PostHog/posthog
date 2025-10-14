@@ -8,6 +8,7 @@ from unittest.mock import Mock
 
 from parameterized import parameterized
 
+from posthog.temporal.data_imports.sources.tiktok_ads.settings import TIKTOK_ADS_CONFIG
 from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
     TikTokAdsAPIError,
     TikTokAdsPaginator,
@@ -425,10 +426,10 @@ class TestHelperFunctions:
             ("campaigns", False),
             ("ad_groups", False),
             ("ads", False),
-            ("unknown_endpoint", False),
         ]
     )
     def test_is_report_endpoint(self, endpoint_name, expected_is_report):
         """Test identification of report endpoints."""
-        result = TikTokReportResource.is_report_endpoint(endpoint_name)
-        assert result == expected_is_report
+        config = TIKTOK_ADS_CONFIG.get(endpoint_name)
+        assert config is not None, f"Endpoint {endpoint_name} not found in config"
+        assert config.is_report_endpoint == expected_is_report
