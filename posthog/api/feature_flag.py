@@ -664,27 +664,6 @@ class FeatureFlagSerializer(
         with ImpersonatedContext(request):
             instance: FeatureFlag = super().create(validated_data)
 
-        # Apply default evaluation environments if enabled and no evaluation tags were provided
-        team = instance.team
-        if team.default_evaluation_environments_enabled and evaluation_tags is None:
-            from posthog.models.feature_flag import TeamDefaultEvaluationTag
-
-            default_eval_tags = TeamDefaultEvaluationTag.objects.filter(team=team).select_related("tag")
-            if default_eval_tags.exists():
-                # Get the tag names from the default evaluation tags
-                default_tag_names = [det.tag.name for det in default_eval_tags]
-
-                # Set both regular tags and evaluation tags with the defaults
-                if not tags:
-                    tags = default_tag_names
-                else:
-                    # Merge with any existing tags, preserving order and avoiding duplicates
-                    existing_tags_set = set(tags)
-                    tags = tags + [tag for tag in default_tag_names if tag not in existing_tags_set]
-
-                # Set evaluation tags to the default tags
-                evaluation_tags = default_tag_names
-
         self._attempt_set_tags(tags, instance)
         self._attempt_set_evaluation_tags(evaluation_tags, instance)
 
