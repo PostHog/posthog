@@ -178,6 +178,25 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             </div>
                         </Link>
                     </DropdownMenuItem>
+                    {isCloudOrDev ? (
+                        <DropdownMenuItem asChild>
+                            <Link
+                                to={
+                                    featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
+                                        ? urls.organizationBillingSection('overview')
+                                        : urls.organizationBilling()
+                                }
+                                buttonProps={{
+                                    className: 'flex items-center gap-2',
+                                    menuItem: true,
+                                    truncate: true,
+                                }}
+                            >
+                                <IconReceipt />
+                                {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS] ? 'Billing & Usage' : 'Billing'}
+                            </Link>
+                        </DropdownMenuItem>
+                    ) : null}
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive
                             onClick={() => {
@@ -230,25 +249,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             )}
                         </Link>
                     </DropdownMenuItem>
-                    {isCloudOrDev ? (
-                        <DropdownMenuItem asChild>
-                            <Link
-                                to={
-                                    featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                                        ? urls.organizationBillingSection('overview')
-                                        : urls.organizationBilling()
-                                }
-                                buttonProps={{
-                                    className: 'flex items-center gap-2',
-                                    menuItem: true,
-                                    truncate: true,
-                                }}
-                            >
-                                <IconReceipt />
-                                {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS] ? 'Billing & Usage' : 'Billing'}
-                            </Link>
-                        </DropdownMenuItem>
-                    ) : null}
+
                     <DropdownMenuSub>
                         <DropdownMenuSubTrigger asChild>
                             <ButtonPrimitive menuItem>
