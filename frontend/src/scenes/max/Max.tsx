@@ -41,27 +41,32 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
-    const { sidePanelTabId } = useValues(maxGlobalLogic)
+    const { conversationId: tabConversationId, chatTitle } = useValues(maxLogic({ tabId: tabId || '' }))
+    const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
 
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
         return <NotFound object="page" caption="You don't have access to AI features yet." />
     }
 
-    if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidePanelTabId === tabId) {
+    if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
-            <div className="flex flex-col items-center justify-center w-full grow">
-                <IconSidePanel className="text-3xl text-muted mb-2" />
-                <h3 className="text-xl font-bold mb-1">Max is currently in the sidebar</h3>
-                <p className="text-sm text-muted mb-2">You can navigate freely around the app, or…</p>
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    onClick={() => closeSidePanel()}
-                    sideIcon={<IconArrowLeft />}
-                >
-                    Get him in here
-                </LemonButton>
-            </div>
+            <SceneContent className="px-4 py-4">
+                <SceneTitleSection name={chatTitle || 'Max AI'} resourceType={{ type: 'chat' }} />
+                <SceneDivider />
+                <div className="flex flex-col items-center justify-center w-full grow">
+                    <IconSidePanel className="text-3xl text-muted mb-2" />
+                    <h3 className="text-xl font-bold mb-1">Max is currently in the sidebar</h3>
+                    <p className="text-sm text-muted mb-2">You can navigate freely around the app, or…</p>
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        onClick={() => closeSidePanel()}
+                        sideIcon={<IconArrowLeft />}
+                    >
+                        Get him in here
+                    </LemonButton>
+                </div>
+            </SceneContent>
         )
     }
 
