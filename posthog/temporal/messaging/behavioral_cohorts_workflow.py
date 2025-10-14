@@ -289,7 +289,7 @@ def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> Coh
                         ),
                     ]
 
-                    if memberships % 100_000 == 0:
+                    if len(memberships) >= 100_000:
                         logger.info(f"Processed {len(memberships)} memberships. Flushing to Kafka...")
                         # TODO: Flush to Kafka
                         memberships = []
