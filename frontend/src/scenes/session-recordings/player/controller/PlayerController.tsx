@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBell, IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
+import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -140,34 +140,6 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
     )
 }
 
-function MuteButton(): JSX.Element {
-    const { isMuted } = useValues(sessionRecordingPlayerLogic)
-    const { setMuted } = useActions(sessionRecordingPlayerLogic)
-
-    return (
-        <LemonButton
-            size="xsmall"
-            onClick={() => setMuted(!isMuted)}
-            tooltip={
-                <>
-                    <span>{isMuted ? 'Unmute' : 'Mute'}</span> audio <KeyboardShortcut m />
-                </>
-            }
-            icon={
-                <div className="relative">
-                    <IconBell className="text-base" />
-                    {isMuted && (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="w-full h-[1px] bg-current rotate-135 transform origin-center" />
-                        </div>
-                    )}
-                </div>
-            }
-            data-attr={isMuted ? 'unmute-audio' : 'mute-audio'}
-        />
-    )
-}
-
 export function PlayerController(): JSX.Element {
     const { playlistLogic, logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
@@ -206,7 +178,6 @@ export function PlayerController(): JSX.Element {
                             <EmojiCommentOnRecordingButton />
                             <Screenshot />
                             <ClipRecording />
-                            <MuteButton />
                         </>
                     )}
                     {playlistLogic && ModesWithInteractions.includes(playerMode) ? (
