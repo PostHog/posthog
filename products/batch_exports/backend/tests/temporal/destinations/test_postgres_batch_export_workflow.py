@@ -39,9 +39,11 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
     PostgresInsertInputs,
     PostgreSQLClient,
     PostgreSQLHeartbeatDetails,
+    PostgreSQLTransactionError,
     insert_into_postgres_activity,
     postgres_default_fields,
     remove_invalid_json,
+    run_in_retryable_transaction,
 )
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue, RecordBatchTaskError
@@ -1459,15 +1461,19 @@ def test_remove_invalid_json(input_data, expected_data):
     assert remove_invalid_json(input_data) == expected_data
 
 
-async def test_postgres_client_transaction_retries_on_serialization_failure(postgres_config, setup_postgres_test_db):
-    """Test that the `PostgreSQLClient.transaction` retries on serialization failure."""
+async def test_run_in_retryable_transaction_raises_non_retryable_error_after_max_retries(
+    postgres_config, setup_postgres_test_db
+):
+    """Test that `run_in_retryable_transaction` retries on serialization failure and eventually raises a
+    `PostgreSQLTransactionError`.
+    """
 
-    retry_count = 0
+    attempt_count = 0
 
-    def raise_serialization_failure():
-        nonlocal retry_count
-        retry_count += 1
-        raise SerializationFailure("test")
+    async def raise_serialization_failure():
+        nonlocal attempt_count
+        attempt_count += 1
+        raise SerializationFailure("test error")
 
     postgres_client = PostgreSQLClient(
         user=postgres_config["user"],
@@ -1479,8 +1485,67 @@ async def test_postgres_client_transaction_retries_on_serialization_failure(post
     )
 
     async with postgres_client.connect() as pg_client:
-        with pytest.raises(ValueError):
-            async with pg_client.transaction():
-                raise_serialization_failure()
+        with pytest.raises(
+            PostgreSQLTransactionError, match="A transaction failed to complete after 3 attempts: test error"
+        ):
+            await run_in_retryable_transaction(pg_client.connection, raise_serialization_failure)
 
-    assert retry_count == 3
+    assert attempt_count == 3
+
+
+async def test_run_in_retryable_transaction_retries_successfully_on_serialization_failure(
+    postgres_config, setup_postgres_test_db
+):
+    """Test that `run_in_retryable_transaction` retries on serialization failure and eventually succeeds."""
+
+    attempt_count = 0
+
+    async def raise_serialization_failure():
+        nonlocal attempt_count
+        attempt_count += 1
+        if attempt_count == 2:
+            return "success"
+        raise SerializationFailure("test error")
+
+    postgres_client = PostgreSQLClient(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        database=postgres_config["database"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+        has_self_signed_cert=False,
+    )
+
+    async with postgres_client.connect() as pg_client:
+        result = await run_in_retryable_transaction(pg_client.connection, raise_serialization_failure)
+        assert result == "success"
+
+    assert attempt_count == 2
+
+
+async def test_run_in_retryable_transaction_raises_error_if_fn_raises_non_serialization_failure(
+    postgres_config, setup_postgres_test_db
+):
+    """Test that `run_in_retryable_transaction` raises an error if the function raises a non-serialization failure."""
+
+    attempt_count = 0
+
+    async def raise_error():
+        nonlocal attempt_count
+        attempt_count += 1
+        raise ValueError("test error")
+
+    postgres_client = PostgreSQLClient(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        database=postgres_config["database"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+        has_self_signed_cert=False,
+    )
+
+    async with postgres_client.connect() as pg_client:
+        with pytest.raises(ValueError, match="test error"):
+            await run_in_retryable_transaction(pg_client.connection, raise_error)
+
+    assert attempt_count == 1

@@ -118,6 +118,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "ProgramLimitExceeded",
     # Raised when the destination table schema is incompatible with the schema of the data we are trying to export.
     "PostgreSQLIncompatibleSchemaError",
+    # Raised when a transaction fails to complete after a certain number of retries.
+    "PostgreSQLTransactionError",
 )
 
 
@@ -137,6 +139,14 @@ class PostgreSQLIncompatibleSchemaError(Exception):
         super().__init__(f"The data being exported is incompatible with the schema of the destination table: {err_msg}")
 
 
+class PostgreSQLTransactionError(Exception):
+    """Raised when a transaction fails to complete after a certain number of retries."""
+
+    def __init__(self, max_attempts: int, err_msg: str):
+        super().__init__(f"A transaction failed to complete after {max_attempts} attempts: {err_msg}")
+        self.max_attempts = max_attempts
+
+
 @dataclasses.dataclass(kw_only=True)
 class PostgresInsertInputs(BatchExportInsertInputs):
     """Inputs for Postgres."""
@@ -149,6 +159,38 @@ class PostgresInsertInputs(BatchExportInsertInputs):
     schema: str = "public"
     table_name: str
     has_self_signed_cert: bool = False
+
+
+async def run_in_retryable_transaction(
+    connection: psycopg.AsyncConnection,
+    fn: collections.abc.Callable[[], collections.abc.Awaitable[typing.Any]],
+    max_attempts: int = 3,
+) -> typing.Any:
+    """Run a callable inside a transaction with retry logic for serialization failures.
+
+    Inspiration: https://github.com/cockroachdb/example-app-python-psycopg3/blob/main/example.py#L70-L105
+
+    Args:
+        connection: The PostgreSQL connection to use
+        fn: An async callable to execute within the transaction
+        max_retries: Maximum number of retry attempts
+
+    Returns:
+        The return value of fn
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with connection.transaction():
+                return await fn()
+
+        except SerializationFailure as e:
+            if attempt == max_attempts:
+                raise PostgreSQLTransactionError(max_attempts, str(e)) from e
+
+            LOGGER.debug("SerializationFailure caught in transaction (attempt %d/%d): %s", attempt, max_attempts, e)
+            sleep_seconds = (2**attempt) * 0.1 * (random.random() + 0.5)
+            LOGGER.debug("Sleeping %s seconds", sleep_seconds)
+            await asyncio.sleep(sleep_seconds)
 
 
 class PostgreSQLClient:
@@ -242,42 +284,6 @@ class PostgreSQLClient:
         async with connection as connection:
             self._connection = connection
             yield self
-
-    @contextlib.asynccontextmanager
-    async def transaction(self, max_retries=3):
-        """Handles a PostgreSQL transaction, retrying on serialization failure.
-
-        Inspiration: https://github.com/cockroachdb/example-app-python-psycopg3/blob/main/example.py#L70-L105
-
-        If the database returns an error asking to retry the transaction, retry it
-        *max_retries* times before giving up (and propagate it).
-        """
-        # leaving this block the transaction will commit or rollback
-        # (if leaving with an exception)
-        async with self.connection.transaction():
-            for retry in range(1, max_retries + 1):
-                try:
-                    yield
-
-                    # If we reach this point, we were able to commit, so we break
-                    # from the retry loop.
-                    return
-
-                except SerializationFailure as e:
-                    # This is a retry error, so we roll back the current
-                    # transaction and sleep for a bit before retrying. The
-                    # sleep time increases for each failed transaction.
-                    LOGGER.debug("SerializationFailure caught in transaction: %s", e)
-                    await self.connection.rollback()
-                    sleep_seconds = (2**retry) * 0.1 * (random.random() + 0.5)
-                    LOGGER.debug("Sleeping %s seconds", sleep_seconds)
-                    await asyncio.sleep(sleep_seconds)
-
-                except psycopg.Error as e:
-                    LOGGER.debug("got error: %s", e)
-                    raise
-
-            raise ValueError(f"transaction did not succeed after {max_retries} retries")
 
     async def acreate_table(
         self,
