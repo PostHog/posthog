@@ -440,6 +440,7 @@ def recalculate_cohortpeople(
     for team in relevant_teams:
         tag_queries(team_id=team.id)
         _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team, initiating_user_id=initiating_user_id)
+        count: Optional[int]
         if cohort.is_static:
             count = get_static_cohort_size(cohort_id=cohort.id, team_id=team.id)
         else:
