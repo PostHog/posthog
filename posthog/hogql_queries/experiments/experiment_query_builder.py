@@ -416,7 +416,7 @@ class ExperimentQueryBuilder:
         for i, funnel_step in enumerate(self.metric.series):
             step_filter = event_or_action_to_filter(self.team, funnel_step)
             step_column = ast.Alias(
-                alias=f"step_{i+1}",
+                alias=f"step_{i}",
                 expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
             )
             step_columns.append(step_column)
