@@ -7,6 +7,44 @@ import { formatPercentage, humanFriendlyCurrency, humanFriendlyLargeNumber, huma
 
 import { UsageMetric } from '~/queries/schema/schema-general'
 
+export type TrendInfo = {
+    icon: React.ComponentType<{ color?: string }>
+    color: string
+    tooltip: string | null
+}
+
+export const getTrendFromPercentageChange = (changeFromPreviousPct: number | null): TrendInfo | undefined => {
+    if (changeFromPreviousPct === null) {
+        return undefined
+    }
+    if (changeFromPreviousPct === 0) {
+        return {
+            icon: IconTrendingFlat,
+            color: getColorVar('muted'),
+            tooltip: 'unchanged',
+        }
+    }
+    if (changeFromPreviousPct > 0) {
+        return {
+            icon: IconTrending,
+            color: getColorVar('success'),
+            tooltip: `increased by ${formatPercentage(Math.abs(changeFromPreviousPct))}`,
+        }
+    }
+    return {
+        icon: IconTrendingDown,
+        color: getColorVar('danger'),
+        tooltip: `decreased by ${formatPercentage(Math.abs(changeFromPreviousPct))}`,
+    }
+}
+
+export const getMetricTooltip = (metric: UsageMetric, trend: TrendInfo | undefined): string => {
+    if (trend?.tooltip) {
+        return `${metric.name}: ${trend.tooltip}, to ${humanFriendlyNumber(metric.value)} from ${humanFriendlyNumber(metric.previous)}`
+    }
+    return `${metric.name}: ${humanFriendlyNumber(metric.value)}`
+}
+
 export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Element => {
     const formatValue = (): string => {
         if (metric.format === 'currency') {
@@ -14,33 +52,8 @@ export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Elemen
         }
         return humanFriendlyLargeNumber(metric.value)
     }
-    let trend
-    if (metric.change_from_previous_pct === null) {
-        trend = undefined
-    } else if (metric.change_from_previous_pct === 0) {
-        trend = {
-            icon: IconTrendingFlat,
-            color: getColorVar('muted'),
-            tooltip: null,
-        }
-    } else if (metric.change_from_previous_pct > 0) {
-        trend = {
-            icon: IconTrending,
-            color: getColorVar('success'),
-            tooltip: `increased by ${formatPercentage(Math.abs(metric.change_from_previous_pct))}`,
-        }
-    } else if (metric.change_from_previous_pct < 0) {
-        trend = {
-            icon: IconTrendingDown,
-            color: getColorVar('danger'),
-            tooltip: `decreased by ${formatPercentage(Math.abs(metric.change_from_previous_pct))}`,
-        }
-    }
-
-    const tooltip =
-        trend && trend.tooltip
-            ? `${metric.name}: ${trend.tooltip}, to ${humanFriendlyNumber(metric.value)} from ${humanFriendlyNumber(metric.previous)}`
-            : `${metric.name}: ${humanFriendlyNumber(metric.value)}`
+    const trend = getTrendFromPercentageChange(metric.change_from_previous_pct)
+    const tooltip = getMetricTooltip(metric, trend)
 
     return (
         <Tooltip title={tooltip}>
@@ -50,7 +63,7 @@ export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Elemen
                         <div className="text-sm font-semibold text-muted-alt mb-1">{metric.name}</div>
                         <div className="text-3xl font-bold text-primary my-2 truncate">{formatValue()}</div>
                     </div>
-                    {trend && metric?.change_from_previous_pct && (
+                    {trend && metric?.change_from_previous_pct !== null && (
                         <div style={{ color: trend.color }}>
                             <trend.icon color={trend.color} />
                             {formatPercentage(metric.change_from_previous_pct)}
