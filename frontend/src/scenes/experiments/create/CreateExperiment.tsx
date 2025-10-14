@@ -18,8 +18,6 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { Experiment } from '~/types'
 
-import { MetricSourceModal } from '../Metrics/MetricSourceModal'
-import { MetricsReorderModal } from '../MetricsView/MetricsReorderModal'
 import { ExperimentTypePanel } from './ExperimentTypePanel'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
 import { VariantsPanel } from './VariantsPanel'
@@ -188,12 +186,6 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                     <span>Sidebar Checklist Goes Here</span>
                 </div>
             </div>
-
-            {/* Metric Modals */}
-            <MetricSourceModal isSecondary={false} />
-            <MetricSourceModal isSecondary={true} />
-            <MetricsReorderModal isSecondary={false} />
-            <MetricsReorderModal isSecondary={true} />
         </div>
     )
 }
