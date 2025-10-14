@@ -496,7 +496,7 @@ export function BatchExportsEditFields({
                             />
                         </LemonField>
 
-                        {batchExportConfigForm.mode == 'COPY' && (
+                        {batchExportConfigForm.mode === 'COPY' && (
                             <>
                                 <div className="flex gap-4">
                                     <LemonField name="redshift_s3_bucket" label="S3 bucket name" className="flex-1">
@@ -588,7 +588,7 @@ export function BatchExportsEditFields({
                                     />
                                 </LemonField>
 
-                                {batchExportConfigForm.authorization_mode == 'IAMRole' && (
+                                {batchExportConfigForm.authorization_mode === 'IAMRole' && (
                                     <>
                                         <LemonField name="redshift_iam_role" label="IAM Role ARN" className="flex-1">
                                             <LemonInput placeholder="e.g. arn:aws:iam::<aws-account-id>:role/<role-name>" />
@@ -596,7 +596,7 @@ export function BatchExportsEditFields({
                                     </>
                                 )}
 
-                                {batchExportConfigForm.authorization_mode == 'Credentials' && (
+                                {batchExportConfigForm.authorization_mode === 'Credentials' && (
                                     <div className="flex gap-4">
                                         <LemonField
                                             name="redshift_aws_access_key_id"

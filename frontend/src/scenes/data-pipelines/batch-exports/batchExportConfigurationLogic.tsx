@@ -38,24 +38,29 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
     }
 
     let authorizationMode: 'IAMRole' | 'Credentials' = 'IAMRole'
-    let copyInputsFields = {}
+    let copyInputsFields: Record<string, any> = {}
 
-    if (batchExportConfig.destination.type === 'Redshift' && config.copy_inputs) {
+    if (batchExportConfig.destination.type === 'Redshift' && batchExportConfig.destination.config.copy_inputs) {
+        let copyInputs = batchExportConfig.destination.config.copy_inputs
+
         copyInputsFields = {
-            redshift_s3_bucket: config.copy_inputs.s3_bucket,
-            redshift_s3_key_prefix: config.copy_inputs.s3_key_prefix,
-            redshift_s3_bucket_region_name: config.copy_inputs.region_name,
-            redshift_s3_bucket_aws_access_key_id: config.copy_inputs.bucket_credentials?.aws_access_key_id,
-            redshift_s3_bucket_aws_secret_access_key: config.copy_inputs.bucket_credentials?.aws_secret_access_key,
+            redshift_s3_bucket: copyInputs.s3_bucket,
+            redshift_s3_key_prefix: copyInputs.s3_key_prefix,
+            redshift_s3_bucket_region_name: copyInputs.region_name,
+            redshift_s3_bucket_aws_access_key_id: copyInputs.bucket_credentials?.aws_access_key_id,
+            redshift_s3_bucket_aws_secret_access_key: copyInputs.bucket_credentials?.aws_secret_access_key,
+            redshift_iam_role: undefined,
+            redshift_aws_access_key_id: undefined,
+            redshift_aws_secret_access_key: undefined,
         }
 
-        authorizationMode = typeof config.copy_inputs.authorization === 'string' ? 'IAMRole' : 'Credentials'
-
-        if (authorizationMode === 'IAMRole') {
-            copyInputsFields.redshift_iam_role = config.copy_inputs.authorization
+        if (typeof copyInputs.authorization === 'string') {
+            authorizationMode = 'IAMRole'
+            copyInputsFields.redshift_iam_role = copyInputs.authorization
         } else {
-            copyInputsFields.redshift_aws_access_key_id = config.copy_inputs.authorization?.aws_access_key_id
-            copyInputsFields.redshift_aws_secret_access_key = config.copy_inputs.authorization?.aws_secret_access_key
+            authorizationMode = 'Credentials'
+            copyInputsFields.redshift_aws_access_key_id = copyInputs.authorization?.aws_access_key_id
+            copyInputsFields.redshift_aws_secret_access_key = copyInputs.authorization?.aws_secret_access_key
         }
     }
 
