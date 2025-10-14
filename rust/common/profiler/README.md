@@ -35,7 +35,7 @@ $ kubectl config use-context posthog-prod-eu
 # Notes:
 # - You can also use "pod/kafka-deduplicator-2" (pod name) to select a specific pod
 # - Ensure you forward the HTTP port that your Axum server exposes in k8s
-$ kubectl port-forward —namespace posthog service/kafka-deduplicator 8000:8000
+$ kubectl port-forward --namespace posthog service/kafka-deduplicator 8000:8000
 ```
 
 `curl` the pprof endpoint and pipe the resulting GZIP'd output to your local filesystem.
