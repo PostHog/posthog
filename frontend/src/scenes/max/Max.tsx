@@ -121,7 +121,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                                     className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
                                     title={chatTitle !== 'Max AI' ? chatTitle : undefined}
                                 >
-                                    {chatTitle !== 'Max AI' ? (
+                                    {chatTitle !== 'PostHog AI' ? (
                                         chatTitle
                                     ) : (
                                         <>
@@ -164,9 +164,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                         {
                             // Max has larger border radiuses than rest of the app, for a friendlier, rounder AI vibe
                             display: 'contents',
-                            '--radius': '0.5rem',
-                            '--radius-sm': '0.375rem',
-                            '--radius-lg': '0.75rem',
                         } as React.CSSProperties
                     }
                 >
