@@ -1,6 +1,7 @@
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 
 import { UsageMetricsConfig } from 'scenes/settings/environment/UsageMetricsConfig'
+import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind, UsageMetric, UsageMetricsQueryResponse } from '~/queries/schema/schema-general'
@@ -10,7 +11,7 @@ import {
     UsageMetricCardSkeleton,
 } from 'products/customer_analytics/frontend/components/UsageMetricCard'
 
-import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
@@ -57,10 +58,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     )
 }
 
-const Settings = (): JSX.Element => {
+const Settings = ({ attributes }: NotebookNodeAttributeProperties<NotebookNodeUsageMetricsAttributes>): JSX.Element => {
     return (
         <div className="p-2">
-            <UsageMetricsConfig />
+            <BindLogic logic={usageMetricsConfigLogic} props={{ logicKey: attributes.nodeId }}>
+                <UsageMetricsConfig />
+            </BindLogic>
         </div>
     )
 }

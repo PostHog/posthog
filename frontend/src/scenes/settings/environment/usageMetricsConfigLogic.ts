@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
 
@@ -34,11 +34,17 @@ const NEW_USAGE_METRIC = {
     filters: {},
 } as UsageMetricFormData
 
+interface UsageMetricsConfigLogicProps {
+    logicKey?: string
+}
+
 export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
     path(['scenes', 'settings', 'environment', 'usageMetricsConfigLogic']),
     connect(() => ({
         values: [groupsModel, ['groupTypes', 'groupTypesLoading'], projectLogic, ['currentProjectId']],
     })),
+    props({} as UsageMetricsConfigLogicProps),
+    key(({ logicKey }) => logicKey || 'defaultKey'),
 
     actions(() => ({
         setIsEditing: (isEditing: boolean) => ({ isEditing }),
