@@ -55,7 +55,8 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -499,6 +500,16 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.MarketingAnalyticsAggregatedQuery]: {
+        name: 'Marketing Analytics Aggregated',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.UsageMetricsQuery]: {
+        name: 'Usage Metrics',
+        icon: IconPieChart,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
@@ -814,9 +825,10 @@ export function SavedInsights(): JSX.Element {
     return (
         <SceneContent className={cn('saved-insights')}>
             <SceneTitleSection
-                name="Product analytics"
+                name={sceneConfigurations[Scene.SavedInsights].name}
+                description={sceneConfigurations[Scene.SavedInsights].description}
                 resourceType={{
-                    type: 'product_analytics',
+                    type: sceneConfigurations[Scene.SavedInsights].iconType || 'default_icon_type',
                 }}
                 actions={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
             />
@@ -844,8 +856,8 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    <LemonDivider className={cn('my-4 my-0')} />
-                    <div className={cn('flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center', 'my-0')}>
+                    <LemonDivider className="my-0" />
+                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center my-0">
                         <span className="text-secondary">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
