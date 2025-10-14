@@ -50,7 +50,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         self.assertEqual(flag.evaluation_tags.count(), 0)
 
     def test_create_flag_with_default_environments_enabled(self):
-        """Test creating a flag when default environments are enabled"""
+        """Test creating a flag when default environments are enabled but not explicitly requested"""
         self.team.default_evaluation_environments_enabled = True
         self.team.save()
 
@@ -72,13 +72,9 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag = FeatureFlag.objects.get(key="test-flag-with-defaults", team=self.team)
 
-        # Verify tags were applied
-        tag_names = set(flag.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tag_names, {"production", "staging"})
-
-        # Verify evaluation tags were applied
-        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
-        self.assertEqual(eval_tag_names, {"production", "staging"})
+        # Verify no tags were applied (defaults not applied automatically)
+        self.assertEqual(flag.tagged_items.count(), 0)
+        self.assertEqual(flag.evaluation_tags.count(), 0)
 
     def test_create_flag_with_explicit_tags_overrides(self):
         """Test that explicitly provided tags are not overridden"""
@@ -107,8 +103,8 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
         self.assertEqual(eval_tag_names, {"custom-tag"})
 
-    def test_create_flag_merges_tags_with_defaults(self):
-        """Test that provided regular tags are merged with defaults"""
+    def test_create_flag_with_explicit_tags_only(self):
+        """Test that only explicitly provided tags are applied"""
         self.team.default_evaluation_environments_enabled = True
         self.team.save()
 
@@ -121,26 +117,25 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         response = self.client.post(
             self.feature_flag_url,
             {
-                "key": "test-flag-merge",
-                "name": "Test Flag with Merged Tags",
-                "tags": ["custom-tag", "production"],  # production is duplicate
+                "key": "test-flag-explicit-only",
+                "name": "Test Flag with Explicit Tags Only",
+                "tags": ["custom-tag"],
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        flag = FeatureFlag.objects.get(key="test-flag-merge", team=self.team)
+        flag = FeatureFlag.objects.get(key="test-flag-explicit-only", team=self.team)
 
-        # Verify tags were merged without duplicates
+        # Verify only explicit tags were applied
         tag_names = set(flag.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tag_names, {"custom-tag", "production", "staging"})
+        self.assertEqual(tag_names, {"custom-tag"})
 
-        # Verify evaluation tags only have defaults
-        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
-        self.assertEqual(eval_tag_names, {"production", "staging"})
+        # Verify no evaluation tags (not explicitly provided)
+        self.assertEqual(flag.evaluation_tags.count(), 0)
 
-    def test_create_flag_with_empty_evaluation_tags_uses_defaults(self):
-        """Test that empty evaluation_tags array doesn't trigger defaults"""
+    def test_create_flag_with_empty_evaluation_tags(self):
+        """Test that empty evaluation_tags array is respected"""
         self.team.default_evaluation_environments_enabled = True
         self.team.save()
 
@@ -193,6 +188,58 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         # Verify no tags were added during update
         self.assertEqual(flag.tagged_items.count(), 0)
         self.assertEqual(flag.evaluation_tags.count(), 0)
+
+    def test_create_flag_with_none_evaluation_tags_applies_defaults(self):
+        """Test that explicitly setting evaluation_tags to None applies defaults"""
+        self.team.default_evaluation_environments_enabled = True
+        self.team.save()
+
+        # Create default evaluation tags
+        tag1 = Tag.objects.create(name="production", team=self.team)
+        tag2 = Tag.objects.create(name="staging", team=self.team)
+        TeamDefaultEvaluationTag.objects.create(team=self.team, tag=tag1)
+        TeamDefaultEvaluationTag.objects.create(team=self.team, tag=tag2)
+
+        response = self.client.post(
+            self.feature_flag_url,
+            {
+                "key": "test-flag-none-eval",
+                "name": "Test Flag with None Eval Tags",
+                "evaluation_tags": None,  # Explicitly None
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_flag_with_explicit_evaluation_tags(self):
+        """Test that explicitly provided evaluation tags are used"""
+        self.team.default_evaluation_environments_enabled = True
+        self.team.save()
+
+        # Create default evaluation tags
+        tag1 = Tag.objects.create(name="production", team=self.team)
+        tag2 = Tag.objects.create(name="staging", team=self.team)
+        TeamDefaultEvaluationTag.objects.create(team=self.team, tag=tag1)
+        TeamDefaultEvaluationTag.objects.create(team=self.team, tag=tag2)
+
+        response = self.client.post(
+            self.feature_flag_url,
+            {
+                "key": "test-flag-explicit-eval",
+                "name": "Test Flag with Explicit Eval Tags",
+                "tags": ["custom-tag", "production"],
+                "evaluation_tags": ["custom-tag"],  # Explicitly set
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key="test-flag-explicit-eval", team=self.team)
+
+        # Verify only explicit evaluation tags were applied
+        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
+        self.assertEqual(eval_tag_names, {"custom-tag"})
 
     def test_no_default_tags_configured(self):
         """Test creating a flag when feature is enabled but no default tags exist"""
