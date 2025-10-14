@@ -550,7 +550,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingQuery":
-        from .error_tracking_query_runner import ErrorTrackingQueryRunner
+        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
         return ErrorTrackingQueryRunner(
             query=query,
@@ -561,7 +561,9 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingIssueCorrelationQuery":
-        from .error_tracking_issue_correlation_query_runner import ErrorTrackingIssueCorrelationQueryRunner
+        from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
+            ErrorTrackingIssueCorrelationQueryRunner,
+        )
 
         return ErrorTrackingIssueCorrelationQueryRunner(
             query=query,

@@ -22051,7 +22051,8 @@
                 "click_count",
                 "keypress_count",
                 "mouse_activity_count",
-                "activity_score"
+                "activity_score",
+                "recording_ttl"
             ],
             "type": "string"
         },
@@ -24140,6 +24141,10 @@
                     "description": "When the recording ends in ISO format.",
                     "type": "string"
                 },
+                "expiry_time": {
+                    "description": "When the recording expires, in ISO format.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -24169,6 +24174,10 @@
                 },
                 "recording_duration": {
                     "description": "Length of recording in seconds.",
+                    "type": "number"
+                },
+                "recording_ttl": {
+                    "description": "Number of whole days left until the recording expires.",
                     "type": "number"
                 },
                 "retention_period_days": {
