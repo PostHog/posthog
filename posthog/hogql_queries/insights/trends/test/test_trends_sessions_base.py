@@ -1,5 +1,5 @@
 from posthog.clickhouse.client import sync_execute
-from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
+from posthog.models.raw_sessions.sql import RAW_SESSION_TABLE_BACKFILL_SQL
 
 
 class TrendsSessionsTestBase:
@@ -21,8 +21,9 @@ class TrendsSessionsTestBase:
         if team_id is None:
             team_id = self.team.pk
 
-        # Use the backfill SQL - pass TRUE to get all events, the SELECT already filters by team
-        backfill_sql = RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE")
+        # Use the V2 backfill SQL to populate raw_sessions (not raw_sessions_v3)
+        # SessionsTableV2 queries from raw_sessions, so we need to populate that table
+        backfill_sql = RAW_SESSION_TABLE_BACKFILL_SQL()
         try:
             sync_execute(backfill_sql)
         except Exception as e:

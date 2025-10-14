@@ -438,6 +438,23 @@ GROUP BY
     )
 )
 
+
+def RAW_SESSION_TABLE_BACKFILL_SQL():
+    """
+    Manually populate raw_sessions table from events.
+
+    This is useful for tests where the materialized view doesn't run automatically.
+    """
+    return """
+INSERT INTO {database}.{writable_table}
+{select_sql}
+""".format(
+        database=settings.CLICKHOUSE_DATABASE,
+        writable_table=WRITABLE_RAW_SESSIONS_DATA_TABLE(),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL(),
+    )
+
+
 RAW_SESSIONS_TABLE_MV_SQL = (
     lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} {on_cluster_clause}
