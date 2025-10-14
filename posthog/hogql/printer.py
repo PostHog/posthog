@@ -637,9 +637,10 @@ class _Printer(Visitor[str]):
         1. and(expr0, 1, expr2, ...) <=> and(expr0, expr2, ...)
         2. and(expr0, 0, expr2, ...) <=> 0
         """
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
+        
         if self.dialect == "hogql":
-            if len(node.exprs) == 1:
-                return self.visit(node.exprs[0])
             return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
         exprs: list[str] = []
