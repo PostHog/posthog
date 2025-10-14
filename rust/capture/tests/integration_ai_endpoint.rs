@@ -14,10 +14,10 @@ use capture::time::TimeSource;
 use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
+use futures::StreamExt;
 use health::HealthRegistry;
 use integration_utils::{DEFAULT_CONFIG, DEFAULT_TEST_TIME};
 use limiters::token_dropper::TokenDropper;
-use futures::StreamExt;
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Value};
 use std::io::Write;
@@ -226,7 +226,10 @@ async fn test_ai_endpoint_wrong_content_type_returns_400() {
     let response = test_client
         .post("/i/v0/ai")
         .header("Content-Type", "application/json")
-        .header("Authorization", "Bearer phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")
+        .header(
+            "Authorization",
+            "Bearer phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
+        )
         .json(&event_data)
         .send()
         .await;
@@ -242,7 +245,10 @@ async fn test_ai_endpoint_empty_body_returns_400() {
     let response = test_client
         .post("/i/v0/ai")
         .header("Content-Type", "multipart/form-data; boundary=test")
-        .header("Authorization", "Bearer phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")
+        .header(
+            "Authorization",
+            "Bearer phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
+        )
         .send()
         .await;
 
@@ -303,7 +309,12 @@ async fn test_multipart_parsing_with_multiple_blobs() {
                 .unwrap(),
         );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
 
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
@@ -367,7 +378,12 @@ async fn test_multipart_parsing_with_mixed_content_types() {
                 .unwrap(),
         );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
 
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
@@ -379,7 +395,10 @@ async fn test_multipart_parsing_with_mixed_content_types() {
     assert_eq!(accepted_parts[2]["length"].as_u64().unwrap(), 15);
     assert_eq!(accepted_parts[3]["content-type"], "text/plain");
     assert_eq!(accepted_parts[3]["length"].as_u64().unwrap(), 26);
-    assert_eq!(accepted_parts[4]["content-type"], "application/octet-stream");
+    assert_eq!(
+        accepted_parts[4]["content-type"],
+        "application/octet-stream"
+    );
     assert_eq!(accepted_parts[4]["length"].as_u64().unwrap(), 6);
 }
 
@@ -422,7 +441,12 @@ async fn test_multipart_parsing_with_large_blob() {
                 .unwrap(),
         );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
 
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
@@ -467,7 +491,12 @@ async fn test_multipart_parsing_with_empty_blob() {
                 .unwrap(),
         );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
 
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
@@ -512,7 +541,10 @@ async fn test_multipart_missing_boundary_returns_400() {
     let response = test_client
         .post("/i/v0/ai")
         .header("Content-Type", "multipart/form-data")
-        .header("Authorization", "Bearer phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")
+        .header(
+            "Authorization",
+            "Bearer phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
+        )
         .body(body)
         .send()
         .await;
@@ -541,8 +573,14 @@ async fn test_multipart_corrupted_boundary_returns_400() {
 
     let response = test_client
         .post("/i/v0/ai")
-        .header("Content-Type", "multipart/form-data; boundary=corrupted------WebKitFormBoundary1234567890abcdef")
-        .header("Authorization", "Bearer phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")
+        .header(
+            "Content-Type",
+            "multipart/form-data; boundary=corrupted------WebKitFormBoundary1234567890abcdef",
+        )
+        .header(
+            "Authorization",
+            "Bearer phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
+        )
         .body(body)
         .send()
         .await;
@@ -571,10 +609,13 @@ async fn test_multipart_event_not_first_returns_400() {
     let form = Form::new()
         .part(
             "event.properties.$ai_input",
-            Part::bytes(serde_json::to_vec(&json!({"messages": [{"role": "user", "content": "test"}]})).unwrap())
-                .file_name("input.json")
-                .mime_str("application/json")
-                .unwrap(),
+            Part::bytes(
+                serde_json::to_vec(&json!({"messages": [{"role": "user", "content": "test"}]}))
+                    .unwrap(),
+            )
+            .file_name("input.json")
+            .mime_str("application/json")
+            .unwrap(),
         )
         .part(
             "event",
@@ -584,7 +625,12 @@ async fn test_multipart_event_not_first_returns_400() {
                 .unwrap(),
         );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -613,7 +659,12 @@ async fn test_invalid_event_name_not_ai_prefix_returns_400() {
             .unwrap(),
     );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -638,7 +689,12 @@ async fn test_invalid_event_name_regular_event_returns_400() {
             .unwrap(),
     );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -663,7 +719,12 @@ async fn test_invalid_event_name_custom_event_returns_400() {
             .unwrap(),
     );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -688,7 +749,12 @@ async fn test_all_allowed_ai_event_types_accepted() {
 
         let form = create_ai_event_form(event_name, "test_user", properties);
 
-        let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+        let response = send_multipart_request(
+            &test_client,
+            form,
+            Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+        )
+        .await;
         assert_eq!(
             response.status(),
             StatusCode::OK,
@@ -703,11 +769,7 @@ async fn test_invalid_ai_event_type_returns_400() {
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
 
-    let invalid_events = vec![
-        "$ai_unknown",
-        "$ai_custom",
-        "$ai_",
-    ];
+    let invalid_events = vec!["$ai_unknown", "$ai_custom", "$ai_"];
 
     for event_name in invalid_events {
         let properties = json!({
@@ -716,7 +778,12 @@ async fn test_invalid_ai_event_type_returns_400() {
 
         let form = create_ai_event_form(event_name, "test_user", properties);
 
-        let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+        let response = send_multipart_request(
+            &test_client,
+            form,
+            Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+        )
+        .await;
         assert_eq!(
             response.status(),
             StatusCode::BAD_REQUEST,
@@ -747,7 +814,12 @@ async fn test_missing_required_ai_properties_returns_400() {
             .unwrap(),
     );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -772,7 +844,12 @@ async fn test_empty_event_name_returns_400() {
             .unwrap(),
     );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -796,7 +873,12 @@ async fn test_missing_distinct_id_returns_400() {
             .unwrap(),
     );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -811,7 +893,12 @@ async fn test_ai_endpoint_returns_200_for_valid_request() {
 
     let form = create_ai_event_form("$ai_generation", "test_user", properties);
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
 
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
@@ -851,7 +938,12 @@ async fn test_properties_in_event_part_only() {
             .unwrap(),
     );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
 
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
@@ -890,7 +982,12 @@ async fn test_properties_in_separate_part_only() {
                 .unwrap(),
         );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
 
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
@@ -935,7 +1032,12 @@ async fn test_properties_both_embedded_and_separate_returns_400() {
                 .unwrap(),
         );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -966,7 +1068,12 @@ async fn test_event_exceeds_32kb_returns_413() {
             .unwrap(),
     );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
@@ -1002,7 +1109,12 @@ async fn test_combined_event_properties_exceeds_960kb_returns_413() {
                 .unwrap(),
         );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
@@ -1044,7 +1156,12 @@ async fn test_sum_of_all_parts_exceeds_25mb_returns_413() {
                 .unwrap(),
         );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
@@ -1087,7 +1204,12 @@ async fn test_request_body_exceeds_110_percent_limit_returns_413() {
                 .unwrap(),
         );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
 
     // Axum's DefaultBodyLimit returns 413 Payload Too Large when the body exceeds the limit
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
@@ -1108,15 +1230,19 @@ async fn test_blob_with_application_octet_stream_content_type() {
 
     let blob_data = vec![0u8, 1u8, 2u8, 3u8];
 
-    let form = create_ai_event_form("$ai_generation", "test_user", properties)
-        .part(
-            "event.properties.$ai_binary_data",
-            Part::bytes(blob_data)
-                .mime_str("application/octet-stream")
-                .unwrap(),
-        );
+    let form = create_ai_event_form("$ai_generation", "test_user", properties).part(
+        "event.properties.$ai_binary_data",
+        Part::bytes(blob_data)
+            .mime_str("application/octet-stream")
+            .unwrap(),
+    );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -1131,15 +1257,19 @@ async fn test_blob_with_application_json_content_type() {
 
     let blob_data = json!({"key": "value"}).to_string();
 
-    let form = create_ai_event_form("$ai_generation", "test_user", properties)
-        .part(
-            "event.properties.$ai_input",
-            Part::bytes(blob_data.into_bytes())
-                .mime_str("application/json")
-                .unwrap(),
-        );
+    let form = create_ai_event_form("$ai_generation", "test_user", properties).part(
+        "event.properties.$ai_input",
+        Part::bytes(blob_data.into_bytes())
+            .mime_str("application/json")
+            .unwrap(),
+    );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -1154,15 +1284,19 @@ async fn test_blob_with_text_plain_content_type() {
 
     let blob_data = "This is plain text data";
 
-    let form = create_ai_event_form("$ai_generation", "test_user", properties)
-        .part(
-            "event.properties.$ai_output",
-            Part::bytes(blob_data.as_bytes().to_vec())
-                .mime_str("text/plain")
-                .unwrap(),
-        );
+    let form = create_ai_event_form("$ai_generation", "test_user", properties).part(
+        "event.properties.$ai_output",
+        Part::bytes(blob_data.as_bytes().to_vec())
+            .mime_str("text/plain")
+            .unwrap(),
+    );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::OK);
 }
 
@@ -1177,15 +1311,17 @@ async fn test_blob_with_invalid_content_type_returns_400() {
 
     let blob_data = vec![0u8, 1u8, 2u8, 3u8];
 
-    let form = create_ai_event_form("$ai_generation", "test_user", properties)
-        .part(
-            "event.properties.$ai_data",
-            Part::bytes(blob_data)
-                .mime_str("application/xml")
-                .unwrap(),
-        );
+    let form = create_ai_event_form("$ai_generation", "test_user", properties).part(
+        "event.properties.$ai_data",
+        Part::bytes(blob_data).mime_str("application/xml").unwrap(),
+    );
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -1202,12 +1338,14 @@ async fn test_blob_without_content_type_returns_400() {
 
     // Create a part without Content-Type (reqwest doesn't set it if we don't call mime_str)
     let form = create_ai_event_form("$ai_generation", "test_user", properties)
-        .part(
-            "event.properties.$ai_data",
-            Part::bytes(blob_data),
-        );
+        .part("event.properties.$ai_data", Part::bytes(blob_data));
 
-    let response = send_multipart_request(&test_client, form, Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")).await;
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
@@ -1247,7 +1385,10 @@ async fn test_gzip_compressed_request() {
         .post("/i/v0/ai")
         .header("Content-Type", content_type)
         .header("Content-Encoding", "gzip")
-        .header("Authorization", "Bearer phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3")
+        .header(
+            "Authorization",
+            "Bearer phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
+        )
         .body(compressed_body)
         .send()
         .await;

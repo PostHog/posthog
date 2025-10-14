@@ -4,7 +4,7 @@ use axum::http::HeaderMap;
 use axum::response::Json;
 use flate2::read::GzDecoder;
 use futures::stream;
-use multer::{Multipart, parse_boundary};
+use multer::{parse_boundary, Multipart};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -66,7 +66,10 @@ pub async fn ai_handler(
         .unwrap_or("");
 
     if !content_type.starts_with("multipart/form-data") {
-        warn!("AI endpoint received non-multipart content type: {}", content_type);
+        warn!(
+            "AI endpoint received non-multipart content type: {}",
+            content_type
+        );
         return Err(CaptureError::RequestDecodingError(
             "Content-Type must be multipart/form-data".to_string(),
         ));
@@ -94,7 +97,12 @@ pub async fn ai_handler(
     validate_token(token)?;
 
     // Parse multipart data and collect part information
-    let accepted_parts = parse_multipart_data(&decompressed_body, &boundary, state.ai_max_sum_of_parts_bytes).await?;
+    let accepted_parts = parse_multipart_data(
+        &decompressed_body,
+        &boundary,
+        state.ai_max_sum_of_parts_bytes,
+    )
+    .await?;
 
     // Log request details for debugging
     debug!("AI endpoint request validated and parsed successfully");
@@ -128,7 +136,11 @@ fn decompress_gzip(compressed: &Bytes) -> Result<Bytes, CaptureError> {
         CaptureError::RequestDecodingError(format!("Failed to decompress gzip body: {}", e))
     })?;
 
-    debug!("Decompressed {} bytes to {} bytes", compressed.len(), decompressed.len());
+    debug!(
+        "Decompressed {} bytes to {} bytes",
+        compressed.len(),
+        decompressed.len()
+    );
     Ok(Bytes::from(decompressed))
 }
 
@@ -142,7 +154,11 @@ fn is_valid_blob_content_type(content_type: &str) -> bool {
 }
 
 /// Parse multipart data and validate structure
-async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_bytes: usize) -> Result<Vec<PartInfo>, CaptureError> {
+async fn parse_multipart_data(
+    body: &[u8],
+    boundary: &str,
+    max_sum_of_parts_bytes: usize,
+) -> Result<Vec<PartInfo>, CaptureError> {
     // Size limits
     const MAX_EVENT_SIZE: usize = 32 * 1024; // 32KB
     const MAX_COMBINED_SIZE: usize = 1024 * 1024 - 64 * 1024; // 1MB - 64KB = 960KB
@@ -175,12 +191,16 @@ async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_byte
         // Extract all field information before consuming the field
         let field_name = field.name().unwrap_or("unknown").to_string();
         let content_type = field.content_type().map(|ct| ct.to_string());
-        let content_encoding = field.headers()
+        let content_encoding = field
+            .headers()
             .get("content-encoding")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
 
-        debug!("Processing multipart field: {} (part #{})", field_name, part_count);
+        debug!(
+            "Processing multipart field: {} (part #{})",
+            field_name, part_count
+        );
 
         // Check if this is the first part
         if !first_part_processed {
@@ -188,9 +208,10 @@ async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_byte
 
             // Validate that the first part is the event part
             if field_name != "event" {
-                return Err(CaptureError::RequestDecodingError(
-                    format!("First part must be 'event', got '{}'", field_name),
-                ));
+                return Err(CaptureError::RequestDecodingError(format!(
+                    "First part must be 'event', got '{}'",
+                    field_name
+                )));
             }
 
             debug!("First part is 'event' as expected");
@@ -212,10 +233,10 @@ async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_byte
 
             // Check event size limit
             if event_size > MAX_EVENT_SIZE {
-                return Err(CaptureError::EventTooBig(
-                    format!("Event part size ({} bytes) exceeds maximum allowed size ({} bytes)",
-                            event_size, MAX_EVENT_SIZE),
-                ));
+                return Err(CaptureError::EventTooBig(format!(
+                    "Event part size ({} bytes) exceeds maximum allowed size ({} bytes)",
+                    event_size, MAX_EVENT_SIZE
+                )));
             }
 
             // Parse the event JSON (without validating properties yet)
@@ -236,7 +257,9 @@ async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_byte
             // Parse the properties JSON
             let properties_json_str = std::str::from_utf8(&field_data).map_err(|e| {
                 warn!("Properties part is not valid UTF-8: {}", e);
-                CaptureError::RequestDecodingError("Properties part must be valid UTF-8".to_string())
+                CaptureError::RequestDecodingError(
+                    "Properties part must be valid UTF-8".to_string(),
+                )
             })?;
 
             properties_json = Some(serde_json::from_str(properties_json_str).map_err(|e| {
@@ -248,9 +271,10 @@ async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_byte
         } else if field_name.starts_with("event.properties.") {
             // This is a blob part - check for duplicates
             if !seen_property_names.insert(field_name.clone()) {
-                return Err(CaptureError::RequestDecodingError(
-                    format!("Duplicate blob property: {}", field_name),
-                ));
+                return Err(CaptureError::RequestDecodingError(format!(
+                    "Duplicate blob property: {}",
+                    field_name
+                )));
             }
 
             // Validate content type for blob parts - it's required
@@ -265,9 +289,10 @@ async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_byte
                     }
                 }
                 None => {
-                    return Err(CaptureError::RequestDecodingError(
-                        format!("Missing required Content-Type header for blob part '{}'", field_name),
-                    ));
+                    return Err(CaptureError::RequestDecodingError(format!(
+                        "Missing required Content-Type header for blob part '{}'",
+                        field_name
+                    )));
                 }
             }
 
@@ -296,31 +321,33 @@ async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_byte
     // Check combined size limit
     let combined_size = event_size + properties_size;
     if combined_size > MAX_COMBINED_SIZE {
-        return Err(CaptureError::EventTooBig(
-            format!("Combined event and properties size ({} bytes) exceeds maximum allowed size ({} bytes)",
-                    combined_size, MAX_COMBINED_SIZE),
-        ));
+        return Err(CaptureError::EventTooBig(format!(
+            "Combined event and properties size ({} bytes) exceeds maximum allowed size ({} bytes)",
+            combined_size, MAX_COMBINED_SIZE
+        )));
     }
 
     // Check sum of all parts limit
     if sum_of_parts_bytes > max_sum_of_parts_bytes {
-        return Err(CaptureError::EventTooBig(
-            format!("Sum of all parts ({} bytes) exceeds maximum allowed size ({} bytes)",
-                    sum_of_parts_bytes, max_sum_of_parts_bytes),
-        ));
+        return Err(CaptureError::EventTooBig(format!(
+            "Sum of all parts ({} bytes) exceeds maximum allowed size ({} bytes)",
+            sum_of_parts_bytes, max_sum_of_parts_bytes
+        )));
     }
 
     // Merge properties into the event
     let mut event = event_json.unwrap();
 
     // Check for conflicting properties sources
-    let has_embedded_properties = event.as_object()
+    let has_embedded_properties = event
+        .as_object()
         .and_then(|obj| obj.get("properties"))
         .is_some();
 
     if has_embedded_properties && properties_json.is_some() {
         return Err(CaptureError::RequestDecodingError(
-            "Event cannot have both embedded properties and a separate 'event.properties' part".to_string(),
+            "Event cannot have both embedded properties and a separate 'event.properties' part"
+                .to_string(),
         ));
     }
 
@@ -333,7 +360,10 @@ async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_byte
     } else {
         // No separate part - check for embedded properties
         if let Some(event_obj) = event.as_object() {
-            event_obj.get("properties").cloned().unwrap_or(serde_json::json!({}))
+            event_obj
+                .get("properties")
+                .cloned()
+                .unwrap_or(serde_json::json!({}))
         } else {
             serde_json::json!({})
         }
@@ -351,7 +381,10 @@ async fn parse_multipart_data(body: &[u8], boundary: &str, max_sum_of_parts_byte
     // Now validate the complete event structure
     validate_event_structure(&event)?;
 
-    debug!("Multipart parsing completed: {} parts processed", part_count);
+    debug!(
+        "Multipart parsing completed: {} parts processed",
+        part_count
+    );
     Ok(accepted_parts)
 }
 
@@ -364,10 +397,13 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
     })?;
 
     // Validate event name
-    let event_name = event_obj.get("event").and_then(|v| v.as_str()).ok_or_else(|| {
-        warn!("Event missing 'event' field");
-        CaptureError::RequestDecodingError("Event missing 'event' field".to_string())
-    })?;
+    let event_name = event_obj
+        .get("event")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            warn!("Event missing 'event' field");
+            CaptureError::RequestDecodingError("Event missing 'event' field".to_string())
+        })?;
 
     if event_name.is_empty() {
         return Err(CaptureError::RequestDecodingError(
@@ -386,20 +422,21 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
     ];
 
     if !ALLOWED_AI_EVENTS.contains(&event_name) {
-        return Err(CaptureError::RequestDecodingError(
-            format!(
-                "Event name must be one of: {}, got '{}'",
-                ALLOWED_AI_EVENTS.join(", "),
-                event_name
-            ),
-        ));
+        return Err(CaptureError::RequestDecodingError(format!(
+            "Event name must be one of: {}, got '{}'",
+            ALLOWED_AI_EVENTS.join(", "),
+            event_name
+        )));
     }
 
     // Validate distinct_id
-    let distinct_id = event_obj.get("distinct_id").and_then(|v| v.as_str()).ok_or_else(|| {
-        warn!("Event missing 'distinct_id' field");
-        CaptureError::RequestDecodingError("Event missing 'distinct_id' field".to_string())
-    })?;
+    let distinct_id = event_obj
+        .get("distinct_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            warn!("Event missing 'distinct_id' field");
+            CaptureError::RequestDecodingError("Event missing 'distinct_id' field".to_string())
+        })?;
 
     if distinct_id.is_empty() {
         return Err(CaptureError::RequestDecodingError(
@@ -408,10 +445,13 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
     }
 
     // Validate properties object
-    let properties = event_obj.get("properties").and_then(|v| v.as_object()).ok_or_else(|| {
-        warn!("Event missing 'properties' field");
-        CaptureError::RequestDecodingError("Event missing 'properties' field".to_string())
-    })?;
+    let properties = event_obj
+        .get("properties")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| {
+            warn!("Event missing 'properties' field");
+            CaptureError::RequestDecodingError("Event missing 'properties' field".to_string())
+        })?;
 
     // Validate required AI properties
     if !properties.contains_key("$ai_model") {
@@ -420,10 +460,13 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         ));
     }
 
-    let ai_model = properties.get("$ai_model").and_then(|v| v.as_str()).ok_or_else(|| {
-        warn!("$ai_model must be a string");
-        CaptureError::RequestDecodingError("$ai_model must be a string".to_string())
-    })?;
+    let ai_model = properties
+        .get("$ai_model")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            warn!("$ai_model must be a string");
+            CaptureError::RequestDecodingError("$ai_model must be a string".to_string())
+        })?;
 
     if ai_model.is_empty() {
         return Err(CaptureError::RequestDecodingError(
@@ -431,8 +474,10 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         ));
     }
 
-    debug!("Event validation passed: event='{}', distinct_id='{}', ai_model='{}'",
-           event_name, distinct_id, ai_model);
+    debug!(
+        "Event validation passed: event='{}', distinct_id='{}', ai_model='{}'",
+        event_name, distinct_id, ai_model
+    );
 
     Ok(())
 }

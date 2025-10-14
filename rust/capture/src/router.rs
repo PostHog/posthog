@@ -262,13 +262,11 @@ pub fn router<
     let ai_router = Router::new()
         .route(
             "/i/v0/ai",
-            post(ai_endpoint::ai_handler)
-                .options(ai_endpoint::options),
+            post(ai_endpoint::ai_handler).options(ai_endpoint::options),
         )
         .route(
             "/i/v0/ai/",
-            post(ai_endpoint::ai_handler)
-                .options(ai_endpoint::options),
+            post(ai_endpoint::ai_handler).options(ai_endpoint::options),
         )
         .layer(DefaultBodyLimit::max(ai_body_limit));
 
