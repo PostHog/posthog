@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -63,9 +64,9 @@ class TestSessionRecordingV2Storage(APIBaseTest):
         assert isinstance(storage_client, SessionRecordingV2ObjectStorage)
         assert storage_client.bucket == SESSION_RECORDING_V2_S3_BUCKET
 
-    @patch("posthog.storage.session_recording_v2_object_storage.boto3_client")
-    def test_does_not_create_client_if_required_settings_missing(self, patched_s3_client) -> None:
-        test_cases = [
+    @pytest.mark.parametrize(
+        "settings_override",
+        [
             {"SESSION_RECORDING_V2_S3_BUCKET": ""},
             {"SESSION_RECORDING_V2_S3_ENDPOINT": ""},
             {"SESSION_RECORDING_V2_S3_REGION": ""},
@@ -74,13 +75,14 @@ class TestSessionRecordingV2Storage(APIBaseTest):
                 "SESSION_RECORDING_V2_S3_ENDPOINT": "",
                 "SESSION_RECORDING_V2_S3_REGION": "",
             },
-        ]
-
-        for settings_override in test_cases:
-            with self.settings(**settings_override):
-                storage_client = client()
-                patched_s3_client.assert_not_called()
-                assert storage_client.read_bytes("any_key", 0, 100) is None
+        ],
+    )
+    @patch("posthog.storage.session_recording_v2_object_storage.boto3_client")
+    def test_does_not_create_client_if_required_settings_missing(self, patched_s3_client, settings_override) -> None:
+        with self.settings(**settings_override):
+            storage_client = client()
+            patched_s3_client.assert_not_called()
+            assert storage_client.read_bytes("any_key", 0, 100) is None
 
     def test_read_bytes_with_byte_range(self):
         mock_client = MagicMock()
@@ -131,18 +133,19 @@ class TestSessionRecordingV2Storage(APIBaseTest):
             Bucket=TEST_BUCKET, Key="key1", Range=f"bytes=0-{len(compressed_data) - 1}"
         )
 
-    def test_fetch_block_invalid_url(self):
+    @pytest.mark.parametrize(
+        "invalid_url,expected_error",
+        [
+            ("s3://bucket/key1", "Invalid byte range"),
+            ("s3://bucket/key1?range=invalid", "Invalid byte range"),
+        ],
+    )
+    def test_fetch_block_invalid_url(self, invalid_url, expected_error):
         storage = SessionRecordingV2ObjectStorage(MagicMock(), TEST_BUCKET)
 
-        # Test URL without byte range
         with self.assertRaises(BlockFetchError) as cm:
-            storage.fetch_block("s3://bucket/key1")
-        assert "Invalid byte range" in str(cm.exception)
-
-        # Test URL with invalid byte range format
-        with self.assertRaises(BlockFetchError) as cm:
-            storage.fetch_block("s3://bucket/key1?range=invalid")
-        assert "Invalid byte range" in str(cm.exception)
+            storage.fetch_block(invalid_url)
+        assert expected_error in str(cm.exception)
 
     def test_fetch_block_content_not_found(self):
         mock_client = MagicMock()
@@ -257,14 +260,18 @@ class TestSessionRecordingV2Storage(APIBaseTest):
             assert target_key is None
             assert error is not None and "Failed to store LTS recording" in error
 
-    def test_is_lts_enabled(self):
+    @pytest.mark.parametrize(
+        "lts_prefix,expected",
+        [
+            ("", False),
+            ("lts", True),
+        ],
+    )
+    def test_is_lts_enabled(self, lts_prefix, expected):
         storage = SessionRecordingV2ObjectStorage(MagicMock(), TEST_BUCKET)
 
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX=""):
-            assert storage.is_lts_enabled() is False
-
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX="lts"):
-            assert storage.is_lts_enabled() is True
+        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX=lts_prefix):
+            assert storage.is_lts_enabled() is expected
 
 
 class AsyncContextManager:
@@ -309,9 +316,9 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
             assert isinstance(client, AsyncSessionRecordingV2ObjectStorage)
             assert client.bucket == SESSION_RECORDING_V2_S3_BUCKET
 
-    @patch("posthog.storage.session_recording_v2_object_storage.get_session")
-    async def test_throws_runtimeerror_if_required_settings_missing(self, patched_aiobotocore_get_session) -> None:
-        test_cases = [
+    @pytest.mark.parametrize(
+        "settings_override",
+        [
             {"SESSION_RECORDING_V2_S3_BUCKET": ""},
             {"SESSION_RECORDING_V2_S3_ENDPOINT": ""},
             {"SESSION_RECORDING_V2_S3_REGION": ""},
@@ -320,18 +327,21 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
                 "SESSION_RECORDING_V2_S3_ENDPOINT": "",
                 "SESSION_RECORDING_V2_S3_REGION": "",
             },
-        ]
+        ],
+    )
+    @patch("posthog.storage.session_recording_v2_object_storage.get_session")
+    async def test_throws_runtimeerror_if_required_settings_missing(
+        self, patched_aiobotocore_get_session, settings_override
+    ) -> None:
+        with self.settings(**settings_override):
+            create_client_mock = MagicMock(AsyncContextManager)
+            patched_aiobotocore_get_session.return_value.create_client = create_client_mock
 
-        for settings_override in test_cases:
-            with self.settings(**settings_override):
-                create_client_mock = MagicMock(AsyncContextManager)
-                patched_aiobotocore_get_session.return_value.create_client = create_client_mock
+            with self.assertRaises(RuntimeError) as _:
+                async with async_client() as _:
+                    pass
 
-                with self.assertRaises(RuntimeError) as _:
-                    async with async_client() as _:
-                        pass
-
-                create_client_mock.assert_not_called()
+            create_client_mock.assert_not_called()
 
     async def test_read_bytes_with_byte_range(self):
         mock_client = AsyncMock()
@@ -382,18 +392,19 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
             Bucket=TEST_BUCKET, Key="key1", Range=f"bytes=0-{len(compressed_data) - 1}"
         )
 
-    async def test_fetch_block_invalid_url(self):
+    @pytest.mark.parametrize(
+        "invalid_url,expected_error",
+        [
+            ("s3://bucket/key1", "Invalid byte range"),
+            ("s3://bucket/key1?range=invalid", "Invalid byte range"),
+        ],
+    )
+    async def test_fetch_block_invalid_url(self, invalid_url, expected_error):
         storage = AsyncSessionRecordingV2ObjectStorage(AsyncMock(), TEST_BUCKET)
 
-        # Test URL without byte range
         with self.assertRaises(BlockFetchError) as cm:
-            await storage.fetch_block("s3://bucket/key1")
-        assert "Invalid byte range" in str(cm.exception)
-
-        # Test URL with invalid byte range format
-        with self.assertRaises(BlockFetchError) as cm:
-            await storage.fetch_block("s3://bucket/key1?range=invalid")
-        assert "Invalid byte range" in str(cm.exception)
+            await storage.fetch_block(invalid_url)
+        assert expected_error in str(cm.exception)
 
     async def test_fetch_block_content_not_found(self):
         mock_client = AsyncMock()
@@ -508,11 +519,15 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
             assert target_key is None
             assert error is not None and "Failed to store LTS recording" in error
 
-    def test_is_lts_enabled(self):
+    @pytest.mark.parametrize(
+        "lts_prefix,expected",
+        [
+            ("", False),
+            ("lts", True),
+        ],
+    )
+    def test_is_lts_enabled(self, lts_prefix, expected):
         storage = AsyncSessionRecordingV2ObjectStorage(AsyncMock(), TEST_BUCKET)
 
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX=""):
-            assert storage.is_lts_enabled() is False
-
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX="lts"):
-            assert storage.is_lts_enabled() is True
+        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX=lts_prefix):
+            assert storage.is_lts_enabled() is expected
