@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 from typing import Optional, cast
 
 from django.contrib.postgres.fields import ArrayField
@@ -568,3 +569,17 @@ class SandboxSnapshot(UUIDModel):
             if snapshot.has_repos(required_repos):
                 return snapshot
         return None
+
+    def delete(self, *args, **kwargs):
+        if self.external_id:
+            from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+
+            try:
+                asyncio.run(SandboxEnvironment.delete_snapshot(self.external_id))
+            except Exception as e:
+                raise Exception(
+                    f"Failed to delete external snapshot {self.external_id}: {str(e)}. "
+                    f"The database record has not been deleted."
+                ) from e
+
+        super().delete(*args, **kwargs)

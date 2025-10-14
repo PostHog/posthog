@@ -1137,3 +1137,34 @@ class TestSandboxSnapshot(TestCase):
         self.integration.delete()
 
         self.assertEqual(SandboxSnapshot.objects.filter(integration__isnull=True).count(), 2)
+
+    @patch("products.tasks.backend.models.asyncio.run")
+    def test_delete_with_external_id_calls_external_delete(self, mock_asyncio_run):
+        external_id = f"snapshot-{uuid.uuid4()}"
+        snapshot = SandboxSnapshot.objects.create(integration=self.integration, external_id=external_id)
+
+        snapshot.delete()
+
+        mock_asyncio_run.assert_called_once()
+        self.assertEqual(SandboxSnapshot.objects.filter(id=snapshot.id).count(), 0)
+
+    @patch("products.tasks.backend.models.asyncio.run")
+    def test_delete_with_external_id_failure_prevents_db_deletion(self, mock_asyncio_run):
+        mock_asyncio_run.side_effect = Exception("External deletion failed")
+
+        external_id = f"snapshot-{uuid.uuid4()}"
+        snapshot = SandboxSnapshot.objects.create(integration=self.integration, external_id=external_id)
+
+        with self.assertRaises(Exception) as cm:
+            snapshot.delete()
+
+        self.assertIn("Failed to delete external snapshot", str(cm.exception))
+        self.assertIn(external_id, str(cm.exception))
+        self.assertEqual(SandboxSnapshot.objects.filter(id=snapshot.id).count(), 1)
+
+    def test_delete_without_external_id_succeeds(self):
+        snapshot = SandboxSnapshot.objects.create(integration=self.integration)
+
+        snapshot.delete()
+
+        self.assertEqual(SandboxSnapshot.objects.filter(id=snapshot.id).count(), 0)
