@@ -13,9 +13,11 @@ KAFKA_APP_METRICS2_TABLE = f"kafka_{APP_METRICS2_TABLE}"
 DROP_APP_METRICS2_MV_TABLE_SQL = f"DROP TABLE IF EXISTS {APP_METRICS2_MV_TABLE}"
 DROP_KAFKA_APP_METRICS2_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_APP_METRICS2_TABLE}"
 
-APP_METRICS2_SHARDED_TABLE_ENGINE = lambda: AggregatingMergeTree(
+
+def APP_METRICS2_SHARDED_TABLE_ENGINE(): return AggregatingMergeTree(
     APP_METRICS2_SHARDED_TABLE, replication_scheme=ReplicationScheme.SHARDED
 )
+
 
 BASE_APP_METRICS2_COLUMNS = """
     team_id Int64,
@@ -52,8 +54,7 @@ ENGINE = {APP_METRICS2_SHARDED_TABLE_ENGINE()}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, app_source, app_source_id, instance_id, {APP_METRICS2_TIMESTAMP_TRUNCATION}, metric_kind, metric_name)
 {ttl_period("timestamp", APP_METRICS2_TTL_DAYS, unit="DAY")}
-"""
-)
+""")
 
 DISTRIBUTED_APP_METRICS2_TABLE_SQL = (
     lambda: f"""
@@ -74,8 +75,7 @@ CREATE TABLE IF NOT EXISTS {APP_METRICS2_WRITABLE_TABLE}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE={Distributed(data_table=APP_METRICS2_SHARDED_TABLE, sharding_key="rand()")}
-"""
-)
+""")
 
 KAFKA_APP_METRICS2_TABLE_SQL = (
     lambda: f"""
@@ -91,8 +91,7 @@ CREATE TABLE IF NOT EXISTS {KAFKA_APP_METRICS2_TABLE}
     count Int64
 )
 ENGINE={kafka_engine(topic=KAFKA_APP_METRICS2)}
-"""
-)
+""")
 
 APP_METRICS2_MV_TABLE_SQL = (
     lambda target_table=APP_METRICS2_WRITABLE_TABLE: f"""
@@ -111,12 +110,13 @@ _timestamp,
 _offset,
 _partition
 FROM {KAFKA_APP_METRICS2_TABLE}
-"""
-)
+""")
+
 
 TRUNCATE_APP_METRICS2_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {APP_METRICS2_SHARDED_TABLE}"
 
-INSERT_APP_METRICS2_SQL = """
+INSERT_APP_METRICS2_SQL = (
+    lambda: f"""
 INSERT INTO {APP_METRICS2_SHARDED_TABLE} (
     team_id,
     timestamp,
@@ -142,4 +142,4 @@ SELECT
     now(),
     0,
     0
-"""
+""")

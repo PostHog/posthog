@@ -39,6 +39,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         organizationBased: false,
         name: 'Activity logs',
+        description:
+            'Track all changes and activities in your organization with detailed filtering and export capabilities.',
     },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
@@ -51,24 +53,32 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
+        description: 'You can change anything you like and it is persisted to the URL for easy sharing.',
         layout: 'app-full-scene-height',
         defaultDocsPath: '/blog/introducing-notebooks',
         hideProjectNotice: true,
     },
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.CohortCalculationHistory]: { projectBased: true, name: 'Cohort Calculation History' },
-    [Scene.Cohorts]: { projectBased: true, name: 'Cohorts', defaultDocsPath: '/docs/data/cohorts' },
-    [Scene.CustomCss]: { projectBased: true, name: 'Custom CSS' },
+    [Scene.Cohorts]: {
+        projectBased: true,
+        name: 'Cohorts',
+        description: 'A catalog of identified persons and your created cohorts.',
+        defaultDocsPath: '/docs/data/cohorts',
+    },
     [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
+        iconType: 'dashboard',
     },
     [Scene.Dashboards]: {
         projectBased: true,
         name: 'Dashboards',
         activityScope: ActivityScope.DASHBOARD,
+        description: 'Create and manage your dashboards',
+        iconType: 'dashboard',
     },
     [Scene.DataManagement]: {
         projectBased: true,
@@ -78,6 +88,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
 
     [Scene.DataPipelines]: {
         name: 'Data pipelines',
+        description: 'Ingest, transform, and send data between hundreds of tools.',
         activityScope: ActivityScope.HOG_FUNCTION,
         defaultDocsPath: '/docs/cdp',
     },
@@ -160,7 +171,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/experiments',
         activityScope: ActivityScope.EXPERIMENT,
     },
-    [Scene.ExploreEvents]: { projectBased: true, name: 'Explore', defaultDocsPath: '/docs/data/events' },
+    [Scene.ExploreEvents]: {
+        projectBased: true,
+        name: 'Explore events',
+        defaultDocsPath: '/docs/data/events',
+        description: 'A catalog of all user interactions with your app or website.',
+        iconType: 'apps',
+    },
     [Scene.FeatureFlag]: {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
@@ -169,6 +186,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature flags',
+        description:
+            'Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once.',
         defaultDocsPath: '/docs/feature-flags',
         activityScope: ActivityScope.FEATURE_FLAG,
     },
@@ -193,7 +212,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
     [Scene.Link]: { projectBased: true },
     [Scene.Links]: { projectBased: true, name: 'Links' },
-    [Scene.LiveEvents]: { projectBased: true, name: 'Live', defaultDocsPath: '/docs/data/events' },
+    [Scene.LiveEvents]: {
+        projectBased: true,
+        name: 'Live events',
+        defaultDocsPath: '/docs/data/events',
+        description: 'Real-time events from your app or website.',
+        iconType: 'live',
+    },
     [Scene.Login2FA]: { onlyUnauthenticated: true },
     [Scene.Login]: { onlyUnauthenticated: true },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw', hideProjectNotice: true },
@@ -209,6 +234,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Notebooks]: {
         projectBased: true,
         name: 'Notebooks',
+        description: 'Notebooks are a way to organize your work and share it with others.',
         activityScope: ActivityScope.NOTEBOOK,
         defaultDocsPath: '/blog/introducing-notebooks',
     },
@@ -233,15 +259,18 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.PasswordReset]: { onlyUnauthenticated: true },
     [Scene.Person]: {
         projectBased: true,
-        name: 'Person',
+        name: 'People',
         activityScope: ActivityScope.PERSON,
         defaultDocsPath: '/docs/data/persons',
+        iconType: 'user',
     },
     [Scene.Persons]: {
         projectBased: true,
         name: 'Persons',
+        description: 'A catalog of all the people behind your events',
         activityScope: ActivityScope.PERSON,
         defaultDocsPath: '/docs/data/persons',
+        iconType: 'persons',
     },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true },
     [Scene.Products]: { projectBased: true, name: 'Products', layout: 'plain' },
@@ -308,6 +337,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
+        description: 'Track, analyze, and experiment with user behavior.',
         activityScope: ActivityScope.INSIGHT,
         defaultDocsPath: '/docs/product-analytics',
     },
@@ -364,6 +394,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.EmbeddedAnalytics]: {
         projectBased: true,
         name: 'Embedded analytics',
+        description: 'Define queries your application will use via the API and monitor their cost and usage.',
         layout: 'app-container',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },

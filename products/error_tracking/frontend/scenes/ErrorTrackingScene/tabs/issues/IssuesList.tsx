@@ -95,13 +95,8 @@ const defaultColumns: Record<string, QueryContextColumn> = {
     volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
 }
 
-const insightProps: InsightLogicProps = {
-    dashboardItemId: 'new-ErrorTrackingQuery',
-}
-
-export function IssuesList(): JSX.Element {
+export const useIssueQueryContext = (): QueryContext => {
     const { orderBy } = useValues(issueQueryOptionsLogic)
-    const { query } = useValues(errorTrackingSceneLogic)
 
     const columns = useMemo(() => {
         const columns = { ...defaultColumns }
@@ -113,18 +108,52 @@ export function IssuesList(): JSX.Element {
         return columns
     }, [orderBy])
 
-    const context: QueryContext = {
+    return {
         columns: columns,
         showOpenEditorButton: false,
         insightProps: insightProps,
         emptyStateHeading: 'No issues found',
         emptyStateDetail: 'Try changing the date range, changing the filters or removing the assignee.',
     }
+}
+
+const insightProps: InsightLogicProps = {
+    dashboardItemId: 'new-ErrorTrackingQuery',
+}
+
+export function IssuesList(): JSX.Element {
+    const { orderBy } = useValues(issueQueryOptionsLogic)
+    const { query } = useValues(errorTrackingSceneLogic)
+    const { openSupportForm } = useActions(supportLogic)
+    const context = useIssueQueryContext()
 
     return (
         <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
             <div>
-                <ListOptions />
+                <SceneStickyBar showBorderBottom={false}>
+                    <ListOptions />
+                    {orderBy === 'revenue' && (
+                        <LemonBanner
+                            type="warning"
+                            action={{
+                                children: 'Send feedback',
+                                onClick: () =>
+                                    openSupportForm({
+                                        kind: 'feedback',
+                                        target_area: 'error_tracking',
+                                        severity_level: 'medium',
+                                        isEmailFormOpen: true,
+                                    }),
+                                id: 'revenue-analytics-feedback-button',
+                            }}
+                        >
+                            Revenue sorting requires setting up{' '}
+                            <Link to="https://posthog.com/docs/revenue-analytics">Revenue analytics</Link>. It does not
+                            yet work well for customers with a large number of persons or groups. We're keen to hear
+                            feedback or any issues you have using it while we work to improve the performance
+                        </LemonBanner>
+                    )}
+                </SceneStickyBar>
                 <Query query={query} context={context} />
             </div>
         </BindLogic>
@@ -138,40 +167,13 @@ const CurrencyColumn = ({ record }: { record: unknown }): JSX.Element => {
     return <LemonTableLink to={urls.revenueAnalytics()} title={formatCurrency(revenue, baseCurrency)} />
 }
 
-const ListOptions = (): JSX.Element => {
+export const ListOptions = (): JSX.Element => {
     const { selectedIssueIds } = useValues(bulkSelectLogic)
     const { results } = useValues(issuesDataNodeLogic)
-    const { openSupportForm } = useActions(supportLogic)
-    const { orderBy } = useValues(issueQueryOptionsLogic)
 
-    return (
-        <SceneStickyBar showBorderBottom={false}>
-            {selectedIssueIds.length > 0 ? (
-                <IssueActions issues={results} selectedIds={selectedIssueIds} />
-            ) : (
-                <IssueQueryOptions />
-            )}
-            {orderBy === 'revenue' && (
-                <LemonBanner
-                    type="warning"
-                    action={{
-                        children: 'Send feedback',
-                        onClick: () =>
-                            openSupportForm({
-                                kind: 'feedback',
-                                target_area: 'error_tracking',
-                                severity_level: 'medium',
-                                isEmailFormOpen: true,
-                            }),
-                        id: 'revenue-analytics-feedback-button',
-                    }}
-                >
-                    Revenue sorting requires setting up{' '}
-                    <Link to="https://posthog.com/docs/revenue-analytics">Revenue analytics</Link>. It does not yet work
-                    well for customers with a large number of persons or groups. We're keen to hear feedback or any
-                    issues you have using it while we work to improve the performance
-                </LemonBanner>
-            )}
-        </SceneStickyBar>
-    )
+    if (selectedIssueIds.length > 0) {
+        return <IssueActions issues={results} selectedIds={selectedIssueIds} />
+    }
+
+    return <IssueQueryOptions />
 }

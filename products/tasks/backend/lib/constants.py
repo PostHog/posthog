@@ -16,4 +16,8 @@ INSTRUCTIONS:
 3. Verify the setup by running tests or build if available
 
 DO NOT make any code changes to the repository. The final state of the disk of this sandbox is what will be used for subsequent tasks, so do not leave any cruft behind, and make sure the repository is in a ready to use state.
+
+Rules:
+- You should not ask the user for any input. This is run in a sandbox environment in a background process, so they will not be able to provide any input.
+- The disk will be snapshooted immediately after you complete the task, and it will be reused for future tasks, so make sure everything you want is setup there.
 """
