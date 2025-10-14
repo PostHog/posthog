@@ -49,7 +49,7 @@ $ kubectl port-forward —namespace posthog service/kafka-deduplicator 8000:8000
 $ curl -sSL -H 'Connection: keep-alive' -H 'Keep-Alive: timeout=60,max=100' 'http://localhost:8000/pprof/profile/report' > profile.pb.gz
 
 # Obtain a heap allocation profile
-$ curl -sSL -H 'Connection: keep-alive' -H 'Keep-Alive: timeout=60,max=100' 'http://localhost:8000/pprof/profile/heap/report' > heap.pb.gz
+$ curl -sSL -H 'Connection: keep-alive' -H 'Keep-Alive: timeout=60,max=100' 'http://localhost:8000/pprof/heap/report' > heap.pb.gz
 
 # Corresponding profile and heap flamegraph endpoints return pre-generated SVG images of configurable size
 ```
