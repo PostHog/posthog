@@ -1344,6 +1344,8 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     cumulative?: RetentionFilterLegacy['cumulative']
+    /** @description The time window mode to use for retention calculations */
+    timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -2417,6 +2419,7 @@ export interface FileSystemEntry {
 }
 
 export type FileSystemIconType =
+    | 'default_icon_type'
     | 'dashboard'
     | 'llm_analytics'
     | 'product_analytics'
@@ -2448,7 +2451,8 @@ export type FileSystemIconType =
     | 'event_definition'
     | 'property_definition'
     | 'ingestion_warning'
-    | 'person'
+    | 'persons'
+    | 'user'
     | 'cohort'
     | 'group'
     | 'insight/funnels'
@@ -2460,6 +2464,8 @@ export type FileSystemIconType =
     | 'insight/hog'
     | 'team_activity'
     | 'home'
+    | 'apps'
+    | 'live'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -4060,6 +4066,7 @@ export const externalDataSources = [
     'LinkedinAds',
     'RedditAds',
     'TikTokAds',
+    'Shopify',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
