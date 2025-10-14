@@ -16,34 +16,34 @@ procs:
         autorestart: true
 
     temporal-worker-general-purpose:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue general-purpose-task-queue 2>&1 | tee /tmp/posthog-temporal-general.log'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue general-purpose-task-queue 2>&1 | tee /tmp/posthog-temporal-worker-general-purpose.log'
 
     temporal-worker-batch-exports:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue batch-exports-task-queue --metrics-port 8002 2>&1 | tee /tmp/posthog-temporal-batch.log'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue batch-exports-task-queue --metrics-port 8002 2>&1 | tee /tmp/posthog-temporal-worker-batch-exports.log'
 
     temporal-worker-data-warehouse:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue data-warehouse-task-queue --metrics-port 8003 2>&1 | tee /tmp/posthog-temporal-warehouse.log'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue data-warehouse-task-queue --metrics-port 8003 2>&1 | tee /tmp/posthog-temporal-worker-data-warehouse.log'
 
     temporal-worker-data-warehouse-compaction:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue data-warehouse-compaction-task-queue --metrics-port 8004 2>&1 | tee /tmp/posthog-temporal-compaction.log'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue data-warehouse-compaction-task-queue --metrics-port 8004 2>&1 | tee /tmp/posthog-temporal-worker-data-warehouse-compaction.log'
 
     temporal-worker-data-modeling:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue data-modeling-task-queue --metrics-port 8005 2>&1 | tee /tmp/posthog-temporal-modeling.log'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue data-modeling-task-queue --metrics-port 8005 2>&1 | tee /tmp/posthog-temporal-worker-data-modeling.log'
 
     temporal-worker-max-ai:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue max-ai-task-queue --metrics-port 8006" 2>&1 | tee /tmp/posthog-temporal-ai.log'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue max-ai-task-queue --metrics-port 8006" 2>&1 | tee /tmp/posthog-temporal-worker-max-ai.log'
 
     temporal-worker-tasks-agent:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue tasks-task-queue --metrics-port 8007 2>&1 | tee /tmp/posthog-temporal-tasks.log'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue tasks-task-queue --metrics-port 8007 2>&1 | tee /tmp/posthog-temporal-worker-tasks-agent.log'
 
     temporal-worker-billing:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue billing-task-queue --metrics-port 8008 2>&1 | tee /tmp/posthog-temporal-billing.log'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue billing-task-queue --metrics-port 8008 2>&1 | tee /tmp/posthog-temporal-worker-billing.log'
 
     temporal-worker-video-export:
-        shell: 'bin/check_video_deps && bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue video-export-task-queue --metrics-port 8009 2>&1 | tee /tmp/posthog-temporal-video.log'
+        shell: 'bin/check_video_deps && bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue video-export-task-queue --metrics-port 8009 2>&1 | tee /tmp/posthog-temporal-worker-video-export.log'
 
     temporal-worker-session-replay:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue session-replay-task-queue --metrics-port 8010 2>&1 | tee /tmp/posthog-temporal-replay.log'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue session-replay-task-queue --metrics-port 8010 2>&1 | tee /tmp/posthog-temporal-worker-session-replay.log'
 
     dagster:
         shell: |-
@@ -52,13 +52,13 @@ procs:
             dagster dev --workspace $DAGSTER_HOME/workspace.yaml -p $DAGSTER_UI_PORT 2>&1 | tee /tmp/posthog-dagster.log
 
     docker-compose:
-        shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f 2>&1 | tee /tmp/posthog-docker.log'
+        shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f 2>&1 | tee /tmp/posthog-docker-compose.log'
 
     cyclotron-janitor:
         shell: |-
             bin/check_postgres_up cyclotron && \
             bin/check_kafka_clickhouse_up && \
-            bin/start-rust-service cyclotron-janitor 2>&1 | tee /tmp/posthog-cyclotron.log
+            bin/start-rust-service cyclotron-janitor 2>&1 | tee /tmp/posthog-cyclotron-janitor.log
 
     cymbal:
         shell: |-
@@ -69,7 +69,7 @@ procs:
     embedding-worker:
         shell: |-
             bin/check_kafka_clickhouse_up && \
-            bin/start-rust-service embedding-worker 2>&1 | tee /tmp/posthog-embedding.log
+            bin/start-rust-service embedding-worker 2>&1 | tee /tmp/posthog-embedding-worker.log
         autostart: false
 
     feature-flags:
@@ -81,7 +81,7 @@ procs:
         shell: |-
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
-            bin/start-rust-service property-defs-rs 2>&1 | tee /tmp/posthog-property-defs.log
+            bin/start-rust-service property-defs-rs 2>&1 | tee /tmp/posthog-property-defs-rs.log
 
     capture:
         shell: |-
@@ -99,7 +99,7 @@ procs:
         shell: |-
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
-            bin/start-rust-service batch-import-worker 2>&1 | tee /tmp/posthog-batch-import.log
+            bin/start-rust-service batch-import-worker 2>&1 | tee /tmp/posthog-batch-import-worker.log
 
     migrate-postgres:
         shell: 'bin/check_postgres_up && python manage.py migrate 2>&1 | tee /tmp/posthog-migrate-postgres.log'
@@ -108,14 +108,14 @@ procs:
         shell: 'bin/check_kafka_clickhouse_up && python manage.py migrate_clickhouse 2>&1 | tee /tmp/posthog-migrate-clickhouse.log'
 
     migrate-persons-db:
-        shell: 'bin/check_postgres_up posthog_persons && cd rust && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog_persons sqlx migrate run --source persons_migrations 2>&1 | tee /tmp/posthog-migrate-persons.log'
+        shell: 'bin/check_postgres_up posthog_persons && cd rust && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog_persons sqlx migrate run --source persons_migrations 2>&1 | tee /tmp/posthog-migrate-persons-db.log'
 
     generate-demo-data:
         shell: |-
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/check_dagster_graphql_up && \
-            ./manage.py generate_demo_data 2>&1 | tee /tmp/posthog-demo-data.log
+            ./manage.py generate_demo_data 2>&1 | tee /tmp/posthog-generate-demo-data.log
         autostart: false
 
     storybook:
@@ -123,7 +123,7 @@ procs:
         autostart: false
 
     hedgebox-dummy:
-        shell: 'bin/check_postgres_up && cd hedgebox-dummy && pnpm install && pnpm run dev 2>&1 | tee /tmp/posthog-hedgebox.log'
+        shell: 'bin/check_postgres_up && cd hedgebox-dummy && pnpm install && pnpm run dev 2>&1 | tee /tmp/posthog-hedgebox-dummy.log'
         autostart: false
 
 mouse_scroll_speed: 1
