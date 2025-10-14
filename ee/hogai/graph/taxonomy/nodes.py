@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from functools import cached_property
 from typing import Generic, TypeVar
 
@@ -168,8 +169,8 @@ class TaxonomyAgentToolsNode(
 
     async def arun(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []
-        tools_metadata: dict[str, list[tuple[TaxonomyTool, str]]] = {}
-        tool_msgs = []
+        tools_metadata: dict[str, list[tuple[TaxonomyTool, str]]] = defaultdict(dict)
+        invalid_tools = []
         steps = []
 
         for action, _ in intermediate_steps:
@@ -183,10 +184,9 @@ class TaxonomyAgentToolsNode(
                     .format_messages(exception=e.errors(include_url=False))[0]
                     .content
                 )
-                return self._partial_state_class(
-                    output=output,
-                    intermediate_steps=None,
-                )
+                steps.append((action, output))
+                invalid_tools.append(action.log)
+                continue
             else:
                 if tool_input.name == "final_answer":
                     return self._partial_state_class(
@@ -201,23 +201,26 @@ class TaxonomyAgentToolsNode(
                         state,
                     )
 
-            # If we're still here, check if we've hit the iteration limit within this cycle
-            if state.iteration_count >= self.MAX_ITERATIONS:
-                return self._get_reset_state(ITERATION_LIMIT_PROMPT, "max_iterations", state)
+                # For any other tool, collect metadata and prepare for result processing
+                if tool_input.name not in tools_metadata:
+                    tools_metadata[tool_input.name] = []
+                tools_metadata[tool_input.name].append((tool_input, action.log))
 
-            # Collect tool metadata and prepare for result processing
-            if tool_input.name not in tools_metadata:
-                tools_metadata[tool_input.name] = []
-            tools_metadata[tool_input.name].append((tool_input, action.log))
+        # If we're still here, check if we've hit the iteration limit within this cycle
+        if state.iteration_count >= self.MAX_ITERATIONS:
+            return self._get_reset_state(ITERATION_LIMIT_PROMPT, "max_iterations", state)
 
         # Taxonomy is a separate graph, so it dispatches its own messages
         reasoning_message = await self.get_reasoning_message(state)
         if reasoning_message:
             await self._write_message(reasoning_message)
-        
+
         tool_results = await self._toolkit.handle_tools(tools_metadata)
 
-        for action, _ in intermediate_steps:
+        tool_msgs = []
+        for action, _ in steps:
+            if action.log in invalid_tools:
+                continue
             tool_result = tool_results[action.log]
             tool_msg = LangchainToolMessage(
                 content=tool_result,
