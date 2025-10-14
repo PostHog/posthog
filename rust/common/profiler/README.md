@@ -71,7 +71,7 @@ $ go tool pprof -http=localhost:<PORT> profile.pb
 $ go tool pprof profile.pb
 
 # Include service binary for additional symbol translation (YMMV, can add this arg to any of the commands listed here)
-$ go tool posthog/rust/target/debug/kafka-deduplicator profile.pb
+$ go tool pprof posthog/rust/target/debug/kafka-deduplicator profile.pb
 
 # Open web browser with SVG image of profile report
 $ go tool pprof -web profile.pb
