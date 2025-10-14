@@ -1411,6 +1411,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
             actions.stopAnimation()
+            actions.pauseIframePlayback()
 
             cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
@@ -1559,13 +1560,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const audioElements = Array.from(iframeDocument.getElementsByTagName('audio'))
-            const videoElements = Array.from(iframeDocument.getElementsByTagName('video'))
+            const audioElements = Array.from(iframeDocument.getElementsByTagName('audio')) as HTMLAudioElement[]
+            const videoElements = Array.from(iframeDocument.getElementsByTagName('video')) as HTMLVideoElement[]
             const mediaElements: HTMLMediaElement[] = [...audioElements, ...videoElements]
             const playingElements = mediaElements.filter(isMediaElementPlaying)
 
-            playingElements.forEach((el) => el.pause())
-
+            mediaElements.forEach((el) => el.pause())
             cache.pausedMediaElements = values.endReached ? [] : playingElements
         },
         restartIframePlayback: () => {
