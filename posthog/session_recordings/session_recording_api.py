@@ -110,7 +110,7 @@ GATHER_RECORDING_SOURCES_HISTOGRAM = Histogram(
 STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
-    labelnames=["blob_version"],
+    labelnames=["blob_version", "decompress"],
 )
 
 LOADING_V1_LTS_COUNTER = Counter(
@@ -1358,17 +1358,21 @@ class SessionRecordingViewSet(
         blob_key: str,
         decompress: bool = True,
     ) -> HttpResponse:
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
             with (
                 tracer.start_as_current_span("list_blocks__stream_lts_blob_v2_to_client_async"),
             ):
                 posthoganalytics.tag("lts_v2_blob_key", blob_key)
-                content = await asyncio.to_thread(session_recording_v2_object_storage.client().fetch_file, blob_key)
+                storage_client = session_recording_v2_object_storage.client()
+                if decompress:
+                    content = await asyncio.to_thread(storage_client.fetch_file, blob_key)
+                else:
+                    content = await asyncio.to_thread(storage_client.fetch_file_bytes, blob_key)
 
             twenty_four_hours_in_seconds = 60 * 60 * 24
             response = HttpResponse(
                 content=content,
-                content_type="application/jsonl",
+                content_type="application/jsonl" if decompress else "application/octet-stream",
             )
             response["Cache-Control"] = f"max-age={twenty_four_hours_in_seconds}"
             response["Content-Disposition"] = "inline"
@@ -1437,6 +1441,7 @@ class SessionRecordingViewSet(
 
         return blocks_data
 
+    @tracer.start_as_current_span("_stream_decompressed_blocks")
     async def _stream_decompressed_blocks(
         self,
         recording: SessionRecording,
@@ -1468,6 +1473,7 @@ class SessionRecordingViewSet(
         response["Content-Disposition"] = "inline"
         return response
 
+    @tracer.start_as_current_span("_stream_compressed_blocks")
     async def _stream_compressed_blocks(
         self,
         recording: SessionRecording,
@@ -1514,7 +1520,7 @@ class SessionRecordingViewSet(
         max_blob_key: int,
         decompress: bool = True,
     ) -> HttpResponse:
-        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2", decompress=decompress).time():
             if decompress:
                 return await self._stream_decompressed_blocks(recording, timer, min_blob_key, max_blob_key)
             else:

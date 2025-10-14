@@ -51,6 +51,11 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def fetch_file_bytes(self, blob_key: str) -> bytes:
+        """Returns the compressed file as bytes or raises FileFetchError"""
+        pass
+
+    @abc.abstractmethod
     def fetch_block(self, block_url: str) -> str:
         """Returns the decompressed block or raises BlockFetchError"""
         pass
@@ -89,6 +94,9 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
         return False
 
     def fetch_file(self, blob_key: str) -> str:
+        raise FileFetchError("Storage not available")
+
+    def fetch_file_bytes(self, blob_key: str) -> bytes:
         raise FileFetchError("Storage not available")
 
     def fetch_block(self, block_url: str) -> str:
@@ -193,6 +201,24 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 s3_response=s3_response,
             )
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
+
+    def fetch_file_bytes(self, blob_key: str) -> bytes:
+        try:
+            kwargs = {
+                "Bucket": self.bucket,
+                "Key": blob_key,
+            }
+            s3_response = self.aws_client.get_object(**kwargs)
+            return s3_response["Body"].read()
+        except Exception as e:
+            posthoganalytics.tag("bucket", self.bucket)
+            logger.exception(
+                "session_recording_v2_object_storage.fetch_file_bytes_failed",
+                bucket=self.bucket,
+                file_name=blob_key,
+                error=e,
+            )
+            raise FileFetchError(f"Failed to read compressed file: {str(e)}")
 
     def _fetch_compressed_block(self, block_url: str) -> bytes:
         """Internal method to fetch and validate compressed block"""
