@@ -661,6 +661,9 @@
                     "$ref": "#/definitions/CohortPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/DraftCohortPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/RecordingPropertyFilter"
                 },
                 {
