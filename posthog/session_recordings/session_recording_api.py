@@ -2,6 +2,7 @@ import os
 import re
 import json
 import asyncio
+import builtins
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -1377,7 +1378,7 @@ class SessionRecordingViewSet(
         timer: ServerTimingsGathered,
         min_blob_key: int,
         max_blob_key: int,
-    ) -> list:
+    ) -> builtins.list[Any]:
         with (
             timer("list_blocks__stream_blob_v2_to_client"),
             tracer.start_as_current_span("list_blocks__stream_blob_v2_to_client"),
@@ -1501,7 +1502,6 @@ class SessionRecordingViewSet(
         )
         response["Cache-Control"] = "max-age=3600"
         response["Content-Disposition"] = "inline"
-        response["Content-Encoding"] = "snappy"
         return response
 
     async def _stream_blob_v2_to_client_async(
