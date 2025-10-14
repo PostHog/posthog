@@ -66,7 +66,7 @@ def get_sdk_versions_for_team(
         return dict(output)
     except Team.DoesNotExist:
         logger.exception(f"[SDK Doctor] Team {team_id} not found")
-        return None
+        return {}  # Safe to return empty dict, this is not an error
     except Exception as e:
         logger.exception(f"[SDK Doctor] Error querying events for team {team_id}")
         capture_exception(e)
