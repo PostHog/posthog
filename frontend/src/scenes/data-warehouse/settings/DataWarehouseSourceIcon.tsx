@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconWrench } from '@posthog/icons'
-import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -101,7 +100,7 @@ export function DataWarehouseSourceIcon({
     }, [availableSources, type])
 
     if (availableSourcesLoading || !availableSources) {
-        return <LemonSkeleton />
+        return null
     }
 
     if (!icon) {
