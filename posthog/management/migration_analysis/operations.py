@@ -1,9 +1,12 @@
 """Operation-specific analyzers for Django migration operations."""
 
+import re
+from typing import Any, Optional
+
 from django.db import models
 
 from posthog.management.migration_analysis.models import OperationRisk
-from posthog.management.migration_analysis.utils import VolatileFunctionDetector
+from posthog.management.migration_analysis.utils import VolatileFunctionDetector, check_drop_table_properly_staged
 
 # Base URL for migration safety documentation
 SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
@@ -272,7 +275,7 @@ class RunSQLAnalyzer(OperationAnalyzer):
     operation_type = "RunSQL"
     default_score = 2
 
-    def analyze(self, op) -> OperationRisk:
+    def analyze(self, op, migration: Optional[Any] = None, loader: Optional[Any] = None) -> OperationRisk:
         sql = str(op.sql).upper()
 
         # Check for CONCURRENTLY operations first (these are safe)
@@ -369,7 +372,44 @@ class RunSQLAnalyzer(OperationAnalyzer):
             )
 
         if "DROP" in sql:
-            # Check if using IF EXISTS for safer idempotent operations
+            # Special case: DROP TABLE IF EXISTS may be safe if following proper staging pattern
+            if "TABLE" in sql and "IF EXISTS" in sql:
+                # Extract table name from the DROP statement
+                table_name_match = re.search(r"DROP\s+TABLE\s+IF\s+EXISTS\s+([a-zA-Z0-9_]+)", sql)
+                if table_name_match and migration and loader:
+                    table_name = table_name_match.group(1).lower()
+
+                    # Check if properly staged (model removed from state in prior migration)
+                    if check_drop_table_properly_staged(table_name, migration, loader):
+                        return OperationRisk(
+                            type=self.operation_type,
+                            score=2,
+                            reason="DROP TABLE IF EXISTS - properly staged (prior state removal found)",
+                            details={"sql": sql, "table": table_name},
+                            guidance="""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed model from state.
+
+Remaining checklist:
+- Ensure all code references removed (API, models, imports)
+- Waited 1-2 weeks since state removal for safe rollback window
+- No other models reference this table via foreign keys""",
+                        )
+
+                # Not properly staged or can't validate
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=5,
+                    reason="DROP TABLE IF EXISTS - no prior state removal found",
+                    details={"sql": sql},
+                    guidance="""❌ **Missing state removal:** Could not find prior SeparateDatabaseAndState that removed this model.
+
+Safe pattern requires:
+1. Prior migration with SeparateDatabaseAndState removes model from Django state
+2. All code references removed (API, models, imports)
+3. Wait 1-2 weeks for deployment safety window
+4. Then DROP TABLE in later migration""",
+                )
+
+            # Check if using IF EXISTS for other DROP operations (safer but still dangerous)
             if "IF EXISTS" in sql:
                 return OperationRisk(
                     type=self.operation_type,
