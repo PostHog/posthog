@@ -734,7 +734,6 @@ class ErrorTrackingReleaseSerializer(serializers.ModelSerializer):
 class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingRelease.objects.all()
-    scope_object = "INTERNAL"
     scope_object_read_actions = ["list", "retrieve", "by_hash"]
     serializer_class = ErrorTrackingReleaseSerializer
 
