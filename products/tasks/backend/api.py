@@ -73,6 +73,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "progress_task",
             "set_branch",
             "attach_pr",
+            "run",
         ]
     }
 
@@ -154,12 +155,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Save the changes
         serializer.save()
 
-        # Check if current_stage changed and trigger workflow
         new_stage = serializer.validated_data.get("current_stage")
         new_status = new_stage.key if new_stage else "backlog"
         if new_status != previous_status:
             logger.info(f"Task {task.id} status changed from {previous_status} to {new_status}")
-            self._trigger_workflow(task)
         else:
             logger.info(f"Task {task.id} updated but status unchanged ({previous_status})")
 
@@ -211,9 +210,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         new_status = task.current_stage.key if task.current_stage else "backlog"
 
         logger.info(f"Task {task.id} stage updated from {previous_status} to {new_status}")
-
-        # Trigger Temporal workflow for background processing
-        self._trigger_workflow(task)
 
         return Response(TaskSerializer(task).data)
 
@@ -310,8 +306,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         updated = []
-        # Capture stage change events so we can trigger workflows after DB update
-        stage_change_events = []  # list of tuples: (task_id, previous_status, new_status)
         with transaction.atomic():
             for stage_key, id_list in columns.items():
                 # Find the stage for this key across all workflows
@@ -325,14 +319,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                     # Check if stage changed
                     if stage and task.current_stage != stage:
-                        previous_status = task.current_stage.key if task.current_stage else "backlog"
                         task.current_stage = stage
                         task.workflow = stage.workflow
-                        new_status = task.current_stage.key if task.current_stage else "backlog"
-
-                        # Record stage changes so we can trigger workflows after bulk update
-                        if previous_status != new_status:
-                            stage_change_events.append((str(task.id), previous_status, new_status))
                         task_needs_update = True
 
                     # Check if position changed
@@ -345,20 +333,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             if updated:
                 Task.objects.bulk_update(updated, ["current_stage", "workflow", "position"])
-
-        # Trigger Temporal workflows for any tasks whose stage changed
-        if stage_change_events:
-            for task_id, previous_status, new_status in stage_change_events:
-                try:
-                    execute_task_processing_workflow(
-                        task_id=str(task_id),
-                        team_id=task_by_id[str(task_id)].team.id,
-                        user_id=getattr(self.request.user, "id", None),
-                    )
-                except Exception:
-                    logging.exception(
-                        f"Failed to trigger task processing workflow for task {task_id}: {previous_status} -> {new_status}"
-                    )
 
         # Return serialized updated tasks
         serialized = TaskSerializer(updated, many=True, context=self.get_serializer_context()).data
@@ -511,7 +485,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload = TaskProgressTaskRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         provided_stage_id = payload.validated_data.get("next_stage_id")
-        auto = bool(payload.validated_data.get("auto", False))
 
         new_stage = None
         if provided_stage_id:
@@ -541,18 +514,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        previous_status = task.current_stage.key if task.current_stage else "backlog"
-
         task.current_stage = new_stage
         # Keep workflow aligned with stage if needed
         task.workflow = new_stage.workflow
         task.save(update_fields=["current_stage", "workflow", "updated_at"])
-
-        new_status = task.current_stage.key if task.current_stage else "backlog"
-
-        # Trigger background processing for the new stage
-        if previous_status != new_status or auto:
-            self._trigger_workflow(task)
 
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
@@ -609,6 +574,32 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             update_fields.append("github_branch")
 
         task.save(update_fields=update_fields)
+
+        return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        summary="Run task processing",
+        description="Kick off the workflow for the task in its current stage.",
+        request=None,
+        responses={
+            200: OpenApiResponse(response=TaskSerializer, description="Workflow started for task"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Task has no workflow configured"),
+            404: OpenApiResponse(description="Task not found"),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
+    def run(self, request, pk=None, **kwargs):
+        task = cast(Task, self.get_object())
+
+        if not task.effective_workflow:
+            return Response(
+                ErrorResponseSerializer({"error": "Task has no workflow configured"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        logger.info(f"Triggering workflow for task {task.id}")
+
+        self._trigger_workflow(task)
 
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 

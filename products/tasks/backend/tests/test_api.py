@@ -420,6 +420,40 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(len(data["progress_updates"]), 0)
         self.assertIn("server_time", data)
 
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_triggers_workflow(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_workflow.assert_called_once_with(
+            task_id=str(task.id),
+            team_id=task.team.id,
+            user_id=self.user.id,
+        )
+
+        data = response.json()
+        self.assertEqual(data["id"], str(task.id))
+        self.assertEqual(data["title"], task.title)
+
+    def test_run_endpoint_without_workflow_fails(self):
+        workflow = self.create_workflow()
+        stage = workflow.stages.first()
+
+        task = Task.objects.create(
+            team=self.team,
+            title="Task without workflow",
+            description="Test",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            current_stage=stage,
+            position=0,
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Task has no workflow configured")
+
 
 class TestTaskProgressAPI(BaseTaskAPITest):
     def test_progress_with_no_progress_records(self):
@@ -585,6 +619,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("/api/projects/@current/tasks/bulk_reorder/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/progress/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/progress_stream/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/run/", "POST"),
         ]
 
         for url, method in endpoints:
