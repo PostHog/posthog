@@ -40,7 +40,7 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
     name: str = "filter_error_tracking_issues"
     description: str = "Update the error tracking issue list, editing search query, property filters, date ranges, assignee and status filters."
     thinking_message: str = "Updating your error tracking filters..."
-    context_prompt_template: str = "Current issue filters are: {current_query}"
+    root_system_prompt_template: str = "Current issue filters are: {current_query}"
     args_schema: type[BaseModel] = UpdateIssueQueryArgs
 
     def _run_impl(self, change: str) -> tuple[str, ErrorTrackingIssueFilteringToolOutput]:
@@ -174,7 +174,9 @@ class ErrorTrackingIssueImpactTool(MaxTool):
     name: str = "find_error_tracking_impactful_issue_event_list"
     description: str = "Find a list of events that relate to a user query about issues. Prioritise this tool when a user specifically asks about issues or problems."
     thinking_message: str = "Finding related issues"
-    context_prompt_template: str = "The user wants to find a list of events whose occurrence may be impacted by issues."
+    root_system_prompt_template: str = (
+        "The user wants to find a list of events whose occurrence may be impacted by issues."
+    )
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 
     async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
