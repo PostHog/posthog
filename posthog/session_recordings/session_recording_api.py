@@ -2,7 +2,6 @@ import os
 import re
 import json
 import asyncio
-import builtins
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -124,6 +123,9 @@ LOADING_V2_LTS_COUNTER = Counter(
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+# Type alias to avoid shadowing by SessionRecordingViewSet.list method
+BlockList = list[Any]
 
 
 def _get_session_ids_from_comment_search(
@@ -1378,7 +1380,7 @@ class SessionRecordingViewSet(
         timer: ServerTimingsGathered,
         min_blob_key: int,
         max_blob_key: int,
-    ) -> builtins.list[Any]:
+    ) -> BlockList:
         with (
             timer("list_blocks__stream_blob_v2_to_client"),
             tracer.start_as_current_span("list_blocks__stream_blob_v2_to_client"),
