@@ -12,6 +12,10 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldT
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import ShopifySourceConfig
+from posthog.temporal.data_imports.sources.shopify.shopify import (
+    ShopifyPermissionError,
+    validate_credentials as validate_shopify_credentials,
+)
 from posthog.warehouse.types import ExternalDataSourceType
 
 
@@ -59,7 +63,15 @@ The simplest setup for permissions is to only allow **read** permissions for the
         )
 
     def validate_credentials(self, config: ShopifySourceConfig, team_id: int) -> tuple[bool, str | None]:
-        raise NotImplementedError()
+        try:
+            if validate_shopify_credentials(config.shopify_store_id, config.shopify_access_token):
+                return True, None
+            return False, "Invalid Shopify credentials"
+        except ShopifyPermissionError as e:
+            missing_resources = ", ".join(e.missing_permissions.keys())
+            return False, f"Shopify access token lacks permissions for {missing_resources}"
+        except Exception as e:
+            return False, str(e)
 
     def get_schemas(self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         raise NotImplementedError()

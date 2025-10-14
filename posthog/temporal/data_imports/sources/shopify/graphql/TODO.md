@@ -17,8 +17,9 @@ Each query should:
 
 ## Tasks
 
+- [x] **AbandonedCheckouts** - [Documentation](https://shopify.dev/docs/api/admin-graphql/latest/objects/abandonedcheckout)
 - [x] **Articles** - [Documentation](https://shopify.dev/docs/api/admin-graphql/latest/objects/article)
-- [x] **BalanceTransactions** - [Documentation](https://shopify.dev/docs/api/admin-graphql/2025-01/objects/ShopifyPaymentsBalanceTransaction)
+- [x] **ShopifyPaymentsBalanceTransactions** - [Documentation](https://shopify.dev/docs/api/admin-graphql/2025-01/objects/ShopifyPaymentsBalanceTransaction)
 - [ ] **Blogs** - [Documentation](https://shopify.dev/docs/api/admin-graphql/latest/objects/blog)
 - [ ] **Collections** - [Documentation](https://shopify.dev/docs/api/admin-graphql/latest/objects/collection)
 - [ ] **Collects** - [Documentation](https://shopify.dev/docs/api/admin-graphql/latest/objects/collect)

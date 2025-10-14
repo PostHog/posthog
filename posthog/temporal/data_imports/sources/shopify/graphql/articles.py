@@ -1,6 +1,6 @@
 ARTICLES_QUERY = """
-query PaginatedArticles($n: Int!, $cursor: String) {
-    articles(first: $n, after: $cursor) {
+query PaginatedArticles($pageSize: Int!, $cursor: String) {
+    articles(first: $pageSize, after: $cursor) {
         nodes {
             author {
                 name
@@ -12,7 +12,9 @@ query PaginatedArticles($n: Int!, $cursor: String) {
                 title
             }
             body
-            commentsCount
+            commentsCount(limit: null) {
+                count
+            }
             createdAt
             handle
             id

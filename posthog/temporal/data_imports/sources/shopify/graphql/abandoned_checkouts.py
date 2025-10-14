@@ -2,8 +2,8 @@ from .fragments import KV_FRAGMENT, MAILING_ADDRESS_FRAGMENT, MONEY_V2_FRAGMENT
 
 # NOTE: 250 is the max allowable query size for line items
 ABANDONED_CHECKOUTS_QUERY = f"""
-query PaginatedAbandonedCheckouts($n: Int!, $cursor: String) {{
-    abandonedCheckouts(first: $n, after: $cursor) {{
+query PaginatedAbandonedCheckouts($pageSize: Int!, $cursor: String) {{
+    abandonedCheckouts(first: $pageSize, after: $cursor) {{
         nodes {{
             abandonedCheckoutUrl
             billingAddress {MAILING_ADDRESS_FRAGMENT}
