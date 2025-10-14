@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 
+import { CRMUsageMetricsConfig } from 'scenes/settings/environment/CRMUsageMetricsConfig'
+
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind, UsageMetric, UsageMetricsQueryResponse } from '~/queries/schema/schema-general'
 
@@ -55,6 +57,14 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     )
 }
 
+const Settings = (): JSX.Element => {
+    return (
+        <div className="p-2">
+            <CRMUsageMetricsConfig />
+        </div>
+    )
+}
+
 type NotebookNodeUsageMetricsAttributes = {
     personId: string
 }
@@ -63,6 +73,8 @@ export const NotebookNodeUsageMetrics = createPostHogWidgetNode<NotebookNodeUsag
     nodeType: NotebookNodeType.UsageMetrics,
     titlePlaceholder: 'Usage',
     Component,
+    Settings,
+    settingsIcon: 'gear',
     resizeable: false,
     expandable: true,
     startExpanded: true,

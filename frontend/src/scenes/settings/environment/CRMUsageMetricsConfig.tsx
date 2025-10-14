@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { Form, capitalizeFirstLetter } from 'kea-forms'
+import { Form } from 'kea-forms'
 
-import { IconEllipsis, IconPlus } from '@posthog/icons'
+import { IconEllipsis, IconPlusSmall } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -17,11 +17,9 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter, EntityTypes, FilterType } from '~/types'
 
 import { UsageMetric, crmUsageMetricsConfigLogic } from './crmUsageMetricsConfigLogic'
@@ -280,43 +278,28 @@ function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element 
 }
 
 export function CRMUsageMetricsConfig(): JSX.Element {
-    const { isEditing, currentGroupTypeIndex, availableGroupTypes } = useValues(crmUsageMetricsConfigLogic)
-    const { setIsEditing, resetUsageMetric, setCurrentGroupTypeIndex } = useActions(crmUsageMetricsConfigLogic)
-    const { aggregationLabel } = useValues(groupsModel)
+    const { isEditing } = useValues(crmUsageMetricsConfigLogic)
+    const { setIsEditing, resetUsageMetric } = useActions(crmUsageMetricsConfigLogic)
 
     const handleAddMetric = (): void => {
         resetUsageMetric()
         setIsEditing(true)
     }
 
-    const tabs = availableGroupTypes.map((groupType) => ({
-        key: groupType.group_type_index.toString(),
-        label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-        content: (
-            <div className="flex flex-col gap-2">
+    return (
+        <>
+            <p>
+                Choose which events matter for each metric: API calls, feature adoption, session frequency, error rates
+                to identify expansion opportunities and churn risk based on real customer behavior.
+            </p>
+            <div className="flex flex-col gap-2 items-start">
                 {!isEditing && (
-                    <LemonButton onClick={handleAddMetric} icon={<IconPlus />}>
+                    <LemonButton onClick={handleAddMetric} icon={<IconPlusSmall />}>
                         Add metric
                     </LemonButton>
                 )}
                 {isEditing ? <CRMUsageMetricsForm /> : <CRMUsageMetricsTable />}
             </div>
-        ),
-    }))
-
-    if (availableGroupTypes.length === 0) {
-        return <div>No group types available</div>
-    }
-
-    return (
-        <>
-            Choose which events matter for each metric: API calls, feature adoption, session frequency, error rates to
-            identify expansion opportunities and churn risk based on real customer behavior.
-            <LemonTabs
-                activeKey={currentGroupTypeIndex.toString()}
-                onChange={(key) => setCurrentGroupTypeIndex(parseInt(key, 10))}
-                tabs={tabs}
-            />
         </>
     )
 }
