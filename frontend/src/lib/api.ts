@@ -3035,23 +3035,16 @@ const api = {
             params: SessionRecordingSnapshotParams,
             headers: Record<string, string> = {}
         ): Promise<string[] | Uint8Array> {
-            const DEBUG_VERSION_API = 'v19'
-            console.log(`[DEBUG API ${DEBUG_VERSION_API}] getSnapshots called with params:`, params)
-
             const response = await new ApiRequest()
                 .recording(recordingId)
                 .withAction('snapshots')
                 .withQueryString(params)
                 .getResponse({ headers })
 
-            console.log(`[DEBUG API ${DEBUG_VERSION_API}] Response content-type:`, response.headers.get('content-type'))
-
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
-            console.log(`[DEBUG API ${DEBUG_VERSION_API}] Received buffer size:`, contentBuffer.length, 'bytes')
 
             // If client requested uncompressed data (decompress=false), return binary data
             if (params.decompress === false) {
-                console.log(`[DEBUG API ${DEBUG_VERSION_API}] Returning compressed binary data (Uint8Array)`)
                 return contentBuffer
             }
 
@@ -3062,11 +3055,10 @@ const api = {
 
                 if (textLines) {
                     const lines = textLines.split('\n')
-                    console.log(`[DEBUG API ${DEBUG_VERSION_API}] Decoded as text, line count:`, lines.length)
                     return lines
                 }
             } catch (error) {
-                console.error(`[DEBUG API ${DEBUG_VERSION_API}] Failed to decode as text:`, error)
+                console.error('Failed to decode snapshot response as text:', error)
             }
             return []
         },
