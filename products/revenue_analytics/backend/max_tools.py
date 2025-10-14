@@ -65,7 +65,7 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
                 if tool_inputs:
                     for tool_input, tool_call_id in tool_inputs:
                         result = await self._retrieve_revenue_analytics_property_values(
-                            tool_input.arguments.property_key
+                            tool_input.arguments.property_key  # type: ignore
                         )
                         results[tool_call_id] = result
             else:

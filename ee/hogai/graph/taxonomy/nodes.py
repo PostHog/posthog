@@ -169,7 +169,7 @@ class TaxonomyAgentToolsNode(
 
     async def arun(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []
-        tools_metadata: dict[str, list[tuple[TaxonomyTool, str]]] = defaultdict(dict)
+        tools_metadata: dict[str, list[tuple[TaxonomyTool, str]]] = defaultdict(list)
         invalid_tools = []
         steps = []
 
@@ -202,8 +202,6 @@ class TaxonomyAgentToolsNode(
                     )
 
                 # For any other tool, collect metadata and prepare for result processing
-                if tool_input.name not in tools_metadata:
-                    tools_metadata[tool_input.name] = []
                 tools_metadata[tool_input.name].append((tool_input, action.log))
 
         # If we're still here, check if we've hit the iteration limit within this cycle
