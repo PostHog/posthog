@@ -2,7 +2,7 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconBolt, IconPlusSmall, IconWebhooks } from '@posthog/icons'
+import { IconBolt, IconClock, IconLeave, IconPlusSmall, IconTarget, IconWebhooks } from '@posthog/icons'
 import {
     LemonButton,
     LemonCollapse,
@@ -39,7 +39,11 @@ export function StepTriggerConfiguration({
 
     return (
         <>
-            <LemonField.Pure label="Trigger type" error={validationResult?.errors?.type}>
+            <span className="flex gap-1">
+                <IconBolt className="text-lg" />
+                <span className="text-md font-semibold">Trigger type</span>
+            </span>
+            <LemonField.Pure label="What causes this workflow to begin?" error={validationResult?.errors?.type}>
                 <LemonSelect
                     options={[
                         {
@@ -142,6 +146,8 @@ function StepTriggerConfigurationEvents({
                 />
             </LemonField.Pure>
 
+            <LemonDivider />
+            <FrequencySection />
             <LemonDivider />
             <ConversionGoalSection />
             <LemonDivider />
@@ -288,13 +294,124 @@ function StepTriggerConfigurationTrackingPixel({
     )
 }
 
+function FrequencySection(): JSX.Element {
+    const { setCampaignValue } = useActions(campaignLogic)
+    const { campaign } = useValues(campaignLogic)
+
+    return (
+        <div className="flex flex-col w-full py-2">
+            <span className="flex gap-1">
+                <IconClock className="text-lg" />
+                <span className="text-md font-semibold">Frequency</span>
+            </span>
+            <p>Limit how often users can enter this campaign</p>
+
+            <LemonField.Pure
+                label="Trigger options"
+                info={`
+                        You can configure the destination to only run once within a given time interval or until a certain number of events have been processed.
+                        This is useful for rate limiting the destination for example if you only want to receive one message per day.
+                    `}
+            >
+                <div className="flex flex-wrap gap-1 items-center">
+                    <LemonSelect
+                        options={[
+                            {
+                                value: null,
+                                label: 'Every time the trigger fires',
+                            },
+                            {
+                                value: '{person.id}',
+                                label: 'Once per person',
+                            },
+                        ]}
+                        value={campaign.trigger_masking?.hash ?? null}
+                        onChange={(val) =>
+                            setCampaignValue('trigger_masking', {
+                                hash: val,
+                                ttl: campaign.trigger_masking?.ttl ?? 60 * 30,
+                            })
+                        }
+                    />
+                    {campaign.trigger_masking?.hash ? (
+                        <>
+                            <div className="flex flex-wrap gap-1 items-center">
+                                <span>per</span>
+                                <LemonSelect
+                                    value={campaign.trigger_masking?.ttl}
+                                    onChange={(val) =>
+                                        setCampaignValue('trigger_masking', { ...campaign.trigger_masking, ttl: val })
+                                    }
+                                    options={[
+                                        {
+                                            value: null,
+                                            label: 'indefinitely',
+                                        },
+                                        {
+                                            value: 5 * 60,
+                                            label: '5 minutes',
+                                        },
+                                        {
+                                            value: 15 * 60,
+                                            label: '15 minutes',
+                                        },
+                                        {
+                                            value: 30 * 60,
+                                            label: '30 minutes',
+                                        },
+                                        {
+                                            value: 60 * 60,
+                                            label: '1 hour',
+                                        },
+                                        {
+                                            value: 2 * 60 * 60,
+                                            label: '2 hours',
+                                        },
+                                        {
+                                            value: 4 * 60 * 60,
+                                            label: '4 hours',
+                                        },
+                                        {
+                                            value: 8 * 60 * 60,
+                                            label: '8 hours',
+                                        },
+                                        {
+                                            value: 12 * 60 * 60,
+                                            label: '12 hours',
+                                        },
+                                        {
+                                            value: 24 * 60 * 60,
+                                            label: '24 hours',
+                                        },
+                                        {
+                                            value: 24 * 60 * 60 * 7,
+                                            label: '7 days',
+                                        },
+                                        { value: 24 * 60 * 60 * 30, label: '30 days' },
+                                        { value: 24 * 60 * 60 * 90, label: '90 days' },
+                                        { value: 24 * 60 * 60 * 180, label: '180 days' },
+                                        { value: 24 * 60 * 60 * 365, label: '365 days' },
+                                    ]}
+                                />
+                            </div>
+                        </>
+                    ) : null}
+                </div>
+            </LemonField.Pure>
+        </div>
+    )
+}
+
 function ConversionGoalSection(): JSX.Element {
     const { setCampaignValue } = useActions(campaignLogic)
     const { campaign } = useValues(campaignLogic)
 
     return (
         <div className="flex flex-col py-2 w-full">
-            <span className="text-md font-semibold">Conversion goal (optional)</span>
+            <span className="flex gap-1">
+                <IconTarget className="text-lg" />
+                <span className="text-md font-semibold">Conversion goal (optional)</span>
+            </span>
             <p>Define what a user must do to be considered converted.</p>
 
             <div className="flex gap-1 max-w-240">
@@ -367,7 +484,10 @@ function ExitConditionSection(): JSX.Element {
 
     return (
         <div className="flex flex-col flex-1 w-full py-2">
-            <span className="text-md font-semibold">Exit condition</span>
+            <span className="flex gap-1">
+                <IconLeave className="text-lg" />
+                <span className="text-md font-semibold">Exit condition</span>
+            </span>
             <p>Choose how your users move through the campaign.</p>
 
             <LemonField.Pure>

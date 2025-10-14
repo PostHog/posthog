@@ -163,11 +163,12 @@ export const HogFlowSchema = z.object({
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
     trigger: HogFlowTriggerSchema,
+    // Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
     trigger_masking: z
         .object({
             ttl: z.number().nullable(),
             hash: z.string(),
-            bytecode: z.any(),
+            bytecode: z.array(z.union([z.string(), z.number()])),
             threshold: z.number().nullable(),
         })
         .optional()
