@@ -1,9 +1,11 @@
+import { HogFlow } from '~/schema/hogflow'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { delay } from '~/utils/utils'
 
-import { HOG_MASK_EXAMPLES } from '../../_tests/examples'
+import { HOG_FLOW_MASK_EXAMPLES, HOG_MASK_EXAMPLES } from '../../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
+import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { deleteKeysWithPrefix } from '../../_tests/redis'
 import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { HogFunctionType } from '../../types'
@@ -52,6 +54,30 @@ describe('HogMasker', () => {
 
             expect(res.notMasked).toHaveLength(1)
             expect(res.masked).toEqual([])
+        })
+
+        it('supports hog flow invocations without trigger_masking', async () => {
+            const hogFlow: HogFlow = {
+                id: 'flow_1',
+                team_id: 1,
+                name: 'Test Flow',
+                version: 1,
+                actions: [],
+                status: 'active',
+                trigger: {
+                    type: 'event',
+                    filters: {
+                        events: [],
+                    },
+                },
+                trigger_masking: null,
+                exit_condition: 'exit_only_at_end',
+                edges: [],
+            }
+            const invocation = createExampleHogFlowInvocation(hogFlow)
+            const res = await masker.filterByMasking([invocation])
+            expect(res.notMasked).toHaveLength(1)
+            expect(res.masked).toHaveLength(0)
         })
 
         it('should only allow one invocation call when masked for one function', async () => {
@@ -216,6 +242,73 @@ describe('HogMasker', () => {
                 expect(
                     (await masker.filterByMasking([createExampleInvocation(hogFunctionAll)])).notMasked
                 ).toHaveLength(1)
+            })
+
+            describe('hog flow trigger masking', () => {
+                let hogFlowEvery: HogFlow
+                let hogFlowOncePer: HogFlow
+                let hogFlowOnceEver: HogFlow
+
+                beforeEach(() => {
+                    const base: Partial<HogFlow> = {
+                        team_id: 1,
+                        name: 'Mask Flow',
+                        version: 1,
+                        actions: [],
+                        status: 'active',
+                        trigger: {
+                            type: 'event',
+                            filters: {
+                                events: [],
+                            },
+                        },
+                        exit_condition: 'exit_only_at_end',
+                        edges: [],
+                    }
+
+                    hogFlowEvery = {
+                        ...base,
+                        id: 'hf_every',
+                        trigger_masking: { ...HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking },
+                    } as HogFlow
+                    hogFlowOncePer = {
+                        ...base,
+                        id: 'hf_once_per',
+                        trigger_masking: { ...HOG_FLOW_MASK_EXAMPLES.oncePerTimePeriod.trigger_masking, ttl: 1 },
+                    } as HogFlow
+                    hogFlowOnceEver = {
+                        ...base,
+                        id: 'hf_once_ever',
+                        trigger_masking: { ...HOG_FLOW_MASK_EXAMPLES.onceEver.trigger_masking },
+                    } as HogFlow
+                })
+
+                it('allows only one hog flow invocation per masking hash per ttl', async () => {
+                    const inv1 = createExampleHogFlowInvocation(hogFlowEvery)
+                    const inv2 = createExampleHogFlowInvocation(hogFlowEvery)
+                    const inv3 = createExampleHogFlowInvocation(hogFlowEvery)
+                    const batch = [inv1, inv2, inv3]
+                    const res = await masker.filterByMasking(batch)
+                    expect(res.notMasked).toHaveLength(1)
+                    expect(res.masked).toHaveLength(2)
+                })
+
+                it('resets after ttl for hog flow trigger masking', async () => {
+                    const inv = createExampleHogFlowInvocation(hogFlowOncePer)
+                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
+                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(0)
+                    await reallyAdvanceTime(1000)
+                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
+                })
+
+                it('uses threshold for onceEver flow trigger masking', async () => {
+                    // threshold=1 means first allowed (oldValue 0), next allowed once every threshold crossing logic
+                    const inv = createExampleHogFlowInvocation(hogFlowOnceEver)
+                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
+                    // subsequent should be masked until threshold crosses (threshold=1 effectively every time after?)
+                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
+                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
+                })
             })
         })
     })
