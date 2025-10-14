@@ -54,6 +54,7 @@ ffmpeg.pkg-path = "ffmpeg"
 DEBUG = "1"
 POSTHOG_SKIP_MIGRATION_CHECKS = "1"
 DIRENV_LOG_FORMAT = "" # Disable direnv activation logging (in case direnv is present)
+RUST_LOG = "flox=error,flox_rust_sdk=error,flox_watchdog=error" # Suppress Flox logs only (also set in .envrc for early activation)
 OPENSSL_ROOT_DIR = "$FLOX_ENV"
 OPENSSL_LIB_DIR = "$FLOX_ENV/lib"
 DOTENV_FILE = ".env"
