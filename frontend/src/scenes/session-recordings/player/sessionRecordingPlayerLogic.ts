@@ -695,7 +695,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isMuted: [
-            true, // Default to muted
+            false,
             {
                 setMuted: (_, { muted }) => muted,
             },
