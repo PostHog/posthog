@@ -256,9 +256,22 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: BatchExportDestination) -> dict:
         data = super().to_representation(instance)
-        data["config"] = {
-            k: v for k, v in data["config"].items() if k not in BatchExportDestination.secret_fields[instance.type]
-        }
+
+        def remove_secret_fields_recursive(d: dict[str, typing.Any]):
+            target = {}
+
+            for k, v in d.items():
+                if k in BatchExportDestination.secret_fields[instance.type]:
+                    continue
+                elif isinstance(v, dict):
+                    target[k] = remove_secret_fields_recursive(v)
+                else:
+                    target[k] = v
+
+            return target
+
+        data["config"] = remove_secret_fields_recursive(data["config"])
+
         return data
 
 
