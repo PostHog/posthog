@@ -33,12 +33,26 @@ This guide explains how to safely perform dangerous Django migration operations 
 
 Deploy table drops in separate phases with safety delays:
 
-**Step 1: Remove model from Django state**
+**Step 1: Remove model and all references (single PR)**
 
-Remove the model from Django's state using `SeparateDatabaseAndState` to prevent `makemigrations` from trying to recreate it:
+In one PR, remove the model and all code that references it:
+
+1. Remove all application code that uses the model:
+    - Delete imports of the model
+    - Remove API endpoints, views, serializers
+    - Remove business logic that queries or writes to it
+    - Remove references in background jobs, async workers (Celery, plugins), cron tasks
+
+2. Delete the model class from `models.py`
+
+3. Run `makemigrations` - Django will generate a `DeleteModel` operation
+
+4. Wrap the generated migration in `SeparateDatabaseAndState` to only affect Django's state, not the database:
 
 ```python
 class Migration(migrations.Migration):
+    dependencies = []
+
     operations = [
         migrations.SeparateDatabaseAndState(
             state_operations=[
@@ -55,32 +69,22 @@ class Migration(migrations.Migration):
     ]
 ```
 
-Deploy this change.
+5. Deploy this PR and verify no errors in production
 
-**Test infrastructure note:** If your table has foreign keys pointing TO frequently-truncated tables like `User`, `Team`, or `Organization`, you may see test failures like `cannot truncate a table referenced in a foreign key constraint`. This happens because Django's `TransactionTestCase` uses `TRUNCATE` to clean up between tests, but PostgreSQL won't truncate a table that has FKs pointing to it. Since the model is removed from Django's state, Django doesn't know to include it in the truncate list. Fix this by dropping the FK constraints in `database_operations` (see commented example above) - you're dropping the table soon anyway.
+**Test infrastructure note:** If your table has foreign keys pointing TO frequently-truncated tables like `User`, `Team`, or `Organization`, you may see test failures like `cannot truncate a table referenced in a foreign key constraint`. This happens because:
 
-**Step 2: Remove all code references**
+- Django's `TransactionTestCase` uses `TRUNCATE` to clean up between tests
+- PostgreSQL won't truncate a table that has FKs pointing to it
+- Since the model is removed from Django's state, Django doesn't know to include it in the truncate list
+- Fix: Drop the FK constraints in `database_operations` (see commented example above) - you're dropping the table soon anyway
 
-- Remove all application code that reads from or writes to the table
-- Ensure background jobs, async workers (Celery, plugins), and cron tasks don't reference it
-- Deploy and verify no errors
-- Monitor for unexpected references:
-
-    ```bash
-    # Search codebase for references
-    grep -R "OldFeature" posthog/ || echo "✅ no references found"
-
-    # Watch logs for database errors
-    # Look for: ProgrammingError: relation does not exist
-    ```
-
-**Step 3: Wait for safety window**
+**Step 2: Wait for safety window**
 
 - Wait at least one full deployment cycle
 - This ensures no rollback or hotfix can reintroduce code that expects the table
 - Allows all application servers, workers, and background jobs to roll over
 
-**Step 4: Drop the table (optional)**
+**Step 3: Drop the table (optional)**
 
 - Safe to leave unused tables temporarily, but long-term they can clutter schema introspection and slow migrations
 - Ensure no other models reference this table via foreign keys before dropping (Django won't cascade automatically)
@@ -102,8 +106,13 @@ class Migration(migrations.Migration):
     ]
 
 # ✅ SAFE - Multi-phase approach with SeparateDatabaseAndState
-# Step 1: Remove model from Django state (deploy this)
+# Step 1: Remove model and all references (deploy this in one PR)
+#   - Delete all code that imports/uses OldFeature
+#   - Delete OldFeature class from models.py
+#   - Run makemigrations and wrap in SeparateDatabaseAndState
 class Migration(migrations.Migration):
+    dependencies = []
+
     operations = [
         migrations.SeparateDatabaseAndState(
             state_operations=[
@@ -118,6 +127,8 @@ class Migration(migrations.Migration):
 
 # Step 2: Much later (weeks), optionally drop the table
 class Migration(migrations.Migration):
+    dependencies = []
+
     operations = [
         migrations.RunSQL(
             sql="DROP TABLE IF EXISTS posthog_oldfeature",
@@ -134,7 +145,7 @@ class Migration(migrations.Migration):
 
 Use the same multi-phase pattern as [Dropping Tables](#dropping-tables):
 
-1. Remove the field from your Django model
+1. Remove the field from your Django model (keeps column in database)
 2. Deploy and verify no code references it (application servers, workers, background jobs)
 3. Wait at least one full deployment cycle
 4. Optionally drop the column with `RemoveField` in a later migration
