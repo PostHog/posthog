@@ -1034,6 +1034,10 @@ export class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
+    public githubSearch(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('github_search')
+    }
+
     public errorTrackingStackFrames(): ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
@@ -2972,6 +2976,16 @@ const api = {
             issueId: ErrorTrackingIssue['id']
         ): Promise<Array<{ id: string; title: string; description: string }>> {
             return await new ApiRequest().errorTrackingSimilarIssues(issueId).get()
+        },
+    },
+
+    githubSearch: {
+        async search(
+            owner: string,
+            repository: string,
+            query: string
+        ): Promise<{ found: boolean; url?: string; path?: string; repository?: string; error?: string }> {
+            return await new ApiRequest().githubSearch().create({ data: { owner, repository, query } })
         },
     },
 
