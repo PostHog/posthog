@@ -335,6 +335,10 @@ export const logsLogic = kea<logsLogicType>([
             const dateFrom = dates[startIndex]
             const dateTo = dates[endIndex]
 
+            if (!dateFrom || !dateTo) {
+                return
+            }
+
             // NOTE: I don't know how accurate this really is but its a good starting point
             const newDateRange = {
                 date_from: dateFrom,

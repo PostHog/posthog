@@ -236,7 +236,7 @@ export function Sparkline({
         () => {
             setIsDragging(false)
 
-            if (!isDragging || !toolTipDataPoints.length || !dragStartRef.current) {
+            if (!onSelectionChange || !isDragging || !toolTipDataPoints.length || !dragStartRef.current) {
                 return
             }
 
@@ -249,11 +249,14 @@ export function Sparkline({
             }
 
             if (startIndex !== endIndex) {
-                onSelectionChange?.({ startIndex, endIndex: toolTipDataPoints[0].dataIndex })
+                onSelectionChange({
+                    startIndex: Math.min(startIndex, endIndex),
+                    endIndex: Math.max(startIndex, endIndex),
+                })
             }
         },
         window,
-        [isDragging]
+        [isDragging, onSelectionChange]
     )
 
     const onMouseDown = (): void => {
