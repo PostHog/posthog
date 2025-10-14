@@ -1,16 +1,44 @@
-import { ReplayPlugin } from '@posthog/rrweb'
+import { ReplayPlugin, Replayer } from '@posthog/rrweb'
 import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
 
 export const AudioMuteReplayerPlugin = (isMuted: boolean): ReplayPlugin => {
+    const applyMuteToMediaElement = (element: HTMLElement): void => {
+        const mediaElement = element as HTMLMediaElement
+
+        if (isMuted) {
+            element.setAttribute('muted', 'true')
+            mediaElement.muted = true
+
+            // Pause if it's playing
+            if (!mediaElement.paused) {
+                mediaElement.pause()
+            }
+
+            // Add event listeners to maintain mute state
+            mediaElement.addEventListener('play', () => {
+                mediaElement.muted = true
+            })
+
+            mediaElement.addEventListener('volumechange', () => {
+                if (!mediaElement.muted) {
+                    mediaElement.muted = true
+                }
+            })
+        } else {
+            element.removeAttribute('muted')
+            mediaElement.muted = false
+        }
+    }
+
     const applyMuteToElement = (element: HTMLElement): void => {
-        if (element.tagName === 'AUDIO' || element.tagName === 'VIDEO') {
-            ;(element as HTMLMediaElement).muted = isMuted
+        if (element.nodeName === 'AUDIO' || element.nodeName === 'VIDEO') {
+            applyMuteToMediaElement(element)
         }
 
         // Also check for nested media elements
         const mediaElements = element.querySelectorAll('audio, video')
         mediaElements.forEach((media) => {
-            ;(media as HTMLMediaElement).muted = isMuted
+            applyMuteToMediaElement(media as HTMLElement)
         })
     }
 
@@ -24,7 +52,7 @@ export const AudioMuteReplayerPlugin = (isMuted: boolean): ReplayPlugin => {
             applyMuteToElement(element)
         },
 
-        handler: (e: eventWithTime, _isSync: boolean, { replayer }) => {
+        handler: (e: eventWithTime, _isSync: boolean, { replayer }: { replayer: Replayer }) => {
             // Handle DOM mutations that might add new media elements
             if (e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.Mutation) {
                 // Apply mute state to any newly added nodes
