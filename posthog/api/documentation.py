@@ -39,10 +39,16 @@ class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
             if isinstance(permission, APIScopePermission):
                 try:
                     scopes = permission._get_required_scopes(request, view)
-                    return [{self.name: scopes}]
+                    if scopes:
+                        return [{self.name: scopes}]
+                    else:
+                        return []
                 except (PermissionDenied, ImproperlyConfigured):
                     # NOTE: This should never happen - it indicates that we shouldn't be including it in the docs
                     pass
+
+        # Return empty array if no scopes found
+        return []
 
     def get_security_definition(self, auto_schema):
         return {"type": "http", "scheme": "bearer"}
@@ -250,7 +256,7 @@ def custom_postprocessing_hook(result, generator, request, public):
             paths[path][method] = definition
     return {
         **result,
-        "info": {"title": "PostHog API", "version": None, "description": ""},
+        "info": {"title": "PostHog API", "version": "1.0.0", "description": ""},
         "paths": paths,
         "x-tagGroups": [{"name": "All endpoints", "tags": sorted(set(all_tags))}],
     }
