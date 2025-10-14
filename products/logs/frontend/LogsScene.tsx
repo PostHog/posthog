@@ -2,11 +2,12 @@ import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
+import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
     LemonSegmentedButton,
+    LemonSelect,
     LemonTable,
     LemonTag,
     LemonTagType,
@@ -14,7 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
-import { TZLabel } from 'lib/components/TZLabel'
+import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -38,7 +39,7 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparklineData, logsLoading, sparklineLoading } = useValues(logsLogic)
+    const { wrapBody, logs, sparklineData, logsLoading, sparklineLoading, timestampFormat } = useValues(logsLogic)
     const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
 
     useEffect(() => {
@@ -48,6 +49,14 @@ export function LogsScene(): JSX.Element {
     const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
         setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
     }
+
+    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> =
+        timestampFormat === 'absolute'
+            ? {
+                  formatDate: 'MMM DD,YYYY',
+                  formatTime: 'HH:mm',
+              }
+            : {}
 
     return (
         <SceneContent className="h-screen">
@@ -89,7 +98,7 @@ export function LogsScene(): JSX.Element {
                             key: 'timestamp',
                             dataIndex: 'timestamp',
                             width: 0,
-                            render: (timestamp) => <TZLabel time={(timestamp as string) + 'Z'} />,
+                            render: (timestamp) => <TZLabel time={timestamp} {...tzLabelFormat} />,
                         },
                         {
                             title: 'Level',
@@ -250,11 +259,11 @@ const Filters = (): JSX.Element => {
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody } = useActions(logsLogic)
+    const { orderBy, wrapBody, timestampFormat } = useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setTimestampFormat } = useActions(logsLogic)
 
     return (
-        <div className="flex gap-x-2">
+        <div className="flex gap-2">
             <LemonSegmentedButton
                 value={orderBy}
                 onChange={setOrderBy}
@@ -271,6 +280,17 @@ const DisplayOptions = (): JSX.Element => {
                 size="small"
             />
             <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
+            <LemonSelect
+                value={timestampFormat}
+                icon={<IconClock />}
+                onChange={(value) => setTimestampFormat(value)}
+                size="small"
+                type="secondary"
+                options={[
+                    { value: 'absolute', label: 'Absolute' },
+                    { value: 'relative', label: 'Relative' },
+                ]}
+            />
         </div>
     )
 }
