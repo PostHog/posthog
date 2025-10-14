@@ -30,11 +30,12 @@ from posthog.models import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
-from posthog.models.error_tracking import ErrorTrackingIssueAssignment
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.user_permissions import UserPermissions
+
+from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 
 logger = structlog.get_logger(__name__)
 
