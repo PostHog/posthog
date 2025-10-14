@@ -510,10 +510,10 @@ mod test {
         assert_eq!(props.unwrap().exception_list.len(), 0);
 
         let raw: &'static str = r#"{
-                    "$exception_list": [{
-                        "type": "UnhandledRejection"
-                    }]
-                }"#;
+            "$exception_list": [{
+                "type": "UnhandledRejection"
+            }]
+        }"#;
 
         let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
         assert!(props.is_err());
