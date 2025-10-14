@@ -1,5 +1,8 @@
+from datetime import timedelta
+
 from django.db import connection
-from django.db.models import Sum
+from django.db.models import Count, Q, Sum
+from django.utils import timezone
 
 import structlog
 from dateutil import parser
@@ -178,3 +181,111 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "previous": prev_url,
             }
         )
+
+    @action(methods=["GET"], detail=False)
+    def job_stats(self, request: Request, **kwargs) -> Response:
+        """
+        Returns success and failed job statistics for the last 1, 7, or 30 days.
+        Query parameter 'days' can be 1, 7, or 30 (default: 7).
+        """
+        try:
+            days = int(request.GET.get("days", 7))
+            if days not in [1, 7, 30]:
+                return Response(
+                    {"error": "Invalid days parameter. Must be 1, 7, or 30."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except (ValueError, TypeError):
+            return Response({"error": "Invalid days parameter"}, status=status.HTTP_400_BAD_REQUEST)
+
+        cutoff_time = timezone.now() - timedelta(days=days)
+
+        try:
+            external_jobs = ExternalDataJob.objects.filter(team_id=self.team_id, created_at__gte=cutoff_time)
+
+            external_stats = external_jobs.aggregate(
+                total=Count("id"),
+                successful=Count("id", filter=Q(status="Completed")),
+                failed=Count("id", filter=Q(status__in=["Failed", "Error"])),
+            )
+
+            modeling_jobs = DataModelingJob.objects.filter(team_id=self.team_id, created_at__gte=cutoff_time)
+
+            modeling_stats = modeling_jobs.aggregate(
+                total=Count("id"),
+                successful=Count("id", filter=Q(status="Completed")),
+                failed=Count("id", filter=Q(status__in=["Failed", "Error"])),
+            )
+
+            total_jobs = external_stats["total"] + modeling_stats["total"]
+            total_successful = external_stats["successful"] + modeling_stats["successful"]
+            total_failed = external_stats["failed"] + modeling_stats["failed"]
+
+            breakdown = {}
+            if days == 1:
+                for i in range(24):
+                    hour_start = timezone.now().replace(minute=0, second=0, microsecond=0) - timedelta(hours=i)
+                    hour_end = hour_start + timedelta(hours=1)
+
+                    hour_external = external_jobs.filter(created_at__gte=hour_start, created_at__lt=hour_end).aggregate(
+                        successful=Count("id", filter=Q(status="Completed")),
+                        failed=Count("id", filter=Q(status__in=["Failed", "Error"])),
+                    )
+
+                    hour_modeling = modeling_jobs.filter(created_at__gte=hour_start, created_at__lt=hour_end).aggregate(
+                        successful=Count("id", filter=Q(status="Completed")),
+                        failed=Count("id", filter=Q(status__in=["Failed", "Error"])),
+                    )
+
+                    breakdown[hour_start.isoformat()] = {
+                        "successful": hour_external["successful"] + hour_modeling["successful"],
+                        "failed": hour_external["failed"] + hour_modeling["failed"],
+                    }
+            else:
+                for i in range(days):
+                    date = (timezone.now() - timedelta(days=i)).date()
+                    day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
+                    day_end = day_start + timedelta(days=1)
+
+                    day_external = external_jobs.filter(created_at__gte=day_start, created_at__lt=day_end).aggregate(
+                        successful=Count("id", filter=Q(status="Completed")),
+                        failed=Count("id", filter=Q(status__in=["Failed", "Error"])),
+                    )
+
+                    day_modeling = modeling_jobs.filter(created_at__gte=day_start, created_at__lt=day_end).aggregate(
+                        successful=Count("id", filter=Q(status="Completed")),
+                        failed=Count("id", filter=Q(status__in=["Failed", "Error"])),
+                    )
+
+                    breakdown[str(date)] = {
+                        "successful": day_external["successful"] + day_modeling["successful"],
+                        "failed": day_external["failed"] + day_modeling["failed"],
+                    }
+
+            return Response(
+                {
+                    "days": days,
+                    "cutoff_time": cutoff_time,
+                    "total_jobs": total_jobs,
+                    "successful_jobs": total_successful,
+                    "failed_jobs": total_failed,
+                    "external_data_jobs": {
+                        "total": external_stats["total"],
+                        "successful": external_stats["successful"],
+                        "failed": external_stats["failed"],
+                    },
+                    "modeling_jobs": {
+                        "total": modeling_stats["total"],
+                        "successful": modeling_stats["successful"],
+                        "failed": modeling_stats["failed"],
+                    },
+                    "breakdown": breakdown,
+                }
+            )
+
+        except Exception as e:
+            logger.exception("Error retrieving job statistics", exc_info=e)
+            return Response(
+                {"error": "An error occurred retrieving job statistics"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

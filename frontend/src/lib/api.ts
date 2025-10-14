@@ -3654,6 +3654,37 @@ const api = {
                 .withQueryString({ limit: options?.limit, offset: options?.offset })
                 .get(options)
         },
+
+        async jobStats(options?: ApiMethodOptions & { days?: 1 | 7 | 30 }): Promise<{
+            days: number
+            cutoff_time: string
+            total_jobs: number
+            successful_jobs: number
+            failed_jobs: number
+            external_data_jobs: {
+                total: number
+                successful: number
+                failed: number
+            }
+            modeling_jobs: {
+                total: number
+                successful: number
+                failed: number
+            }
+            breakdown: Record<
+                string,
+                {
+                    successful: number
+                    failed: number
+                }
+            >
+        }> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('job_stats')
+                .withQueryString({ days: options?.days })
+                .get(options)
+        },
     },
 
     externalDataSchemas: {
