@@ -47,7 +47,7 @@ import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverla
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
-import { AudioMuteReplayerPlugin } from './rrweb/audio-mute-plugin'
+import { AudioMuteReplayerPlugin } from './rrweb/audio/audio-mute-plugin'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { snapshotDataLogic } from './snapshotDataLogic'
