@@ -9,7 +9,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricGoal, FunnelConversionWindowTimeUnit, StepOrderValue } from '~/types'
 
-import { getMetricChanges } from './metric-change-descriptions'
+import { getMetricChanges } from './metricChangeDescriptions'
 
 describe('metric-change-descriptions', () => {
     // Helper factory functions to create test metrics

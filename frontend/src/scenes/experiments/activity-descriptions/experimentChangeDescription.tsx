@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment, ExperimentConclusion } from '~/types'
 
-import { getMetricChanges } from './metric-change-descriptions'
+import { getMetricChanges } from './metricChangeDescriptions'
 
 const ExperimentConclusionTag = ({ conclusion }: { conclusion: ExperimentConclusion }): JSX.Element => (
     <div className="font-semibold inline-flex items-center gap-2">
