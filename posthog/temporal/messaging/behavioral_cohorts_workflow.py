@@ -188,6 +188,7 @@ def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> Coh
         raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
 
     with HeartbeaterSync(logger=logger):
+        memberships = []
         for idx, condition_data in enumerate(inputs.conditions, 1):
             team_id = condition_data["team_id"]
             cohort_id = condition_data["cohort_id"]
@@ -203,7 +204,6 @@ def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> Coh
                 )
 
             query = """
-                INSERT INTO cohort_membership_changed (team_id, cohort_id, person_id, last_updated, status)
                 SELECT
                     COALESCE(bcm.team_id, cmc.team_id) as team_id,
                     COALESCE(bcm.cohort_id, cmc.cohort_id) as cohort_id,
@@ -259,7 +259,7 @@ def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> Coh
                     product=Product.MESSAGING,
                     query_type="get_cohort_memberships_batch",
                 ):
-                    sync_execute(
+                    results = sync_execute(
                         query,
                         {
                             "team_id": team_id,
@@ -271,6 +271,28 @@ def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> Coh
                         ch_user=ClickHouseUser.COHORTS,
                         workload=Workload.OFFLINE,
                     )
+
+                    # TODO: We'll need to stream the query results to avoid memory issues:
+                    # https://clickhouse.com/docs/integrations/language-clients/python/advanced-querying
+                    # To test the producer let's go first with a simple approach
+                    memberships = [
+                        *memberships,
+                        *(
+                            {
+                                "team_id": row[0],
+                                "cohort_id": row[1],
+                                "person_id": row[2],
+                                "last_updated": row[3],
+                                "status": row[4],
+                            }
+                            for row in results
+                        ),
+                    ]
+
+                    if memberships % 100_000 == 0:
+                        logger.info(f"Processed {len(memberships)} memberships. Flushing to Kafka...")
+                        # TODO: Flush to Kafka
+                        memberships = []
 
             except Exception as e:
                 logger.exception(
