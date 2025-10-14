@@ -185,7 +185,16 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         proposedUrlTrigger: {
             defaults: { url: '', matching: 'regex' } as SessionReplayUrlTriggerConfig,
             errors: ({ url }) => ({
-                url: !url ? 'Must have a URL' : undefined,
+                url: !url
+                    ? 'Must have a URL'
+                    : (() => {
+                          try {
+                              new RegExp(url)
+                              return undefined
+                          } catch {
+                              return 'Invalid regex pattern'
+                          }
+                      })(),
             }),
             submit: async ({ url, matching }) => {
                 if (values.editUrlTriggerIndex !== null && values.editUrlTriggerIndex >= 0) {
