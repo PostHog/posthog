@@ -6,10 +6,10 @@ from typing import Any, Literal, Optional
 import dagster
 import structlog
 
-from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
@@ -20,6 +20,24 @@ default_logger = structlog.get_logger(__name__)
 
 CACHE_EXPIRY = 60 * 60 * 24 * 3  # 3 days
 BATCH_SIZE = 1000
+
+QUERY = parse_select("""
+    SELECT
+        properties.$lib AS lib,
+        properties.$lib_version AS lib_version,
+        MAX(timestamp) AS max_timestamp,
+        COUNT(*) AS event_count
+    FROM events
+    WHERE
+        timestamp >= now() - INTERVAL 7 DAY
+        AND lib IS NOT NULL
+        AND lib_version IS NOT NULL
+    GROUP BY lib, lib_version
+    ORDER BY
+        lib,
+        sortableSemVer(lib_version) DESC,
+        event_count DESC
+""")
 
 
 def get_sdk_versions_for_team(
@@ -33,31 +51,11 @@ def get_sdk_versions_for_team(
     """
     try:
         team = Team.objects.get(id=team_id)
-
-        # TODO: Extract the semVer sorting below to either a Clickhouse UDF/HogQL function.
-        # Source: https://clickhouse.com/blog/semantic-versioning-udf
-        query = parse_select(
-            """
-                SELECT
-                    properties.$lib AS lib,
-                    properties.$lib_version AS lib_version,
-                    MAX(timestamp) AS max_timestamp,
-                    COUNT(*) AS event_count
-                FROM events
-                WHERE
-                    timestamp >= now() - INTERVAL 7 DAY
-                    AND lib IS NOT NULL
-                    AND lib_version IS NOT NULL
-                GROUP BY lib, lib_version
-                ORDER BY
-                    lib,
-                    arrayMap(x -> toIntOrZero(x),  splitByChar('.', extract(assumeNotNull(lib_version), {regex}))) DESC,
-                    event_count DESC
-            """,
-            placeholders={"regex": ast.Constant(value="(\\d+(\\.\\d+)+)")},  # Matches number.number.number.number.<...>
-        )
-
-        response = execute_hogql_query(query, team, query_type="sdk_versions_for_team")
+        query_type = "sdk_versions_for_team"
+        with tags_context(
+            product=Product.SDK_DOCTOR, team_id=team.pk, org_id=team.organization_id, query_type=query_type
+        ):
+            response = execute_hogql_query(QUERY, team, query_type=query_type)
 
         output = defaultdict(list)
         for lib, lib_version, max_timestamp, event_count in response.results:
@@ -73,7 +71,7 @@ def get_sdk_versions_for_team(
         return dict(output)
     except Team.DoesNotExist:
         logger.exception(f"[SDK Doctor] Team {team_id} not found")
-        return None
+        return {}  # Safe to return empty dict, this is not an error
     except Exception as e:
         logger.exception(f"[SDK Doctor] Error querying events for team {team_id}")
         capture_exception(e)
@@ -230,8 +228,8 @@ def aggregate_results_op(context: dagster.OpExecutionContext, results: list[list
 
 @dagster.job(
     description="Queries ClickHouse for recent SDK versions and caches them in Redis",
-    # Do this slowly, 10 teams at a time at most
-    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 10}),
+    # Do this slowly, 20 batches at a time at most
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 20}),
     tags={"owner": JobOwners.TEAM_GROWTH.value},
 )
 def cache_all_team_sdk_versions_job():
