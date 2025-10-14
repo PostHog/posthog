@@ -1,6 +1,7 @@
 import shlex
 from dataclasses import dataclass
 
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 
 from temporalio import activity
@@ -93,9 +94,14 @@ async def inject_personal_api_key(input: InjectPersonalAPIKeyInput) -> InjectPer
         sandbox = await SandboxEnvironment.get_by_id(input.sandbox_id)
 
         escaped_value = shlex.quote(value)
+        escaped_api_url = shlex.quote(settings.SITE_URL)
 
         result = await sandbox.execute(
-            f"echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bash_profile && echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bashrc"
+            f"echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bash_profile && "
+            f"echo 'export POSTHOG_API_URL={escaped_api_url}' >> ~/.bash_profile && "
+            f"echo 'export POSTHOG_PERSONAL_API_KEY={escaped_value}' >> ~/.bashrc && "
+            f"echo 'export POSTHOG_API_URL={escaped_api_url}' >> ~/.bashrc",
+            timeout_seconds=30,
         )
 
         if result.exit_code != 0:

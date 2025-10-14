@@ -13,6 +13,8 @@ import { BillingProductV2AddonType } from '~/types'
 
 import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
+import { ConfirmDowngradeModal } from './ConfirmDowngradeModal'
+import { ConfirmUpgradeModal } from './ConfirmUpgradeModal'
 import { ProductPricingModal } from './ProductPricingModal'
 import { TrialCancellationSurveyModal } from './TrialCancellationSurveyModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
@@ -165,6 +167,10 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             {surveyID === UNSUBSCRIBE_SURVEY_ID && <UnsubscribeSurveyModal product={addon} />}
             {/* Trial cancellation survey modal */}
             {surveyID === TRIAL_CANCELLATION_SURVEY_ID && <TrialCancellationSurveyModal product={addon} />}
+            {/* Confirm platform addon subscription upgrade */}
+            <ConfirmUpgradeModal product={addon} />
+            {/* Confirm platform addon subscription downgrade */}
+            <ConfirmDowngradeModal product={addon} />
         </div>
     )
 }

@@ -1,9 +1,20 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonModal,
+    LemonSwitch,
+    LemonTable,
+    LemonTag,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { SyncTypeLabelMap, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,9 +24,10 @@ import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export default function SchemaForm(): JSX.Element {
-    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime } =
+    const containerRef = useFloatingContainer()
+    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime, toggleAllTables } =
         useActions(sourceWizardLogic)
-    const { databaseSchema, isProjectTime } = useValues(sourceWizardLogic)
+    const { databaseSchema, isProjectTime, tablesAllToggledOn } = useValues(sourceWizardLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
@@ -26,6 +38,11 @@ export default function SchemaForm(): JSX.Element {
         toggleSchemaShouldSync(schema, checked)
     }
 
+    // scroll to top of container
+    useEffect(() => {
+        containerRef?.scrollTo({ top: 0, left: 0, behavior: 'smooth' })
+    }, [containerRef])
+
     return (
         <>
             <div className="flex flex-col gap-2">
@@ -35,6 +52,12 @@ export default function SchemaForm(): JSX.Element {
                         dataSource={databaseSchema}
                         columns={[
                             {
+                                title: (
+                                    <LemonCheckbox
+                                        checked={tablesAllToggledOn}
+                                        onChange={(checked) => toggleAllTables(checked)}
+                                    />
+                                ),
                                 width: 0,
                                 key: 'enabled',
                                 render: function RenderEnabled(_, schema) {
@@ -121,6 +144,32 @@ export default function SchemaForm(): JSX.Element {
                                             }
                                         />
                                     )
+                                },
+                            },
+                            {
+                                key: 'sync_field',
+                                title: 'Sync field',
+                                align: 'right',
+                                tooltip:
+                                    'Incremental and append-only refresh methods key on a unique field to determine the most up-to-date data.',
+                                isHidden: !databaseSchema.some((schema) => schema.sync_type),
+                                render: function RenderSyncType(_, schema) {
+                                    if (schema.sync_type !== null && schema.incremental_field) {
+                                        const field =
+                                            schema.incremental_fields.find(
+                                                (f) => f.field == schema.incremental_field
+                                            ) ?? null
+                                        if (field) {
+                                            return (
+                                                <>
+                                                    <span className="leading-5">{field.label}</span>
+                                                    <LemonTag className="ml-2" type="success">
+                                                        {field.type}
+                                                    </LemonTag>
+                                                </>
+                                            )
+                                        }
+                                    }
                                 },
                             },
                             {

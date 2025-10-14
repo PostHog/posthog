@@ -5,6 +5,7 @@ import { createContext, useContext, useMemo } from 'react'
 import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import {
     ChartParams,
+    Experiment,
     FunnelStepReference,
     FunnelStepWithConversionMetrics,
     FunnelStepWithNestedBreakdown,
@@ -24,6 +25,7 @@ export interface FunnelChartProps extends ChartParams {
     disableBaseline?: boolean
     /** Experiment result data */
     experimentResult: NewExperimentQueryResponse
+    experiment?: Experiment
 }
 
 export interface FunnelChartDataContext {
@@ -31,6 +33,7 @@ export interface FunnelChartDataContext {
     steps: FunnelStepWithNestedBreakdown[]
     hasFunnelResults: boolean
     experimentResult: NewExperimentQueryResponse
+    experiment?: Experiment
 }
 
 const FunnelChartDataContext = createContext<FunnelChartDataContext | null>(null)
@@ -55,6 +58,7 @@ export function FunnelChart({
     disableBaseline = false,
     inCardView = false,
     experimentResult,
+    experiment,
     ...chartParams
 }: FunnelChartProps): JSX.Element {
     const processedData = useMemo(() => {
@@ -72,13 +76,14 @@ export function FunnelChart({
             steps: processedData.steps,
             hasFunnelResults: processedData.hasFunnelResults,
             experimentResult,
+            experiment,
         }),
-        [processedData, experimentResult]
+        [processedData, experimentResult, experiment]
     )
 
     return (
         <FunnelChartDataContext.Provider value={contextValue}>
-            <div className={`FunnelInsight FunnelInsight--type-steps-vertical${inCardView ? ' InsightCard' : ''}`}>
+            <div className={`pt-4 FunnelInsight FunnelInsight--type-steps-vertical${inCardView ? ' InsightCard' : ''}`}>
                 <FunnelBarVertical {...chartParams} inCardView={inCardView} />
             </div>
         </FunnelChartDataContext.Provider>
