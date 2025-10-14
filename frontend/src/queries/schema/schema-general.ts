@@ -133,6 +133,7 @@ export enum NodeKind {
 
     // Marketing analytics queries
     MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
+    MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -154,6 +155,9 @@ export enum NodeKind {
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
+
+    // Customer analytics
+    UsageMetricsQuery = 'UsageMetricsQuery',
 }
 
 export type AnyDataNode =
@@ -176,6 +180,7 @@ export type AnyDataNode =
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
     | MarketingAnalyticsTableQuery
+    | MarketingAnalyticsAggregatedQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -198,6 +203,7 @@ export type AnyDataNode =
     | TracesQuery
     | TraceQuery
     | VectorSearchQuery
+    | UsageMetricsQuery
 
 /**
  * @discriminator kind
@@ -248,6 +254,7 @@ export type QuerySchema =
 
     // Marketing analytics
     | MarketingAnalyticsTableQuery
+    | MarketingAnalyticsAggregatedQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -276,6 +283,9 @@ export type QuerySchema =
     | TracesQuery
     | TraceQuery
     | VectorSearchQuery
+
+    // Customer analytics
+    | UsageMetricsQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -446,6 +456,7 @@ export type RecordingOrder =
     | 'keypress_count'
     | 'mouse_activity_count'
     | 'activity_score'
+    | 'recording_ttl'
 
 export type RecordingOrderDirection = 'ASC' | 'DESC'
 
@@ -795,6 +806,7 @@ export interface DataTableNode
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
                     | MarketingAnalyticsTableQuery
+                    | MarketingAnalyticsAggregatedQuery
                     | ErrorTrackingQuery
                     | ErrorTrackingIssueCorrelationQuery
                     | ExperimentFunnelsQuery
@@ -828,6 +840,7 @@ export interface DataTableNode
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
         | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
         | ErrorTrackingQuery
         | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
@@ -1332,6 +1345,8 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     cumulative?: RetentionFilterLegacy['cumulative']
+    /** @description The time window mode to use for retention calculations */
+    timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -2187,6 +2202,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     withLastEvent?: boolean
     limit?: integer
     offset?: integer
+    personId?: string
 }
 
 export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
@@ -2404,6 +2420,7 @@ export interface FileSystemEntry {
 }
 
 export type FileSystemIconType =
+    | 'default_icon_type'
     | 'dashboard'
     | 'llm_analytics'
     | 'product_analytics'
@@ -2435,7 +2452,8 @@ export type FileSystemIconType =
     | 'event_definition'
     | 'property_definition'
     | 'ingestion_warning'
-    | 'person'
+    | 'persons'
+    | 'user'
     | 'cohort'
     | 'group'
     | 'insight/funnels'
@@ -2447,6 +2465,8 @@ export type FileSystemIconType =
     | 'insight/hog'
     | 'team_activity'
     | 'home'
+    | 'apps'
+    | 'live'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2824,8 +2844,6 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     /** Index of the step for which we want to get the timestamp for, per person.
      * Positive for converted persons, negative for dropped of persons. */
     funnelStep?: integer
-    /** Custom step numbers to get persons for. This overrides `funnelStep`. Primarily for correlation use. */
-    funnelCustomSteps?: integer[]
     /** The breakdown value for which to get persons for. This is an array for
      * person and event properties, a string for groups and an integer for cohorts. */
     funnelStepBreakdown?: BreakdownKeyType
@@ -3767,6 +3785,24 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
 
+export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, MarketingAnalyticsItem>
+    hogql?: string
+    samplingRate?: SamplingRate
+}
+
+export type CachedMarketingAnalyticsAggregatedQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsAggregatedQueryResponse>
+
+export interface MarketingAnalyticsAggregatedQuery
+    extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsAggregatedQueryResponse>, 'orderBy' | 'limit' | 'offset'> {
+    kind: NodeKind.MarketingAnalyticsAggregatedQuery
+    /** Return a limited set of data. Will use default columns if empty. */
+    select?: HogQLExpression[]
+    /** Draft conversion goal that can be set in the UI without saving */
+    draftConversionGoal?: ConversionGoalFilter
+}
+
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string
     date_to: string
@@ -4031,6 +4067,7 @@ export const externalDataSources = [
     'LinkedinAds',
     'RedditAds',
     'TikTokAds',
+    'Shopify',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4065,4 +4102,33 @@ export interface PlaywrightWorkspaceSetupResult {
     user_id: string
     user_email: string
     personal_api_key: string
+}
+
+export type UsageMetricFormat = 'numeric' | 'currency'
+
+export type UsageMetricDisplay = 'number' | 'sparkline'
+
+export interface UsageMetric {
+    id: string
+    name: string
+    value: number
+    format: UsageMetricFormat
+    display: UsageMetricDisplay
+    interval: integer
+}
+
+export interface UsageMetricsQueryResponse extends AnalyticsQueryResponseBase {
+    results: UsageMetric[]
+}
+
+export type CachedUsageMetricsQueryResponse = CachedQueryResponse<UsageMetricsQueryResponse>
+
+export interface UsageMetricsQuery extends DataNode<UsageMetricsQueryResponse> {
+    kind: NodeKind.UsageMetricsQuery
+    /** Person ID to fetch metrics for. Mutually exclusive with group parameters. */
+    person_id?: string
+    /** Group type index. Required with group_key for group queries. */
+    group_type_index?: integer
+    /** Group key. Required with group_type_index for group queries. */
+    group_key?: string
 }

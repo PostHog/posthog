@@ -1,4 +1,4 @@
-import ast
+import json
 import asyncio
 from collections.abc import Iterable
 from functools import cached_property
@@ -491,9 +491,12 @@ class TaxonomyAgentToolkit:
     async def _handle_group_properties_task(self, input_dict: dict) -> TaskResult:
         task = cast(TaskExecutionItem, input_dict["task"])
         try:
-            group_entities = ast.literal_eval(task.prompt)
-        except (ValueError, SyntaxError):
+            # Convert Python list string to JSON format and parse
+            json_str = task.prompt.replace("'", '"')
+            group_entities = json.loads(json_str)
+        except json.JSONDecodeError:
             group_entities = [task.prompt]
+
         entity_to_group_index = {}
         artifacts = []
         for group_entity in group_entities:

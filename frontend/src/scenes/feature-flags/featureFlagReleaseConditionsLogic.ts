@@ -515,7 +515,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     effectiveTotalUsers = 1
                 }
 
-                return effectiveRolloutPercentage * ((affectedUsers[sortKey] ?? 0) / effectiveTotalUsers)
+                return (
+                    Math.round(
+                        effectiveRolloutPercentage * ((affectedUsers[sortKey] ?? 0) / effectiveTotalUsers) * 1000000
+                    ) / 1000000
+                )
             },
         ],
         getFlagKey: [
