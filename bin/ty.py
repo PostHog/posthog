@@ -157,7 +157,7 @@ def _check(paths: Sequence[str], *, from_hook: bool = False) -> int:
         )
         return 1
 
-    if ty_result.returncode != 0 and "error[" not in ty_result.output:
+    if ty_result.returncode != 0 and "error[" not in normalized:
         # ty failed for a reason unrelated to diagnostics (e.g. crash).
         sys.stdout.write(ty_result.output)
         if not ty_result.output.endswith("\n"):
@@ -188,7 +188,7 @@ def _sync(paths: Sequence[str]) -> int:
     if sync_result.returncode != 0:
         return sync_result.returncode
 
-    if ty_result.returncode != 0 and "error[" not in ty_result.output:
+    if ty_result.returncode != 0 and "error[" not in normalized:
         # Preserve failures unrelated to diagnostics so they aren't hidden.
         sys.stdout.write(ty_result.output)
         if not ty_result.output.endswith("\n"):

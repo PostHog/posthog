@@ -98,10 +98,10 @@ jobs:
               shell: bash
               continue-on-error: true
               run: |
-                  echo "Running ty type checker (informational - does not block CI)"
-                  echo "This is a trial run to evaluate ty vs mypy. Please provide feedback in #team-devex"
+                  echo "👀 Running ty type checker (informational - does not block CI)"
+                  echo "📊 Trial run to evaluate ty vs mypy. Feedback welcome in #team-devex"
                   echo ""
-                  ./bin/ty.py check posthog ee common dags || echo "ty found type issues (see output above)"
+                  ./bin/ty.py check posthog ee common dags || echo "⚠️ ty found type issues (annotations below)"
 
             - name: Add mypy Problem Matcher
               shell: bash

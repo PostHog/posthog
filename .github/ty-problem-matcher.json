@@ -2,7 +2,7 @@
     "problemMatcher": [
         {
             "owner": "ty",
-            "severity": "error",
+            "severity": "warning",
             "pattern": [
                 {
                     "regexp": "^([^:]*):(\\d+):(?:(\\d+):)? (?:error|warning): (.*?)(?:  \\[(\\S+)\\])?$",
