@@ -190,20 +190,22 @@ class TikTokReportResource:
         return transformed_records
 
     @classmethod
-    def pre_transform(cls, stream_name: str, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def pre_transform(cls, stream_name: str, records: Iterable[Any]) -> list[dict[str, Any]]:
         """
         Transform records for every stream before writing to output as per stream category.
 
         Reference: https://github.com/singer-io/tap-tiktok-ads/blob/master/tap_tiktok_ads/streams.py
         """
+        records_list = list(records)
+
         if stream_name in ENDPOINT_INSIGHTS:
-            return cls.transform_insights_records(records)
+            return cls.transform_insights_records(records_list)
         elif stream_name in ENDPOINT_AD_MANAGEMENT:
-            return cls.transform_management_records(records)
+            return cls.transform_management_records(records_list)
         elif stream_name in ENDPOINT_ADVERTISERS:
-            return cls.transform_advertisers_records(records)
+            return cls.transform_advertisers_records(records_list)
         else:
-            return records
+            return records_list
 
     @classmethod
     def create_chunked_resources(
