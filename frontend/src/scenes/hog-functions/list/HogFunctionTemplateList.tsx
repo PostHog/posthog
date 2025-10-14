@@ -5,8 +5,8 @@ import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
