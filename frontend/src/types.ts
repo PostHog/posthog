@@ -952,6 +952,17 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     cohort_name?: string
 }
 
+/** Cohort property filter for incomplete/draft cohorts where value may be null */
+export interface DraftCohortPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Cohort
+    key: 'id'
+    /**  @asType integer */
+    value?: number
+    /** @default 'in' */
+    operator: PropertyOperator
+    cohort_name?: string
+}
+
 export interface GroupPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Group
     group_type_index?: integer | null
@@ -1014,6 +1025,7 @@ export type AnyPropertyFilter =
 export type AnyPersonScopeFilter =
     | PersonPropertyFilter
     | CohortPropertyFilter
+    | DraftCohortPropertyFilter
     | HogQLPropertyFilter
     | EmptyPropertyFilter
 

@@ -852,6 +852,7 @@ export interface DataTableNode
     hiddenColumns?: HogQLExpression[]
     /** Columns that are sticky when scrolling horizontally */
     pinnedColumns?: HogQLExpression[]
+    tags?: QueryLogTags
 }
 
 export interface GoalLine {

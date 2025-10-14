@@ -3635,7 +3635,7 @@ class CohortPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: Optional[PropertyOperator] = PropertyOperator.IN_
     type: Literal["cohort"] = "cohort"
-    value: Optional[int] = None
+    value: int
 
 
 class CustomChannelCondition(BaseModel):
@@ -3762,6 +3762,18 @@ class DeepResearchNotebook(BaseModel):
     notebook_id: str
     notebook_type: Optional[DeepResearchType] = None
     title: str
+
+
+class DraftCohortPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cohort_name: Optional[str] = None
+    key: Literal["id"] = "id"
+    label: Optional[str] = None
+    operator: Optional[PropertyOperator] = PropertyOperator.IN_
+    type: Literal["cohort"] = "cohort"
+    value: Optional[int] = None
 
 
 class ElementPropertyFilter(BaseModel):
@@ -14553,7 +14565,15 @@ class ActorsQuery(BaseModel):
         extra="forbid",
     )
     fixedProperties: Optional[
-        list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]]
+        list[
+            Union[
+                PersonPropertyFilter,
+                CohortPropertyFilter,
+                DraftCohortPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+            ]
+        ]
     ] = Field(
         default=None,
         description=(
@@ -14570,7 +14590,15 @@ class ActorsQuery(BaseModel):
     orderBy: Optional[list[str]] = None
     properties: Optional[
         Union[
-            list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]],
+            list[
+                Union[
+                    PersonPropertyFilter,
+                    CohortPropertyFilter,
+                    DraftCohortPropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                ]
+            ],
             PropertyGroupFilterValue,
         ]
     ] = Field(
