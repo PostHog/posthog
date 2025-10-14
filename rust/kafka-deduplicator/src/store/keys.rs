@@ -213,12 +213,13 @@ impl UuidIndexKey {
     }
 
     /// Create a range end key for deletion (exclusive)
-    /// We add 0xFF bytes to ensure this key comes after all keys with the cleanup timestamp
+    /// Increments timestamp by 1, or uses u64::MAX if overflow would occur
     pub fn range_end(cleanup_timestamp: u64) -> Vec<u8> {
         cleanup_timestamp
             .checked_add(1)
-            .map(|v| v.to_be_bytes().to_vec())
-            .unwrap()
+            .unwrap_or(u64::MAX)
+            .to_be_bytes()
+            .to_vec()
     }
 }
 
