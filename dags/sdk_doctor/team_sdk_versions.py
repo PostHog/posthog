@@ -9,6 +9,7 @@ import structlog
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
@@ -50,7 +51,9 @@ def get_sdk_versions_for_team(
     """
     try:
         team = Team.objects.get(id=team_id)
-        response = execute_hogql_query(QUERY, team, query_type="sdk_versions_for_team")
+        query_type = "sdk_versions_for_team"
+        with tags_context(product=Product.MAX_AI, team_id=team.pk, org_id=team.organization_id, query_type=query_type):
+            response = execute_hogql_query(QUERY, team, query_type=query_type)
 
         output = defaultdict(list)
         for lib, lib_version, max_timestamp, event_count in response.results:
