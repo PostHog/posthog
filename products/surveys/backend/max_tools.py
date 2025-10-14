@@ -15,11 +15,12 @@ from posthog.schema import SurveyAnalysisQuestionGroup, SurveyCreationSchema
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag, Survey, Team, User
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import TaxonomyTool, base_final_answer
+from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
@@ -181,17 +182,26 @@ class SurveyToolkit(TaxonomyAgentToolkit):
         class final_answer(base_final_answer[SurveyCreationSchema]):
             __doc__ = base_final_answer.__doc__
 
-        return [lookup_feature_flag, final_answer]
+        return [lookup_feature_flag, final_answer, ask_user_for_help]
 
     async def handle_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict[str, str]:
         """Handle custom tool execution."""
-        if "lookup_feature_flag" in tool_metadata:
-            if tool_metadata["lookup_feature_flag"]:
-                tool_input, tool_call_id = tool_metadata["lookup_feature_flag"][0]
-                result = self._lookup_feature_flag(tool_input.arguments.flag_key)  # type: ignore
-                return {tool_call_id: result}
-        return await super().handle_tools(tool_metadata)
+        results = {}
+        unhandled_tools = {}
+        for tool_name, tool_inputs in tool_metadata.items():
+            if tool_name == "lookup_feature_flag":
+                if tool_inputs:
+                    for tool_input, tool_call_id in tool_inputs:
+                        result = await self._lookup_feature_flag(tool_input.arguments.flag_key)  # type: ignore
+                        results[tool_call_id] = result
+            else:
+                unhandled_tools[tool_name] = tool_inputs
 
+        if unhandled_tools:
+            results.update(await super().handle_tools(unhandled_tools))
+        return results
+
+    @database_sync_to_async(thread_sensitive=False)
     def _lookup_feature_flag(self, flag_key: str) -> str:
         """Look up feature flag information by key."""
         try:

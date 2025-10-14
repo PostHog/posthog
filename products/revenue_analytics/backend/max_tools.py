@@ -18,7 +18,7 @@ from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.format import enrich_props_with_descriptions, format_properties_xml
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorMessages
-from ee.hogai.graph.taxonomy.tools import ask_user_for_help, base_final_answer
+from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import AssistantNodeName
@@ -56,13 +56,24 @@ class RevenueAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team, user: User):
         super().__init__(team, user)
 
-    async def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
+    async def handle_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict[str, str]:
         """Handle custom tool execution."""
-        if tool_name == "retrieve_revenue_analytics_property_values":
-            result = await self._retrieve_revenue_analytics_property_values(tool_input.arguments.property_key)
-            return tool_name, result
+        results = {}
+        unhandled_tools = {}
+        for tool_name, tool_inputs in tool_metadata.items():
+            if tool_name == "retrieve_revenue_analytics_property_values":
+                if tool_inputs:
+                    for tool_input, tool_call_id in tool_inputs:
+                        result = await self._retrieve_revenue_analytics_property_values(
+                            tool_input.arguments.property_key
+                        )
+                        results[tool_call_id] = result
+            else:
+                unhandled_tools[tool_name] = tool_inputs
 
-        return await super().handle_tools(tool_name, tool_input)
+        if unhandled_tools:
+            results.update(await super().handle_tools(unhandled_tools))
+        return results
 
     def _get_custom_tools(self) -> list:
         return [final_answer, retrieve_revenue_analytics_property_values]
