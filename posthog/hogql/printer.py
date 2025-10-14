@@ -1360,30 +1360,27 @@ class _Printer(Visitor[str]):
             args = [self.visit(arg) for arg in node.args]
 
             if self.dialect == "clickhouse":
-                if func_meta.clickhouse_name == "hogql_lookupDomainType":
+                if node.name == "hogql_lookupDomainType":
                     channel_dict = get_channel_definition_dict()
                     return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif func_meta.clickhouse_name == "hogql_lookupPaidSourceType":
+                elif node.name == "hogql_lookupPaidSourceType":
                     channel_dict = get_channel_definition_dict()
                     return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{channel_dict}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif func_meta.clickhouse_name == "hogql_lookupPaidMediumType":
+                elif node.name == "hogql_lookupPaidMediumType":
                     channel_dict = get_channel_definition_dict()
                     return f"dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
-                elif func_meta.clickhouse_name == "hogql_lookupOrganicSourceType":
+                elif node.name == "hogql_lookupOrganicSourceType":
                     channel_dict = get_channel_definition_dict()
                     return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif func_meta.clickhouse_name == "hogql_lookupOrganicMediumType":
+                elif node.name == "hogql_lookupOrganicMediumType":
                     channel_dict = get_channel_definition_dict()
                     return f"dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
-                elif func_meta.clickhouse_name == "convertCurrency":
+                elif node.name == "convertCurrency":
                     # convertCurrency(from_currency, to_currency, amount, timestamp?)
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"
                     db = settings.CLICKHOUSE_DATABASE
                     return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
-                elif func_meta.clickhouse_name == "sortableSemVer":
-                    # Source: https://clickhouse.com/blog/semantic-versioning-udf
-                    return f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull({args[0]}), '(\\d+(\\.\\d+)+)')))"
                 elif node.name == "getSurveyResponse":
                     question_index_obj = node_args[0]
                     if not isinstance(question_index_obj, ast.Constant):

@@ -1,4 +1,13 @@
-from posthog.hogql.ast import BooleanType, Constant, DateTimeType, DateType, DecimalType, IntegerType, StringType
+from posthog.hogql.ast import (
+    ArrayType,
+    BooleanType,
+    Constant,
+    DateTimeType,
+    DateType,
+    DecimalType,
+    IntegerType,
+    StringType,
+)
 from posthog.hogql.language_mappings import LANGUAGE_CODES, LANGUAGE_NAMES
 
 from .core import HogQLFunctionMeta
@@ -9,7 +18,13 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "recording_button": HogQLFunctionMeta("recording_button", 1, 2),
     "explain_csp_report": HogQLFunctionMeta("explain_csp_report", 1, 1),
     # Allow case-insensitive matching since people might not know "SemVer" is the right capitalization
-    "sortablesemver": HogQLFunctionMeta("sortableSemVer", 1, 1, case_sensitive=False),
+    "sortablesemver": HogQLFunctionMeta(
+        "arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull({}), '(\\d+(\\.\\d+)+)')))",
+        1,
+        1,
+        case_sensitive=False,
+        signatures=[((StringType(),), ArrayType(item_type=IntegerType()))],
+    ),
     # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
