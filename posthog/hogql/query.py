@@ -43,7 +43,6 @@ class HogQLQueryExecutor:
     query: Union[str, ast.SelectQuery, ast.SelectSetQuery]
     team: Team
     _: dataclasses.KW_ONLY
-    clickhouse_sql: str
     query_type: str = "hogql_query"
     filters: Optional[HogQLFilters] = None
     placeholders: Optional[dict[str, ast.Expr]] = None
@@ -57,6 +56,7 @@ class HogQLQueryExecutor:
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
     hogql_context: Optional[HogQLContext] = None
     clickhouse_prepared_ast: Optional[ast.AST] = None
+    clickhouse_sql: Optional[str] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -226,6 +226,7 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
+        assert self.clickhouse_sql
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
             tag_queries(
@@ -290,6 +291,7 @@ class HogQLQueryExecutor:
             self._generate_hogql()
         with self.timings.measure("_generate_clickhouse_sql"):
             self._generate_clickhouse_sql()
+        assert self.clickhouse_sql
         return self.clickhouse_sql, self.clickhouse_context
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
