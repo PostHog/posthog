@@ -266,7 +266,7 @@ function UrlConfigRow({
     editIndex,
     onEdit,
     onRemove,
-    checkResult,
+    checkUrlResult,
 }: {
     trigger: SessionReplayUrlTriggerConfig
     index: number
@@ -274,7 +274,7 @@ function UrlConfigRow({
     editIndex: number | null
     onEdit: (index: number) => void
     onRemove: (index: number) => void
-    checkResult?: boolean
+    checkUrlResult?: boolean
 }): JSX.Element {
     if (editIndex === index) {
         return (
@@ -287,21 +287,21 @@ function UrlConfigRow({
     return (
         <div
             className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary', {
-                'border-success': checkResult === true,
-                'border-danger': checkResult === false,
+                'border-success': checkUrlResult === true,
+                'border-danger': checkUrlResult === false,
             })}
         >
             <span title={trigger.url} className="flex-1 truncate">
                 <span>{trigger.matching === 'regex' ? 'Matches regex: ' : ''}</span>
                 <span>{trigger.url}</span>
-                {checkResult !== undefined && (
+                {checkUrlResult !== undefined && (
                     <span
                         className={clsx('ml-2 text-xs', {
-                            'text-success': checkResult === true,
-                            'text-danger': checkResult === false,
+                            'text-success': checkUrlResult === true,
+                            'text-danger': checkUrlResult === false,
                         })}
                     >
-                        {checkResult ? '✓ Matches' : '✗ No match'}
+                        {checkUrlResult ? '✓ Matches' : '✗ No match'}
                     </span>
                 )}
             </span>
@@ -365,11 +365,11 @@ function UrlConfigSection({
     onRemove: (index: number) => void
 }): JSX.Element {
     const [checkUrl, setCheckUrl] = useState('')
-    const [checkResults, setCheckResults] = useState<{ [key: number]: boolean }>({})
+    const [checkUrlResults, setCheckUrlResults] = useState<{ [key: number]: boolean }>({})
 
     const testUrlAgainstRegexes = (url: string): void => {
         if (!url.trim() || !props.config) {
-            setCheckResults({})
+            setCheckUrlResults({})
             return
         }
 
@@ -382,7 +382,7 @@ function UrlConfigSection({
                 results[index] = false
             }
         })
-        setCheckResults(results)
+        setCheckUrlResults(results)
     }
 
     const handleCheckUrlChange = (url: string): void => {
@@ -430,7 +430,7 @@ function UrlConfigSection({
                     />
                     {checkUrl && (
                         <div className="text-xs text-muted">
-                            {Object.values(checkResults).some(Boolean) ? (
+                            {Object.values(checkUrlResults).some(Boolean) ? (
                                 <span className="text-success">✓ This URL matches at least one pattern</span>
                             ) : (
                                 <span className="text-danger">✗ This URL doesn't match any patterns</span>
@@ -448,7 +448,7 @@ function UrlConfigSection({
                     editIndex={props.editIndex}
                     onEdit={props.onEdit}
                     onRemove={props.onRemove}
-                    checkResult={checkResults[index]}
+                    checkUrlResult={checkUrlResults[index]}
                 />
             ))}
         </div>
