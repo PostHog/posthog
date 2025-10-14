@@ -18,12 +18,22 @@ const getOutlierHandlingChanges = (metricBefore: ExperimentMetric, metricAfter: 
 
     // check if the outlier handling was removed completely
     if (
-        !metricBefore.upper_bound_percentile &&
-        metricAfter.upper_bound_percentile &&
-        !metricBefore.lower_bound_percentile &&
+        metricBefore.upper_bound_percentile &&
+        !metricAfter.upper_bound_percentile &&
+        metricBefore.lower_bound_percentile &&
         !metricAfter.lower_bound_percentile
     ) {
-        return 'set the outlier handling to the default'
+        return 'removed the outlier handling lower and upper bounds'
+    }
+
+    // check if the lower bound was removed
+    if (metricBefore.lower_bound_percentile && !metricAfter.lower_bound_percentile) {
+        return 'removed the outlier handling lower bound percentile'
+    }
+
+    // check if the upper bound was removed
+    if (metricBefore.upper_bound_percentile && !metricAfter.upper_bound_percentile) {
+        return 'removed the outlier handling upper bound percentile'
     }
 
     // check if the outlier handling was added completely
@@ -33,7 +43,7 @@ const getOutlierHandlingChanges = (metricBefore: ExperimentMetric, metricAfter: 
         metricAfter.upper_bound_percentile &&
         metricAfter.lower_bound_percentile
     ) {
-        return `set the outlier handling to an lower bound of ${metricAfter.lower_bound_percentile} and an upper bound of ${metricAfter.upper_bound_percentile}`
+        return `set the outlier handling lower bound percentile to ${metricAfter.lower_bound_percentile} and upper bound percentile to ${metricAfter.upper_bound_percentile}`
     }
 
     // check if ONLY the lower bound was changed
@@ -43,7 +53,7 @@ const getOutlierHandlingChanges = (metricBefore: ExperimentMetric, metricAfter: 
         !metricAfter.upper_bound_percentile &&
         metricAfter.lower_bound_percentile
     ) {
-        return `set the outlier handling lower bound to ${metricAfter.lower_bound_percentile}`
+        return `set the outlier handling lower bound percentile to ${metricAfter.lower_bound_percentile}`
     }
 
     // check if ONLY the upper bound was changed
@@ -53,11 +63,12 @@ const getOutlierHandlingChanges = (metricBefore: ExperimentMetric, metricAfter: 
         metricAfter.upper_bound_percentile &&
         !metricAfter.lower_bound_percentile
     ) {
-        return `set the outlier handling upper bound to ${metricAfter.upper_bound_percentile}`
+        return `set the outlier handling upper bound percentile to ${metricAfter.upper_bound_percentile}`
     }
 
     return null
 }
+
 const removeFingerprint = ({ fingerprint, ...metric }: ExperimentMetric): ExperimentMetric => metric
 
 const getRatioChanges = (metricBefore: ExperimentMetric, metricAfter: ExperimentMetric): string | null => {
@@ -114,7 +125,7 @@ export const getMetricChanges = (
     }
 
     /**
-     * there are special cases where the fingerpint is THE only difference between the metrics.
+     * there are special cases where the fingerprint is THE only difference between the metrics.
      * we need to handle these cases.
      */
     if (equal(removeFingerprint(metricAfter), removeFingerprint(metricBefore))) {
@@ -152,7 +163,7 @@ export const getMetricChanges = (
         )
     }
 
-    // check if the steo order was changed for funnel metrics
+    // check if the step order was changed for funnel metrics
     if (
         isExperimentFunnelMetric(metricBefore) &&
         isExperimentFunnelMetric(metricAfter) &&
@@ -161,7 +172,7 @@ export const getMetricChanges = (
         changes.push(`set the step order to ${metricAfter.funnel_order_type}`)
     }
 
-    // check if the outlier handling was changed fo mean metrics
+    // check if the outlier handling was changed for mean metrics
     const outlierHandlingChanges = getOutlierHandlingChanges(metricBefore, metricAfter)
     if (outlierHandlingChanges) {
         changes.push(outlierHandlingChanges)
