@@ -1,5 +1,4 @@
-import { actions, afterMount, connect, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { IconBook, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
@@ -71,14 +70,19 @@ export const maxLogic = kea<maxLogicType>([
             router,
             ['searchParams'],
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'tools', 'toolSuggestions'],
+            ['dataProcessingAccepted', 'tools', 'toolSuggestions', 'conversationHistory', 'conversationHistoryLoading'],
             maxSettingsLogic,
             ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
         ],
-        actions: [maxContextLogic, ['resetContext']],
+        actions: [
+            maxContextLogic,
+            ['resetContext'],
+            maxGlobalLogic,
+            ['loadConversationHistory', 'prependOrReplaceConversation', 'loadConversationHistorySuccess'],
+        ],
     })),
 
     actions({
@@ -106,15 +110,6 @@ export const maxLogic = kea<maxLogicType>([
         incrActiveStreamingThreads: true,
         decrActiveStreamingThreads: true,
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
-
-        /**
-         * Prepend a conversation to the conversation history or update it in place.
-         */
-        prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
-    }),
-
-    defaults({
-        conversationHistory: [] as ConversationDetail[],
     }),
 
     reducers({
@@ -180,31 +175,7 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
-        conversationHistory: {
-            prependOrReplaceConversation: (state, { conversation }) => {
-                return mergeConversationHistory(state, conversation)
-            },
-        },
-
         autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun }],
-    }),
-
-    loaders({
-        conversationHistory: [
-            [] as ConversationDetail[],
-            {
-                loadConversationHistory: async (
-                    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Used for conversation restoration
-                    _?: {
-                        /** If true, the current thread will not be updated with the retrieved conversation. */
-                        doNotUpdateCurrentThread?: boolean
-                    }
-                ) => {
-                    const response = await api.conversations.list()
-                    return response.results
-                },
-            },
-        ],
     }),
 
     selectors({
@@ -381,10 +352,6 @@ export const maxLogic = kea<maxLogicType>([
                 // If the conversation is not found, retrieve once the conversation status and reset if 404.
                 actions.pollConversation(values.conversationId, 0, 0)
             }
-        },
-
-        loadConversationHistoryFailure: ({ errorObject }) => {
-            lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
 
         /**

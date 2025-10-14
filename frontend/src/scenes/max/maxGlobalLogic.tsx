@@ -1,9 +1,12 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { IconBook, IconCompass, IconDashboard, IconGraph, IconRewindPlay } from '@posthog/icons'
 
+import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -11,11 +14,11 @@ import { routes } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { ConversationDetail, SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { maxLogic } from './maxLogic'
+import { maxLogic, mergeConversationHistory } from './maxLogic'
 import { buildSceneDescriptionsContext } from './utils/sceneDescriptionsContext'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
@@ -107,8 +110,33 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         registerTab: (tabId: string) => ({ tabId }),
         deregisterTab: (tabId: string) => ({ tabId }),
         setSidePanelTab: (tabId: string | null) => ({ tabId }),
+        prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
     }),
+
+    loaders({
+        conversationHistory: [
+            [] as ConversationDetail[],
+            {
+                loadConversationHistory: async (
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Used for conversation restoration
+                    _?: {
+                        /** If true, the current thread will not be updated with the retrieved conversation. */
+                        doNotUpdateCurrentThread?: boolean
+                    }
+                ) => {
+                    const response = await api.conversations.list()
+                    return response.results
+                },
+            },
+        ],
+    }),
+
     reducers({
+        conversationHistory: {
+            prependOrReplaceConversation: (state, { conversation }) => {
+                return mergeConversationHistory(state, conversation)
+            },
+        },
         registeredToolMap: [
             {} as Record<string, ToolRegistration>,
             {
@@ -203,6 +231,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 }
                 logic.actions.openConversation(conversationId)
             }
+        },
+        loadConversationHistoryFailure: ({ errorObject }) => {
+            lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
     })),
     selectors({
