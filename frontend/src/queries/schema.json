@@ -7175,7 +7175,7 @@
                     "type": "integer"
                 }
             },
-            "required": ["key", "operator", "type", "value"],
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "CompareFilter": {
@@ -9315,6 +9315,9 @@
                         }
                     ],
                     "description": "Source of the events"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
