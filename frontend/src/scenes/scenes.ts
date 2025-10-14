@@ -43,6 +43,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Track all changes and activities in your organization with detailed filtering and export capabilities.',
     },
     [Scene.AsyncMigrations]: { instanceLevel: true },
+    [Scene.Annotations]: {
+        projectBased: true,
+        name: 'Annotations',
+        description:
+            'Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics.',
+        iconType: 'annotation',
+    },
     [Scene.BillingAuthorizationStatus]: {
         hideProjectNotice: true,
         organizationBased: true,
@@ -65,6 +72,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Cohorts',
         description: 'A catalog of identified persons and your created cohorts.',
         defaultDocsPath: '/docs/data/cohorts',
+        iconType: 'cohort',
+    },
+    [Scene.Comments]: {
+        projectBased: true,
+        name: 'Comments',
+        description: 'Comments allow you to provide context and discussions on various elements in PostHog.',
+        iconType: 'comment',
     },
     [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
@@ -142,11 +156,20 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.EVENT_DEFINITION,
         defaultDocsPath: '/docs/data/events',
     },
-    [Scene.EventDefinition]: {
+    [Scene.EventDefinitions]: {
         projectBased: true,
-        name: 'Data management',
+        name: 'Event definitions',
         activityScope: ActivityScope.EVENT_DEFINITION,
         defaultDocsPath: '/docs/data/events',
+        description: 'Event definitions are a way to define events that can be used in your app or website.',
+    },
+    [Scene.EventDefinition]: {
+        projectBased: true,
+        name: 'Event definitions',
+        activityScope: ActivityScope.EVENT_DEFINITION,
+        defaultDocsPath: '/docs/data/events',
+        description: 'Event definitions are a way to define events that can be used in your app or website.',
+        iconType: 'event_definition',
     },
     [Scene.Experiment]: {
         projectBased: true,
@@ -181,7 +204,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Explore events',
         defaultDocsPath: '/docs/data/events',
         description: 'A catalog of all user interactions with your app or website.',
-        iconType: 'apps',
+        iconType: 'event',
     },
     [Scene.FeatureFlag]: {
         projectBased: true,
@@ -217,6 +240,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/product-analytics/insights',
     },
     [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
+    [Scene.IngestionWarnings]: {
+        projectBased: true,
+        name: 'Ingestion warnings',
+        defaultDocsPath: '/docs/data/ingestion-warnings',
+        iconType: 'ingestion_warning',
+        description: 'Data ingestion related warnings from past 30 days.',
+    },
     [Scene.InviteSignup]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
     [Scene.Link]: { projectBased: true },
@@ -294,10 +324,19 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Data management',
         activityScope: ActivityScope.PROPERTY_DEFINITION,
     },
+    [Scene.PropertyDefinitions]: {
+        projectBased: true,
+        name: 'Property definitions',
+        activityScope: ActivityScope.PROPERTY_DEFINITION,
+        iconType: 'property_definition',
+        description: 'Properties are additional fields you can configure to be sent along with an event capture.',
+    },
     [Scene.PropertyDefinition]: {
         projectBased: true,
-        name: 'Data management',
+        name: 'Property definitions',
         activityScope: ActivityScope.PROPERTY_DEFINITION,
+        iconType: 'property_definition',
+        description: 'Properties are additional fields you can configure to be sent along with an event capture.',
     },
     [Scene.ReplayFilePlayback]: {
         projectBased: true,

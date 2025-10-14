@@ -2482,6 +2482,7 @@ export interface FileSystemEntry {
 
 export type FileSystemIconType =
     | 'default_icon_type'
+    | 'annotation'
     | 'dashboard'
     | 'llm_analytics'
     | 'product_analytics'
@@ -2510,6 +2511,7 @@ export type FileSystemIconType =
     | 'action'
     | 'comment'
     | 'annotation'
+    | 'event'
     | 'event_definition'
     | 'property_definition'
     | 'ingestion_warning'

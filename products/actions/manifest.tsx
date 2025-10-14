@@ -70,6 +70,7 @@ export const manifest: ProductManifest = {
             category: 'Definitions',
             href: urls.actions(),
             iconType: 'action' as FileSystemIconType,
+            sceneKey: 'Actions',
         },
     ],
 }

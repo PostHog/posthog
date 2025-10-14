@@ -82,8 +82,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                 name={capitalizeFirstLetter(groupTypeNamePlural)}
                 description={`A catalog of all ${groupTypeNamePlural} for this project`}
                 resourceType={{
-                    type: groupTypeName,
-                    forceIcon: <IconPeople />,
+                    type: 'cohort',
                 }}
                 actions={
                     <LemonButton

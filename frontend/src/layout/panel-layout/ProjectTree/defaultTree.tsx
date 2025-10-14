@@ -168,6 +168,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     annotation: {
         icon: <IconNotification />,
     },
+    event: {
+        icon: <IconApps />,
+    },
     event_definition: {
         icon: <IconApps />,
     },
@@ -358,12 +361,14 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         category: 'Definitions',
         iconType: 'event_definition',
         href: urls.eventDefinitions(),
+        sceneKey: 'EventDefinition',
     },
     {
         path: 'Property definitions',
         category: 'Definitions',
         iconType: 'property_definition',
         href: urls.propertyDefinitions(),
+        sceneKey: 'PropertyDefinition',
     },
     {
         path: 'Annotations',

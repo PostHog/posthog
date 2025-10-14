@@ -23,6 +23,7 @@ import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMen
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -440,7 +441,12 @@ export function ProjectTree({
             renderItemTooltip={(item) => {
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
-                if (root === 'products://' || root === 'data://' || root === 'persons://') {
+
+                if (root === 'products://' || root === 'data://') {
+                    let key = item.record?.sceneKey
+                    return <>{sceneConfigurations[key]?.description || item.name}</>
+                }
+                if (root === 'persons://') {
                     return (
                         <>
                             {nameNode}

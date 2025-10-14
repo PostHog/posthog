@@ -71,6 +71,7 @@ export const manifest: ProductManifest = {
             iconType: 'endpoints' as FileSystemIconType,
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
             href: urls.endpoints(),
+            sceneKey: 'EndpointsScene',
         },
     ],
 }
