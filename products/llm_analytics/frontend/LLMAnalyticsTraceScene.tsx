@@ -42,6 +42,7 @@ import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { SearchHighlight } from './SearchHighlight'
+import { EvalsTabContent } from './components/EvalsTabContent'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
@@ -62,6 +63,12 @@ import {
     normalizeMessages,
     removeMilliseconds,
 } from './utils'
+
+enum TraceViewMode {
+    Conversation = 'conversation',
+    Raw = 'raw',
+    Evals = 'evals',
+}
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
@@ -546,18 +553,19 @@ const EventContent = React.memo(
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const [viewMode, setViewMode] = useState<'conversation' | 'raw'>('conversation')
+
+        const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
 
         const node = event && isLLMTraceEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
 
-        const showPlaygroundButton =
-            event &&
-            isLLMTraceEvent(event) &&
-            event.event === '$ai_generation' &&
-            featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
+        const isGenerationEvent = event && isLLMTraceEvent(event) && event.event === '$ai_generation'
+
+        const showPlaygroundButton = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
+
+        const showEvalsTab = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
         const handleTryInPlayground = (): void => {
             if (!event) {
@@ -685,7 +693,7 @@ const EventContent = React.memo(
                             onChange={setViewMode}
                             tabs={[
                                 {
-                                    key: 'conversation',
+                                    key: TraceViewMode.Conversation,
                                     label: 'Conversation',
                                     content: (
                                         <>
@@ -735,7 +743,7 @@ const EventContent = React.memo(
                                     ),
                                 },
                                 {
-                                    key: 'raw',
+                                    key: TraceViewMode.Raw,
                                     label: 'Raw',
                                     content: (
                                         <div className="p-2">
@@ -743,6 +751,15 @@ const EventContent = React.memo(
                                         </div>
                                     ),
                                 },
+                                ...(showEvalsTab
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Evals,
+                                              label: 'Evaluations',
+                                              content: <EvalsTabContent generationEventId={event.id} />,
+                                          },
+                                      ]
+                                    : []),
                             ]}
                         />
                     </>

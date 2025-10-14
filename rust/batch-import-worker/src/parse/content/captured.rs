@@ -17,6 +17,12 @@ pub fn captured_parse_fn(
 
         //TODO - HACK: relevant customer specifically asked for this, but it's not right in the general case
         raw.map_property("organization_id", try_parse_to_num);
+
+        raw.properties.insert(
+            "$import_job_id".to_string(),
+            Value::String(context.job_id.to_string()),
+        );
+
         let raw = raw;
 
         let Some(distinct_id) = raw.extract_distinct_id() else {
@@ -73,5 +79,60 @@ fn try_parse_to_num(value: Value) -> Value {
             }
         }
         _ => value,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    fn identity_transform(event: RawEvent) -> Result<Option<RawEvent>, Error> {
+        Ok(Some(event))
+    }
+
+    #[test]
+    fn test_job_id_in_captured_event() {
+        let test_job_id = Uuid::now_v7();
+
+        let mut properties = HashMap::new();
+        properties.insert("test_prop".to_string(), json!("test_value"));
+
+        let raw_event = RawEvent {
+            token: Some("test_token".to_string()),
+            distinct_id: Some(Value::String("user123".to_string())),
+            uuid: Some(Uuid::now_v7()),
+            event: "test_event".to_string(),
+            properties,
+            timestamp: Some("2023-10-15T14:30:00+00:00".to_string()),
+            set: None,
+            set_once: None,
+            offset: None,
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: std::sync::Arc::new(crate::cache::MockIdentifyCache::new()),
+            group_cache: std::sync::Arc::new(crate::cache::MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: false,
+        };
+
+        let parser = captured_parse_fn(context, identity_transform);
+        let result = parser(raw_event).unwrap().unwrap();
+
+        assert_eq!(result.team_id, 123);
+        assert_eq!(result.inner.distinct_id, "user123");
+
+        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        assert_eq!(
+            data.properties.get("$import_job_id"),
+            Some(&json!(test_job_id.to_string()))
+        );
+        assert_eq!(data.properties.get("test_prop"), Some(&json!("test_value")));
     }
 }
