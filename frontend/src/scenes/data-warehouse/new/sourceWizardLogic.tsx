@@ -24,6 +24,7 @@ import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
+    IncrementalField,
     ManualLinkSourceType,
     ProductKey,
     manualLinkSources,
@@ -167,6 +168,43 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     'google-cloud': 'Google Cloud Storage',
     'cloudflare-r2': 'Cloudflare R2',
     azure: 'Azure',
+}
+
+const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
+    // check for timestamp field matching "updated_at" or "updatedAt" case insensitive
+    const updatedAt = fields.find((field) => {
+        const regex = /^updated/i
+        return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
+    })
+    if (updatedAt) {
+        return updatedAt
+    }
+    // fallback to timestamp field matching "created_at" or "createdAt" case insensitive
+    const createdAt = fields.find((field) => {
+        const regex = /^created/i
+        return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
+    })
+    if (createdAt) {
+        return createdAt
+    }
+    // fallback to any timestamp or datetime field
+    const timestamp = fields.find((field) => {
+        return field.field_type === 'timestamp' || field.type === 'datetime'
+    })
+    if (timestamp) {
+        return timestamp
+    }
+    // fallback to numeric fields matching "id" or "uuid" case insensitive
+    const id = fields.find((field) => {
+        const idRegex = /^id/i
+        const uuidRegex = /^uuid/i
+        return (idRegex.test(field.field) || uuidRegex.test(field.field)) && field.field_type === 'integer'
+    })
+    if (id) {
+        return id
+    }
+    // leave unset and require user configuration
+    return undefined
 }
 
 export interface SourceWizardLogicProps {
@@ -666,6 +704,30 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     values.selectedConnector.name,
                     values.source.payload ?? {}
                 )
+
+                for (const schema of schemas) {
+                    if (schema.sync_type === null) {
+                        schema.should_sync = true
+
+                        // Use incremental if available
+                        if (schema.incremental_available || schema.append_available) {
+                            const method = schema.incremental_available ? 'incremental' : 'append'
+                            const field = resolveIncrementalField(schema.incremental_fields)
+                            schema.sync_type = method
+                            if (field) {
+                                schema.incremental_field = field.field
+                                schema.incremental_field_type = field.field_type
+                            }
+                        } else {
+                            schema.sync_type = 'full_refresh'
+                        }
+                    }
+                }
+
+                lemonToast.info(
+                    "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
+                )
+
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
