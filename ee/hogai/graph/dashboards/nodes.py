@@ -13,6 +13,7 @@ from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, TaskEx
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.sync import database_sync_to_async
+from posthog.utils import pluralize
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.parallel_task_execution.mixins import (
@@ -107,18 +108,20 @@ class DashboardCreationNode(AssistantNode):
                 for i, query in enumerate(state.search_insights_queries)
             }
 
-            await self._write_reasoning(content=f"Searching for {len(state.search_insights_queries)} insights")
+            await self._write_reasoning(
+                content=f"Searching for {pluralize(len(state.search_insights_queries), 'insight')}"
+            )
 
             result = await self._search_insights(result, config)
 
-            await self._write_reasoning(content=f"Found {self._get_found_insight_count(result)} insights")
+            await self._write_reasoning(content=f"Found {pluralize(self._get_found_insight_count(result), 'insight')}")
 
             left_to_create = {
                 query_id: result[query_id].query for query_id in result.keys() if not result[query_id].found_insight_ids
             }
 
             if left_to_create:
-                await self._write_reasoning(content=f"Will create {len(left_to_create)} insights")
+                await self._write_reasoning(content=f"Will create {pluralize(len(left_to_create), 'insight')}")
 
                 result = await self._create_insights(left_to_create, result, config)
 
