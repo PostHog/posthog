@@ -56,7 +56,6 @@ from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_TABLE_SQL,
 )
 from posthog.models.cohort.sql import CREATE_COHORTPEOPLE_TABLE_SQL
-
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_RECENT_TABLE_SQL,
     DISTRIBUTED_EVENTS_TABLE_SQL,
