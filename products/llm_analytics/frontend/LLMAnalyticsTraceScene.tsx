@@ -42,6 +42,7 @@ import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { SearchHighlight } from './SearchHighlight'
+import { EvalsTabContent } from './components/EvalsTabContent'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
@@ -61,6 +62,12 @@ import {
     normalizeMessages,
     removeMilliseconds,
 } from './utils'
+
+enum TraceViewMode {
+    Conversation = 'conversation',
+    Raw = 'raw',
+    Evals = 'evals',
+}
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
@@ -100,7 +107,7 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative deprecated-space-y-4 flex flex-col">
+                <div className="relative flex flex-col gap-3">
                     <SceneBreadcrumbBackButton />
                     <div className="flex items-start justify-between">
                         <TraceMetadata
@@ -108,12 +115,12 @@ function TraceSceneWrapper(): JSX.Element {
                             metricEvents={metricEvents as LLMTraceEvent[]}
                             feedbackEvents={feedbackEvents as LLMTraceEvent[]}
                         />
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
                             <DisplayOptionsSelect />
                             <CopyTraceButton trace={trace} tree={enrichedTree} />
                         </div>
                     </div>
-                    <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
+                    <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
                         <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
                         <EventContent
                             trace={trace}
@@ -167,7 +174,7 @@ function TraceMetadata({
     feedbackEvents: LLMTraceEvent[]
 }): JSX.Element {
     return (
-        <header className="flex gap-2 flex-wrap">
+        <header className="flex gap-1.5 flex-wrap">
             {'person' in trace && (
                 <Chip title="Person">
                     <PersonDisplay withIcon="sm" person={trace.person} />
@@ -545,7 +552,8 @@ const EventContent = React.memo(
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const [viewMode, setViewMode] = useState<'conversation' | 'raw'>('conversation')
+
+        const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
 
         const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
@@ -554,13 +562,13 @@ const EventContent = React.memo(
         const sessionId = event ? getSessionID(event, childEventsForSessionId) : null
         const hasSessionRecording = !!sessionId
 
-        const showPlaygroundButton =
-            event &&
-            isLLMEvent(event) &&
-            event.event === '$ai_generation' &&
-            featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
+        const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
+                
+        const showPlaygroundButton = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
+
+        const showEvalsTab = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
         const handleTryInPlayground = (): void => {
             if (!event) {
@@ -688,7 +696,7 @@ const EventContent = React.memo(
                             onChange={setViewMode}
                             tabs={[
                                 {
-                                    key: 'conversation',
+                                    key: TraceViewMode.Conversation,
                                     label: 'Conversation',
                                     content: (
                                         <>
@@ -738,7 +746,7 @@ const EventContent = React.memo(
                                     ),
                                 },
                                 {
-                                    key: 'raw',
+                                    key: TraceViewMode.Raw,
                                     label: 'Raw',
                                     content: (
                                         <div className="p-2">
@@ -746,6 +754,15 @@ const EventContent = React.memo(
                                         </div>
                                     ),
                                 },
+                                ...(showEvalsTab
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Evals,
+                                              label: 'Evaluations',
+                                              content: <EvalsTabContent generationEventId={event.id} />,
+                                          },
+                                      ]
+                                    : []),
                             ]}
                         />
                     </>
