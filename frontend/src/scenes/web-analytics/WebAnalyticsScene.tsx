@@ -1,6 +1,5 @@
-import { IconPieChart } from '@posthog/icons'
-
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { WebAnalyticsDashboard } from 'scenes/web-analytics/WebAnalyticsDashboard'
 import { WebAnalyticsHeaderButtons } from 'scenes/web-analytics/WebAnalyticsHeaderButtons'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -15,15 +14,10 @@ export function WebAnalyticsScene(): JSX.Element {
             <SceneContent>
                 <div className="flex flex-col gap-4">
                     <SceneTitleSection
-                        name="Web analytics"
-                        description="Analyze your web analytics data to understand website performance and user behavior."
+                        name={sceneConfigurations[Scene.WebAnalytics].name}
+                        description={sceneConfigurations[Scene.WebAnalytics].description}
                         resourceType={{
-                            type: 'web',
-                            forceIcon: <IconPieChart />,
-                            forceIconColorOverride: [
-                                'var(--color-product-web-analytics-light)',
-                                'var(--color-product-web-analytics-dark)',
-                            ],
+                            type: sceneConfigurations[Scene.WebAnalytics].iconType || 'default_icon_type',
                         }}
                         actions={<WebAnalyticsHeaderButtons />}
                     />

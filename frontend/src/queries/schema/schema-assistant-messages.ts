@@ -43,6 +43,7 @@ export interface ProsemirrorJSONContent {
 export enum AssistantMessageType {
     Human = 'human',
     ToolCall = 'tool',
+    Context = 'context',
     Assistant = 'ai',
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
@@ -55,6 +56,7 @@ export enum AssistantMessageType {
 
 export interface BaseAssistantMessage {
     id?: string
+    visible?: boolean
 }
 
 export interface HumanMessage extends BaseAssistantMessage {
@@ -74,6 +76,7 @@ export interface AssistantForm {
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
+    thinking?: Record<string, unknown>[]
 }
 
 export interface AssistantToolCall {
@@ -98,6 +101,11 @@ export interface ReasoningMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Reasoning
     content: string
     substeps?: string[]
+}
+
+export interface ContextMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Context
+    content: string
 }
 
 /**
@@ -229,7 +237,6 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
      * Tool call messages without a ui_payload are not passed through to the frontend.
      */
     ui_payload?: Record<string, any>
-    visible?: boolean
     content: string
     tool_call_id: string
 }
@@ -254,6 +261,10 @@ export type AssistantContextualTool =
     | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
+    | 'read_taxonomy'
+    | 'search'
+    | 'read_data'
+    | 'todo_write'
     | 'filter_revenue_analytics'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
@@ -262,42 +273,45 @@ export type AssistantContextualTool =
 // List every key of objects `frontend/src/products.tsx::productUrls` and `frontend/src/scenes/urls.ts::urls`,
 // whose function takes either zero arguments, or only optional arguments.
 // Exclude scenes related to signup, login, onboarding, upsell or admin, as well as internal scenes, and ones about uploading files.
-// Your only output should be a list of those string keys in TypeScript union syntax.
+// Your only output should be a list of those string keys in TypeScript enum syntax.
 // Once done, verify whether indeed each item of the output satisfies the criteria.
 // "
-export type AssistantNavigateUrls =
-    | 'actions'
-    | 'activity'
-    | 'alerts'
-    | 'annotations'
-    | 'createAction'
-    | 'cohorts'
-    | 'dashboards'
-    | 'database'
-    | 'earlyAccessFeatures'
-    | 'eventDefinitions'
-    | 'errorTracking'
-    | 'experiments'
-    | 'featureFlags'
-    | 'game368hedgehogs'
-    | 'heatmaps'
-    | 'ingestionWarnings'
-    | 'insights'
-    | 'insightNew'
-    | 'pipeline'
-    | 'projectHomepage'
-    | 'propertyDefinitions'
-    | 'max'
-    | 'notebooks'
-    | 'replay'
-    | 'replaySettings'
-    | 'revenueAnalytics'
-    | 'savedInsights'
-    | 'settings'
-    | 'sqlEditor'
-    | 'surveys'
-    | 'surveyTemplates'
-    | 'toolbarLaunch'
-    | 'webAnalytics'
-    | 'webAnalyticsWebVitals'
-    | 'persons'
+export enum AssistantNavigateUrl {
+    Actions = 'actions',
+    Activity = 'activity',
+    Alerts = 'alerts',
+    Annotations = 'annotations',
+    CreateAction = 'createAction',
+    Cohorts = 'cohorts',
+    Dashboards = 'dashboards',
+    Database = 'database',
+    EarlyAccessFeatures = 'earlyAccessFeatures',
+    EventDefinitions = 'eventDefinitions',
+    ErrorTracking = 'errorTracking',
+    Experiments = 'experiments',
+    FeatureFlags = 'featureFlags',
+    Game368Hedgehogs = 'game368hedgehogs',
+    Heatmaps = 'heatmaps',
+    IngestionWarnings = 'ingestionWarnings',
+    Insights = 'insights',
+    InsightNew = 'insightNew',
+    Pipeline = 'pipeline',
+    ProjectHomepage = 'projectHomepage',
+    PropertyDefinitions = 'propertyDefinitions',
+    Max = 'max',
+    Notebooks = 'notebooks',
+    Replay = 'replay',
+    ReplaySettings = 'replaySettings',
+    RevenueAnalytics = 'revenueAnalytics',
+    SavedInsights = 'savedInsights',
+    Settings = 'settings',
+    SqlEditor = 'sqlEditor',
+    Surveys = 'surveys',
+    SurveyTemplates = 'surveyTemplates',
+    ToolbarLaunch = 'toolbarLaunch',
+    WebAnalytics = 'webAnalytics',
+    WebAnalyticsWebVitals = 'webAnalyticsWebVitals',
+    Persons = 'persons',
+}
+
+export const ASSISTANT_NAVIGATE_URLS = new Set(Object.values(AssistantNavigateUrl))
