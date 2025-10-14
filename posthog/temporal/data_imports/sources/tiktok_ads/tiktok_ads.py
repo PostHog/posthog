@@ -72,7 +72,7 @@ def tiktok_ads_source(
     """TikTok Ads source using rest_api_resources with date chunking support."""
 
     endpoint_config = TIKTOK_ADS_CONFIG[endpoint]
-    is_report = TikTokReportResource.is_report_endpoint(endpoint)
+    is_report = endpoint_config.is_report_endpoint
     base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field)
 
     if is_report:

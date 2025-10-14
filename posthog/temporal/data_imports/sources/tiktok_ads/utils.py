@@ -148,20 +148,6 @@ class TikTokReportResource:
         """Transform TikTok report data by flattening nested structure."""
         return [TikTokReportResource.flatten_record(item) for item in items]
 
-    @staticmethod
-    def is_report_endpoint(endpoint_name: str) -> bool:
-        """Check if an endpoint is a report endpoint based on its configuration."""
-        if endpoint_name not in TIKTOK_ADS_CONFIG:
-            return False
-
-        endpoint_config = TIKTOK_ADS_CONFIG[endpoint_name]
-        endpoint = endpoint_config.resource.get("endpoint")
-        if isinstance(endpoint, dict):
-            incremental = endpoint.get("incremental")
-            if isinstance(incremental, dict):
-                return incremental.get("cursor_path") == "stat_time_day"
-        return False
-
     @classmethod
     def create_chunked_resources(
         cls,

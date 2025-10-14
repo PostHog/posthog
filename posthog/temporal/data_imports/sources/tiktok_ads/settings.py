@@ -20,6 +20,7 @@ class EndpointConfig:
     incremental_fields: Optional[list[IncrementalField]] = None
     partition_format: Optional[PartitionFormat] = None
     partition_size: int = 1
+    is_report_endpoint: bool = False
 
 
 TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
@@ -136,6 +137,7 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_mode="datetime",
         partition_format="month",
         partition_size=1,
+        is_report_endpoint=True,
     ),
     "ad_group_report": EndpointConfig(
         # Docs: https://business-api.tiktok.com/portal/docs?id=1740302848100353
@@ -178,6 +180,7 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_mode="datetime",
         partition_format="month",
         partition_size=1,
+        is_report_endpoint=True,
     ),
     "ad_report": EndpointConfig(
         # Docs: https://business-api.tiktok.com/portal/docs?id=1740302848100353
@@ -220,5 +223,6 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_mode="datetime",
         partition_format="month",
         partition_size=1,
+        is_report_endpoint=True,
     ),
 }
