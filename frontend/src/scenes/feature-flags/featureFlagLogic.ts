@@ -69,6 +69,7 @@ import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/fronten
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
+import { defaultEvaluationEnvironmentsLogic } from './defaultEvaluationEnvironmentsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 
@@ -312,6 +313,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['currentOrganization'],
             enabledFeaturesLogic,
             ['featureFlags as enabledFeatures'],
+            defaultEvaluationEnvironmentsLogic,
+            ['tags as defaultEvaluationTags', 'isEnabled as defaultEvaluationEnabled'],
         ],
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
@@ -363,9 +366,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         featureFlag: {
             defaults: {
                 ...NEW_FLAG,
-                ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
-                _should_create_usage_dashboard: true,
-            },
+                ensure_experience_continuity: false,
+            } as FeatureFlagType,
             errors: ({ key, filters, is_remote_configuration }) => {
                 return {
                     key: validateFeatureFlagKey(key),
@@ -730,10 +732,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         throw e
                     }
                 }
-                return {
+
+                const newFlag = {
                     ...NEW_FLAG,
                     ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
                 }
+
+                // Add default evaluation tags for new flags
+                if (values.defaultEvaluationEnabled && values.defaultEvaluationTags.length > 0) {
+                    const tagNames = values.defaultEvaluationTags.map((tag) => tag.name)
+                    newFlag.tags = tagNames
+                    newFlag.evaluation_tags = tagNames
+                }
+
+                return newFlag
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 // Destructure all fields we want to exclude or handle specially
@@ -1296,7 +1308,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 {
                     key: [Scene.FeatureFlag, featureFlag.id || 'unknown'],
-                    name: featureFlag.key || (!featureFlag.id ? 'New feature flag' : 'Unnamed'),
+                    name: featureFlag.key || 'Unnamed',
                     iconType: 'feature_flag',
                 },
             ],
@@ -1428,7 +1440,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     afterMount(({ props, actions }) => {
-        if (props.id === 'new' && router.values.searchParams.sourceId) {
+        if (props.id === 'new') {
             actions.loadFeatureFlag()
             return
         }
@@ -1442,7 +1454,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
             actions.loadFeatureFlagStatus()
-        } else if (props.id !== 'new') {
+        } else {
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()
         }

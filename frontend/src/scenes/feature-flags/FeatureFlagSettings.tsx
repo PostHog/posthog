@@ -9,6 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { DefaultEvaluationEnvironments } from './DefaultEvaluationEnvironments'
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
 export type FeatureFlagSettingsProps = {
@@ -106,6 +107,11 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                     </div>
                 )}
             </div>
+
+            <div className="space-y-2">
+                <DefaultEvaluationEnvironments />
+            </div>
+
             <div className="space-y-2">
                 <FlagsSecureApiKeys />
             </div>
