@@ -311,8 +311,11 @@ class TikTokAdsPaginator(BasePaginator):
 
                 retryable_codes = [
                     40100,  # QPS limit reached (confirmed from our tests - 20 QPS limit)
+                    40200,  # Insufficient permissions
+                    40201,  # Access token expired
+                    40202,  # Access token invalid
+                    40700,  # Rate limit exceeded
                     50000,  # Internal server error
-                    50001,  # Service temporarily unavailable
                     50002,  # Service error
                 ]
 
