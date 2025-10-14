@@ -135,6 +135,63 @@ impl CheckpointUploader for S3Uploader {
         Ok(uploaded_keys)
     }
 
+    async fn upload_checkpoint_with_plan(
+        &self,
+        plan: &super::CheckpointPlan,
+        remote_key_prefix: &str,
+    ) -> Result<Vec<String>> {
+        info!(
+            "Starting upload with plan: {} files to upload, {} files referenced from parents",
+            plan.files_to_upload.len(),
+            plan.metadata.files.len() - plan.files_to_upload.len()
+        );
+
+        // Upload all files concurrently
+        let upload_futures: Vec<_> = plan
+            .files_to_upload
+            .iter()
+            .map(|(filename, local_path)| {
+                let s3_key = format!("{}/{}", remote_key_prefix, filename);
+                let local_path = local_path.clone();
+                async move {
+                    self.upload_file(Path::new(&local_path), &s3_key).await?;
+                    Ok::<String, anyhow::Error>(s3_key)
+                }
+            })
+            .collect();
+
+        let uploaded_keys = futures::future::try_join_all(upload_futures).await?;
+
+        // Upload metadata.json
+        let metadata_json = serde_json::to_string_pretty(&plan.metadata)
+            .context("Failed to serialize checkpoint metadata")?;
+
+        let metadata_key = format!("{}/metadata.json", remote_key_prefix);
+        let put_object = self
+            .client
+            .put_object()
+            .bucket(&self.config.s3_bucket)
+            .key(&metadata_key)
+            .body(metadata_json.into_bytes().into());
+
+        let result = tokio::time::timeout(self.config.s3_timeout, put_object.send())
+            .await
+            .with_context(|| format!("S3 upload timeout for key: {}", metadata_key))?;
+
+        result.with_context(|| format!("Failed to upload metadata to S3 key: {}", metadata_key))?;
+
+        info!(
+            "Uploaded {} files and metadata to s3://{}/{}",
+            plan.files_to_upload.len(),
+            self.config.s3_bucket,
+            remote_key_prefix
+        );
+
+        let mut all_keys = uploaded_keys;
+        all_keys.push(metadata_key);
+        Ok(all_keys)
+    }
+
     async fn is_available(&self) -> bool {
         !self.config.s3_bucket.is_empty()
     }
