@@ -21,6 +21,29 @@ default_logger = structlog.get_logger(__name__)
 CACHE_EXPIRY = 60 * 60 * 24 * 3  # 3 days
 BATCH_SIZE = 1000
 
+# TODO: Extract the semVer sorting below to a HogQL function.
+# Source: https://clickhouse.com/blog/semantic-versioning-udf
+QUERY = parse_select(
+    """
+        SELECT
+            properties.$lib AS lib,
+            properties.$lib_version AS lib_version,
+            MAX(timestamp) AS max_timestamp,
+            COUNT(*) AS event_count
+        FROM events
+        WHERE
+            timestamp >= now() - INTERVAL 7 DAY
+            AND lib IS NOT NULL
+            AND lib_version IS NOT NULL
+        GROUP BY lib, lib_version
+        ORDER BY
+            lib,
+            arrayMap(x -> toIntOrZero(x),  splitByChar('.', extract(assumeNotNull(lib_version), {regex}))) DESC,
+            event_count DESC
+    """,
+    placeholders={"regex": ast.Constant(value="(\\d+(\\.\\d+)+)")},  # Matches number.number.number.number.<...>
+)
+
 
 def get_sdk_versions_for_team(
     team_id: int,
@@ -33,31 +56,7 @@ def get_sdk_versions_for_team(
     """
     try:
         team = Team.objects.get(id=team_id)
-
-        # TODO: Extract the semVer sorting below to either a Clickhouse UDF/HogQL function.
-        # Source: https://clickhouse.com/blog/semantic-versioning-udf
-        query = parse_select(
-            """
-                SELECT
-                    properties.$lib AS lib,
-                    properties.$lib_version AS lib_version,
-                    MAX(timestamp) AS max_timestamp,
-                    COUNT(*) AS event_count
-                FROM events
-                WHERE
-                    timestamp >= now() - INTERVAL 7 DAY
-                    AND lib IS NOT NULL
-                    AND lib_version IS NOT NULL
-                GROUP BY lib, lib_version
-                ORDER BY
-                    lib,
-                    arrayMap(x -> toIntOrZero(x),  splitByChar('.', extract(assumeNotNull(lib_version), {regex}))) DESC,
-                    event_count DESC
-            """,
-            placeholders={"regex": ast.Constant(value="(\\d+(\\.\\d+)+)")},  # Matches number.number.number.number.<...>
-        )
-
-        response = execute_hogql_query(query, team, query_type="sdk_versions_for_team")
+        response = execute_hogql_query(QUERY, team, query_type="sdk_versions_for_team")
 
         output = defaultdict(list)
         for lib, lib_version, max_timestamp, event_count in response.results:
