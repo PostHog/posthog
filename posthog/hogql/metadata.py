@@ -5,6 +5,7 @@ from django.conf import settings
 from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, QueryIndexUsage
 
 from posthog.hogql import ast
+from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
@@ -140,7 +141,7 @@ def process_expr_on_table(
         raise
 
 
-def get_table_names(select_query: ast.SelectQuery | ast.SelectSetQuery) -> list[str]:
+def get_table_names(select_query: AST) -> list[str]:
     # Don't need types, we're only interested in the table names as passed in
     collector = TableCollector()
     collector.visit(select_query)
@@ -155,19 +156,6 @@ class TableCollector(TraversingVisitor):
     def visit_cte(self, node: ast.CTE):
         self.ctes.add(node.name)
         super().visit(node.expr)
-
-    def visit_join_expr(self, node: ast.JoinExpr):
-        if isinstance(node.table, ast.Field):
-            self.table_names.add(".".join([str(x) for x in node.table.chain]))
-        else:
-            self.visit(node.table)
-
-        self.visit(node.next_join)
-
-
-class LintingVisitor(TraversingVisitor):
-    def __init__(self):
-        self.warnings = []
 
     def visit_join_expr(self, node: ast.JoinExpr):
         if isinstance(node.table, ast.Field):

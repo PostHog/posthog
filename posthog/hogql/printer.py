@@ -125,7 +125,7 @@ def prepare_and_print_ast(
 
 
 def prepare_ast_for_printing(
-    node: _T_AST,
+    node: _T_AST,  # node is mutated
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: list[ast.SelectQuery] | None = None,

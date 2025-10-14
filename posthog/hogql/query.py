@@ -55,7 +55,7 @@ class HogQLQueryExecutor:
     pretty: Optional[bool] = True
     context: HogQLContext = dataclasses.field(default_factory=lambda: HogQLQueryExecutor.__uninitialized_context)
     hogql_context: Optional[HogQLContext] = None
-    clickhouse_sql: Optional[str] = None
+    clickhouse_sql: str
     clickhouse_prepared_ast: Optional[ast.AST] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
