@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconInfo, IconStethoscope } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
@@ -95,9 +97,12 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                 <div className="flex items-center gap-2 justify-start">
                     <Tooltip title="View events" delayMs={0}>
                         <Link
-                            onClick={() =>
+                            onClick={() => {
+                                posthog.capture('sdk doctor view events', {
+                                    sdkType: record.type,
+                                })
                                 newInternalTab(urls.sqlEditor(queryForSdkVersion(record.type, record.version)))
-                            }
+                            }}
                         >
                             <code className="text-xs font-mono bg-muted-highlight rounded-sm">{record.version}</code>
                         </Link>
@@ -154,6 +159,20 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
 
     const { featureFlags } = useValues(featureFlagLogic)
 
+    useOnMountEffect(() => {
+        posthog.capture('sdk doctor loaded', { outdatedSdkCount })
+    })
+
+    const scanEvents = (): void => {
+        posthog.capture('sdk doctor scan events')
+        loadTeamSdkVersions({ forceRefresh: true })
+    }
+
+    const snoozeWarning = (): void => {
+        posthog.capture('sdk doctor snooze warning')
+        snoozeSdkDoctor()
+    }
+
     if (!featureFlags[FEATURE_FLAGS.SDK_DOCTOR_BETA]) {
         return (
             <div className="flex flex-col h-full">
@@ -194,7 +213,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                     size="xsmall"
                     type="primary"
                     disabledReason={loading ? 'Scan in progress' : undefined}
-                    onClick={() => loadTeamSdkVersions({ forceRefresh: true })}
+                    onClick={scanEvents}
                 >
                     {loading ? 'Scanning events...' : 'Scan events'}
                 </LemonButton>
@@ -246,7 +265,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                             action={{
                                 children: 'Snooze warning for 30 days',
                                 disabledReason: snoozedUntil ? 'Already snoozed' : undefined,
-                                onClick: () => snoozeSdkDoctor(),
+                                onClick: snoozeWarning,
                             }}
                         >
                             <p className="font-semibold">
