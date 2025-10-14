@@ -158,3 +158,17 @@ export const userHasAccess = (
 ): boolean => {
     return !getAccessControlDisabledReason(resourceType, minAccessLevel, userAccessLevel)
 }
+
+/**
+ * Returns a tooltip message for a resource type if it has special access control behavior.
+ * Use this to inform users about resource-specific access control limitations or clarifications.
+ *
+ * @param resource - The API scope object to get tooltip text for
+ * @returns Tooltip text describing special access control behavior, or null if no special behavior
+ */
+export const getAccessControlTooltip = (resource: APIScopeObject): string | null => {
+    if (resource === AccessControlResourceType.ExternalDataSource) {
+        return 'Data warehouse sources currently only apply to the source itself, not querying data from the source.'
+    }
+    return null
+}
