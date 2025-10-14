@@ -25,7 +25,7 @@ export interface BatchExportConfigurationLogicProps {
 }
 
 function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportConfiguration): Record<string, any> {
-    return {
+    let config = {
         name: batchExportConfig.name,
         destination: batchExportConfig.destination.type,
         paused: batchExportConfig.paused,
@@ -35,6 +35,34 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         integration_id:
             batchExportConfig.destination.type === 'Databricks' ? batchExportConfig.destination.integration : undefined,
         ...batchExportConfig.destination.config,
+    }
+
+    let authorizationMode: 'IAMRole' | 'Credentials' = 'IAMRole'
+    let copyInputsFields = {}
+
+    if (batchExportConfig.destination.type === 'Redshift' && config.copy_inputs) {
+        copyInputsFields = {
+            redshift_s3_bucket: config.copy_inputs.s3_bucket,
+            redshift_s3_key_prefix: config.copy_inputs.s3_key_prefix,
+            redshift_s3_bucket_region_name: config.copy_inputs.region_name,
+            redshift_s3_bucket_aws_access_key_id: config.copy_inputs.bucket_credentials?.aws_access_key_id,
+            redshift_s3_bucket_aws_secret_access_key: config.copy_inputs.bucket_credentials?.aws_secret_access_key,
+        }
+
+        authorizationMode = typeof config.copy_inputs.authorization === 'string' ? 'IAMRole' : 'Credentials'
+
+        if (authorizationMode === 'IAMRole') {
+            copyInputsFields.redshift_iam_role = config.copy_inputs.authorization
+        } else {
+            copyInputsFields.redshift_aws_access_key_id = config.copy_inputs.authorization?.aws_access_key_id
+            copyInputsFields.redshift_aws_secret_access_key = config.copy_inputs.authorization?.aws_secret_access_key
+        }
+    }
+
+    return {
+        ...config,
+        ...copyInputsFields,
+        authorization_mode: authorizationMode,
     }
 }
 
@@ -566,8 +594,42 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         filters,
                         json_config_file,
                         integration_id,
+                        // Redshift COPY configuration
+                        mode,
+                        authorization_mode,
+                        redshift_s3_bucket,
+                        redshift_s3_key_prefix,
+                        redshift_s3_bucket_region_name,
+                        redshift_s3_bucket_aws_access_key_id,
+                        redshift_s3_bucket_aws_secret_access_key,
+                        redshift_iam_role,
+                        redshift_aws_access_key_id,
+                        redshift_aws_secret_access_key,
                         ...config
                     } = formdata
+
+                    if (props.service === 'Redshift') {
+                        if (mode === 'COPY') {
+                            const copyInputs = {
+                                s3_bucket: redshift_s3_bucket,
+                                s3_key_prefix: redshift_s3_key_prefix,
+                                region_name: redshift_s3_bucket_region_name,
+                                authorization: redshift_iam_role
+                                    ? redshift_iam_role
+                                    : {
+                                          aws_access_key_id: redshift_aws_access_key_id,
+                                          aws_secret_access_key: redshift_aws_secret_access_key,
+                                      },
+                                bucket_credentials: {
+                                    aws_access_key_id: redshift_s3_bucket_aws_access_key_id,
+                                    aws_secret_access_key: redshift_s3_bucket_aws_secret_access_key,
+                                },
+                            }
+                            config.copy_inputs = copyInputs
+                        }
+                        config.mode = mode
+                    }
+
                     const destinationObj = {
                         type: destination,
                         integration: integration_id,
@@ -652,6 +714,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         integration_id,
                         ...config
                     } = values.configuration
+
                     const destinationObj = {
                         type: destination,
                         config: config,
