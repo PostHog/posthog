@@ -128,14 +128,6 @@ def _run_mypy_baseline(
 
 
 def _check(paths: Sequence[str], *, from_hook: bool = False) -> int:
-    # Early exit if called from lint-staged and user hasn't opted in
-    if from_hook:
-        result = subprocess.run(
-            ["git", "config", "--get", "posthog.enableTy"], cwd=REPO_ROOT, capture_output=True, text=True, check=False
-        )
-        if result.returncode != 0 or result.stdout.strip().lower() != "true":
-            return 0  # Not opted in, skip silently
-
     # Check all files - mypy-baseline filter handles line-level filtering
     filtered_targets = list(paths)
     if not filtered_targets:

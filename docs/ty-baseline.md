@@ -1,37 +1,14 @@
-# Ty Type Checking (Opt-In Alpha)
+# Ty Type Checking
 
-## ⚠️ Opt-In Only
-
-ty type checking is currently **opt-in**. To enable:
-
-```bash
-git config posthog.enableTy true
-```
-
-Once enabled, ty will run automatically on your commits via `lint-staged`. If ty reports errors:
+ty runs automatically on every commit via `lint-staged`. If ty reports errors:
 
 - **Just fix them** - ty is stricter than mypy, which improves code quality
 - No need to check if mypy agrees
 - You can temporarily skip with `git commit --no-verify` if needed
 
-To disable:
-
-```bash
-git config --unset posthog.enableTy
-```
-
-## Why Opt-In?
-
-ty finds errors in ~333 files not in mypy baseline (~73% of files it flags). Making it opt-in:
-
-- Doesn't block developers unexpectedly
-- Lets volunteers improve type safety gradually
-- Provides time to understand ty vs mypy differences
-- Embraces ty's stricter checking as an improvement, not a burden
+The baseline system prevents pre-existing errors from blocking your commits - you're only responsible for fixing new errors you introduce.
 
 ## Manual Usage
-
-You can run ty manually even without opting in:
 
 ```bash
 ./bin/ty.py path/to/file.py    # Check specific files
@@ -43,8 +20,7 @@ You can run ty manually even without opting in:
 
 - ⚡ Extremely fast (~10-100x faster than mypy)
 - 🧪 Alpha/beta software (expect occasional edge cases)
-- 🔒 **Opt-in only** - enable via `git config posthog.enableTy true`
-- 🚦 Runs automatically in `lint-staged` when opted in
+- 🚦 Runs automatically in `lint-staged` on every commit
 
 **mypy** remains the **authoritative type checker**:
 
@@ -59,10 +35,10 @@ If ty reports an error, fix it - ty's stricter checking helps catch bugs early.
 ### Two Separate Baselines
 
 - **`mypy-baseline.txt`** - Maintained by mypy (authoritative, ~1287 errors)
-- **`ty-baseline.txt`** - Maintained by ty (opt-in users only, ~2136 errors)
+- **`ty-baseline.txt`** - Maintained by ty (~2136 errors)
 
 ty maintains its own baseline because it finds different/additional errors compared to mypy.
-This ensures opted-in users aren't blocked by pre-existing ty errors in files they modify.
+This ensures developers aren't blocked by pre-existing ty errors in files they modify.
 
 ### Updating ty-baseline
 
