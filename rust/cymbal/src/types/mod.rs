@@ -510,6 +510,19 @@ mod test {
         assert_eq!(props.unwrap().exception_list.len(), 0);
 
         let raw: &'static str = r#"{
+                    "$exception_list": [{
+                        "type": "UnhandledRejection"
+                    }]
+                }"#;
+
+        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
+        assert!(props.is_err());
+        assert_eq!(
+            props.unwrap_err().to_string(),
+            "missing field `value` at line 4 column 13"
+        );
+
+        let raw: &'static str = r#"{
             "$exception_list": [{
                 "typo": "UnhandledRejection",
                 "value": "x"
