@@ -114,6 +114,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "DatatypeMismatch",
     # Exceeded limits for indexes that we do not maintain.
     "ProgramLimitExceeded",
+    # Raised when the destination table schema is incompatible with the schema of the data we are trying to export.
+    "PostgreSQLIncompatibleSchemaError",
 )
 
 
@@ -124,6 +126,13 @@ class PostgreSQLConnectionError(Exception):
 class MissingPrimaryKeyError(Exception):
     def __init__(self, table: sql.Identifier, primary_key: sql.Composed):
         super().__init__(f"An operation could not be completed as '{table}' is missing a primary key on {primary_key}")
+
+
+class PostgreSQLIncompatibleSchemaError(Exception):
+    """Raised when the destination table schema is incompatible with the schema of the data we are trying to export."""
+
+    def __init__(self, err_msg: str):
+        super().__init__(f"The data being exported is incompatible with the schema of the destination table: {err_msg}")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -781,10 +790,16 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchEx
         )[:63]
 
         async with PostgreSQLClient.from_inputs(inputs).connect() as pg_client:
+            table_exists = False
             # handle the case where the final table doesn't contain all the fields present in the record batch schema
             try:
                 columns = await pg_client.aget_table_columns(inputs.schema, inputs.table_name)
+                table_exists = True
                 table_fields = [field for field in table_fields if field[0] in columns]
+                if not table_fields:
+                    raise PostgreSQLIncompatibleSchemaError(
+                        f"No matching columns found in the destination table '{inputs.schema}.{inputs.table_name}'"
+                    )
             except psycopg.errors.InsufficientPrivilege:
                 external_logger.warning(
                     "Insufficient privileges to get table columns for table '%s.%s'; "
@@ -805,6 +820,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchEx
                     inputs.schema,
                     inputs.table_name,
                     table_fields,
+                    create=not table_exists,
                     delete=False,
                     primary_key=primary_key,
                     log_statements=True,

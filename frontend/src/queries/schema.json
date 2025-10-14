@@ -12783,7 +12783,8 @@
                 "DoIt",
                 "LinkedinAds",
                 "RedditAds",
-                "TikTokAds"
+                "TikTokAds",
+                "Shopify"
             ],
             "type": "string"
         },
@@ -12966,6 +12967,7 @@
         },
         "FileSystemIconType": {
             "enum": [
+                "default_icon_type",
                 "dashboard",
                 "llm_analytics",
                 "product_analytics",
@@ -12997,7 +12999,8 @@
                 "event_definition",
                 "property_definition",
                 "ingestion_warning",
-                "person",
+                "persons",
+                "user",
                 "cohort",
                 "group",
                 "insight/funnels",
@@ -13008,7 +13011,9 @@
                 "insight/stickiness",
                 "insight/hog",
                 "team_activity",
-                "home"
+                "home",
+                "apps",
+                "live"
             ],
             "type": "string"
         },
@@ -22439,6 +22444,11 @@
                 },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
+                },
+                "timeWindowMode": {
+                    "description": "The time window mode to use for retention calculations",
+                    "enum": ["strict_calendar_dates", "24_hour_windows"],
+                    "type": "string"
                 },
                 "totalIntervals": {
                     "$ref": "#/definitions/integer",

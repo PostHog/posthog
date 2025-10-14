@@ -46,6 +46,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
+                  version: 0.8.19
                   pyproject-file: 'pyproject.toml'
 
             - name: Install python dependencies

@@ -152,7 +152,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  version: 0.7.8
+                  version: 0.8.19
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
