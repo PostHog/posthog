@@ -3,6 +3,7 @@ import re
 import json
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 from tempfile import mkstemp
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
@@ -140,9 +141,19 @@ async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
 
                 await storage.download_file(key, tmpfile)
 
+                size_before = Path(tmpfile).stat().st_size
+
                 with open(tmpfile, "rb+") as fp:
                     fp.seek(start_byte)
-                    fp.write("\0" * expected_length)
+
+                    for _ in range(expected_length // 1024):
+                        fp.write(bytearray(1024))
+
+                    fp.write(bytearray(expected_length % 1024))
+
+                size_after = Path(tmpfile).stat().st_size
+
+                assert size_before == size_after
 
                 await storage.upload_file(key, tmpfile)
 
