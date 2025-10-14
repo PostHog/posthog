@@ -71,7 +71,7 @@ class TikTokAdsSource(BaseSource[TikTokAdsSourceConfig], OAuthMixin):
             SourceSchema(
                 name=str(endpoint_config.resource["name"]),
                 supports_incremental=endpoint_config.incremental_fields is not None,
-                supports_append=False,
+                supports_append=endpoint_config.incremental_fields is not None,
                 incremental_fields=endpoint_config.incremental_fields or [],
             )
             for endpoint_config in TIKTOK_ADS_CONFIG.values()
