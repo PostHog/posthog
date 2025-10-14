@@ -285,20 +285,20 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
     def teardown_method(self, method) -> None:
         pass
 
-    @patch("posthog.storage.session_recording_v2_object_storage.get_session")
-    async def test_client_constructor_uses_correct_settings(self, patched_aiobotocore_get_session) -> None:
+    @patch("posthog.storage.session_recording_v2_object_storage.aioboto3")
+    async def test_client_constructor_uses_correct_settings(self, patched_aioboto3) -> None:
         # Reset the global client to ensure we test client creation
         import posthog.storage.session_recording_v2_object_storage as storage_module
 
-        create_client_mock = MagicMock(AsyncContextManager)
-        patched_aiobotocore_get_session.return_value.create_client = create_client_mock
+        client_mock = MagicMock(AsyncContextManager)
+        patched_aioboto3.Session.return_value.client = client_mock
 
         async with storage_module.async_client() as client:
-            assert patched_aiobotocore_get_session.call_count == 1
-            assert create_client_mock.call_count == 1
+            assert patched_aioboto3.Session.call_count == 1
+            assert client_mock.call_count == 1
 
-            call_args = create_client_mock.call_args[0]
-            call_kwargs = create_client_mock.call_args[1]
+            call_args = client_mock.call_args[0]
+            call_kwargs = client_mock.call_args[1]
 
             assert call_args == ("s3",)
             assert call_kwargs["endpoint_url"] == SESSION_RECORDING_V2_S3_ENDPOINT
@@ -329,19 +329,19 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
             ),
         ]
     )
-    @patch("posthog.storage.session_recording_v2_object_storage.get_session")
+    @patch("posthog.storage.session_recording_v2_object_storage.aioboto3")
     async def test_throws_runtimeerror_if_required_settings_missing(
-        self, settings_override, patched_aiobotocore_get_session
+        self, settings_override, patched_aioboto3
     ) -> None:
         with self.settings(**settings_override):
-            create_client_mock = MagicMock(AsyncContextManager)
-            patched_aiobotocore_get_session.return_value.create_client = create_client_mock
+            client_mock = MagicMock(AsyncContextManager)
+            patched_aioboto3.Session.return_value.client = client_mock
 
             with self.assertRaises(RuntimeError) as _:
                 async with async_client() as _:
                     pass
 
-            create_client_mock.assert_not_called()
+            client_mock.assert_not_called()
 
     async def test_read_bytes_with_byte_range(self):
         mock_client = AsyncMock()
