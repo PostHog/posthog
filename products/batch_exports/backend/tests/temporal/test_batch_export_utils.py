@@ -6,10 +6,13 @@ import pytest
 import pyarrow as pa
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.temporal.common.utils import make_retryable_with_exponential_backoff
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
-from products.batch_exports.backend.temporal.utils import JsonType, set_status_to_running_task
+from products.batch_exports.backend.temporal.utils import (
+    JsonType,
+    make_retryable_with_exponential_backoff,
+    set_status_to_running_task,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

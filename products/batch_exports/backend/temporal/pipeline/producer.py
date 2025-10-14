@@ -7,10 +7,10 @@ from aiobotocore.response import StreamingBody
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.common.utils import make_retryable_with_exponential_backoff
 
 from products.batch_exports.backend.temporal.pipeline.internal_stage import get_s3_client, get_s3_staging_folder
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, slice_record_batch
+from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client

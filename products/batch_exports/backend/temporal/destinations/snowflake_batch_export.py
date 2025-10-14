@@ -34,7 +34,6 @@ from posthog.batch_exports.service import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
-from posthog.temporal.common.utils import make_retryable_with_exponential_backoff
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
@@ -71,6 +70,7 @@ from products.batch_exports.backend.temporal.utils import (
     JsonType,
     cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
+    make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
 
