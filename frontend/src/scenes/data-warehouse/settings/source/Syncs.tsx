@@ -70,7 +70,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                 {
                     title: 'Synced at',
                     render: (_, job) => {
-                        return <TZLabel time={job.created_at} />
+                        return <TZLabel time={job.created_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
                     },
                 },
             ]}
