@@ -98,7 +98,7 @@ export function LogsScene(): JSX.Element {
                             key: 'timestamp',
                             dataIndex: 'timestamp',
                             width: 0,
-                            render: (timestamp) => <TZLabel time={timestamp} {...tzLabelFormat} />,
+                            render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
                         },
                         {
                             title: 'Level',
@@ -111,7 +111,7 @@ export function LogsScene(): JSX.Element {
                             title: 'Message',
                             key: 'body',
                             dataIndex: 'body',
-                            render: (body) => (
+                            render: (_, { body }) => (
                                 <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{colors.unstyle(body)}</div>
                             ),
                         },
