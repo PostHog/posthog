@@ -380,9 +380,11 @@ describe('maxThreadLogic', () => {
 
     it('adds a thinking message when the thread is completely empty', async () => {
         const streamSpy = mockStream()
+        logic.unmount()
         logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
         logic.mount()
 
+        expect(streamSpy).toHaveBeenCalledTimes(0)
         await expectLogic(logic, () => {
             logic.actions.askMax('hello')
         }).toMatchValues({

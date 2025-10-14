@@ -236,7 +236,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     listeners((logic) => ({
         streamConversation: async ({ streamData, generationAttempt }, breakpoint) => {
-            const { actions, values, cache, mount } = logic as BuiltLogic<maxThreadLogicType>
+            const { actions, values, cache, mount, props } = logic as BuiltLogic<maxThreadLogicType>
             // Set active streaming threads, so we know streaming is active
             const releaseStreamingLock = mount() // lock the logic - don't unmount before we're done streaming
             actions.incrActiveStreamingThreads()
@@ -282,7 +282,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const pendingEventHandlers: Promise<void>[] = []
                 const parser = createParser({
                     onEvent: async ({ data, event }) => {
-                        pendingEventHandlers.push(onEventImplementation(event as string, data, { actions, values }))
+                        pendingEventHandlers.push(
+                            onEventImplementation(event as string, data, { actions, values, props })
+                        )
                     },
                 })
 
@@ -350,7 +352,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             releaseStreamingLock() // release the lock
         },
     })),
-    listeners(({ actions, values, cache, props }) => ({
+    listeners(({ actions, values, cache }) => ({
         askMax: async ({ prompt }) => {
             if (!values.dataProcessingAccepted) {
                 return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
@@ -397,19 +399,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
 
         reconnectToStream: () => {
-            if (!props.conversationId) {
+            const id = values.conversationId
+            if (!id) {
                 return
             }
-
-            // Historical messages should already be loaded by propsChanged
-            // Just start the stream reconnection
-            actions.streamConversation(
-                {
-                    conversation: props.conversationId,
-                    content: null,
-                },
-                0
-            )
+            // Only skip if this *instance* already has an open stream
+            if (cache.generationController) {
+                return
+            }
+            actions.streamConversation({ conversation: id, content: null }, 0)
         },
 
         retryLastMessage: () => {
@@ -442,7 +440,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
 
         loadConversationHistorySuccess: ({ conversationHistory, payload }) => {
-            if (payload?.doNotUpdateCurrentThread || values.autoRun) {
+            if (payload?.doNotUpdateCurrentThread || values.autoRun || values.streamingActive) {
                 return
             }
             const conversation = conversationHistory.find((c) => c.id === values.conversationId)
@@ -679,7 +677,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 async function onEventImplementation(
     event: string,
     data: string,
-    { actions, values }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values'>
+    { actions, values, props }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values' | 'props'>
 ): Promise<void> {
     // A Conversation object is only received when the conversation is new
     if (event === AssistantEventType.Conversation) {
@@ -714,7 +712,7 @@ async function onEventImplementation(
             }
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
-                await values.toolMap[toolName]?.callback?.(toolResult)
+                await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
                 // The `navigate` tool is the only one doing client-side formatting currently
                 if (toolName === 'navigate') {
                     parsedResponse.content = parsedResponse.content.replace(
