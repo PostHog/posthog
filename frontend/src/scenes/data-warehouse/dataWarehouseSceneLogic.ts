@@ -24,6 +24,12 @@ import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic
 
 const REFRESH_INTERVAL = 10000
 
+export enum DataWarehouseTab {
+    OVERVIEW = 'overview',
+    MODELS = 'models',
+    SOURCES = 'sources',
+}
+
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'data-warehouse', 'dataWarehouseSceneLogic']),
     connect(() => ({
@@ -48,6 +54,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         loadMoreRecentActivity: true,
         setActivityCurrentPage: (page: number) => ({ page }),
         checkAutoLoadMore: true,
+        setActiveTab: (tab: DataWarehouseTab) => ({ tab }),
     }),
     loaders(() => ({
         totalRowsStats: [
@@ -68,6 +75,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         ],
     })),
     reducers(() => ({
+        activeTab: [
+            DataWarehouseTab.OVERVIEW as DataWarehouseTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         activityCurrentPage: [
             1 as number,
             {

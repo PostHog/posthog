@@ -8,22 +8,25 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { IconCancel, IconExclamation, IconRadioButtonUnchecked, IconSync } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataWarehouseActivityRecord, DataWarehouseDashboardDataSource } from '~/types'
 
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 
 export const scene: SceneExport = { component: DataWarehouseScene, logic: dataWarehouseSceneLogic }
 
 const LIST_SIZE = 5
 
-export function DataWarehouseScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+function OverviewTab(): JSX.Element {
     const { materializedViews, activityPaginationState, computedAllSources, totalRowsStats, tablesLoading } =
         useValues(dataWarehouseSceneLogic)
     const { setActivityCurrentPage } = useActions(dataWarehouseSceneLogic)
@@ -190,27 +193,8 @@ export function DataWarehouseScene(): JSX.Element {
     const materializedCount = materializedViews.length
     const runningCount = materializedViews.filter((v: any) => v.status?.toLowerCase() === 'running').length
 
-    if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
-        return <NotFound object="Data Warehouse" />
-    }
-
     return (
-        <div className="space-y-4">
-            <div className="flex items-center justify-between">
-                <div className="flex flex-col">
-                    <h1 className="text-2xl font-semibold">Data Warehouse</h1>
-                    <p className="text-muted">Manage your data warehouse sources and queries</p>
-                </div>
-                <div className="flex gap-2">
-                    <LemonButton type="primary" to={urls.dataWarehouseSourceNew()} icon={<IconPlusSmall />}>
-                        New source
-                    </LemonButton>
-                    <LemonButton type="secondary" to={urls.sqlEditor()}>
-                        Create view
-                    </LemonButton>
-                </div>
-            </div>
-
+        <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="flex items-start gap-1">
@@ -233,8 +217,22 @@ export function DataWarehouseScene(): JSX.Element {
                 </LemonCard>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-4">
                 <div className="lg:col-span-2 space-y-2">
+                    <LemonCard className="hover:transform-none">
+                        <div className="flex items-center justify-between">
+                            <h3 className="font-semibold text-xl">Recent Activity</h3>
+                        </div>
+                        <LemonTable
+                            dataSource={activityPagination.dataSourcePage as DataWarehouseActivityRecord[]}
+                            columns={activityColumns}
+                            rowKey={(r) => `${r.type}-${r.name}-${r.created_at}`}
+                            loading={tablesLoading}
+                            loadingSkeletonRows={3}
+                        />
+                        <PaginationControl {...activityPagination} nouns={['activity', 'activities']} />
+                    </LemonCard>
+
                     <LemonCard className="hover:transform-none">
                         <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
@@ -278,22 +276,84 @@ export function DataWarehouseScene(): JSX.Element {
                         />
                         <PaginationControl {...viewsPagination} nouns={['view', 'views']} />
                     </LemonCard>
-
-                    <LemonCard className="hover:transform-none">
-                        <div className="flex items-center justify-between">
-                            <h3 className="font-semibold text-xl">Recent Activity</h3>
-                        </div>
-                        <LemonTable
-                            dataSource={activityPagination.dataSourcePage as DataWarehouseActivityRecord[]}
-                            columns={activityColumns}
-                            rowKey={(r) => `${r.type}-${r.name}-${r.created_at}`}
-                            loading={tablesLoading}
-                            loadingSkeletonRows={3}
-                        />
-                        <PaginationControl {...activityPagination} nouns={['activity', 'activities']} />
-                    </LemonCard>
                 </div>
             </div>
+        </>
+    )
+}
+
+function ModelsTab(): JSX.Element {
+    return (
+        <div className="space-y-4">
+            <p className="text-muted">Models view coming soon</p>
         </div>
+    )
+}
+
+function SourcesTab(): JSX.Element {
+    return (
+        <div className="space-y-4">
+            <p className="text-muted">Sources view coming soon</p>
+        </div>
+    )
+}
+
+export function DataWarehouseScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { activeTab } = useValues(dataWarehouseSceneLogic)
+    const { setActiveTab } = useActions(dataWarehouseSceneLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
+        return <NotFound object="Data Warehouse" />
+    }
+
+    return (
+        <SceneContent>
+            <SceneTitleSection
+                name="Data Warehouse"
+                description="Manage your data warehouse sources and queries"
+                resourceType={{
+                    type: 'data_warehouse',
+                }}
+                actions={
+                    <div className="flex gap-2">
+                        <LemonButton type="secondary" to={urls.sqlEditor()} size="small">
+                            Create view
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            to={urls.dataWarehouseSourceNew()}
+                            icon={<IconPlusSmall />}
+                            size="small"
+                        >
+                            New source
+                        </LemonButton>
+                    </div>
+                }
+            />
+            <SceneDivider />
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={(newKey) => setActiveTab(newKey)}
+                sceneInset
+                tabs={[
+                    {
+                        key: DataWarehouseTab.OVERVIEW,
+                        label: 'Overview',
+                        content: <OverviewTab />,
+                    },
+                    {
+                        key: DataWarehouseTab.MODELS,
+                        label: 'Models',
+                        content: <ModelsTab />,
+                    },
+                    {
+                        key: DataWarehouseTab.SOURCES,
+                        label: 'Sources',
+                        content: <SourcesTab />,
+                    },
+                ]}
+            />
+        </SceneContent>
     )
 }
