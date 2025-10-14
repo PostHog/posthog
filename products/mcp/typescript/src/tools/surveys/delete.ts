@@ -1,5 +1,5 @@
 import { SurveyDeleteSchema } from '@/schema/tool-inputs'
-import type { Context, Tool, ToolBase } from '@/tools/types'
+import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
 
 const schema = SurveyDeleteSchema

@@ -29,7 +29,8 @@ import { ProductIntentContext } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import MaxTool from 'scenes/max/MaxTool'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { captureMaxAISurveyCreationException, isSurveyRunning } from 'scenes/surveys/utils'
@@ -139,10 +140,10 @@ function Surveys(): JSX.Element {
         <SceneContent>
             <SurveysDisabledBanner />
             <SceneTitleSection
-                name="Surveys"
-                description="Create surveys to collect feedback from your users"
+                name={sceneConfigurations[Scene.Surveys].name}
+                description={sceneConfigurations[Scene.Surveys].description}
                 resourceType={{
-                    type: 'survey',
+                    type: sceneConfigurations[Scene.Surveys].iconType || 'default_icon_type',
                 }}
                 actions={
                     <>

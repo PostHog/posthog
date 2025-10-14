@@ -1288,6 +1288,7 @@ class ExternalDataSourceType(StrEnum):
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
     TIK_TOK_ADS = "TikTokAds"
+    SHOPIFY = "Shopify"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1345,6 +1346,7 @@ class FileSystemEntry(BaseModel):
 
 
 class FileSystemIconType(StrEnum):
+    DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
     LLM_ANALYTICS = "llm_analytics"
     PRODUCT_ANALYTICS = "product_analytics"
@@ -1376,7 +1378,8 @@ class FileSystemIconType(StrEnum):
     EVENT_DEFINITION = "event_definition"
     PROPERTY_DEFINITION = "property_definition"
     INGESTION_WARNING = "ingestion_warning"
-    PERSON = "person"
+    PERSONS = "persons"
+    USER = "user"
     COHORT = "cohort"
     GROUP = "group"
     INSIGHT_FUNNELS = "insight/funnels"
@@ -1388,6 +1391,8 @@ class FileSystemIconType(StrEnum):
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
     HOME = "home"
+    APPS = "apps"
+    LIVE = "live"
 
 
 class FileSystemImport(BaseModel):
@@ -2266,6 +2271,7 @@ class RecordingOrder(StrEnum):
     KEYPRESS_COUNT = "keypress_count"
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
+    RECORDING_TTL = "recording_ttl"
 
 
 class RecordingOrderDirection(StrEnum):
@@ -2342,6 +2348,11 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+
+
+class TimeWindowMode(StrEnum):
+    STRICT_CALENDAR_DATES = "strict_calendar_dates"
+    FIELD_24_HOUR_WINDOWS = "24_hour_windows"
 
 
 class RetentionPeriod(StrEnum):
@@ -4803,6 +4814,7 @@ class SessionRecordingType(BaseModel):
     distinct_id: Optional[str] = None
     email: Optional[str] = None
     end_time: str = Field(..., description="When the recording ends in ISO format.")
+    expiry_time: Optional[str] = Field(default=None, description="When the recording expires, in ISO format.")
     id: str
     inactive_seconds: Optional[float] = None
     keypress_count: Optional[float] = None
@@ -4819,6 +4831,9 @@ class SessionRecordingType(BaseModel):
     )
     person: Optional[PersonType] = None
     recording_duration: float = Field(..., description="Length of recording in seconds.")
+    recording_ttl: Optional[float] = Field(
+        default=None, description="Number of whole days left until the recording expires."
+    )
     retention_period_days: Optional[float] = Field(default=None, description="retention period for this recording")
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
@@ -6427,7 +6442,7 @@ class CachedLogsQueryResponse(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: Any
+    results: list[LogMessage]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -9246,7 +9261,7 @@ class LogsQueryResponse(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: Any
+    results: list[LogMessage]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -10693,7 +10708,7 @@ class QueryResponseAlternative65(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: Any
+    results: list[LogMessage]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -10910,6 +10925,9 @@ class RetentionFilter(BaseModel):
     returningEntity: Optional[RetentionEntity] = None
     showTrendLines: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
+    timeWindowMode: Optional[TimeWindowMode] = Field(
+        default=None, description="The time window mode to use for retention calculations"
+    )
     totalIntervals: Optional[int] = 8
 
 

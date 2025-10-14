@@ -30,9 +30,11 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.github_sdk_versions import github_sdk_versions
 from posthog.api.query import progress
 from posthog.api.slack import slack_interactivity_callback
 from posthog.api.survey import public_survey_page, surveys
+from posthog.api.team_sdk_versions import team_sdk_versions
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
@@ -146,102 +148,107 @@ urlpatterns = []
 # Add dev-only routes first (before catch-all)
 if settings.DEBUG:
     from posthog.dev_views import vite_worker_proxy
+
     urlpatterns.append(re_path(r"^_vite/(?P<path>.*)$", vite_worker_proxy))
 
-urlpatterns.extend([
-    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
-    # Optional UI:
-    path(
-        "api/schema/swagger-ui/",
-        SpectacularSwaggerView.as_view(url_name="schema"),
-        name="swagger-ui",
-    ),
-    path(
-        "api/schema/redoc/",
-        SpectacularRedocView.as_view(url_name="schema"),
-        name="redoc",
-    ),
-    # Health check probe endpoints for K8s
-    # NOTE: We have _health, livez, and _readyz. _health is deprecated and
-    # is only included for compatability with old installations. For new
-    # operations livez and readyz should be used.
-    opt_slash_path("_health", health),
-    opt_slash_path("_stats", stats),
-    opt_slash_path("_preflight", preflight_check),
-    # ee
-    *ee_urlpatterns,
-    # api
-    path("api/environments/<int:team_id>/progress/", progress),
-    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
-    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
-    path("api/unsubscribe", unsubscribe.unsubscribe),
-    path("api/alerts/github", github.SecretAlert.as_view()),
-    opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
-    path("api/", include(router.urls)),
-    path("", include(tf_urls)),
-    opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
-    opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
-    opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
-    opt_slash_path("api/early_access_features", early_access_features),
-    opt_slash_path("api/web_experiments", web_experiments),
-    opt_slash_path("api/surveys", surveys),
-    re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
-    opt_slash_path("api/signup", signup.SignupViewset.as_view()),
-    opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
-    path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
-    path(
-        "api/reset/<str:user_uuid>/",
-        authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
-    ),
-    opt_slash_path(
-        "api/public_hog_function_templates",
-        hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
-    ),
-    # Test setup endpoint (only available in TEST mode)
-    path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
-    re_path(r"^api.+", api_not_found),
-    path("authorize_and_redirect/", login_required(authorize_and_redirect)),
-    path(
-        "shared_dashboard/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
-    ),
-    path(
-        "shared/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
-    ),
-    path(
-        "embedded/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
-    ),
-    path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
-    path(
-        "exporter/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
-    ),
-    path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
-    path("array/<str:token>/config", remote_config.RemoteConfigAPIView.as_view()),
-    path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
-    path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
-    re_path(r"^demo.*", login_required(demo_route)),
-    path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
-    # ingestion
-    # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
-    opt_slash_path("decide", decide.get_decide),
-    opt_slash_path("report", report.get_csp_event),  # CSP violation reports
-    opt_slash_path("robots.txt", robots_txt),
-    opt_slash_path(".well-known/security.txt", security_txt),
-    # auth
-    path("logout", authentication.logout, name="login"),
-    path(
-        "login/<str:backend>/", authentication.sso_login, name="social_begin"
-    ),  # overrides from `social_django.urls` to validate proper license
-    path("", include("social_django.urls", namespace="social")),
-    path("uploaded_media/<str:image_uuid>", uploaded_media.download),
-    opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
-    # Message preferences
-    path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
-    opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
-])
+urlpatterns.extend(
+    [
+        path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+        # Optional UI:
+        path(
+            "api/schema/swagger-ui/",
+            SpectacularSwaggerView.as_view(url_name="schema"),
+            name="swagger-ui",
+        ),
+        path(
+            "api/schema/redoc/",
+            SpectacularRedocView.as_view(url_name="schema"),
+            name="redoc",
+        ),
+        # Health check probe endpoints for K8s
+        # NOTE: We have _health, livez, and _readyz. _health is deprecated and
+        # is only included for compatability with old installations. For new
+        # operations livez and readyz should be used.
+        opt_slash_path("_health", health),
+        opt_slash_path("_stats", stats),
+        opt_slash_path("_preflight", preflight_check),
+        # ee
+        *ee_urlpatterns,
+        # api
+        path("api/environments/<int:team_id>/progress/", progress),
+        path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
+        path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
+        path("api/unsubscribe", unsubscribe.unsubscribe),
+        path("api/alerts/github", github.SecretAlert.as_view()),
+        path("api/sdk_versions/", github_sdk_versions),
+        path("api/team_sdk_versions/", team_sdk_versions),
+        opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
+        path("api/", include(router.urls)),
+        path("", include(tf_urls)),
+        opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
+        opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
+        opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
+        opt_slash_path("api/early_access_features", early_access_features),
+        opt_slash_path("api/web_experiments", web_experiments),
+        opt_slash_path("api/surveys", surveys),
+        re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
+        opt_slash_path("api/signup", signup.SignupViewset.as_view()),
+        opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
+        path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
+        path(
+            "api/reset/<str:user_uuid>/",
+            authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
+        ),
+        opt_slash_path(
+            "api/public_hog_function_templates",
+            hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
+        ),
+        # Test setup endpoint (only available in TEST mode)
+        path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
+        re_path(r"^api.+", api_not_found),
+        path("authorize_and_redirect/", login_required(authorize_and_redirect)),
+        path(
+            "shared_dashboard/<str:access_token>",
+            sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        ),
+        path(
+            "shared/<str:access_token>",
+            sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        ),
+        path(
+            "embedded/<str:access_token>",
+            sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        ),
+        path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
+        path(
+            "exporter/<str:access_token>",
+            sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
+        ),
+        path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
+        path("array/<str:token>/config", remote_config.RemoteConfigAPIView.as_view()),
+        path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
+        path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
+        re_path(r"^demo.*", login_required(demo_route)),
+        path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
+        # ingestion
+        # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
+        opt_slash_path("decide", decide.get_decide),
+        opt_slash_path("report", report.get_csp_event),  # CSP violation reports
+        opt_slash_path("robots.txt", robots_txt),
+        opt_slash_path(".well-known/security.txt", security_txt),
+        # auth
+        path("logout", authentication.logout, name="login"),
+        path(
+            "login/<str:backend>/", authentication.sso_login, name="social_begin"
+        ),  # overrides from `social_django.urls` to validate proper license
+        path("", include("social_django.urls", namespace="social")),
+        path("uploaded_media/<str:image_uuid>", uploaded_media.download),
+        opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
+        # Message preferences
+        path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
+        opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
+    ]
+)
 
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note

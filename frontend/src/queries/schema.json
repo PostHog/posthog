@@ -4257,7 +4257,12 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {},
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/LogMessage"
+                    },
+                    "type": "array"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -12745,7 +12750,8 @@
                 "DoIt",
                 "LinkedinAds",
                 "RedditAds",
-                "TikTokAds"
+                "TikTokAds",
+                "Shopify"
             ],
             "type": "string"
         },
@@ -12925,6 +12931,7 @@
         },
         "FileSystemIconType": {
             "enum": [
+                "default_icon_type",
                 "dashboard",
                 "llm_analytics",
                 "product_analytics",
@@ -12956,7 +12963,8 @@
                 "event_definition",
                 "property_definition",
                 "ingestion_warning",
-                "person",
+                "persons",
+                "user",
                 "cohort",
                 "group",
                 "insight/funnels",
@@ -12967,7 +12975,9 @@
                 "insight/stickiness",
                 "insight/hog",
                 "team_activity",
-                "home"
+                "home",
+                "apps",
+                "live"
             ],
             "type": "string"
         },
@@ -16103,7 +16113,12 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {},
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/LogMessage"
+                    },
+                    "type": "array"
+                },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -21346,7 +21361,12 @@
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
                             "description": "The date range used for the query"
                         },
-                        "results": {},
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/LogMessage"
+                            },
+                            "type": "array"
+                        },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -22046,7 +22066,8 @@
                 "click_count",
                 "keypress_count",
                 "mouse_activity_count",
-                "activity_score"
+                "activity_score",
+                "recording_ttl"
             ],
             "type": "string"
         },
@@ -22383,6 +22404,11 @@
                 },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
+                },
+                "timeWindowMode": {
+                    "description": "The time window mode to use for retention calculations",
+                    "enum": ["strict_calendar_dates", "24_hour_windows"],
+                    "type": "string"
                 },
                 "totalIntervals": {
                     "$ref": "#/definitions/integer",
@@ -24130,6 +24156,10 @@
                     "description": "When the recording ends in ISO format.",
                     "type": "string"
                 },
+                "expiry_time": {
+                    "description": "When the recording expires, in ISO format.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -24159,6 +24189,10 @@
                 },
                 "recording_duration": {
                     "description": "Length of recording in seconds.",
+                    "type": "number"
+                },
+                "recording_ttl": {
+                    "description": "Number of whole days left until the recording expires.",
                     "type": "number"
                 },
                 "retention_period_days": {
