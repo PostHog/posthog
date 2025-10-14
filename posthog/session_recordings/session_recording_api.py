@@ -261,6 +261,8 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "person",
             "storage",
             "retention_period_days",
+            "expiry_time",
+            "recording_ttl",
             "snapshot_source",
             "ongoing",
             "activity_score",
@@ -284,6 +286,8 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "start_url",
             "storage",
             "retention_period_days",
+            "expiry_time",
+            "recording_ttl",
             "snapshot_source",
             "ongoing",
             "activity_score",
@@ -962,6 +966,9 @@ class SessionRecordingViewSet(
 
         with timer("get_recording"):
             recording: SessionRecording = self.get_object()
+
+        trace.get_current_span().set_attribute("team_id", self.team_id)
+        trace.get_current_span().set_attribute("session_id", str(recording.session_id))
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")

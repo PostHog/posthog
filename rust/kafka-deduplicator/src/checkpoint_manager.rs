@@ -519,12 +519,13 @@ impl CheckpointManager {
 
         // iterate on each group, sort by timestamp dir, and eliminate the oldest N
         for checkpoint_dirs in paths_by_parent.values_mut() {
-            if checkpoint_dirs.len() > config.max_local_checkpoints {
+            if checkpoint_dirs.len() > config.checkpoints_per_partition {
                 // sort by timestamp dir
                 checkpoint_dirs.sort_by(|a, b| a.file_name().unwrap().cmp(b.file_name().unwrap()));
 
                 // eliminate the oldest N snapshots from each /topic/partition group
-                let checkpoints_to_remove = checkpoint_dirs.len() - config.max_local_checkpoints;
+                let checkpoints_to_remove =
+                    checkpoint_dirs.len() - config.checkpoints_per_partition;
                 for checkpoint_dir in checkpoint_dirs.iter().take(checkpoints_to_remove) {
                     let checkpoint_path = checkpoint_dir.to_string_lossy().to_string();
 
@@ -643,7 +644,9 @@ impl Drop for CheckpointManager {
 mod tests {
     use super::*;
     use crate::checkpoint::worker::CheckpointTarget;
-    use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
+    use crate::store::{
+        DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
+    };
     use common_types::RawEvent;
     use std::{collections::HashMap, path::PathBuf, time::Duration};
     use tempfile::TempDir;
@@ -775,8 +778,11 @@ mod tests {
 
         // Add events to the stores
         let event = create_test_event();
-        store1.handle_event_with_raw(&event).unwrap();
-        store2.handle_event_with_raw(&event).unwrap();
+        // Add test data directly to stores
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store1.put_timestamp_record(&key, &metadata).unwrap();
+        store2.put_timestamp_record(&key, &metadata).unwrap();
 
         // add dedup stores to manager
         let stores = store_manager.stores();
@@ -840,9 +846,13 @@ mod tests {
 
         // Add an event
         let event1 = create_test_event();
-        store.handle_event_with_raw(&event1).unwrap();
+        let key1 = TimestampKey::from(&event1);
+        let metadata1 = TimestampMetadata::new(&event1);
+        store.put_timestamp_record(&key1, &metadata1).unwrap();
         let event2 = create_test_event();
-        store.handle_event_with_raw(&event2).unwrap();
+        let key2 = TimestampKey::from(&event2);
+        let metadata2 = TimestampMetadata::new(&event2);
+        store.put_timestamp_record(&key2, &metadata2).unwrap();
 
         // Create manager with short interval for testing
         let tmp_checkpoint_dir = TempDir::new().unwrap();
@@ -971,8 +981,11 @@ mod tests {
 
         // Add events to the stores
         let event = create_test_event();
-        store1.handle_event_with_raw(&event).unwrap();
-        store2.handle_event_with_raw(&event).unwrap();
+        // Add test data directly to stores
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store1.put_timestamp_record(&key, &metadata).unwrap();
+        store2.put_timestamp_record(&key, &metadata).unwrap();
 
         // add dedup stores to manager
         let stores = store_manager.stores();
@@ -1011,7 +1024,7 @@ mod tests {
             checkpoint_interval: Duration::from_secs(120),
             cleanup_interval: Duration::from_millis(50),
             max_checkpoint_retention_hours: 0,
-            max_local_checkpoints: 100, // don't come near this limit for this test!
+            checkpoints_per_partition: 100, // don't come near this limit for this test!
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
@@ -1036,8 +1049,11 @@ mod tests {
 
         // Add events to the stores
         let event = create_test_event();
-        store1.handle_event_with_raw(&event).unwrap();
-        store2.handle_event_with_raw(&event).unwrap();
+        // Add test data directly to stores
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store1.put_timestamp_record(&key, &metadata).unwrap();
+        store2.put_timestamp_record(&key, &metadata).unwrap();
 
         // add dedup stores to manager
         let stores = store_manager.stores();
@@ -1076,7 +1092,7 @@ mod tests {
             checkpoint_interval: Duration::from_secs(120),
             cleanup_interval: Duration::from_millis(50),
             max_checkpoint_retention_hours: 24, // don't come near this limit for this test!
-            max_local_checkpoints: 0,           // scorched earth
+            checkpoints_per_partition: 0,       // scorched earth
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
@@ -1102,7 +1118,9 @@ mod tests {
             let event = create_test_event();
             let part = Partition::new("max_inflight_checkpoints".to_string(), i);
             let store = create_test_store(part.topic(), part.partition_number());
-            store.handle_event_with_raw(&event).unwrap();
+            let key = TimestampKey::from(&event);
+            let metadata = TimestampMetadata::new(&event);
+            store.put_timestamp_record(&key, &metadata).unwrap();
             stores.insert(part, store);
         }
 
@@ -1172,9 +1190,11 @@ mod tests {
 
         // Add events to the stores
         let event = create_test_event();
-        store1.handle_event_with_raw(&event).unwrap();
-        store2.handle_event_with_raw(&event).unwrap();
-        store3.handle_event_with_raw(&event).unwrap();
+        let key = crate::store::keys::TimestampKey::from(&event);
+        let metadata = crate::store::metadata::TimestampMetadata::new(&event);
+        store1.put_timestamp_record(&key, &metadata).unwrap();
+        store2.put_timestamp_record(&key, &metadata).unwrap();
+        store3.put_timestamp_record(&key, &metadata).unwrap();
 
         // add dedup stores to manager
         let stores = store_manager.stores();
@@ -1197,8 +1217,7 @@ mod tests {
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(100),
             cleanup_interval: Duration::from_secs(120),
-            max_local_checkpoints: 3,
-
+            checkpoints_per_partition: 3,
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };

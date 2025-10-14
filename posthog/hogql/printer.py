@@ -3,8 +3,10 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Union, cast
 from uuid import UUID
+
+from django.conf import settings
 
 from posthog.schema import (
     HogQLQueryModifiers,
@@ -67,9 +69,12 @@ from posthog.models.surveys.util import (
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
-from posthog.settings import CLICKHOUSE_DATABASE
 
-CHANNEL_DEFINITION_DICT = f"{CLICKHOUSE_DATABASE}.channel_definition_dict"
+
+def get_channel_definition_dict():
+    """Get the channel definition dictionary name with the correct database.
+    Evaluated at call time to work with test databases in Python 3.12."""
+    return f"{settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -85,7 +90,7 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
     )
 
 
-def to_printed_hogql(query: ast.Expr, team: Team, modifiers: Optional[HogQLQueryModifiers] = None) -> str:
+def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
     """Prints the HogQL query without mutating the node"""
     return print_ast(
         clone_expr(query),
@@ -103,8 +108,8 @@ def print_ast(
     node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[list[ast.SelectQuery]] = None,
-    settings: Optional[HogQLGlobalSettings] = None,
+    stack: list[ast.SelectQuery] | None = None,
+    settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
 ) -> str:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
@@ -124,8 +129,8 @@ def prepare_ast_for_printing(
     node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[list[ast.SelectQuery]] = None,
-    settings: Optional[HogQLGlobalSettings] = None,
+    stack: list[ast.SelectQuery] | None = None,
+    settings: HogQLGlobalSettings | None = None,
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):
@@ -198,8 +203,8 @@ def print_prepared_ast(
     node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[list[ast.SelectQuery]] = None,
-    settings: Optional[HogQLGlobalSettings] = None,
+    stack: list[ast.SelectQuery] | None = None,
+    settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
@@ -216,12 +221,12 @@ def print_prepared_ast(
 @dataclass
 class JoinExprResponse:
     printed_sql: str
-    where: Optional[ast.Expr] = None
+    where: ast.Expr | None = None
 
 
 @dataclass
 class PrintableMaterializedColumn:
-    table: Optional[str]
+    table: str | None
     column: str
     is_nullable: bool
 
@@ -271,8 +276,8 @@ class _Printer(Visitor[str]):
         self,
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[list[AST]] = None,
-        settings: Optional[HogQLGlobalSettings] = None,
+        stack: list[AST] | None = None,
+        settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,
     ):
         self.context = context
@@ -503,7 +508,7 @@ class _Printer(Visitor[str]):
 
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
         # return constraints we must place on the select query
-        extra_where: Optional[ast.Expr] = None
+        extra_where: ast.Expr | None = None
 
         join_strings = []
 
@@ -627,14 +632,42 @@ class _Printer(Visitor[str]):
             raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
     def visit_and(self, node: ast.And):
-        if len(node.exprs) == 1:
-            return self.visit(node.exprs[0])
-        return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
+        """
+        optimizations:
+        1. and(expr0, 1, expr2, ...) <=> and(expr0, expr2, ...)
+        2. and(expr0, 0, expr2, ...) <=> 0
+        """
+        exprs = []
+        for expr in node.exprs:
+            printed = self.visit(expr)
+            if printed == "0":  # optimization 2
+                return "0"
+            if printed != "1":  # optimization 1
+                exprs.append(printed)
+        if len(exprs) == 0:
+            return "1"
+        elif len(exprs) == 1:
+            return exprs[0]
+        return f"and({', '.join(exprs)})"
 
     def visit_or(self, node: ast.Or):
-        if len(node.exprs) == 1:
-            return self.visit(node.exprs[0])
-        return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
+        """
+        optimizations:
+        1. or(expr0, 1, expr2, ...) <=> 1
+        2. or(expr0, 0, expr2, ...) <=> or(expr0, expr2, ...)
+        """
+        exprs = []
+        for expr in node.exprs:
+            printed = self.visit(expr)
+            if printed == "1":
+                return "1"
+            if printed != "0":
+                exprs.append(printed)
+        if len(exprs) == 0:
+            return "0"
+        elif len(exprs) == 1:
+            return exprs[0]
+        return f"or({', '.join(exprs)})"
 
     def visit_not(self, node: ast.Not):
         return f"not({self.visit(node.expr)})"
@@ -825,9 +858,10 @@ class _Printer(Visitor[str]):
         ):
             not_nullable = True
         hack_sessions_timestamp = (
-            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))"
+            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))",
+            "raw_sessions_v3.session_timestamp",
         )
-        if hack_sessions_timestamp == left or hack_sessions_timestamp == right:
+        if left in hack_sessions_timestamp or right in hack_sessions_timestamp:
             not_nullable = True
 
         # :HACK: Prevent ifNull() wrapping for $ai_trace_id to allow bloom filter index usage
@@ -1334,7 +1368,7 @@ class _Printer(Visitor[str]):
                         and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
                         # These two CH functions require a precision argument before timezone
-                        args = args[:-1] + ["6"] + args[-1:]
+                        args = [*args[:-1], "6", *args[-1:]]
 
                 if node.name == "toStartOfWeek" and len(node.args) == 1:
                     # If week mode hasn't been specified, use the project's default.
@@ -1366,19 +1400,25 @@ class _Printer(Visitor[str]):
 
             if self.dialect == "clickhouse":
                 if node.name == "hogql_lookupDomainType":
-                    return f"coalesce(dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                    channel_dict = get_channel_definition_dict()
+                    return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidSourceType":
-                    return f"coalesce(dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                    channel_dict = get_channel_definition_dict()
+                    return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{channel_dict}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidMediumType":
-                    return f"dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
+                    channel_dict = get_channel_definition_dict()
+                    return f"dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
                 elif node.name == "hogql_lookupOrganicSourceType":
-                    return f"coalesce(dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                    channel_dict = get_channel_definition_dict()
+                    return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupOrganicMediumType":
-                    return f"dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
+                    channel_dict = get_channel_definition_dict()
+                    return f"dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
                 elif node.name == "convertCurrency":  # convertCurrency(from_currency, to_currency, amount, timestamp)
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"
-                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
+                    db = settings.CLICKHOUSE_DATABASE
+                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if "{}" in relevant_clickhouse_name:
@@ -1802,7 +1842,7 @@ class _Printer(Visitor[str]):
             value = "{" + self.visit(node.value) + "}"
         return f"{self._print_identifier(node.name)}={value}"
 
-    def _last_select(self) -> Optional[ast.SelectQuery]:
+    def _last_select(self) -> ast.SelectQuery | None:
         """Find the last SELECT query in the stack."""
         for node in reversed(self.stack):
             if isinstance(node, ast.SelectQuery):
@@ -1845,7 +1885,7 @@ class _Printer(Visitor[str]):
     def _get_week_start_day(self) -> WeekStartDay:
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
-    def _is_type_nullable(self, node_type: ast.Type) -> Optional[bool]:
+    def _is_type_nullable(self, node_type: ast.Type) -> bool | None:
         if isinstance(node_type, ast.PropertyType):
             return True
         elif isinstance(node_type, ast.ConstantType):
@@ -1892,14 +1932,14 @@ class _Printer(Visitor[str]):
 
     def _create_default_window_frame(self, node: ast.WindowFunction):
         # For lag/lead functions, we need to order by the first argument by default
-        order_by: Optional[list[ast.OrderExpr]] = None
+        order_by: list[ast.OrderExpr] | None = None
         if node.over_expr and node.over_expr.order_by:
             order_by = [cast(ast.OrderExpr, clone_expr(expr)) for expr in node.over_expr.order_by]
         elif node.exprs is not None and len(node.exprs) > 0:
             order_by = [ast.OrderExpr(expr=clone_expr(node.exprs[0]), order="ASC")]
 
         # Preserve existing PARTITION BY if provided via an existing OVER () clause
-        partition_by: Optional[list[ast.Expr]] = None
+        partition_by: list[ast.Expr] | None = None
         if node.over_expr and node.over_expr.partition_by:
             partition_by = [cast(ast.Expr, clone_expr(expr)) for expr in node.over_expr.partition_by]
 
