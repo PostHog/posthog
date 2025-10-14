@@ -8,7 +8,7 @@ import { createExampleInvocation, createHogExecutionGlobals, createHogFunction }
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { deleteKeysWithPrefix } from '../../_tests/redis'
 import { CdpRedis, createCdpRedisPool } from '../../redis'
-import { HogFunctionType } from '../../types'
+import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../types'
 import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
@@ -102,9 +102,9 @@ describe('HogMasker', () => {
             const res = await masker.filterByMasking(invocations)
             expect(res.notMasked).toHaveLength(1)
             expect(res.masked).toHaveLength(2)
-            expect(res.notMasked[0].state.globals).toEqual(invocation1.state.globals)
-            expect(res.masked[0].state.globals).toEqual(invocation2.state.globals)
-            expect(res.masked[1].state.globals).toEqual(invocation3.state.globals)
+            expect(res.notMasked[0].state?.globals).toEqual(invocation1.state.globals)
+            expect(res.masked[0].state?.globals).toEqual(invocation2.state.globals)
+            expect(res.masked[1].state?.globals).toEqual(invocation3.state.globals)
 
             const res2 = await masker.filterByMasking(invocations)
             expect(res2.notMasked).toHaveLength(0)
@@ -133,9 +133,9 @@ describe('HogMasker', () => {
             const res2 = await masker.filterByMasking(invocations)
             expect(res2.notMasked).toHaveLength(1)
             expect(res2.masked).toHaveLength(2)
-            expect(res2.notMasked[0].hogFunction).toEqual(functionWithNoMasking)
-            expect(res2.masked[0].hogFunction).toEqual(functionWithAllMasking)
-            expect(res2.masked[1].hogFunction).toEqual(functionWithAllMasking2)
+            expect((res2.notMasked[0] as CyclotronJobInvocationHogFunction).hogFunction).toEqual(functionWithNoMasking)
+            expect((res2.masked[0] as CyclotronJobInvocationHogFunction).hogFunction).toEqual(functionWithAllMasking)
+            expect((res2.masked[1] as CyclotronJobInvocationHogFunction).hogFunction).toEqual(functionWithAllMasking2)
         })
 
         describe('ttl', () => {
