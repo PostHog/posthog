@@ -2224,6 +2224,34 @@ class TestPrinter(BaseTest):
             printed,
         )
 
+    def test_sortable_semver(self):
+        # Also test different capitalizations
+        query = parse_select(
+            """
+                SELECT
+                    sortableSemVer('1.2.3') AS semver1,
+                    sortableSemver('1.2.3') AS semver2,
+                    sortablesemver('1.2.3') AS semver3,
+                    sOrTaBlEsEmVeR('1.2.3') AS semver4
+            """
+        )
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            (
+                f"SELECT arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_0)s), '(\\d+(\\.\\d+)+)'))) AS semver1, "
+                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_1)s), '(\\d+(\\.\\d+)+)'))) AS semver2, "
+                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_2)s), '(\\d+(\\.\\d+)+)'))) AS semver3, "
+                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_3)s), '(\\d+(\\.\\d+)+)'))) AS semver4 "
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+            ),
+            printed,
+        )
+
     def test_get_survey_response(self):
         # Test with just question index
         with patch("posthog.hogql.printer.get_survey_response_clickhouse_query") as mock_get_survey_response:

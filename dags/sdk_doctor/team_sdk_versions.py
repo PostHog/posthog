@@ -6,7 +6,6 @@ from typing import Any, Literal, Optional
 import dagster
 import structlog
 
-from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -21,28 +20,23 @@ default_logger = structlog.get_logger(__name__)
 CACHE_EXPIRY = 60 * 60 * 24 * 3  # 3 days
 BATCH_SIZE = 1000
 
-# TODO: Extract the semVer sorting below to a HogQL function.
-# Source: https://clickhouse.com/blog/semantic-versioning-udf
-QUERY = parse_select(
-    """
-        SELECT
-            properties.$lib AS lib,
-            properties.$lib_version AS lib_version,
-            MAX(created_at) AS max_timestamp,
-            COUNT(*) AS event_count
-        FROM events
-        WHERE
-            timestamp >= now() - INTERVAL 7 DAY
-            AND lib IS NOT NULL
-            AND lib_version IS NOT NULL
-        GROUP BY lib, lib_version
-        ORDER BY
-            lib,
-            arrayMap(x -> toIntOrZero(x),  splitByChar('.', extract(assumeNotNull(lib_version), {regex}))) DESC,
-            event_count DESC
-    """,
-    placeholders={"regex": ast.Constant(value="(\\d+(\\.\\d+)+)")},  # Matches number.number.number.number.<...>
-)
+QUERY = parse_select("""
+    SELECT
+        properties.$lib AS lib,
+        properties.$lib_version AS lib_version,
+        MAX(created_at) AS max_timestamp,
+        COUNT(*) AS event_count
+    FROM events
+    WHERE
+        timestamp >= now() - INTERVAL 7 DAY
+        AND lib IS NOT NULL
+        AND lib_version IS NOT NULL
+    GROUP BY lib, lib_version
+    ORDER BY
+        lib,
+        sortableSemVer(lib_version) DESC,
+        event_count DESC
+""")
 
 
 def get_sdk_versions_for_team(
