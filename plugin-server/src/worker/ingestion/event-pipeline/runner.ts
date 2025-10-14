@@ -197,7 +197,7 @@ export class EventPipelineRunner {
                             )
                         )
 
-                        return drop('Invalid event for provided flags', kafkaAcks)
+                        return drop('invalid_event_for_flags', kafkaAcks)
                     }
 
                     // If person processing is disabled, go ahead and remove person related keys before
@@ -239,7 +239,7 @@ export class EventPipelineRunner {
                 { alwaysSend: true }
             )
 
-            return drop('Client ingestion warning event', kafkaAcks)
+            return drop('client_ingestion_warning', kafkaAcks)
         }
 
         if (event.event === '$$heatmap') {
@@ -261,7 +261,7 @@ export class EventPipelineRunner {
 
         if (dropOldEventsResult == null) {
             // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return drop('Event too old', kafkaAcks)
+            return drop('event_too_old', kafkaAcks)
         }
 
         const transformResult = await this.runStep<TransformationResult, typeof transformEventStep>(
@@ -279,7 +279,7 @@ export class EventPipelineRunner {
 
         if (transformedEvent === null) {
             // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return drop('Event dropped by transformation', kafkaAcks)
+            return drop('dropped_by_transformation', kafkaAcks)
         }
 
         const normalizeResult = await this.runStep<[PluginEvent, DateTime], typeof normalizeEventStep>(
