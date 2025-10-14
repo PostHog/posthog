@@ -52,7 +52,9 @@ def get_sdk_versions_for_team(
     try:
         team = Team.objects.get(id=team_id)
         query_type = "sdk_versions_for_team"
-        with tags_context(product=Product.MAX_AI, team_id=team.pk, org_id=team.organization_id, query_type=query_type):
+        with tags_context(
+            product=Product.SDK_DOCTOR, team_id=team.pk, org_id=team.organization_id, query_type=query_type
+        ):
             response = execute_hogql_query(QUERY, team, query_type=query_type)
 
         output = defaultdict(list)
