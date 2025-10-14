@@ -29,7 +29,7 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         description: TOOL_DEFINITIONS['navigate'].description,
         icon: <IconCompass />,
         context: { current_page: location.pathname, scene_descriptions: buildSceneDescriptionsContext() },
-        callback: async (toolOutput) => {
+        callback: async (toolOutput, conversationId) => {
             const { page_key: pageKey } = toolOutput
             if (!(pageKey in urls)) {
                 throw new Error(`${pageKey} not in urls`)
@@ -39,9 +39,8 @@ export const STATIC_TOOLS: ToolRegistration[] = [
             // Include the conversation ID and panel to ensure the side panel is open
             // (esp. when the navigate tool is used from the full-page Max)
 
-            // TODO: validate this
-            router.actions.push(url) //, { chat: maxLogic.values.frontendConversationId }, { panel: SidePanelTab.Max })
-            maxGlobalLogic.findMounted()?.actions.openSidePanelMax()
+            maxGlobalLogic.findMounted()?.actions.openSidePanelMax(conversationId)
+            router.actions.push(url)
 
             // First wait for navigation to complete
             await new Promise<void>((resolve, reject) => {
@@ -107,9 +106,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolRegistration) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
-        registerTab: (tabId: string) => ({ tabId }),
-        deregisterTab: (tabId: string) => ({ tabId }),
-        setSidePanelTab: (tabId: string | null) => ({ tabId }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
     }),
 
@@ -151,35 +147,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
             },
         ],
-        registeredTabs: [
-            {} as Record<string, { sidebar?: boolean }>,
-            {
-                registerTab: (state, { tabId }) => ({
-                    ...state,
-                    [tabId]: {},
-                }),
-                deregisterTab: (state, { tabId }) => {
-                    const newState = { ...state }
-                    delete newState[tabId]
-                    return newState
-                },
-                setSidePanelTab: (state, { tabId }) => {
-                    const newState = { ...state }
-                    for (const key of Object.keys(newState)) {
-                        if (key === tabId && newState[key].sidebar) {
-                            continue // No change
-                        }
-                        if (key !== tabId && !newState[key].sidebar) {
-                            continue // No change
-                        }
-                        newState[key] = { ...newState[key], sidebar: key === tabId }
-                    }
-                    return newState
-                },
-            },
-        ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values }) => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
             await organizationLogic.asyncActions.updateOrganization({
                 is_ai_data_processing_approved: testOnlyOverride ?? true,
@@ -197,18 +166,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 ...values.toolMap.navigate,
                 context: { current_page: pathname, scene_descriptions: buildSceneDescriptionsContext() },
             })
-        },
-        registerTab: ({ tabId }) => {
-            if (!cache.tabUnmounts) {
-                cache.tabUnmounts = {}
-            }
-            cache.tabUnmounts[tabId] = maxLogic({ tabId }).mount()
-        },
-        deregisterTab: ({ tabId }) => {
-            if (cache.tabUnmounts?.[tabId]) {
-                cache.tabUnmounts[tabId]()
-                delete cache.tabUnmounts[tabId]
-            }
         },
         askSidePanelMax: ({ prompt }) => {
             let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
@@ -280,13 +237,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     }
                 }
                 return suggestions
-            },
-        ],
-        sidePanelTabId: [
-            (s) => [s.registeredTabs],
-            (registeredTabs): string | null => {
-                const sidebarTab = Object.entries(registeredTabs).find(([_, v]) => v.sidebar)
-                return sidebarTab ? sidebarTab[0] : null
             },
         ],
     }),
