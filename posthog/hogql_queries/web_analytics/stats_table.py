@@ -1,4 +1,4 @@
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Union, cast
 
 from posthog.schema import (
     CachedWebStatsTableQueryResponse,
@@ -465,7 +465,7 @@ GROUP BY session_id, breakdown_value
             elif field == WebAnalyticsOrderByFields.ERRORS:
                 column = "context.columns.errors"
 
-        def f(c: str) -> Optional[ast.OrderExpr]:
+        def f(c: str) -> ast.OrderExpr | None:
             return ast.OrderExpr(expr=ast.Field(chain=[c]), order=direction) if column != c and c in columns else None
 
         return [
@@ -486,7 +486,7 @@ GROUP BY session_id, breakdown_value
             if expr is not None
         ]
 
-    def _fill_fraction(self, order: Optional[list[ast.OrderExpr]]):
+    def _fill_fraction(self, order: list[ast.OrderExpr] | None):
         # use whatever column we are sorting by to also visually fill the row by some fraction
         col_name = (
             order[0].expr.chain[0]

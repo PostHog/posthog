@@ -1,5 +1,5 @@
 from datetime import datetime, time, timedelta
-from typing import Optional, Union
+from typing import Union
 from zoneinfo import ZoneInfo
 
 from django.utils.timezone import now
@@ -62,7 +62,7 @@ def query_events_list(
     team: Team,
     request_get_query_dict: dict,
     order_by: list[str],
-    action_id: Optional[str],
+    action_id: str | None,
     unbounded_date_from: bool = False,
     limit: int = DEFAULT_RETURNED_ROWS,
     offset: int = 0,

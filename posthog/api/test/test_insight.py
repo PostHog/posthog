@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -2755,7 +2755,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         query_params = f"?events={json.dumps([{'id': '$pageview'}])}&client_query_id={client_query_id}"
         self.client.get(f"/api/projects/{self.team.id}/insights/trend/{query_params}").json()
 
-    def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):
+    def assert_insight_activity(self, insight_id: int | None, expected: list[dict]):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
         activity: list[dict] = activity_response["results"]

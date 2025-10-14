@@ -4,7 +4,7 @@ import itertools
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import groupby
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 from freezegun import freeze_time
@@ -81,11 +81,11 @@ class Series:
 
 @dataclass
 class GroupTestProperties:
-    group0_properties: Optional[dict[str, str | int]] = None
-    group1_properties: Optional[dict[str, str | int]] = None
-    group2_properties: Optional[dict[str, str | int]] = None
-    group3_properties: Optional[dict[str, str | int]] = None
-    group4_properties: Optional[dict[str, str | int]] = None
+    group0_properties: dict[str, str | int] | None = None
+    group1_properties: dict[str, str | int] | None = None
+    group2_properties: dict[str, str | int] | None = None
+    group3_properties: dict[str, str | int] | None = None
+    group4_properties: dict[str, str | int] | None = None
 
 
 @dataclass
@@ -93,7 +93,7 @@ class SeriesTestData:
     distinct_id: str
     events: list[Series]
     properties: dict[str, str | int]
-    group_properties: Optional[GroupTestProperties] = None
+    group_properties: GroupTestProperties | None = None
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -350,15 +350,15 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_trends_query(
         self,
         date_from: str,
-        date_to: Optional[str],
+        date_to: str | None,
         interval: IntervalType,
-        series: Optional[list[EventsNode | ActionsNode]],
-        trends_filters: Optional[TrendsFilter] = None,
-        breakdown: Optional[BreakdownFilter] = None,
-        compare_filters: Optional[CompareFilter] = None,
-        filter_test_accounts: Optional[bool] = None,
-        explicit_date: Optional[bool] = None,
-        properties: Optional[Any] = None,
+        series: list[EventsNode | ActionsNode] | None,
+        trends_filters: TrendsFilter | None = None,
+        breakdown: BreakdownFilter | None = None,
+        compare_filters: CompareFilter | None = None,
+        filter_test_accounts: bool | None = None,
+        explicit_date: bool | None = None,
+        properties: Any | None = None,
     ) -> TrendsQuery:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         return TrendsQuery(
@@ -375,17 +375,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_query_runner(
         self,
         date_from: str,
-        date_to: Optional[str],
+        date_to: str | None,
         interval: IntervalType,
-        series: Optional[list[EventsNode | ActionsNode]],
-        trends_filters: Optional[TrendsFilter] = None,
-        breakdown: Optional[BreakdownFilter] = None,
-        compare_filters: Optional[CompareFilter] = None,
-        filter_test_accounts: Optional[bool] = None,
-        hogql_modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
-        explicit_date: Optional[bool] = None,
-        properties: Optional[Any] = None,
+        series: list[EventsNode | ActionsNode] | None,
+        trends_filters: TrendsFilter | None = None,
+        breakdown: BreakdownFilter | None = None,
+        compare_filters: CompareFilter | None = None,
+        filter_test_accounts: bool | None = None,
+        hogql_modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
+        explicit_date: bool | None = None,
+        properties: Any | None = None,
     ) -> TrendsQueryRunner:
         query = self._create_trends_query(
             date_from=date_from,
@@ -404,17 +404,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _run_trends_query(
         self,
         date_from: str,
-        date_to: Optional[str],
+        date_to: str | None,
         interval: IntervalType,
-        series: Optional[list[EventsNode | ActionsNode]],
-        trends_filters: Optional[TrendsFilter] = None,
-        breakdown: Optional[BreakdownFilter] = None,
-        compare_filters: Optional[CompareFilter] = None,
-        properties: Optional[Any] = None,
+        series: list[EventsNode | ActionsNode] | None,
+        trends_filters: TrendsFilter | None = None,
+        breakdown: BreakdownFilter | None = None,
+        compare_filters: CompareFilter | None = None,
+        properties: Any | None = None,
         *,
-        filter_test_accounts: Optional[bool] = None,
-        hogql_modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
+        filter_test_accounts: bool | None = None,
+        hogql_modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
     ):
         return self._create_query_runner(
             date_from=date_from,

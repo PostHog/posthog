@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -54,7 +54,7 @@ def is_hog_closure(obj: Any) -> bool:
     return isinstance(obj, dict) and "__hogClosure__" in obj and "callable" in obj and "upvalues" in obj
 
 
-def new_hog_closure(callable: dict, upvalues: Optional[list] = None) -> dict:
+def new_hog_closure(callable: dict, upvalues: list | None = None) -> dict:
     return {
         "__hogClosure__": True,
         "callable": callable,

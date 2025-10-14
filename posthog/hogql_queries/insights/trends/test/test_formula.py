@@ -1,5 +1,3 @@
-from typing import Optional
-
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -140,7 +138,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-    def _run(self, extra: Optional[dict] = None, run_at: Optional[str] = None):
+    def _run(self, extra: dict | None = None, run_at: str | None = None):
         flush_persons_and_events()
         query_dict = {
             "series": [

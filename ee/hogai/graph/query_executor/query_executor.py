@@ -2,7 +2,6 @@ import json
 import time
 import asyncio
 from datetime import datetime
-from typing import Optional
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
@@ -98,7 +97,7 @@ class AssistantQueryExecutor:
     async def arun_and_format_query(
         self,
         query: SupportedQueryTypes,
-        execution_mode: Optional[ExecutionMode] = None,
+        execution_mode: ExecutionMode | None = None,
         insight_id=None,
         debug_timing=False,
     ) -> tuple[str, bool]:
@@ -170,7 +169,7 @@ class AssistantQueryExecutor:
 
     @async_to_sync
     async def run_and_format_query(
-        self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None, debug_timing=False
+        self, query: SupportedQueryTypes, execution_mode: ExecutionMode | None = None, debug_timing=False
     ) -> tuple[str, bool]:
         """
         Run a query and format the results with detailed fallback information.
@@ -214,7 +213,7 @@ class AssistantQueryExecutor:
             raise
 
     async def aexecute_query(
-        self, query: SupportedQueryTypes, execution_mode: Optional[ExecutionMode] = None, debug_timing=False
+        self, query: SupportedQueryTypes, execution_mode: ExecutionMode | None = None, debug_timing=False
     ) -> dict:
         """
         Execute a query and return the response dict.

@@ -1,6 +1,6 @@
 import time
 import datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -169,7 +169,7 @@ class LoginSerializer(serializers.Serializer):
         request = self.context["request"]
         was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
         user = cast(
-            Optional[User],
+            User | None,
             authenticate(
                 request,
                 email=validated_data["email"],
@@ -472,7 +472,7 @@ password_reset_token_generator = PasswordResetTokenGenerator()
 
 
 def social_login_notification(
-    strategy: DjangoStrategy, backend, user: Optional[User] = None, is_new: bool = False, **kwargs
+    strategy: DjangoStrategy, backend, user: User | None = None, is_new: bool = False, **kwargs
 ):
     """Final pipeline step to notify on OAuth/SAML login"""
     if not user:

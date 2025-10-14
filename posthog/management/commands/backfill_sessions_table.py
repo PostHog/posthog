@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
 
 from django.core.management.base import BaseCommand
 
@@ -27,7 +26,7 @@ class BackfillQuery:
     start_date: datetime
     end_date: datetime
     use_offline_workload: bool
-    team_id: Optional[int]
+    team_id: int | None
 
     def execute(
         self,
@@ -66,7 +65,7 @@ class BackfillQuery:
         igshid_property = source_column("igshid")
         ttclid_property = source_column("ttclid")
 
-        def select_query(select_date: Optional[datetime] = None, team_id=None) -> str:
+        def select_query(select_date: datetime | None = None, team_id=None) -> str:
             if select_date:
                 where = f"toStartOfDay(timestamp) = '{select_date.strftime('%Y-%m-%d')}'"
             else:
@@ -180,7 +179,7 @@ class Command(BaseCommand):
         end_date: str,
         use_offline_workload: bool,
         print_counts: bool,
-        team_id: Optional[int],
+        team_id: int | None,
         **options,
     ):
         logger.setLevel(logging.INFO)

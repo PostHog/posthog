@@ -410,12 +410,12 @@ async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_r
     new_event = new_events[0]
     new_event_properties = new_event["properties"] or {}
     assert len(rows) == 1, "Previous session row still present in Redshift"
-    assert (
-        rows[0]["session_id"] == new_event_properties["$session_id"]
-    ), "Redshift row does not match expected `session_id`"
-    assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(
-        tzinfo=dt.UTC
-    ), "Redshift data was not updated with new timestamp"
+    assert rows[0]["session_id"] == new_event_properties["$session_id"], (
+        "Redshift row does not match expected `session_id`"
+    )
+    assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(tzinfo=dt.UTC), (
+        "Redshift data was not updated with new timestamp"
+    )
 
 
 async def test_insert_into_redshift_activity_handles_person_schema_changes(

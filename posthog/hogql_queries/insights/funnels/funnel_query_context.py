@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from posthog.schema import (
     BreakdownAttributionType,
@@ -24,10 +24,10 @@ class FunnelQueryContext(QueryContext):
     query: FunnelsQuery
     actorsQuery: FunnelsActorsQuery | None
 
-    includeTimestamp: Optional[bool]
-    includePrecedingTimestamp: Optional[bool]
+    includeTimestamp: bool | None
+    includePrecedingTimestamp: bool | None
     includeProperties: list[str]
-    includeFinalMatchingEvents: Optional[bool]
+    includeFinalMatchingEvents: bool | None
 
     max_steps_override: int | None = None
 
@@ -35,13 +35,13 @@ class FunnelQueryContext(QueryContext):
         self,
         query: FunnelsQuery,
         team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
-        include_timestamp: Optional[bool] = None,
-        include_preceding_timestamp: Optional[bool] = None,
-        include_properties: Optional[list[str]] = None,
-        include_final_matching_events: Optional[bool] = None,
+        timings: HogQLTimings | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
+        include_timestamp: bool | None = None,
+        include_preceding_timestamp: bool | None = None,
+        include_properties: list[str] | None = None,
+        include_final_matching_events: bool | None = None,
     ):
         super().__init__(query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
@@ -57,7 +57,7 @@ class FunnelQueryContext(QueryContext):
         return self.query.breakdownFilter or BreakdownFilter()
 
     @property
-    def breakdown(self) -> Optional[Union[list[Union[str, int]], str, int]]:
+    def breakdown(self) -> Union[list[Union[str, int]], str, int] | None:
         # the API accepts either:
         #   a string (single breakdown) in parameter "breakdown"
         #   a list of numbers (one or more cohorts) in parameter "breakdown"

@@ -1,7 +1,7 @@
 import gzip
 import json
 import asyncio
-from typing import Any, Optional
+from typing import Any
 
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
@@ -36,7 +36,7 @@ async def store_accounts_in_redis(
 async def get_accounts_from_redis(
     offset: int = 0,
     limit: int = 1000,
-) -> Optional[list[dict[str, Any]]]:
+) -> list[dict[str, Any]] | None:
     """Retrieve accounts chunk from global Redis cache.
 
     Args:
@@ -66,7 +66,7 @@ async def get_accounts_from_redis(
         return None
 
 
-async def get_cached_accounts_count() -> Optional[int]:
+async def get_cached_accounts_count() -> int | None:
     """Get the total count of cached accounts without fetching the data.
 
     Returns:

@@ -18,7 +18,7 @@ Exports:
 """
 
 from datetime import datetime
-from typing import Optional, TypeVar, cast
+from typing import TypeVar, cast
 
 import pytz
 
@@ -45,7 +45,7 @@ _T_AST = TypeVar("_T_AST", bound=AST)
 PREAGGREGATED_TABLE_NAME = "web_pre_aggregated_stats"
 
 
-def flatten_and(node: Optional[ast.Expr]) -> list[ast.Expr]:
+def flatten_and(node: ast.Expr | None) -> list[ast.Expr]:
     """Flatten AND expressions in the AST."""
     if node is None:
         return []
@@ -145,7 +145,7 @@ def is_to_start_of_hour_timestamp_field(expr: ast.Call, context: HogQLContext) -
 
 def _try_transform_timestamp_comparison_with_start_of_day_time_constant(
     expr: ast.Call, context: HogQLContext
-) -> Optional[ast.Call]:
+) -> ast.Call | None:
     """
     timestamp >= toStartOfDay('2024-11-24') is equivalent to toStartOfDay(timestamp) >= toStartOfDay('2024-11-24')
     which can be transformed into period_bucket >= toStartOfDay('2024-11-24')
@@ -174,7 +174,7 @@ def _try_transform_timestamp_comparison_with_start_of_day_time_constant(
 
 def _try_transform_timestamp_comparison_with_start_of_hour_time_constant(
     expr: ast.Call, context: HogQLContext
-) -> Optional[ast.Call]:
+) -> ast.Call | None:
     if expr.name not in ["greaterOrEquals", "lessOrEquals", "greater", "less"] or len(expr.args) != 2:
         return None
     arg0 = expr.args[0]
@@ -398,7 +398,7 @@ def _is_constant_one(expr: ast.Expr) -> bool:
     return isinstance(expr, ast.Constant) and expr.value == 1
 
 
-def _is_valid_select_from(node: Optional[ast.JoinExpr]) -> bool:
+def _is_valid_select_from(node: ast.JoinExpr | None) -> bool:
     if not node or not isinstance(node.table, ast.Field):
         return False
     if node.table.chain != ["events"]:

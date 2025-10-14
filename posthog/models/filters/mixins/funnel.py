@@ -52,13 +52,13 @@ from posthog.utils import relative_date_parse, str_to_bool
 
 class FunnelFromToStepsMixin(BaseParamMixin):
     @cached_property
-    def funnel_from_step(self) -> Optional[int]:
+    def funnel_from_step(self) -> int | None:
         if self._data.get(FUNNEL_FROM_STEP) is not None:
             return int(self._data[FUNNEL_FROM_STEP])
         return None
 
     @cached_property
-    def funnel_to_step(self) -> Optional[int]:
+    def funnel_to_step(self) -> int | None:
         if self._data.get(FUNNEL_TO_STEP) is not None:
             return int(self._data[FUNNEL_TO_STEP])
         return None
@@ -75,7 +75,7 @@ class FunnelFromToStepsMixin(BaseParamMixin):
 
 class FunnelWindowDaysMixin(BaseParamMixin):
     @cached_property
-    def funnel_window_days(self) -> Optional[int]:
+    def funnel_window_days(self) -> int | None:
         _days = int(self._data.get(FUNNEL_WINDOW_DAYS, "0"))
         if _days == 0:
             return None
@@ -98,14 +98,14 @@ class FunnelWindowDaysMixin(BaseParamMixin):
 
 class FunnelWindowMixin(BaseParamMixin):
     @cached_property
-    def funnel_window_interval(self) -> Optional[int]:
+    def funnel_window_interval(self) -> int | None:
         _amt = int(self._data.get(FUNNEL_WINDOW_INTERVAL, "0"))
         if _amt == 0:
             return None
         return _amt
 
     @cached_property
-    def funnel_window_interval_unit(self) -> Optional[FunnelWindowIntervalType]:
+    def funnel_window_interval_unit(self) -> FunnelWindowIntervalType | None:
         _unit = self._data.get(FUNNEL_WINDOW_INTERVAL_UNIT, None)
         return _unit.lower() if _unit is not None else _unit
 
@@ -142,7 +142,7 @@ class FunnelPersonsStepMixin(BaseParamMixin):
     # first step is 0
     # -1 means dropoff into step 1
     @cached_property
-    def funnel_step(self) -> Optional[int]:
+    def funnel_step(self) -> int | None:
         """
         Specifies the step index within a funnel entities definition for which
         we want to get the `timestamp` for, per person.
@@ -176,7 +176,7 @@ class FunnelPersonsStepMixin(BaseParamMixin):
 
 class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
     @cached_property
-    def funnel_step_breakdown(self) -> Optional[Union[list[str], int, str]]:
+    def funnel_step_breakdown(self) -> Union[list[str], int, str] | None:
         """
         The breakdown value for which to get persons for.
 
@@ -187,7 +187,7 @@ class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
 
         for cohorts it is always an int
         """
-        raw: Optional[str] = self._data.get(FUNNEL_STEP_BREAKDOWN)
+        raw: str | None = self._data.get(FUNNEL_STEP_BREAKDOWN)
         if not raw:
             return raw
 
@@ -203,7 +203,7 @@ class FunnelPersonsStepBreakdownMixin(BaseParamMixin):
 
 class FunnelLayoutMixin(BaseParamMixin):
     @cached_property
-    def layout(self) -> Optional[Literal["horizontal", "vertical"]]:
+    def layout(self) -> Literal["horizontal", "vertical"] | None:
         return self._data.get(FUNNEL_LAYOUT)
 
     @include_dict
@@ -213,7 +213,7 @@ class FunnelLayoutMixin(BaseParamMixin):
 
 class FunnelHogQLAggregationMixin(BaseParamMixin):
     @cached_property
-    def funnel_aggregate_by_hogql(self) -> Optional[str]:
+    def funnel_aggregate_by_hogql(self) -> str | None:
         return self._data.get(FUNNEL_AGGREAGTE_BY_HOGQL)
 
     @include_dict
@@ -223,11 +223,11 @@ class FunnelHogQLAggregationMixin(BaseParamMixin):
 
 class FunnelTypeMixin(BaseParamMixin):
     @cached_property
-    def funnel_order_type(self) -> Optional[FunnelOrderType]:
+    def funnel_order_type(self) -> FunnelOrderType | None:
         return self._data.get(FUNNEL_ORDER_TYPE)
 
     @cached_property
-    def funnel_viz_type(self) -> Optional[FunnelVizType]:
+    def funnel_viz_type(self) -> FunnelVizType | None:
         funnel_viz_type = self._data.get(FUNNEL_VIZ_TYPE)
         if (
             funnel_viz_type is None
@@ -251,7 +251,7 @@ class FunnelTypeMixin(BaseParamMixin):
 
 class HistogramMixin(BaseParamMixin):
     @cached_property
-    def bin_count(self) -> Optional[int]:
+    def bin_count(self) -> int | None:
         bin_count = self._data.get(BIN_COUNT)
         return int(bin_count) if bin_count else None
 
@@ -262,7 +262,7 @@ class HistogramMixin(BaseParamMixin):
 
 class FunnelTrendsPersonsMixin(BaseParamMixin):
     @cached_property
-    def entrance_period_start(self) -> Optional[datetime.datetime]:
+    def entrance_period_start(self) -> datetime.datetime | None:
         entrance_period_start_raw = self._data.get(ENTRANCE_PERIOD_START)
         return (
             relative_date_parse(entrance_period_start_raw, self.team.timezone_info)  # type: ignore
@@ -271,7 +271,7 @@ class FunnelTrendsPersonsMixin(BaseParamMixin):
         )
 
     @cached_property
-    def drop_off(self) -> Optional[bool]:
+    def drop_off(self) -> bool | None:
         drop_off_raw = self._data.get(DROP_OFF)
         return str_to_bool(str(drop_off_raw)) if drop_off_raw is not None else None
 
@@ -287,7 +287,7 @@ class FunnelTrendsPersonsMixin(BaseParamMixin):
 
 class FunnelCorrelationMixin(BaseParamMixin):
     @cached_property
-    def correlation_type(self) -> Optional[FunnelCorrelationType]:
+    def correlation_type(self) -> FunnelCorrelationType | None:
         raw_type = self._data.get(FUNNEL_CORRELATION_TYPE)
         if raw_type:
             try:
@@ -370,7 +370,7 @@ class FunnelCorrelationActorsMixin(BaseParamMixin):
         return Entity(event) if event else None
 
     @cached_property
-    def correlation_property_values(self) -> Optional[list[Property]]:
+    def correlation_property_values(self) -> list[Property] | None:
         # Used for property correlations persons
 
         _props = self._data.get(FUNNEL_CORRELATION_PROPERTY_VALUES)
@@ -411,7 +411,7 @@ class FunnelCorrelationActorsMixin(BaseParamMixin):
         return int(offset) if offset else 0
 
     @cached_property
-    def correlation_persons_converted(self) -> Optional[bool]:
+    def correlation_persons_converted(self) -> bool | None:
         converted = self._data.get(FUNNEL_CORRELATION_PERSON_CONVERTED)
         if not converted:
             return None

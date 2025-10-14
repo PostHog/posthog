@@ -25,30 +25,26 @@ HOGQL_AGGREGATIONS_KEYS_SET = set(HOGQL_AGGREGATIONS.keys())
 # Mapping of regular aggregation functions to their State/Merge equivalents.
 # These should be present in posthog/hogql/functions/mapping.py
 SUPPORTED_FUNCTIONS = ["uniq", "uniqIf", "count", "countIf", "sum", "sumIf", "avg", "avgIf"]
-assert set(SUPPORTED_FUNCTIONS).issubset(
-    HOGQL_AGGREGATIONS_KEYS_SET
-), "All supported aggregation functions must be in HOGQL_AGGREGATIONS"
+assert set(SUPPORTED_FUNCTIONS).issubset(HOGQL_AGGREGATIONS_KEYS_SET), (
+    "All supported aggregation functions must be in HOGQL_AGGREGATIONS"
+)
 
 # Clickhouse allows many suffix combinations but we are trying to keep the number of transformations to just the ones we use now.
 AGGREGATION_TO_STATE_MAPPING = {
     func: f"{func[:-2]}State{func[-2:]}" if func.endswith("If") else f"{func}State" for func in SUPPORTED_FUNCTIONS
 }
-assert set(
-    AGGREGATION_TO_STATE_MAPPING.values()
-).issubset(
-    HOGQL_AGGREGATIONS_KEYS_SET
-), f"All supported state aggregation functions must be in HOGQL_AGGREGATIONS. Missing: {set(AGGREGATION_TO_STATE_MAPPING.values()) - HOGQL_AGGREGATIONS_KEYS_SET}"
+assert set(AGGREGATION_TO_STATE_MAPPING.values()).issubset(HOGQL_AGGREGATIONS_KEYS_SET), (
+    f"All supported state aggregation functions must be in HOGQL_AGGREGATIONS. Missing: {set(AGGREGATION_TO_STATE_MAPPING.values()) - HOGQL_AGGREGATIONS_KEYS_SET}"
+)
 
 # Map state functions to their merge counterparts. MergeIf functions do exist but we're not supporting them right now so the filter must be applied on the State intermediate result or using a sumMerge(if(...)).
 STATE_TO_MERGE_MAPPING = {
     state_func: f"{state_func.replace('State', 'Merge').replace('If', '')}"
     for state_func in AGGREGATION_TO_STATE_MAPPING.values()
 }
-assert set(
-    STATE_TO_MERGE_MAPPING.values()
-).issubset(
-    HOGQL_AGGREGATIONS_KEYS_SET
-), f"All supported aggregation merge functions must be in HOGQL_AGGREGATIONS. Missing: {set(STATE_TO_MERGE_MAPPING.values()) - HOGQL_AGGREGATIONS_KEYS_SET}"
+assert set(STATE_TO_MERGE_MAPPING.values()).issubset(HOGQL_AGGREGATIONS_KEYS_SET), (
+    f"All supported aggregation merge functions must be in HOGQL_AGGREGATIONS. Missing: {set(STATE_TO_MERGE_MAPPING.values()) - HOGQL_AGGREGATIONS_KEYS_SET}"
+)
 
 
 class AggregationStateTransformer(CloningVisitor):

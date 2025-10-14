@@ -1,5 +1,3 @@
-from typing import Optional
-
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from django.test import override_settings
@@ -34,7 +32,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-    def _program(self, query: str, globals: Optional[dict] = None) -> HogQLMetadataResponse:
+    def _program(self, query: str, globals: dict | None = None) -> HogQLMetadataResponse:
         return get_hogql_metadata(
             query=HogQLMetadata(
                 kind="HogQLMetadata", language=HogLanguage.HOG, query=query, globals=globals, response=None

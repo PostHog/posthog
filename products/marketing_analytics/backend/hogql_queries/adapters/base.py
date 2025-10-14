@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, TypeVar
 
 import structlog
 
@@ -185,7 +185,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         else:
             self.logger.error("Query generation failed", error=error)
 
-    def build_query(self) -> Optional[ast.SelectQuery]:
+    def build_query(self) -> ast.SelectQuery | None:
         """
         Build SelectQuery that returns marketing data in standardized format.
 
@@ -237,7 +237,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             self._log_query_generation(False, error_msg)
             return None
 
-    def build_query_string(self) -> Optional[str]:
+    def build_query_string(self) -> str | None:
         """
         Build SQL query string (backwards compatibility).
         """

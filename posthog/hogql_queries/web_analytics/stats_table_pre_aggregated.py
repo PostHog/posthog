@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Literal, Optional, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from posthog.schema import WebAnalyticsOrderByDirection, WebAnalyticsOrderByFields, WebStatsBreakdown
 
@@ -262,7 +262,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC")
 
-    def _fill_fraction(self, order: Optional[list[ast.OrderExpr]]):
+    def _fill_fraction(self, order: list[ast.OrderExpr] | None):
         # use whatever column we are sorting by to also visually fill the row by some fraction
         col_name = (
             order[0].expr.chain[0]

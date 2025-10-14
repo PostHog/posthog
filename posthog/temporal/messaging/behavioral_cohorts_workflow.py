@@ -1,6 +1,6 @@
 import datetime as dt
 import dataclasses
-from typing import Any, Optional
+from typing import Any
 
 import temporalio.activity
 import temporalio.workflow
@@ -20,13 +20,13 @@ LOGGER = get_logger(__name__)
 class BehavioralCohortsWorkflowInputs:
     """Inputs for the behavioral cohorts analysis workflow."""
 
-    team_id: Optional[int] = None
-    cohort_id: Optional[int] = None
-    condition: Optional[str] = None
+    team_id: int | None = None
+    cohort_id: int | None = None
+    condition: str | None = None
     min_matches: int = 3
     days: int = 30
-    limit: Optional[int] = None
-    offset: Optional[int] = None  # Starting offset for this workflow's range
+    limit: int | None = None
+    offset: int | None = None  # Starting offset for this workflow's range
     conditions_page_size: int = 1000  # Max conditions to return per activity call (configurable for testing)
 
     @property
@@ -70,11 +70,11 @@ class CohortMembershipResult:
 class GetConditionsPageInputs:
     """Inputs for fetching a page of conditions."""
 
-    team_id: Optional[int] = None
-    cohort_id: Optional[int] = None
-    condition: Optional[str] = None
+    team_id: int | None = None
+    cohort_id: int | None = None
+    condition: str | None = None
     days: int = 30
-    limit: Optional[int] = None
+    limit: int | None = None
     offset: int = 0
     page_size: int = 10000
 

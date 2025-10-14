@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -111,7 +111,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
             SELECT
                 arraySort(t -> t.1, groupArray(tuple(
                     toFloat(timestamp),
-                    _toUInt64(toDateTime({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source='timestamp')})),
+                    _toUInt64(toDateTime({get_start_of_interval_hogql_str(self.context.interval.value, team=self.context.team, source="timestamp")})),
                     uuid,
                     {prop_selector},
                     arrayFilter((x) -> x != 0, [{steps}{exclusions}])
@@ -221,7 +221,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
 
     def actor_query(
         self,
-        extra_fields: Optional[list[str]] = None,
+        extra_fields: list[str] | None = None,
     ) -> ast.SelectQuery:
         team, actorsQuery = self.context.team, self.context.actorsQuery
 

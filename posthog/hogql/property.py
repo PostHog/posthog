@@ -1,5 +1,5 @@
 import re
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
 from django.db import models
 from django.db.models import Q
@@ -381,7 +381,7 @@ def property_to_expr(
         return parse_expr(property.key)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]
-        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+        operator = cast(PropertyOperator | None, property.operator) or PropertyOperator.EXACT
         value = property.value
         if isinstance(property.value, list):
             if len(property.value) > 1:
@@ -429,7 +429,7 @@ def property_to_expr(
             or (property.type == "revenue_analytics" and scope != "revenue_analytics")
         ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
-        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+        operator = cast(PropertyOperator | None, property.operator) or PropertyOperator.EXACT
         value = property.value
 
         if property.type == "person" and scope != "person":
@@ -593,7 +593,7 @@ def property_to_expr(
         if scope == "person":
             raise NotImplementedError(f"property_to_expr for scope {scope} not implemented for type '{property.type}'")
         value = property.value
-        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+        operator = cast(PropertyOperator | None, property.operator) or PropertyOperator.EXACT
         if isinstance(value, list):
             if len(value) == 1:
                 value = value[0]
@@ -692,7 +692,7 @@ def map_virtual_properties(e: ast.Expr):
     return e
 
 
-def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
+def action_to_expr(action: Action, events_alias: str | None = None) -> ast.Expr:
     steps = action.steps
 
     if len(steps) == 0:

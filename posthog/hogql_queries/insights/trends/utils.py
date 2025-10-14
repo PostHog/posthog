@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from posthog.schema import (
     ActionsNode,
@@ -21,7 +21,7 @@ def series_event_name(series: Union[EventsNode, ActionsNode, DataWarehouseNode])
 def get_properties_chain(
     breakdown_type: BreakdownType | MultipleBreakdownType | None,
     breakdown_field: str,
-    group_type_index: Optional[float | int],
+    group_type_index: float | int | None,
 ) -> list[str | int]:
     if breakdown_type == "person":
         if breakdown_field.startswith("$virt_"):

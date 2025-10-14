@@ -82,9 +82,9 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         self,
         *,
         user: Optional["User"] = None,
-        email: Optional[str] = None,
-        invite_email: Optional[str] = None,
-        request_path: Optional[str] = None,
+        email: str | None = None,
+        invite_email: str | None = None,
+        request_path: str | None = None,
     ) -> None:
         _email = email or getattr(user, "email", None)
 

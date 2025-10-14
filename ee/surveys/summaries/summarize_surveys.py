@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, cast
+from typing import cast
 
 import openai
 import structlog
@@ -47,8 +47,8 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
 def summarize_survey_responses(
     survey_id: str,
     question_text: str,
-    question_index: Optional[int],
-    question_id: Optional[str],
+    question_index: int | None,
+    question_id: str | None,
     survey_start: datetime,
     survey_end: datetime,
     team: Team,

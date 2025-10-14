@@ -1,7 +1,6 @@
 import re
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Optional
 
 from django.utils.timezone import now
 
@@ -22,7 +21,7 @@ class DebugCHQueries(viewsets.ViewSet):
     List recent CH queries initiated by this user.
     """
 
-    def _get_path(self, query: str) -> Optional[str]:
+    def _get_path(self, query: str) -> str | None:
         try:
             return re.findall(r"request:([a-zA-Z0-9-_@]+)", query)[0].replace("_", "/")
         except:
@@ -117,7 +116,7 @@ class DebugCHQueries(viewsets.ViewSet):
             "exception_percentage": response[0][4],
         }
 
-    def queries(self, request: Request, insight_id: Optional[str] = None):
+    def queries(self, request: Request, insight_id: str | None = None):
         params: dict = {
             "not_query": "%request:_api_debug_ch_queries_%",
             "cluster": CLICKHOUSE_CLUSTER,

@@ -1,7 +1,7 @@
 import io
 import datetime
 from collections.abc import Generator
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 from django.http import QueryDict
@@ -361,7 +361,7 @@ def make_api_call(
     body: Any,
     limit: int,
     method: str,
-    next_url: Optional[str],
+    next_url: str | None,
     path: str,
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
@@ -380,7 +380,7 @@ def make_api_call(
     return response
 
 
-def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
+def export_tabular(exported_asset: ExportedAsset, limit: int | None = None) -> None:
     if not limit:
         limit = CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 

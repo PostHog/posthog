@@ -49,11 +49,11 @@ def raise_if_plugin_installed(url: str):
 
 def update_validated_data_from_url(validated_data: dict[str, Any], url: str) -> dict[str, Any]:
     """If remote plugin, download the archive and get up-to-date validated_data from there. Returns plugin.json."""
-    plugin_json: Optional[dict[str, Any]]
+    plugin_json: dict[str, Any] | None
     if url.startswith("file:"):
         plugin_path = url[5:]
         plugin_json_path = os.path.join(plugin_path, "plugin.json")
-        plugin_json = cast(Optional[dict[str, Any]], load_json_file(plugin_json_path))
+        plugin_json = cast(dict[str, Any] | None, load_json_file(plugin_json_path))
         if not plugin_json:
             raise ValidationError(f"Could not load plugin.json from: {plugin_json_path}")
         validated_data["plugin_type"] = "local"
@@ -76,7 +76,7 @@ def update_validated_data_from_url(validated_data: dict[str, Any], url: str) -> 
             validated_data["latest_tag"] = parsed_url.get("tag", None)
             validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
             plugin_json = cast(
-                Optional[dict[str, Any]],
+                dict[str, Any] | None,
                 get_file_from_archive(validated_data["archive"], "plugin.json"),
             )
             if not plugin_json:
@@ -119,7 +119,7 @@ class PluginManager(models.Manager):
     def install(self, **kwargs) -> "Plugin":
         if "organization_id" not in kwargs and "organization" in kwargs:
             kwargs["organization_id"] = kwargs["organization"].id
-        plugin_json: Optional[dict[str, Any]] = None
+        plugin_json: dict[str, Any] | None = None
         if kwargs.get("plugin_type", None) != Plugin.PluginType.SOURCE:
             plugin_json = update_validated_data_from_url(kwargs, kwargs["url"])
             raise_if_plugin_installed(kwargs["url"])
@@ -319,7 +319,7 @@ class TranspilerError(Exception):
     pass
 
 
-def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
+def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> str | None:
     from posthog.settings.base_variables import BASE_DIR
 
     transpiler_path = os.path.join(BASE_DIR, "common/plugin_transpiler/dist/index.js")
@@ -339,7 +339,7 @@ def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> 
 
 class PluginSourceFileManager(models.Manager):
     def sync_from_plugin_archive(
-        self, plugin: Plugin, plugin_json_parsed: Optional[dict[str, Any]] = None
+        self, plugin: Plugin, plugin_json_parsed: dict[str, Any] | None = None
     ) -> tuple[
         "PluginSourceFile",
         Optional["PluginSourceFile"],
@@ -370,7 +370,7 @@ class PluginSourceFileManager(models.Manager):
         )
 
         # Save frontend.tsx
-        frontend_tsx_instance: Optional[PluginSourceFile] = None
+        frontend_tsx_instance: PluginSourceFile | None = None
         if frontend_tsx is not None:
             transpiled = None
             status = None
@@ -395,7 +395,7 @@ class PluginSourceFileManager(models.Manager):
             filenames_to_delete.append("frontend.tsx")
 
         # Save site.ts
-        site_ts_instance: Optional[PluginSourceFile] = None
+        site_ts_instance: PluginSourceFile | None = None
         if site_ts is not None:
             transpiled = None
             status = None
@@ -421,7 +421,7 @@ class PluginSourceFileManager(models.Manager):
             filenames_to_delete.append("site.ts")
 
         # Save index.ts
-        index_ts_instance: Optional[PluginSourceFile] = None
+        index_ts_instance: PluginSourceFile | None = None
         if index_ts is not None:
             # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
             # and we don't need to model the whole filesystem (at this point)
@@ -490,13 +490,13 @@ class PluginLogEntry:
 
 def fetch_plugin_log_entries(
     *,
-    team_id: Optional[int] = None,
-    plugin_config_id: Optional[int] = None,
-    after: Optional[datetime.datetime] = None,
-    before: Optional[datetime.datetime] = None,
-    search: Optional[str] = None,
-    limit: Optional[int] = None,
-    type_filter: Optional[list[PluginLogEntryType]] = None,
+    team_id: int | None = None,
+    plugin_config_id: int | None = None,
+    after: datetime.datetime | None = None,
+    before: datetime.datetime | None = None,
+    search: str | None = None,
+    limit: int | None = None,
+    type_filter: list[PluginLogEntryType] | None = None,
 ) -> list[PluginLogEntry]:
     if type_filter is None:
         type_filter = []

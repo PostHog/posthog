@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Any, Optional, Union
+from typing import Any, Union
 from zoneinfo import ZoneInfo
 
 from rest_framework import mixins, permissions, serializers, viewsets
@@ -95,7 +95,7 @@ class DeadLetterQueueMetric:
     key: str = ""
     metric: str = ""
     value: Union[str, bool, int, None] = None
-    subrows: Optional[list[Any]] = None
+    subrows: list[Any] | None = None
 
     def __init__(self, **kwargs):
         for field in ("key", "metric", "value", "subrows"):
@@ -158,7 +158,7 @@ class DeadLetterQueueViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mix
 
 
 def _build_where_clause_and_args(
-    after_datetime: Optional[dt.datetime] = None, before_datetime: Optional[dt.datetime] = None, **additional_args
+    after_datetime: dt.datetime | None = None, before_datetime: dt.datetime | None = None, **additional_args
 ) -> tuple[str, dict]:
     """
     Build WHERE clause and args dict for datetime filtering on error_timestamp.
@@ -190,9 +190,9 @@ def _build_where_clause_and_args(
 
 
 def get_dead_letter_queue_size(
-    _offset: Optional[int] = 0,
-    after_datetime: Optional[dt.datetime] = None,
-    before_datetime: Optional[dt.datetime] = None,
+    _offset: int | None = 0,
+    after_datetime: dt.datetime | None = None,
+    before_datetime: dt.datetime | None = None,
 ) -> int:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime)
 
@@ -203,7 +203,7 @@ def get_dead_letter_queue_size(
 
 
 def get_dlq_last_error_timestamp(
-    _offset, after_datetime: Optional[dt.datetime] = None, before_datetime: Optional[dt.datetime] = None
+    _offset, after_datetime: dt.datetime | None = None, before_datetime: dt.datetime | None = None
 ) -> int:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime)
 
@@ -217,7 +217,7 @@ def get_dlq_last_error_timestamp(
 
 
 def get_dead_letter_queue_events(
-    offset, after_datetime: Optional[dt.datetime] = None, before_datetime: Optional[dt.datetime] = None
+    offset, after_datetime: dt.datetime | None = None, before_datetime: dt.datetime | None = None
 ) -> list[dict[str, Any]]:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime, limit=ROWS_LIMIT, offset=offset)
 
@@ -253,7 +253,7 @@ def get_dead_letter_queue_events(
 
 
 def get_dead_letter_queue_events_per_error(
-    offset, after_datetime: Optional[dt.datetime] = None, before_datetime: Optional[dt.datetime] = None
+    offset, after_datetime: dt.datetime | None = None, before_datetime: dt.datetime | None = None
 ) -> list[Union[str, int]]:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime, limit=ROWS_LIMIT, offset=offset)
 
@@ -272,7 +272,7 @@ def get_dead_letter_queue_events_per_error(
 
 
 def get_dead_letter_queue_events_per_location(
-    offset, after_datetime: Optional[dt.datetime] = None, before_datetime: Optional[dt.datetime] = None
+    offset, after_datetime: dt.datetime | None = None, before_datetime: dt.datetime | None = None
 ) -> list[Union[str, int]]:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime, limit=ROWS_LIMIT, offset=offset)
 
@@ -291,7 +291,7 @@ def get_dead_letter_queue_events_per_location(
 
 
 def get_dead_letter_queue_events_per_day(
-    offset, after_datetime: Optional[dt.datetime] = None, before_datetime: Optional[dt.datetime] = None
+    offset, after_datetime: dt.datetime | None = None, before_datetime: dt.datetime | None = None
 ) -> list[Union[str, int]]:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime, limit=ROWS_LIMIT, offset=offset)
 
@@ -310,7 +310,7 @@ def get_dead_letter_queue_events_per_day(
 
 
 def get_dead_letter_queue_events_per_tag(
-    offset, after_datetime: Optional[dt.datetime] = None, before_datetime: Optional[dt.datetime] = None
+    offset, after_datetime: dt.datetime | None = None, before_datetime: dt.datetime | None = None
 ) -> list[Union[str, int]]:
     where_clause, args = _build_where_clause_and_args(after_datetime, before_datetime, limit=ROWS_LIMIT, offset=offset)
 

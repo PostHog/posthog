@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional, cast
+from typing import cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -473,7 +473,7 @@ class TestSignupAPI(APIBaseTest):
         required_attributes = ["first_name", "email"]
 
         for attribute in required_attributes:
-            body: dict[str, Optional[str]] = {
+            body: dict[str, str | None] = {
                 "first_name": "Jane",
                 "email": "invalid@posthog.com",
                 "password": VALID_TEST_PASSWORD,
@@ -1068,7 +1068,7 @@ class TestSignupAPI(APIBaseTest):
             )
 
             if i < 5:
-                self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request {i+1} should succeed")
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request {i + 1} should succeed")
                 # Clean up the created org and user to allow next signup
                 Organization.objects.filter(for_internal_metrics=False).delete()
                 User.objects.filter(email=f"user{i}@example.com").delete()

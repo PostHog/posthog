@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Optional
 
 from posthog.schema import (
     ActionsNode,
@@ -94,7 +93,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         return lifecycle_query
 
     def to_actors_query(
-        self, day: Optional[str] = None, status: Optional[str] = None
+        self, day: str | None = None, status: str | None = None
     ) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("actors_query"):
             exprs: list[ast.Expr] = []
@@ -338,9 +337,9 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                         arraySort(groupUniqArray({{trunc_timestamp}})) AS all_activity,
                         arrayPopBack(arrayPushFront(all_activity, {{trunc_created_at}})) as previous_activity,
                         arrayPopFront(arrayPushBack(all_activity, {{trunc_epoch}})) as following_activity,
-                        arrayMap((previous, current, index) -> (previous = current ? 'new' : (({timezone_wrapper('current')} - {{one_interval_period}}) = previous AND index != 1) ? 'returning' : 'resurrecting'), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
-                        arrayMap((current, next) -> ({timezone_wrapper('current')} + {{one_interval_period}} = {timezone_wrapper('next')} ? '' : 'dormant'), all_activity, following_activity) as dormant_status,
-                        arrayMap(x -> {timezone_wrapper('x')} + {{one_interval_period}}, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
+                        arrayMap((previous, current, index) -> (previous = current ? 'new' : (({timezone_wrapper("current")} - {{one_interval_period}}) = previous AND index != 1) ? 'returning' : 'resurrecting'), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
+                        arrayMap((current, next) -> ({timezone_wrapper("current")} + {{one_interval_period}} = {timezone_wrapper("next")} ? '' : 'dormant'), all_activity, following_activity) as dormant_status,
+                        arrayMap(x -> {timezone_wrapper("x")} + {{one_interval_period}}, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
                         arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
                         arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
                         arrayJoin(temp_concat) as period_status_pairs,
@@ -402,7 +401,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         date_from = self.query_date_range.date_from()
         interval = self.query_date_range.interval_name
 
-        delta_days: Optional[int] = None
+        delta_days: int | None = None
         if date_from and date_to:
             delta = date_to - date_from
             delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())

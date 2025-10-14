@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from enum import Enum
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.db.models import F
@@ -30,7 +30,7 @@ class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
-def build_billing_token(license: License, organization: Organization, user: Optional[User] = None):
+def build_billing_token(license: License, organization: Organization, user: User | None = None):
     if not organization or not license:
         raise NotAuthenticated()
 
@@ -72,17 +72,17 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 
 
 
 class BillingManager:
-    license: Optional[License]
-    user: Optional[User]
+    license: License | None
+    user: User | None
 
-    def __init__(self, license, user: Optional[User] = None):
+    def __init__(self, license, user: User | None = None):
         self.license = license or get_cached_instance_license()
         self.user = user
 
     def get_billing(
         self,
-        organization: Optional[Organization],
-        query_params: Optional[dict[str, Any]] = None,
+        organization: Organization | None,
+        query_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not organization or not self.license or not self.license.is_v2_license:
             return self._get_default_billing_response(organization)
@@ -214,7 +214,7 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-    def _get_default_billing_response(self, organization: Optional[Organization]) -> dict[str, Any]:
+    def _get_default_billing_response(self, organization: Organization | None) -> dict[str, Any]:
         products = self.get_default_products(organization)
         response = {
             "available_product_features": [],
@@ -223,7 +223,7 @@ class BillingManager:
 
         return response
 
-    def get_default_products(self, organization: Optional[Organization]) -> dict:
+    def get_default_products(self, organization: Organization | None) -> dict:
         response = {}
         # If we don't have products from the billing service then get the default ones with our local usage calculation
         products = self._get_products(organization)
@@ -256,7 +256,7 @@ class BillingManager:
 
         return self.license
 
-    def _get_billing(self, organization: Organization, query_params: Optional[dict[str, Any]] = None) -> BillingStatus:
+    def _get_billing(self, organization: Organization, query_params: dict[str, Any] | None = None) -> BillingStatus:
         """
         Retrieves billing info and updates local models if necessary
         """
@@ -292,7 +292,7 @@ class BillingManager:
 
         return data["url"]
 
-    def _get_products(self, organization: Optional[Organization]):
+    def _get_products(self, organization: Organization | None):
         headers = {}
         params = {"plan": "standard"}
 
@@ -382,7 +382,7 @@ class BillingManager:
         billing_service_token = build_billing_token(self.license, organization, self.user)
         return {"Authorization": f"Bearer {billing_service_token}"}
 
-    def get_invoices(self, organization: Organization, status: Optional[str]):
+    def get_invoices(self, organization: Organization, status: str | None):
         res = requests.get(
             # TODO(@zach): update this to /api/invoices
             f"{BILLING_SERVICE_URL}/api/billing/get_invoices",

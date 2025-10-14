@@ -7,7 +7,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum, auto
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Generic, Literal, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -39,7 +39,7 @@ class Effect(Generic[SP]):
     callback: EffectCallback[SP]
     source: "SimPerson"
     target: Target
-    condition: Optional[EffectCondition[SP]]
+    condition: EffectCondition[SP] | None
 
 
 # Event name constants to be used in simulations
@@ -100,16 +100,16 @@ class SimEvent:
     person_id: UUID
     person_properties: Properties
     person_created_at: dt.datetime
-    group0_properties: Optional[Properties] = None
-    group1_properties: Optional[Properties] = None
-    group2_properties: Optional[Properties] = None
-    group3_properties: Optional[Properties] = None
-    group4_properties: Optional[Properties] = None
-    group0_created_at: Optional[dt.datetime] = None
-    group1_created_at: Optional[dt.datetime] = None
-    group2_created_at: Optional[dt.datetime] = None
-    group3_created_at: Optional[dt.datetime] = None
-    group4_created_at: Optional[dt.datetime] = None
+    group0_properties: Properties | None = None
+    group1_properties: Properties | None = None
+    group2_properties: Properties | None = None
+    group3_properties: Properties | None = None
+    group4_properties: Properties | None = None
+    group0_created_at: dt.datetime | None = None
+    group1_created_at: dt.datetime | None = None
+    group2_created_at: dt.datetime | None = None
+    group3_created_at: dt.datetime | None = None
+    group4_created_at: dt.datetime | None = None
 
     def __str__(self) -> str:
         separator = "-" if self.timestamp < dt.datetime.now(dt.UTC) else "+"  # Future events are denoted by a '+'
@@ -130,7 +130,7 @@ class SimClient(ABC):
     def _get_person(self, distinct_id: str) -> "SimPerson":
         raise NotImplementedError()
 
-    def _capture_raw(self, event: str, properties: Optional[Properties] = None, *, distinct_id: str) -> None:
+    def _capture_raw(self, event: str, properties: Properties | None = None, *, distinct_id: str) -> None:
         person = self._get_person(distinct_id)
         timestamp = person.cluster.simulation_time
         combined_properties: Properties = {
@@ -155,7 +155,7 @@ class SimServerClient(SimClient):
     def _get_person(self, distinct_id: str):
         return self.matrix.distinct_id_to_person[distinct_id]
 
-    def capture(self, event: str, properties: Optional[Properties] = None, *, distinct_id: str) -> None:
+    def capture(self, event: str, properties: Properties | None = None, *, distinct_id: str) -> None:
         self._capture_raw(event, properties, distinct_id=distinct_id)
 
     def capture_ai_generation(
@@ -168,7 +168,7 @@ class SimServerClient(SimClient):
         base_url: str = "https://api.openai.com/v1",
         provider: str = "openai",
         model: str = "gpt-4o",
-        trace_id: Optional[str] = None,
+        trace_id: str | None = None,
         http_status: int = 200,
     ):
         """Capture an AI generation event."""
@@ -209,7 +209,7 @@ class SimServerClient(SimClient):
         *,
         distinct_id: str,
         input_state: Any,
-        trace_id: Optional[str] = None,
+        trace_id: str | None = None,
     ) -> Generator[tuple[str, Callable], None, None]:
         """Capture an AI generation event."""
         trace_id = trace_id or str(uuid4())
@@ -252,9 +252,9 @@ class SimBrowserClient(SimClient):
 
     # State
     active_distinct_id: str
-    active_session_id: Optional[str]
+    active_session_id: str | None
     super_properties: Properties
-    current_url: Optional[str]
+    current_url: str | None
     is_logged_in: bool
 
     def __init__(self, person: "SimPerson"):
@@ -285,7 +285,7 @@ class SimBrowserClient(SimClient):
     def _get_person(self, _: str):
         return self.person
 
-    def capture(self, event: str, properties: Optional[Properties] = None):
+    def capture(self, event: str, properties: Properties | None = None):
         """Capture an arbitrary event. Similar to JS `posthog.capture()`."""
         combined_properties: Properties = {
             "$device_type": self.device_type,
@@ -339,9 +339,9 @@ class SimBrowserClient(SimClient):
     def capture_pageview(
         self,
         current_url: str,
-        properties: Optional[Properties] = None,
+        properties: Properties | None = None,
         *,
-        referrer: Optional[str] = None,
+        referrer: str | None = None,
     ):
         """Capture a $pageview event. $pageleave is handled implicitly."""
         if self.current_url is not None:
@@ -350,7 +350,7 @@ class SimBrowserClient(SimClient):
         self.current_url = current_url
         self.capture(EVENT_PAGEVIEW, properties)
 
-    def identify(self, distinct_id: Optional[str], set_properties: Optional[Properties] = None):
+    def identify(self, distinct_id: str | None, set_properties: Properties | None = None):
         """Identify person in active client. Similar to JS `posthog.identify()`.
 
         Use with distinct_id=None for `posthog.people.set()`-like behavior."""
@@ -369,7 +369,7 @@ class SimBrowserClient(SimClient):
         self,
         group_type: str,
         group_key: str,
-        set_properties: Optional[Properties] = None,
+        set_properties: Properties | None = None,
     ):
         """Link the person to the specified group. Similar to JS `posthog.group()`."""
         if set_properties is None:
@@ -411,7 +411,7 @@ class SimPerson(ABC):
 
     # Constant properties
     in_product_id: str  # User ID within the product being simulated (freeform string)
-    in_posthog_id: Optional[UUID]  # PostHog person ID (must be a UUID)
+    in_posthog_id: UUID | None  # PostHog person ID (must be a UUID)
     country_code: str
     region: str
     city: str
@@ -425,14 +425,14 @@ class SimPerson(ABC):
     # Exposed state - at `now`
     distinct_ids_at_now: set[str]
     properties_at_now: Properties
-    first_seen_at: Optional[dt.datetime]
-    last_seen_at: Optional[dt.datetime]
+    first_seen_at: dt.datetime | None
+    last_seen_at: dt.datetime | None
 
     # Internal state
     active_client: SimBrowserClient  # Client being used by person
     all_time_pageview_counts: defaultdict[str, int]  # Pageview count per URL across all time
     session_pageview_counts: defaultdict[str, int]  # Pageview count per URL across the ongoing session
-    active_session_intent: Optional[SimSessionIntent]
+    active_session_intent: SimSessionIntent | None
     wake_up_by: dt.datetime
     _groups: dict[str, str]
     _distinct_ids: set[str]
@@ -501,7 +501,7 @@ class SimPerson(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def determine_session_intent(self) -> Optional[SimSessionIntent]:
+    def determine_session_intent(self) -> SimSessionIntent | None:
         """Determine the session intent for the session that's about to start."""
         raise NotImplementedError()
 
@@ -522,7 +522,7 @@ class SimPerson(ABC):
         callback: EffectCallback,
         target: Effect.Target,
         *,
-        condition: Optional[EffectCondition] = None,
+        condition: EffectCondition | None = None,
     ):
         """Schedule an effect to apply at a given time.
 

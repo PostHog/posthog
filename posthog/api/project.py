@@ -1,6 +1,6 @@
 from datetime import timedelta
 from functools import cached_property
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -212,7 +212,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token_backup",
         }
 
-    def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
+    def get_effective_membership_level(self, project: Project) -> OrganizationMembership.Level | None:
         team = project.teams.get(pk=project.pk)
         return self.user_permissions.team(team).effective_membership_level
 
@@ -224,7 +224,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             GroupTypeMapping.objects.filter(project_id=project.id).values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
         )
 
-    def get_live_events_token(self, project: Project) -> Optional[str]:
+    def get_live_events_token(self, project: Project) -> str | None:
         team = project.teams.get(pk=project.pk)
         return encode_jwt(
             {"team_id": team.id, "api_token": team.api_token},

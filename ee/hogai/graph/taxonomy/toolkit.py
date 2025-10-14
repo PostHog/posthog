@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Iterable
 from functools import cached_property
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from langchain_core.agents import AgentAction
 from pydantic import BaseModel
@@ -143,7 +143,7 @@ class TaxonomyAgentToolkit:
         return enrich_props_with_descriptions(entity, props)
 
     def _format_property_values(
-        self, property_name: str, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
+        self, property_name: str, sample_values: list, sample_count: int | None = 0, format_as_string: bool = False
     ) -> str:
         return format_property_values(property_name, sample_values, sample_count, format_as_string)
 

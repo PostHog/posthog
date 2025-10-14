@@ -1,5 +1,3 @@
-from typing import Optional
-
 from rest_framework import request, response
 
 from posthog.api.insight import capture_legacy_api_call
@@ -26,7 +24,7 @@ class EnterprisePersonViewSet(PersonViewSet):
     @cached_by_filters
     def calculate_funnel_correlation_persons(
         self, request: request.Request
-    ) -> dict[str, tuple[list, Optional[str], Optional[str], int]]:
+    ) -> dict[str, tuple[list, str | None, str | None, int]]:
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         if not filter.correlation_person_limit:
             filter = filter.shallow_clone({FUNNEL_CORRELATION_PERSON_LIMIT: 100})

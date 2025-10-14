@@ -41,7 +41,7 @@ class VariableAssignment(Declaration):
 @dataclass(kw_only=True)
 class VariableDeclaration(Declaration):
     name: str
-    expr: Optional[Expr] = None
+    expr: Expr | None = None
 
 
 @dataclass(kw_only=True)
@@ -51,12 +51,12 @@ class Statement(Declaration):
 
 @dataclass(kw_only=True)
 class ExprStatement(Statement):
-    expr: Optional[Expr]
+    expr: Expr | None
 
 
 @dataclass(kw_only=True)
 class ReturnStatement(Statement):
-    expr: Optional[Expr]
+    expr: Expr | None
 
 
 @dataclass(kw_only=True)
@@ -68,15 +68,15 @@ class ThrowStatement(Statement):
 class TryCatchStatement(Statement):
     try_stmt: Statement
     # var name (e), error type (RetryError), stmt ({})  # (e: RetryError) {}
-    catches: list[tuple[Optional[str], Optional[str], Statement]]
-    finally_stmt: Optional[Statement] = None
+    catches: list[tuple[str | None, str | None, Statement]]
+    finally_stmt: Statement | None = None
 
 
 @dataclass(kw_only=True)
 class IfStatement(Statement):
     expr: Expr
     then: Statement
-    else_: Optional[Statement] = None
+    else_: Statement | None = None
 
 
 @dataclass(kw_only=True)
@@ -87,15 +87,15 @@ class WhileStatement(Statement):
 
 @dataclass(kw_only=True)
 class ForStatement(Statement):
-    initializer: Optional[VariableDeclaration | VariableAssignment | Expr]
-    condition: Optional[Expr]
-    increment: Optional[Expr]
+    initializer: VariableDeclaration | VariableAssignment | Expr | None
+    condition: Expr | None
+    increment: Expr | None
     body: Statement
 
 
 @dataclass(kw_only=True)
 class ForInStatement(Statement):
-    keyVar: Optional[str]
+    keyVar: str | None
     valueVar: str
     expr: Expr
     body: Statement
@@ -248,11 +248,11 @@ class SelectQueryType(Type):
     # all from and join subqueries without aliases
     anonymous_tables: list[Union["SelectQueryType", "SelectSetQueryType"]] = field(default_factory=list)
     # the parent select query, if this is a lambda
-    parent: Optional[Union["SelectQueryType", "SelectSetQueryType"]] = None
+    parent: Union["SelectQueryType", "SelectSetQueryType"] | None = None
     # whether this type is related to a lambda scope
     is_lambda_type: bool = False
 
-    def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
+    def get_alias_for_table_type(self, table_type: TableOrSelectType) -> str | None:
         for key, value in self.tables.items():
             if value == table_type:
                 return key
@@ -284,7 +284,7 @@ class SelectQueryType(Type):
 class SelectSetQueryType(Type):
     types: list[Union["SelectQueryType", "SelectSetQueryType"]]
 
-    def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
+    def get_alias_for_table_type(self, table_type: TableOrSelectType) -> str | None:
         return self.types[0].get_alias_for_table_type(table_type)
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
@@ -447,7 +447,7 @@ class TupleType(ConstantType):
 class CallType(Type):
     name: str
     arg_types: list[ConstantType]
-    param_types: Optional[list[ConstantType]] = None
+    param_types: list[ConstantType] | None = None
     return_type: ConstantType
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
@@ -490,7 +490,7 @@ class FieldType(Type):
     name: str
     table_type: TableOrSelectType
 
-    def resolve_database_field(self, context: HogQLContext) -> Optional[FieldOrTable]:
+    def resolve_database_field(self, context: HogQLContext) -> FieldOrTable | None:
         if isinstance(self.table_type, BaseTableType):
             table = self.table_type.resolve_database_table(context)
             if table is not None:
@@ -554,8 +554,8 @@ class PropertyType(Type):
     field_type: FieldType
 
     # The property has been moved into a field we query from a joined subquery
-    joined_subquery: Optional[SelectQueryAliasType] = field(default=None, init=False)
-    joined_subquery_field_name: Optional[str] = field(default=None, init=False)
+    joined_subquery: SelectQueryAliasType | None = field(default=None, init=False)
+    joined_subquery_field_name: str | None = field(default=None, init=False)
 
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
         return PropertyType(chain=[*self.chain, name], field_type=self.field_type)
@@ -608,14 +608,14 @@ class ArithmeticOperation(Expr):
 
 @dataclass(kw_only=True)
 class And(Expr):
-    type: Optional[ConstantType] = None
+    type: ConstantType | None = None
     exprs: list[Expr]
 
 
 @dataclass(kw_only=True)
 class Or(Expr):
     exprs: list[Expr]
-    type: Optional[ConstantType] = None
+    type: ConstantType | None = None
 
 
 class CompareOperationOp(StrEnum):
@@ -658,13 +658,13 @@ class CompareOperation(Expr):
     left: Expr
     right: Expr
     op: CompareOperationOp
-    type: Optional[ConstantType] = None
+    type: ConstantType | None = None
 
 
 @dataclass(kw_only=True)
 class Not(Expr):
     expr: Expr
-    type: Optional[ConstantType] = None
+    type: ConstantType | None = None
 
 
 @dataclass(kw_only=True)
@@ -739,7 +739,7 @@ class Call(Expr):
     name: str
     """Function name"""
     args: list[Expr]
-    params: Optional[list[Expr]] = None
+    params: list[Expr] | None = None
     """
     Parameters apply to some aggregate functions, see ClickHouse docs:
     https://clickhouse.com/docs/en/sql-reference/aggregate-functions/parametric-functions
@@ -762,71 +762,71 @@ class JoinConstraint(Expr):
 @dataclass(kw_only=True)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
-    type: Optional[TableOrSelectType] = None
+    type: TableOrSelectType | None = None
 
-    join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectSetQuery", "Placeholder", "HogQLXTag", "Field"]] = None
-    table_args: Optional[list[Expr]] = None
-    alias: Optional[str] = None
-    table_final: Optional[bool] = None
-    constraint: Optional[JoinConstraint] = None
+    join_type: str | None = None
+    table: Union["SelectQuery", "SelectSetQuery", "Placeholder", "HogQLXTag", "Field"] | None = None
+    table_args: list[Expr] | None = None
+    alias: str | None = None
+    table_final: bool | None = None
+    constraint: JoinConstraint | None = None
     next_join: Optional["JoinExpr"] = None
     sample: Optional["SampleExpr"] = None
 
 
 @dataclass(kw_only=True)
 class WindowFrameExpr(Expr):
-    frame_type: Optional[Literal["CURRENT ROW", "PRECEDING", "FOLLOWING"]] = None
-    frame_value: Optional[int] = None
+    frame_type: Literal["CURRENT ROW", "PRECEDING", "FOLLOWING"] | None = None
+    frame_value: int | None = None
 
 
 @dataclass(kw_only=True)
 class WindowExpr(Expr):
-    partition_by: Optional[list[Expr]] = None
-    order_by: Optional[list[OrderExpr]] = None
-    frame_method: Optional[Literal["ROWS", "RANGE"]] = None
-    frame_start: Optional[WindowFrameExpr] = None
-    frame_end: Optional[WindowFrameExpr] = None
+    partition_by: list[Expr] | None = None
+    order_by: list[OrderExpr] | None = None
+    frame_method: Literal["ROWS", "RANGE"] | None = None
+    frame_start: WindowFrameExpr | None = None
+    frame_end: WindowFrameExpr | None = None
 
 
 @dataclass(kw_only=True)
 class WindowFunction(Expr):
     name: str
-    args: Optional[list[Expr]] = None
-    exprs: Optional[list[Expr]] = None
-    over_expr: Optional[WindowExpr] = None
-    over_identifier: Optional[str] = None
+    args: list[Expr] | None = None
+    exprs: list[Expr] | None = None
+    over_expr: WindowExpr | None = None
+    over_identifier: str | None = None
 
 
 @dataclass(kw_only=True)
 class LimitByExpr(Expr):
     n: Expr
     exprs: list[Expr]
-    offset_value: Optional[Expr] = None
+    offset_value: Expr | None = None
 
 
 @dataclass(kw_only=True)
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
-    type: Optional[SelectQueryType] = None
-    ctes: Optional[dict[str, CTE]] = None
+    type: SelectQueryType | None = None
+    ctes: dict[str, CTE] | None = None
     select: list[Expr]
-    distinct: Optional[bool] = None
-    select_from: Optional[JoinExpr] = None
-    array_join_op: Optional[str] = None
-    array_join_list: Optional[list[Expr]] = None
-    window_exprs: Optional[dict[str, WindowExpr]] = None
-    where: Optional[Expr] = None
-    prewhere: Optional[Expr] = None
-    having: Optional[Expr] = None
-    group_by: Optional[list[Expr]] = None
-    order_by: Optional[list[OrderExpr]] = None
-    limit: Optional[Expr] = None
-    limit_by: Optional[LimitByExpr] = None
-    limit_with_ties: Optional[bool] = None
-    offset: Optional[Expr] = None
-    settings: Optional[HogQLQuerySettings] = None
-    view_name: Optional[str] = None
+    distinct: bool | None = None
+    select_from: JoinExpr | None = None
+    array_join_op: str | None = None
+    array_join_list: list[Expr] | None = None
+    window_exprs: dict[str, WindowExpr] | None = None
+    where: Expr | None = None
+    prewhere: Expr | None = None
+    having: Expr | None = None
+    group_by: list[Expr] | None = None
+    order_by: list[OrderExpr] | None = None
+    limit: Expr | None = None
+    limit_by: LimitByExpr | None = None
+    limit_with_ties: bool | None = None
+    offset: Expr | None = None
+    settings: HogQLQuerySettings | None = None
+    view_name: str | None = None
 
     @classmethod
     def empty(cls, *, columns: list[str] | None = None) -> "SelectQuery":
@@ -861,7 +861,7 @@ class SelectSetNode(AST):
 
 @dataclass(kw_only=True)
 class SelectSetQuery(Expr):
-    type: Optional[SelectSetQueryType] = None
+    type: SelectSetQueryType | None = None
     initial_select_query: Union["SelectQuery", "SelectSetQuery"]
     subsequent_select_queries: list[SelectSetNode]
 
@@ -888,14 +888,14 @@ class SelectSetQuery(Expr):
 @dataclass(kw_only=True)
 class RatioExpr(Expr):
     left: Constant
-    right: Optional[Constant] = None
+    right: Constant | None = None
 
 
 @dataclass(kw_only=True)
 class SampleExpr(Expr):
     # k or n
     sample_value: RatioExpr
-    offset_value: Optional[RatioExpr] = None
+    offset_value: RatioExpr | None = None
 
 
 @dataclass(kw_only=True)

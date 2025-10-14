@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from typing import Optional
 
 from django.conf import settings
 
@@ -9,9 +8,9 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
-_site_reachable: Optional[bool] = None
-_site_reachable_exception: Optional[Exception] = None
-_site_reachable_checked_at: Optional[datetime] = None
+_site_reachable: bool | None = None
+_site_reachable_exception: Exception | None = None
+_site_reachable_checked_at: datetime | None = None
 
 
 def is_site_url_reachable() -> bool:

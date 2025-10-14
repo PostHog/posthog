@@ -82,7 +82,7 @@ class TeamManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEPRECATED_ATTRS)
 
-    def set_test_account_filters(self, organization_id: Optional[UUID]) -> list:
+    def set_test_account_filters(self, organization_id: UUID | None) -> list:
         filters = [
             {
                 "key": "$host",
@@ -155,7 +155,7 @@ class TeamManager(models.Manager):
                 kwargs["project"] = Project.objects.db_manager(self.db).create(id=kwargs["id"], **project_kwargs)
             return super().create(**kwargs)
 
-    def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
+    def get_team_from_token(self, token: str | None) -> Optional["Team"]:
         if not token:
             return None
         try:
@@ -163,7 +163,7 @@ class TeamManager(models.Manager):
         except Team.DoesNotExist:
             return None
 
-    def get_team_from_cache_or_token(self, token: Optional[str]) -> Optional["Team"]:
+    def get_team_from_cache_or_token(self, token: str | None) -> Optional["Team"]:
         if not token:
             return None
         try:
@@ -178,7 +178,7 @@ class TeamManager(models.Manager):
         except Team.DoesNotExist:
             return None
 
-    def get_team_from_cache_or_secret_api_token(self, secret_api_token: Optional[str]) -> Optional["Team"]:
+    def get_team_from_cache_or_secret_api_token(self, secret_api_token: str | None) -> Optional["Team"]:
         if not secret_api_token:
             return None
         try:
@@ -853,8 +853,8 @@ def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
     set_team_in_cache(instance.api_token, None)
 
 
-def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):
-    available_product_features: Optional[list[dict[str, str]]] = (
+def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: int | None = None):
+    available_product_features: list[dict[str, str]] | None = (
         Team.objects.select_related("organization")
         .values_list("organization__available_product_features", flat=True)
         .get(id=team_id)

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 class ProjectManager(models.Manager):
     def create_with_team(
-        self, *, team_fields: Optional[dict] = None, initiating_user: Optional["User"], **kwargs
+        self, *, team_fields: dict | None = None, initiating_user: Optional["User"], **kwargs
     ) -> tuple["Project", "Team"]:
         from .team import Team
 

@@ -1,6 +1,5 @@
 import json
 from datetime import timedelta
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -10,7 +9,7 @@ from posthog.queries.app_metrics.app_metrics import AppMetricsErrorsQuery, AppMe
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
 
 
-def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Optional[str] = None):
+def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: str | None = None):
     from posthog.api.shared import UserBasicSerializer
 
     entries = ActivityLog.objects.filter(
@@ -79,7 +78,7 @@ def historical_export_metrics(team: Team, plugin_config_id: int, job_id: str):
     return {"summary": export_summary, "metrics": metric_results, "errors": errors}
 
 
-def _fetch_export_progress(plugin_config_id: int, job_id: str) -> Optional[float]:
+def _fetch_export_progress(plugin_config_id: int, job_id: str) -> float | None:
     coordination_entry = PluginStorage.objects.filter(
         plugin_config_id=plugin_config_id,
         # Keep this in sync with plugin-server/src/worker/vm/upgrades/historical-export/export-historical-events-v2.ts

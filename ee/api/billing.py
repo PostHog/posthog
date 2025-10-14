@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -70,7 +70,7 @@ class BillingUsageRequestSerializer(serializers.Serializer):
     breakdowns = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     interval = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
-    def _parse_date(self, date_str: Optional[str], field_name: str) -> Optional[str]:
+    def _parse_date(self, date_str: str | None, field_name: str) -> str | None:
         """Shared date parsing logic into YYYY-MM-DD format. Handles relative dates too."""
         if not date_str:
             return None
@@ -81,13 +81,13 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         except Exception:
             raise serializers.ValidationError({field_name: f"Could not parse date '{date_str}'."})
 
-    def validate_start_date(self, value: Optional[str]) -> Optional[str]:
+    def validate_start_date(self, value: str | None) -> str | None:
         """Validate and normalize the start_date, handling 'all'."""
         if value == "all":
             return "2020-01-01"
         return self._parse_date(value, "start_date")
 
-    def validate_end_date(self, value: Optional[str]) -> Optional[str]:
+    def validate_end_date(self, value: str | None) -> str | None:
         """Validate and normalize the end_date."""
         return self._parse_date(value, "end_date")
 
@@ -568,7 +568,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             capture_exception(e, {"organization_id": organization.id})
             return {}
 
-    def _get_org(self) -> Optional[Organization]:
+    def _get_org(self) -> Organization | None:
         org = None if self.request.user.is_anonymous else self.request.user.organization
 
         return org

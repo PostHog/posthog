@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import posthoganalytics
 from pydantic import ValidationError
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 def create_default_modifiers_for_user(
-    user: "User", team: "Team", modifiers: Optional[HogQLQueryModifiers] = None
+    user: "User", team: "Team", modifiers: HogQLQueryModifiers | None = None
 ) -> HogQLQueryModifiers:
     if modifiers is None:
         modifiers = HogQLQueryModifiers()
@@ -43,7 +43,7 @@ def create_default_modifiers_for_user(
 
 
 def create_default_modifiers_for_team(
-    team: "Team", modifiers: Optional[HogQLQueryModifiers] = None
+    team: "Team", modifiers: HogQLQueryModifiers | None = None
 ) -> HogQLQueryModifiers:
     if modifiers is None:
         modifiers = HogQLQueryModifiers()

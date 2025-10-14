@@ -139,4 +139,4 @@ class OperationCategorizer:
 
     def format_operation_refs(self, ops: list[tuple[int, "OperationRisk"]]) -> str:
         """Format operation references like '#3 RunSQL, #5 AddField'."""
-        return ", ".join(f"#{idx+1} {op.type}" for idx, op in ops)
+        return ", ".join(f"#{idx + 1} {op.type}" for idx, op in ops)

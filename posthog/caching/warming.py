@@ -1,7 +1,6 @@
 import itertools
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from typing import Optional
 
 from django.db.models import Q
 
@@ -75,7 +74,7 @@ def teams_enabled_for_cache_warming() -> list[int]:
     return enabled_team_ids
 
 
-def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, Optional[int]], None, None]:
+def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[tuple[int, int | None], None, None]:
     """
     This is the place to decide which insights should be kept warm for the provided team.
     The reasoning is that this will be a yes or no decision. If we need to keep it warm, we try our best
@@ -196,7 +195,7 @@ def schedule_warming_for_teams_task():
     retry_backoff_max=3,
     max_retries=3,
 )
-def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
+def warm_insight_cache_task(insight_id: int, dashboard_id: int | None):
     try:
         insight = Insight.objects.get(pk=insight_id)
     except Insight.DoesNotExist:

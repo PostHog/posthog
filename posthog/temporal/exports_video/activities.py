@@ -103,7 +103,7 @@ def persist_exported_asset_activity(inputs: dict[str, Any]) -> None:
     MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
     if file_size > MAX_FILE_SIZE:
         raise RuntimeError(
-            f"Video file too large: {file_size / (1024*1024):.1f}MB exceeds {MAX_FILE_SIZE // (1024*1024)}MB limit"
+            f"Video file too large: {file_size / (1024 * 1024):.1f}MB exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit"
         )
 
     # Read in chunks to avoid loading entire file into memory at once

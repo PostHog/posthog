@@ -1,5 +1,4 @@
 import datetime
-from typing import Optional
 
 import pytz
 
@@ -15,7 +14,7 @@ def to_hog_date(year: int, month: int, day: int):
     }
 
 
-def to_hog_datetime(timestamp: int | float | dict, zone: Optional[str] = None):
+def to_hog_datetime(timestamp: int | float | dict, zone: str | None = None):
     if isinstance(timestamp, dict) and is_hog_date(timestamp):
         dt = datetime.datetime(
             year=timestamp["year"], month=timestamp["month"], day=timestamp["day"], tzinfo=pytz.timezone(zone or "UTC")
@@ -35,11 +34,11 @@ def to_hog_datetime(timestamp: int | float | dict, zone: Optional[str] = None):
 # Exported functions
 
 
-def now(zone: Optional[str] = None):
+def now(zone: str | None = None):
     return to_hog_datetime(datetime.datetime.now().timestamp(), zone)
 
 
-def toUnixTimestamp(date, timezone: Optional[str] = None):
+def toUnixTimestamp(date, timezone: str | None = None):
     if isinstance(date, dict) and is_hog_datetime(date):
         return date["dt"]
     if isinstance(date, dict) and is_hog_date(date):
@@ -57,7 +56,7 @@ def fromUnixTimestamp(timestamp: int | float):
     return to_hog_datetime(timestamp)
 
 
-def toUnixTimestampMilli(date, timezone: Optional[str] = None):
+def toUnixTimestampMilli(date, timezone: str | None = None):
     return int(toUnixTimestamp(date, timezone) * 1000)
 
 
@@ -141,7 +140,7 @@ token_translations = {
 }
 
 
-def formatDateTime(input: dict, format: str, zone: Optional[str] = None) -> str:
+def formatDateTime(input: dict, format: str, zone: str | None = None) -> str:
     if not is_hog_datetime(input):
         raise ValueError("Expected a DateTime")
     format_string = ""

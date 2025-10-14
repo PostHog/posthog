@@ -1,5 +1,5 @@
 import json
-from typing import Literal, Optional
+from typing import Literal
 
 from posthog.constants import (
     CUSTOM_EVENT,
@@ -33,7 +33,7 @@ PathType = Literal["$pageview", "$screen", "custom_event"]
 FunnelPathsType = Literal["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"]
 
 
-def remove_trailing_slash(input: Optional[str]) -> Optional[str]:
+def remove_trailing_slash(input: str | None) -> str | None:
     if input and len(input) > 1 and input.endswith("/"):
         return input[:-1]
     return input
@@ -41,7 +41,7 @@ def remove_trailing_slash(input: Optional[str]) -> Optional[str]:
 
 class PathTypeMixin(BaseParamMixin):
     @cached_property
-    def path_type(self) -> Optional[PathType]:
+    def path_type(self) -> PathType | None:
         return self._data.get(PATH_TYPE, None)
 
     @include_dict
@@ -51,7 +51,7 @@ class PathTypeMixin(BaseParamMixin):
 
 class StartPointMixin(BaseParamMixin):
     @cached_property
-    def start_point(self) -> Optional[str]:
+    def start_point(self) -> str | None:
         return remove_trailing_slash(self._data.get(START_POINT, None))
 
     @include_dict
@@ -61,7 +61,7 @@ class StartPointMixin(BaseParamMixin):
 
 class EndPointMixin(BaseParamMixin):
     @cached_property
-    def end_point(self) -> Optional[str]:
+    def end_point(self) -> str | None:
         return remove_trailing_slash(self._data.get(END_POINT, None))
 
     @include_dict
@@ -71,7 +71,7 @@ class EndPointMixin(BaseParamMixin):
 
 class PathsHogQLExpressionMixin(PathTypeMixin):
     @cached_property
-    def paths_hogql_expression(self) -> Optional[str]:
+    def paths_hogql_expression(self) -> str | None:
         if self.path_type == HOGQL or HOGQL in self._data.get(PATHS_INCLUDE_EVENT_TYPES, []):
             return self._data.get(PATHS_HOGQL_EXPRESSION, "event")
         else:
@@ -137,7 +137,7 @@ class TargetEventsMixin(BaseParamMixin):
 
 class PathStepLimitMixin(BaseParamMixin):
     @cached_property
-    def step_limit(self) -> Optional[int]:
+    def step_limit(self) -> int | None:
         if self._data.get(STEP_LIMIT) is not None:
             return int(self._data[STEP_LIMIT])
         return None
@@ -149,7 +149,7 @@ class PathStepLimitMixin(BaseParamMixin):
 
 class FunnelPathsMixin(BaseParamMixin):
     @cached_property
-    def funnel_paths(self) -> Optional[FunnelPathsType]:
+    def funnel_paths(self) -> FunnelPathsType | None:
         _funnel_paths = self._data.get(FUNNEL_PATHS, None)
         return _funnel_paths
 
@@ -160,7 +160,7 @@ class FunnelPathsMixin(BaseParamMixin):
 
 class PathGroupingMixin(BaseParamMixin):
     @cached_property
-    def path_groupings(self) -> Optional[list[str]]:
+    def path_groupings(self) -> list[str] | None:
         path_groupings = self._data.get(PATH_GROUPINGS, None)
         if isinstance(path_groupings, str):
             return json.loads(path_groupings)
@@ -193,7 +193,7 @@ class PathReplacementMixin(BaseParamMixin):
 
 class LocalPathCleaningFiltersMixin(BaseParamMixin):
     @cached_property
-    def local_path_cleaning_filters(self) -> Optional[list[dict[str, str]]]:
+    def local_path_cleaning_filters(self) -> list[dict[str, str]] | None:
         local_path_cleaning_filters = self._data.get(LOCAL_PATH_CLEANING_FILTERS, None)
         if isinstance(local_path_cleaning_filters, str):
             return json.loads(local_path_cleaning_filters)
@@ -209,15 +209,15 @@ class LocalPathCleaningFiltersMixin(BaseParamMixin):
 
 class PathPersonsMixin(BaseParamMixin):
     @cached_property
-    def path_start_key(self) -> Optional[str]:
+    def path_start_key(self) -> str | None:
         return self._data.get(PATH_START_KEY)
 
     @cached_property
-    def path_end_key(self) -> Optional[str]:
+    def path_end_key(self) -> str | None:
         return self._data.get(PATH_END_KEY)
 
     @cached_property
-    def path_dropoff_key(self) -> Optional[str]:
+    def path_dropoff_key(self) -> str | None:
         return self._data.get(PATH_DROPOFF_KEY)
 
     @include_dict
@@ -237,17 +237,17 @@ class PathPersonsMixin(BaseParamMixin):
 
 class PathLimitsMixin(BaseParamMixin):
     @cached_property
-    def edge_limit(self) -> Optional[int]:
+    def edge_limit(self) -> int | None:
         raw_value = self._data.get(PATH_EDGE_LIMIT, None)
         return int(raw_value) if raw_value is not None else None
 
     @cached_property
-    def min_edge_weight(self) -> Optional[int]:
+    def min_edge_weight(self) -> int | None:
         raw_value = self._data.get(PATH_MIN_EDGE_WEIGHT, None)
         return int(raw_value) if raw_value else None
 
     @cached_property
-    def max_edge_weight(self) -> Optional[int]:
+    def max_edge_weight(self) -> int | None:
         raw_value = self._data.get(PATH_MAX_EDGE_WEIGHT, None)
         return int(raw_value) if raw_value else None
 

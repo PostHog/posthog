@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from functools import lru_cache
-from typing import Optional, TypeVar, Union
+from typing import TypeVar, Union
 
 from posthog.utils import str_to_bool
 
@@ -28,7 +28,7 @@ def include_query_tags(f):
     return f
 
 
-def process_bool(bool_to_test: Optional[Union[str, bool]]) -> bool:
+def process_bool(bool_to_test: Union[str, bool] | None) -> bool:
     if isinstance(bool_to_test, bool):
         return bool_to_test
     elif isinstance(bool_to_test, str):

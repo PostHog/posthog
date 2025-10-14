@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, cast
 from uuid import UUID
 
 from freezegun import freeze_time
@@ -40,12 +40,12 @@ PERSON_ID_COLUMN = 2
 def get_actors(
     filters: dict[str, Any],
     team: Team,
-    funnelCorrelationType: Optional[FunnelCorrelationResultsType] = FunnelCorrelationResultsType.EVENTS,
+    funnelCorrelationType: FunnelCorrelationResultsType | None = FunnelCorrelationResultsType.EVENTS,
     funnelCorrelationNames=None,
-    funnelCorrelationPersonConverted: Optional[bool] = None,
-    funnelCorrelationPersonEntity: Optional[EventsNode] = None,
+    funnelCorrelationPersonConverted: bool | None = None,
+    funnelCorrelationPersonEntity: EventsNode | None = None,
     funnelCorrelationPropertyValues=None,
-    includeRecordings: Optional[bool] = True,
+    includeRecordings: bool | None = True,
 ):
     funnels_query = cast(FunnelsQuery, filter_to_query(filters))
     funnel_actors_query = FunnelsActorsQuery(source=funnels_query, includeRecordings=includeRecordings)

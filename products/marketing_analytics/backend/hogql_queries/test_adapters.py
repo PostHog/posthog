@@ -626,9 +626,9 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         assert not result.is_valid, "Validation should fail with missing required fields"
         assert len(result.errors) >= 3, "Should have at least 3 validation errors"
-        assert all(
-            "Missing required field" in error for error in result.errors
-        ), "All errors should be about missing fields"
+        assert all("Missing required field" in error for error in result.errors), (
+            "All errors should be about missing fields"
+        )
 
     def test_adapter_validation_success(self):
         """Test that adapter validation succeeds with all required fields."""

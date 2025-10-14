@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from rest_framework.exceptions import ValidationError
 
@@ -135,7 +135,7 @@ class FunnelUnordered(FunnelBase):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(conversion_times[{i+1}]) AND conversion_times[{i+1}] <= toTimeZone(conversion_times[{i}], 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', conversion_times[{i}], conversion_times[{i+1}]), NULL) as step_{i}_conversion_time"
+                    f"if(isNotNull(conversion_times[{i + 1}]) AND conversion_times[{i + 1}] <= toTimeZone(conversion_times[{i}], 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', conversion_times[{i}], conversion_times[{i + 1}]), NULL) as step_{i}_conversion_time"
                 )
             )
             # array indices in ClickHouse are 1-based :shrug:
@@ -200,15 +200,15 @@ class FunnelUnordered(FunnelBase):
         step: ActionsNode | EventsNode | DataWarehouseNode,
         count: int,
         index: int,
-        people: Optional[list[uuid.UUID]] = None,
-        sampling_factor: Optional[float] = None,
+        people: list[uuid.UUID] | None = None,
+        sampling_factor: float | None = None,
     ) -> dict[str, Any]:
         if isinstance(step, DataWarehouseNode):
             raise NotImplementedError("Data Warehouse queries are not supported in funnels")
 
         return {
             "action_id": None,
-            "name": f"Completed {index+1} step{'s' if index != 0 else ''}",
+            "name": f"Completed {index + 1} step{'s' if index != 0 else ''}",
             "custom_name": None,
             "order": index,
             "people": people if people else [],

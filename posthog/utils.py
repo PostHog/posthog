@@ -90,7 +90,7 @@ class PotentialSecurityProblemException(Exception):
     pass
 
 
-def absolute_uri(url: Optional[str] = None) -> str:
+def absolute_uri(url: str | None = None) -> str:
     """
     Returns an absolutely-formatted URL based on the `SITE_URL` config.
 
@@ -114,7 +114,7 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
+def get_previous_day(at: datetime.datetime | None = None) -> tuple[datetime.datetime, datetime.datetime]:
     """
     Returns a pair of datetimes, representing the start and end of the preceding day.
     `at` is the datetime to use as a reference point.
@@ -138,7 +138,7 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.d
     return (period_start, period_end)
 
 
-def get_current_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
+def get_current_day(at: datetime.datetime | None = None) -> tuple[datetime.datetime, datetime.datetime]:
     """
     Returns a pair of datetimes, representing the start and end of the current day.
     `at` is the datetime to use as a reference point.
@@ -168,9 +168,9 @@ def relative_date_parse_with_delta_mapping(
     *,
     always_truncate: bool = False,
     human_friendly_comparison_periods: bool = False,
-    now: Optional[datetime.datetime] = None,
+    now: datetime.datetime | None = None,
     increase: bool = False,
-) -> tuple[datetime.datetime, Optional[dict[str, int]], str | None]:
+) -> tuple[datetime.datetime, dict[str, int] | None, str | None]:
     """
     Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string.
 
@@ -225,8 +225,8 @@ def relative_date_parse_with_delta_mapping(
 def get_delta_mapping_for(
     *,
     kind: str,
-    number: Optional[str] = None,
-    position: Optional[str] = None,
+    number: str | None = None,
+    position: str | None = None,
     human_friendly_comparison_periods: bool = False,
 ) -> dict[str, int]:
     delta_mapping: dict[str, int] = {}
@@ -295,7 +295,7 @@ def relative_date_parse(
     *,
     always_truncate: bool = False,
     human_friendly_comparison_periods: bool = False,
-    now: Optional[datetime.datetime] = None,
+    now: datetime.datetime | None = None,
     increase: bool = False,
 ) -> datetime.datetime:
     return relative_date_parse_with_delta_mapping(
@@ -328,7 +328,7 @@ def get_js_url(request: HttpRequest) -> str:
 
 def get_context_for_template(
     request: HttpRequest,
-    context: Optional[dict] = None,
+    context: dict | None = None,
     team_for_public_context: Optional["Team"] = None,
 ) -> dict:
     if context is None:
@@ -386,7 +386,7 @@ def get_context_for_template(
     }
 
     posthog_bootstrap: dict[str, Any] = {}
-    posthog_distinct_id: Optional[str] = None
+    posthog_distinct_id: str | None = None
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
@@ -501,10 +501,10 @@ def get_context_for_template(
 def render_template(
     template_name: str,
     request: HttpRequest,
-    context: Optional[dict] = None,
+    context: dict | None = None,
     *,
     team_for_public_context: Optional["Team"] = None,
-    status_code: Optional[int] = None,
+    status_code: int | None = None,
 ) -> HttpResponse:
     """Render Django template.
 
@@ -655,7 +655,7 @@ def dict_from_cursor_fetchall(cursor):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str]]) -> str:
+def convert_property_value(input: Union[str, bool, dict, list, int, str | None]) -> str:
     if isinstance(input, bool):
         if input is True:
             return "true"
@@ -668,8 +668,8 @@ def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str
 def get_compare_period_dates(
     date_from: datetime.datetime,
     date_to: datetime.datetime,
-    date_from_delta_mapping: Optional[dict[str, int]],
-    date_to_delta_mapping: Optional[dict[str, int]],
+    date_from_delta_mapping: dict[str, int] | None,
+    date_to_delta_mapping: dict[str, int] | None,
     interval: str,
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
@@ -929,7 +929,7 @@ def is_plugin_server_alive() -> bool:
         return False
 
 
-def get_plugin_server_job_queues() -> Optional[list[str]]:
+def get_plugin_server_job_queues() -> list[str] | None:
     cache_key_value = get_client().get("@posthog-plugin-server/enabled-job-queues")
     if cache_key_value:
         qs = cache_key_value.decode("utf-8").replace('"', "")
@@ -971,7 +971,7 @@ def get_instance_realm() -> str:
         return "hosted-clickhouse"
 
 
-def get_instance_region() -> Optional[str]:
+def get_instance_region() -> str | None:
     """
     Returns the region for the current Cloud instance. `US` or `EU`.
     """
@@ -1054,8 +1054,8 @@ def flatten(i: Union[list, tuple], max_depth=10) -> Generator:
 
 
 def get_daterange(
-    start_date: Optional[datetime.datetime],
-    end_date: Optional[datetime.datetime],
+    start_date: datetime.datetime | None,
+    end_date: datetime.datetime | None,
     frequency: str,
 ) -> list[Any]:
     """
@@ -1191,8 +1191,8 @@ def filters_override_requested_by_client(request: Request, dashboard: Optional["
 
 
 def variables_override_requested_by_client(
-    request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
-) -> Optional[dict[str, dict]]:
+    request: Request | None, dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
+) -> dict[str, dict] | None:
     from posthog.api.insight_variable import map_stale_to_latest
     from posthog.auth import SharingAccessTokenAuthentication
 
@@ -1231,7 +1231,7 @@ def tile_filters_override_requested_by_client(request: Request, tile: Optional["
     return {**tile_filters, **request_filters}
 
 
-def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:
+def _request_has_key_set(key: str, request: Request, allowed_values: list[str] | None = None) -> bool | str:
     query_param = request.query_params.get(key)
     data_value = request.data.get(key)
 
@@ -1260,7 +1260,7 @@ def str_to_bool(value: Any) -> bool:
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
 
 
-def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+def safe_int(value: Any, default: int | None = None) -> int | None:
     """Safely convert a value to integer, returning default if conversion fails."""
     try:
         return int(value)
@@ -1277,11 +1277,11 @@ def get_helm_info_env() -> dict:
 
 def format_query_params_absolute_url(
     request: Request,
-    offset: Optional[int] = None,
-    limit: Optional[int] = None,
-    offset_alias: Optional[str] = "offset",
-    limit_alias: Optional[str] = "limit",
-) -> Optional[str]:
+    offset: int | None = None,
+    limit: int | None = None,
+    offset_alias: str | None = "offset",
+    limit_alias: str | None = "limit",
+) -> str | None:
     OFFSET_REGEX = re.compile(rf"([&?]{offset_alias}=)(\d+)")
     LIMIT_REGEX = re.compile(rf"([&?]{limit_alias}=)(\d+)")
 
@@ -1352,7 +1352,7 @@ def is_json(val):
     return True
 
 
-def cast_timestamp_or_now(timestamp: Optional[Union[datetime.datetime, str]]) -> str:
+def cast_timestamp_or_now(timestamp: Union[datetime.datetime, str] | None) -> str:
     if not timestamp:
         timestamp = timezone.now()
 
@@ -1365,7 +1365,7 @@ def cast_timestamp_or_now(timestamp: Optional[Union[datetime.datetime, str]]) ->
     return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
-def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
+def get_crontab(schedule: str | None) -> crontab | None:
     if schedule is None or schedule == "":
         return None
 
@@ -1488,7 +1488,7 @@ def sleep_time_generator() -> Generator[float, None, None]:
 
 
 @async_to_sync
-async def wait_for_parallel_celery_group(task: Any, expires: Optional[datetime.datetime] = None) -> Any:
+async def wait_for_parallel_celery_group(task: Any, expires: datetime.datetime | None = None) -> Any:
     """
     Wait for a group of celery tasks to finish, but don't wait longer than max_timeout.
     For parallel tasks, this is the only way to await the entire group.
@@ -1668,7 +1668,7 @@ def to_json(obj: dict) -> bytes:
     return json_string
 
 
-def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
+def opt_slash_path(route: str, view: Callable, name: str | None = None) -> URLPattern:
     """Catches path with or without trailing slash, taking into account query param and hash."""
     # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
     return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore

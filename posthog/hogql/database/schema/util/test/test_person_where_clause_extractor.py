@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -14,7 +14,7 @@ from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.models import PropertyDefinition
 
 
-def _expr(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
+def _expr(s: Union[str, ast.Expr, None], placeholders: dict[str, ast.Expr] | None = None) -> Union[ast.Expr, None]:
     if s is None:
         return None
     if isinstance(s, str):
@@ -26,7 +26,7 @@ def _expr(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Ex
 
 def _select(
     s: str,
-    placeholders: Optional[dict[str, ast.Expr]] = None,
+    placeholders: dict[str, ast.Expr] | None = None,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     parsed = parse_select(s, placeholders=placeholders)
     return parsed

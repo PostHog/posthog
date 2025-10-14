@@ -1,6 +1,5 @@
 import re
 import logging
-from typing import Optional
 from urllib.parse import unquote, urlparse
 
 from pydantic import BaseModel
@@ -282,7 +281,7 @@ class NotebookSerializer:
         (re.compile(r"\[([^\]]*)\]\(([^)]*)\)"), "link"),
     ]
 
-    def __init__(self, context: Optional[NotebookContext] = None):
+    def __init__(self, context: NotebookContext | None = None):
         self.context = context
         # Cache for converted queries to avoid repeated conversions during streaming
         self._converted_query_cache: dict[int, dict] = {}
@@ -479,7 +478,7 @@ class NotebookSerializer:
             # Return empty list for truly empty content (paragraph handler will add space if needed)
             return []
 
-    def _find_next_markdown_pattern(self, text: str, start_pos: int) -> Optional[tuple[int, int, str, dict]]:
+    def _find_next_markdown_pattern(self, text: str, start_pos: int) -> tuple[int, int, str, dict] | None:
         """Find the next markdown formatting pattern in text."""
         earliest_match = None
         earliest_pos = len(text)
@@ -692,7 +691,7 @@ class NotebookSerializer:
         # Return non-Assistant queries unchanged
         return query
 
-    def _create_ph_query_node(self, insight_id: str) -> Optional[ProsemirrorJSONContent]:
+    def _create_ph_query_node(self, insight_id: str) -> ProsemirrorJSONContent | None:
         """
         Create a ph-query node for the given insight id.
         """

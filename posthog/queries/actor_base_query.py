@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional, TypedDict, Union, cast
+from typing import Any, Literal, TypedDict, Union, cast
 
 from django.db.models import OuterRef, Subquery
 from django.db.models.query import Prefetch, QuerySet
@@ -33,16 +33,16 @@ class MatchedRecording(TypedDict):
 
 class CommonActor(TypedDict):
     id: Union[uuid.UUID, str]
-    created_at: Optional[str]
+    created_at: str | None
     properties: dict[str, Any]
     matched_recordings: list[MatchedRecording]
-    value_at_data_point: Optional[float]
+    value_at_data_point: float | None
 
 
 class SerializedPerson(CommonActor):
     type: Literal["person"]
     uuid: Union[uuid.UUID, str]
-    is_identified: Optional[bool]
+    is_identified: bool | None
     name: str
     distinct_ids: list[str]
 
@@ -62,25 +62,25 @@ class ActorBaseQuery:
     # What query type to report
     QUERY_TYPE = "actors"
 
-    entity: Optional[Entity] = None
+    entity: Entity | None = None
 
     def __init__(
         self,
         team: Team,
         filter: Union[Filter, StickinessFilter, RetentionFilter],
-        entity: Optional[Entity] = None,
+        entity: Entity | None = None,
         **kwargs,
     ):
         self._team = team
         self.entity = entity
         self._filter = filter
 
-    def actor_query(self, limit_actors: Optional[bool] = True) -> tuple[str, dict]:
+    def actor_query(self, limit_actors: bool | None = True) -> tuple[str, dict]:
         """Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids"""
         raise NotImplementedError()
 
     @cached_property
-    def aggregation_group_type_index(self) -> Optional[int]:
+    def aggregation_group_type_index(self) -> int | None:
         """Override in child class with insight specific logic to determine group aggregation"""
         return None
 
@@ -251,7 +251,7 @@ def get_groups(
     team_id: int,
     group_type_index: int,
     group_ids: list[Any],
-    value_per_actor_id: Optional[dict[str, float]] = None,
+    value_per_actor_id: dict[str, float] | None = None,
 ) -> tuple[QuerySet[Group], list[SerializedGroup]]:
     """Get groups from raw SQL results in data model and dict formats"""
     groups: QuerySet[Group] = Group.objects.filter(
@@ -263,7 +263,7 @@ def get_groups(
 def get_people(
     team: Team,
     people_ids: list[Any],
-    value_per_actor_id: Optional[dict[str, float]] = None,
+    value_per_actor_id: dict[str, float] | None = None,
     distinct_id_limit=1000,
 ) -> tuple[QuerySet[Person], list[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
@@ -290,7 +290,7 @@ def get_people(
 
 # A faster get_people if you don't need the Person objects
 def get_serialized_people(
-    team: Team, people_ids: list[Any], value_per_actor_id: Optional[dict[str, float]] = None, distinct_id_limit=1000
+    team: Team, people_ids: list[Any], value_per_actor_id: dict[str, float] | None = None, distinct_id_limit=1000
 ) -> list[SerializedPerson]:
     persons_dict = PersonStrategy(team, ActorsQuery(), HogQLHasMorePaginator()).get_actors(
         people_ids, order_by="created_at DESC, uuid"
@@ -321,7 +321,7 @@ def get_serialized_people(
 def serialize_people(
     team: Team,
     data: Union[QuerySet[Person], list[Person]],
-    value_per_actor_id: Optional[dict[str, float]] = None,
+    value_per_actor_id: dict[str, float] | None = None,
 ) -> list[SerializedPerson]:
     from posthog.api.person import get_person_name
 
@@ -342,7 +342,7 @@ def serialize_people(
     ]
 
 
-def serialize_groups(data: QuerySet[Group], value_per_actor_id: Optional[dict[str, float]]) -> list[SerializedGroup]:
+def serialize_groups(data: QuerySet[Group], value_per_actor_id: dict[str, float] | None) -> list[SerializedGroup]:
     return [
         SerializedGroup(
             id=group.group_key,

@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from django.db.models.query import QuerySet
 
@@ -34,7 +34,7 @@ class FunnelCorrelationActors(ActorBaseQuery):
     def aggregation_group_type_index(self):
         return self._filter.aggregation_group_type_index
 
-    def actor_query(self, limit_actors: Optional[bool] = True):
+    def actor_query(self, limit_actors: bool | None = True):
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             return _FunnelPropertyCorrelationActors(self._filter, self._team, self._base_uri).actor_query(
                 limit_actors=limit_actors
@@ -69,7 +69,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
     def aggregation_group_type_index(self):
         return self._filter.aggregation_group_type_index
 
-    def actor_query(self, limit_actors: Optional[bool] = True):
+    def actor_query(self, limit_actors: bool | None = True):
         if not self._filter.correlation_person_entity:
             raise ValidationError("No entity for persons specified")
 
@@ -93,7 +93,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         )
 
         conversion_filter = (
-            f'AND actors.steps {"=" if self._filter.correlation_persons_converted else "<>"} target_step'
+            f"AND actors.steps {'=' if self._filter.correlation_persons_converted else '<>'} target_step"
             if self._filter.correlation_persons_converted is not None
             else ""
         )
@@ -160,8 +160,8 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
 
     def actor_query(
         self,
-        limit_actors: Optional[bool] = True,
-        extra_fields: Optional[list[str]] = None,
+        limit_actors: bool | None = True,
+        extra_fields: list[str] | None = None,
     ):
         if not self._filter.correlation_property_values:
             raise ValidationError("Property Correlation expects atleast one Property to get persons for")
@@ -172,7 +172,7 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
         ) = self._funnel_correlation.get_funnel_actors_cte()
 
         conversion_filter = (
-            f'funnel_actors.steps {"=" if self._filter.correlation_persons_converted else "<>"} target_step'
+            f"funnel_actors.steps {'=' if self._filter.correlation_persons_converted else '<>'} target_step"
             if self._filter.correlation_persons_converted is not None
             else ""
         )

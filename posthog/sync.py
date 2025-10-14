@@ -70,7 +70,7 @@ def database_sync_to_async(
 
 
 def database_sync_to_async(
-    func: Optional[Callable[_P, _R]] = None,
+    func: Callable[_P, _R] | None = None,
     *,
     thread_sensitive: bool = True,
     executor: Optional["ThreadPoolExecutor"] = None,

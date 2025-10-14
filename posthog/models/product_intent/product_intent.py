@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from typing import Optional
 
 from django.db import models
 
@@ -217,7 +216,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         product_type: str,
         context: str,
         user: User,
-        metadata: Optional[dict] = None,
+        metadata: dict | None = None,
         is_onboarding: bool = False,
     ) -> "ProductIntent":
         from posthog.event_usage import report_user_action

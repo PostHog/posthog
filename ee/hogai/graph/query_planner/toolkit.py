@@ -2,7 +2,7 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from functools import cached_property
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Union, cast
 
 from pydantic import BaseModel, field_validator
 
@@ -230,7 +230,7 @@ class TaxonomyAgentToolkit:
         return self._generate_properties_output(self._enrich_props_with_descriptions("event", props))
 
     def _format_property_values(
-        self, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
+        self, sample_values: list, sample_count: int | None = 0, format_as_string: bool = False
     ) -> str:
         if len(sample_values) == 0 or sample_count == 0:
             return f"The property does not have any values in the taxonomy."

@@ -20,11 +20,11 @@ class UserPermissions:
     lookups.
     """
 
-    def __init__(self, user: User, team: Optional[Team] = None):
+    def __init__(self, user: User, team: Team | None = None):
         self.user = user
         self._current_team = team
 
-        self._tiles: Optional[list[DashboardTile]] = None
+        self._tiles: list[DashboardTile] | None = None
         self._team_permissions: dict[int, UserTeamPermissions] = {}
         self._dashboard_permissions: dict[int, UserDashboardPermissions] = {}
         self._insight_permissions: dict[int, UserInsightPermissions] = {}
@@ -77,12 +77,12 @@ class UserPermissions:
     # Cached properties/functions for efficient lookups in other classes
 
     @cached_property
-    def current_organization(self) -> Optional[Organization]:
+    def current_organization(self) -> Organization | None:
         if self._current_team is None:
             raise ValueError("Cannot call .current_organization without passing current team to UsePermissions")
         return self.get_organization(self._current_team.organization_id)
 
-    def get_organization(self, organization_id: UUID) -> Optional[Organization]:
+    def get_organization(self, organization_id: UUID) -> Organization | None:
         return self.organizations.get(organization_id)
 
     @cached_property
@@ -111,7 +111,7 @@ class UserPermissions:
         self._tiles = tiles
 
     @cached_property
-    def preloaded_insight_dashboards(self) -> Optional[list[Dashboard]]:
+    def preloaded_insight_dashboards(self) -> list[Dashboard] | None:
         if self._tiles is None:
             return None
 
@@ -143,8 +143,8 @@ class UserTeamPermissions:
 
     def effective_membership_level_for_parent_membership(
         self,
-        organization: Optional[Organization],
-        organization_membership: Optional[OrganizationMembership],
+        organization: Organization | None,
+        organization_membership: OrganizationMembership | None,
     ) -> Optional["OrganizationMembership.Level"]:
         if organization is None or organization_membership is None:
             return None

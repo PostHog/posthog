@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from posthog.hogql import ast
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
@@ -25,7 +25,7 @@ def is_aggregation_function(function_name: str) -> bool:
     return False
 
 
-def extract_aggregation_and_inner_expr(hogql_expr: Union[str, ast.Expr]) -> tuple[Optional[str], ast.Expr]:
+def extract_aggregation_and_inner_expr(hogql_expr: Union[str, ast.Expr]) -> tuple[str | None, ast.Expr]:
     """
     Extract the aggregation function and inner expression from a HogQL expression.
 

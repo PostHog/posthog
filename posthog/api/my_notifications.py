@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from django.db.models import Q
 
@@ -29,9 +29,7 @@ class MyNotificationsSerializer(serializers.ModelSerializer):
         if "user" not in self.context:
             return False
 
-        user_bookmark: Optional[NotificationViewed] = NotificationViewed.objects.filter(
-            user=self.context["user"]
-        ).first()
+        user_bookmark: NotificationViewed | None = NotificationViewed.objects.filter(user=self.context["user"]).first()
 
         if user_bookmark is None:
             return True

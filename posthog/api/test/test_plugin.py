@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import Optional, cast
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -58,7 +58,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(activity, expected)
 
     def _create_plugin(
-        self, additional_params: Optional[dict] = None, expected_status: int = status.HTTP_201_CREATED
+        self, additional_params: dict | None = None, expected_status: int = status.HTTP_201_CREATED
     ) -> dict:
         params = {"url": "https://github.com/PostHog/helloworldplugin"}
 
@@ -802,14 +802,11 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         assert plugin_source.source == "export const scene = { name: 'new' }"
         assert plugin_source.error is None
-        assert (
-            plugin_source.transpiled
-            == (
-                '"use strict";\nexport function getFrontendApp (require) { let exports = {}; "use strict";\n\n'
-                'Object.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
-                "var scene = exports.scene = {\n  name: 'new'\n};"  # this is it
-                "; return exports; }"
-            )
+        assert plugin_source.transpiled == (
+            '"use strict";\nexport function getFrontendApp (require) { let exports = {}; "use strict";\n\n'
+            'Object.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
+            "var scene = exports.scene = {\n  name: 'new'\n};"  # this is it
+            "; return exports; }"
         )
         assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 

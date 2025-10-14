@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from posthog.test.base import BaseTest, _create_event
 
@@ -14,7 +14,7 @@ from posthog.models import Action
 class TestActionToExpr(BaseTest):
     maxDiff = None
 
-    def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
+    def _parse_expr(self, expr: str, placeholders: dict[str, Any] | None = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
     def test_action_to_expr_autocapture_with_selector(self):

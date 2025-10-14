@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
+from typing import Annotated, Any, Literal, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
@@ -151,7 +151,7 @@ def merge_retry_counts(left: int, right: int) -> int:
     return max(left, right)
 
 
-IntermediateStep = tuple[AgentAction, Optional[str]]
+IntermediateStep = tuple[AgentAction, str | None]
 
 StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
@@ -211,11 +211,11 @@ class BaseState(BaseModel):
 
 
 class BaseStateWithMessages(BaseState):
-    start_id: Optional[str] = Field(default=None)
+    start_id: str | None = Field(default=None)
     """
     The ID of the message from which the conversation started.
     """
-    graph_status: Optional[Literal["resumed", "interrupted", ""]] = Field(default=None)
+    graph_status: Literal["resumed", "interrupted", ""] | None = Field(default=None)
     """
     Whether the graph was interrupted or resumed.
     """
@@ -226,7 +226,7 @@ class BaseStateWithMessages(BaseState):
 
 
 class BaseStateWithTasks(BaseState):
-    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
+    tasks: Annotated[list[TaskExecutionItem] | None, replace] = Field(default=None)
     """
     The current tasks.
     """
@@ -237,7 +237,7 @@ class BaseStateWithTasks(BaseState):
 
 
 class BaseStateWithIntermediateSteps(BaseState):
-    intermediate_steps: Optional[list[IntermediateStep]] = Field(default=None)
+    intermediate_steps: list[IntermediateStep] | None = Field(default=None)
     """
     Actions taken by the query planner agent.
     """
@@ -248,50 +248,50 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     The state of the root node.
     """
 
-    plan: Optional[str] = Field(default=None)
+    plan: str | None = Field(default=None)
     """
     The insight generation plan.
     """
-    query_planner_previous_response_id: Optional[str] = Field(default=None)
+    query_planner_previous_response_id: str | None = Field(default=None)
     """
     The ID of the previous OpenAI Responses API response made by the query planner.
     """
-    query_planner_intermediate_messages: Optional[Sequence[LangchainBaseMessage]] = Field(default=None)
+    query_planner_intermediate_messages: Sequence[LangchainBaseMessage] | None = Field(default=None)
     """
     The intermediate messages from the query planner agent.
     """
 
-    onboarding_question: Optional[str] = Field(default=None)
+    onboarding_question: str | None = Field(default=None)
     """
     A clarifying question asked during the onboarding process.
     """
 
-    memory_collection_messages: Annotated[Optional[Sequence[LangchainBaseMessage]], replace] = Field(default=None)
+    memory_collection_messages: Annotated[Sequence[LangchainBaseMessage] | None, replace] = Field(default=None)
     """
     The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
     """
 
-    root_conversation_start_id: Optional[str] = Field(default=None)
+    root_conversation_start_id: str | None = Field(default=None)
     """
     The ID of the message to start from to keep the message window short enough.
     """
-    root_tool_call_id: Optional[str] = Field(default=None)
+    root_tool_call_id: str | None = Field(default=None)
     """
     The ID of the tool call from the root node.
     """
-    root_tool_insight_plan: Optional[str] = Field(default=None)
+    root_tool_insight_plan: str | None = Field(default=None)
     """
     The insight plan to generate.
     """
-    root_tool_insight_type: Optional[str] = Field(default=None)
+    root_tool_insight_type: str | None = Field(default=None)
     """
     The type of insight to generate.
     """
-    root_tool_calls_count: Optional[int] = Field(default=None)
+    root_tool_calls_count: int | None = Field(default=None)
     """
     Tracks the number of tool calls made by the root node to terminate the loop.
     """
-    rag_context: Optional[str] = Field(default=None)
+    rag_context: str | None = Field(default=None)
     """
     The context for taxonomy agent.
     """
@@ -299,35 +299,35 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     Tracks the number of times the query generation has been retried.
     """
-    search_insights_query: Optional[str] = Field(default=None)
+    search_insights_query: str | None = Field(default=None)
     """
     The user's search query for finding existing insights.
     """
-    session_summarization_query: Optional[str] = Field(default=None)
+    session_summarization_query: str | None = Field(default=None)
     """
     The user's query for summarizing sessions. Always pass the user's complete, unmodified query.
     """
-    should_use_current_filters: Optional[bool] = Field(default=None)
+    should_use_current_filters: bool | None = Field(default=None)
     """
     Whether to use current filters from user's UI to find relevant sessions.
     """
-    summary_title: Optional[str] = Field(default=None)
+    summary_title: str | None = Field(default=None)
     """
     The name of the summary to generate, based on the user's query and/or current filters.
     """
-    notebook_short_id: Optional[str] = Field(default=None)
+    notebook_short_id: str | None = Field(default=None)
     """
     The short ID of the notebook being used.
     """
-    dashboard_name: Optional[str] = Field(default=None)
+    dashboard_name: str | None = Field(default=None)
     """
     The name of the dashboard to be created based on the user request.
     """
-    selected_insight_ids: Optional[list[int]] = Field(default=None)
+    selected_insight_ids: list[int] | None = Field(default=None)
     """
     The selected insights to be included in the dashboard.
     """
-    search_insights_queries: Optional[list[InsightQuery]] = Field(default=None)
+    search_insights_queries: list[InsightQuery] | None = Field(default=None)
     """
     The user's queries to search for insights.
     """

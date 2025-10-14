@@ -6,7 +6,7 @@ including multiple variant handling and exposure filtering logic.
 """
 
 import logging
-from typing import Optional, Union
+from typing import Union
 
 from posthog.schema import (
     ActionsNode,
@@ -37,7 +37,7 @@ def _is_actions_node_dict(config: dict) -> bool:
 
 def normalize_to_exposure_criteria(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
-) -> Optional[ExperimentExposureCriteria]:
+) -> ExperimentExposureCriteria | None:
     """
     Normalizes various input types to a properly typed ExperimentExposureCriteria object.
 
@@ -143,7 +143,7 @@ def get_test_accounts_filter(
 
 def get_exposure_event_and_property(
     feature_flag_key: str, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
-) -> tuple[Optional[str], str]:
+) -> tuple[str | None, str]:
     """
     Determines which event and feature flag variant property to use for exposures.
 
@@ -184,7 +184,7 @@ def get_exposure_event_and_property(
     return event, feature_flag_variant_property
 
 
-def _get_event_name_from_config(exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]]) -> str:
+def _get_event_name_from_config(exposure_config: Union[ActionsNode, ExperimentEventExposureConfig] | None) -> str:
     """Extract event name from exposure config, defaulting to $feature_flag_called."""
     if not exposure_config or not hasattr(exposure_config, "event"):
         return "$feature_flag_called"
@@ -204,9 +204,9 @@ def _build_action_filter(action_id: int, team: Team) -> ast.Expr:
 
 
 def _build_event_filters(
-    exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]],
+    exposure_config: Union[ActionsNode, ExperimentEventExposureConfig] | None,
     team: Team,
-    feature_flag_key: Optional[str],
+    feature_flag_key: str | None,
 ) -> list[ast.Expr]:
     """Build event/action filters based on exposure config."""
     # Handle action-based exposure
@@ -237,7 +237,7 @@ def _build_event_filters(
 
 
 def _build_property_filters(
-    exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]], team: Team
+    exposure_config: Union[ActionsNode, ExperimentEventExposureConfig] | None, team: Team
 ) -> list[ast.Expr]:
     """Build property filters from exposure config."""
     if not exposure_config or exposure_config.kind != "ExperimentEventExposureConfig" or not exposure_config.properties:
@@ -253,7 +253,7 @@ def build_common_exposure_conditions(
     date_range_query: QueryDateRange,
     team: Team,
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None,
-    feature_flag_key: Optional[str] = None,
+    feature_flag_key: str | None = None,
 ) -> list[ast.Expr]:
     """
     Builds common exposure conditions that are shared across exposure queries.
@@ -296,7 +296,7 @@ def build_common_exposure_conditions(
     ]
 
 
-def get_entity_key(group_type_index: Optional[int]) -> str:
+def get_entity_key(group_type_index: int | None) -> str:
     """
     Returns the appropriate entity key based on whether we're dealing with groups or persons.
 

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from datetime import datetime, timedelta
 from ipaddress import ip_address, ip_network
-from typing import Optional, cast
+from typing import cast
 
 from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
@@ -212,7 +212,7 @@ class AutoProjectMiddleware:
                 self.switch_team_if_needed_and_allowed(request, target_queryset)
         return self.get_response(request)
 
-    def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
+    def get_target_queryset(self, request: HttpRequest) -> QuerySet | None:
         # TODO: Remove this method, as all relevant links now have `project_id_in_url``
 
         path_parts = request.path.strip("/").split("/")
@@ -575,7 +575,7 @@ class SessionAgeMiddleware:
         return response
 
 
-def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[datetime]:
+def get_impersonated_session_expires_at(request: HttpRequest) -> datetime | None:
     if not is_impersonated_session(request):
         return None
 

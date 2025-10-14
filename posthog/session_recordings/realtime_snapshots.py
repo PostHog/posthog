@@ -1,6 +1,5 @@
 import json
 from time import sleep
-from typing import Optional
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -62,7 +61,7 @@ def publish_subscription(team_id: str, session_id: str) -> None:
         raise
 
 
-def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Optional[list[str]]:
+def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> list[str] | None:
     try:
         redis = get_client(settings.SESSION_RECORDING_REDIS_URL)
         key = get_key(team_id, session_id)

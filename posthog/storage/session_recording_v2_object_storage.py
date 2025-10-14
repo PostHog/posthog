@@ -1,7 +1,6 @@
 import abc
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
@@ -61,7 +60,7 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
+    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[str | None, str | None]:
         """Returns a tuple of (target_key, error_message)"""
         pass
 
@@ -92,7 +91,7 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
     def delete_block(self, block_url: str) -> None:
         raise BlockDeleteError("Storage not available")
 
-    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
+    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[str | None, str | None]:
         return None, "Storage not available"
 
     def is_lts_enabled(self) -> bool:
@@ -260,7 +259,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             )
             raise BlockDeleteError(f"Failed to delete block: {str(e)}")
 
-    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
+    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[str | None, str | None]:
         try:
             compressed_data = snappy.compress(recording_data.encode("utf-8"))
             base_key = f"{settings.SESSION_RECORDING_V2_S3_LTS_PREFIX}/{recording_id}"
@@ -447,7 +446,7 @@ class AsyncSessionRecordingV2ObjectStorage:
             )
             raise BlockDeleteError(f"Failed to delete block: {str(e)}")
 
-    async def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
+    async def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[str | None, str | None]:
         try:
             compressed_data = snappy.compress(recording_data.encode("utf-8"))
             base_key = f"{settings.SESSION_RECORDING_V2_S3_LTS_PREFIX}/{recording_id}"

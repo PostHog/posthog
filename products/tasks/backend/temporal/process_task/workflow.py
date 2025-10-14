@@ -1,7 +1,6 @@
 import json
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Optional
 
 import temporalio
 from temporalio import workflow
@@ -37,15 +36,15 @@ logger = get_logger(__name__)
 @dataclass
 class ProcessTaskOutput:
     success: bool
-    task_result: Optional[ExecuteTaskOutput] = None
-    error: Optional[str] = None
-    sandbox_id: Optional[str] = None
+    task_result: ExecuteTaskOutput | None = None
+    error: str | None = None
+    sandbox_id: str | None = None
 
 
 @temporalio.workflow.defn(name="process-task")
 class ProcessTaskWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
-        self._task_details: Optional[TaskDetails] = None
+        self._task_details: TaskDetails | None = None
 
     @property
     def task_details(self) -> TaskDetails:

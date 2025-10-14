@@ -619,7 +619,7 @@ class SnowflakeClient:
                 f'PARSE_JSON($1:"{field}")' if field in known_json_columns else f'$1:"{field}"' for field in col_names
             )
             query = f"""
-            COPY INTO "{table_name}" ({', '.join(f'"{col_name}"' for col_name in col_names)})
+            COPY INTO "{table_name}" ({", ".join(f'"{col_name}"' for col_name in col_names)})
             FROM (
                 SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
             )

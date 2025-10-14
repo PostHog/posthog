@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Optional, cast
+from typing import cast
 from uuid import uuid4
 
 from freezegun.api import freeze_time
@@ -1141,7 +1141,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
     def _get_person_activity(
         self,
-        person_id: Optional[str] = None,
+        person_id: str | None = None,
         *,
         expected_status: int = status.HTTP_200_OK,
     ):
@@ -1154,7 +1154,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
 
-    def _assert_person_activity(self, person_id: Optional[str], expected: list[dict]):
+    def _assert_person_activity(self, person_id: str | None, expected: list[dict]):
         activity_response = self._get_person_activity(person_id)
 
         activity: list[dict] = activity_response["results"]

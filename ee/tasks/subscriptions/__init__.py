@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 from itertools import groupby
-from typing import Optional
 
 import structlog
 import posthoganalytics
@@ -90,8 +89,8 @@ def get_subscription_failure_metric(destination: str, execution_path: str) -> Me
 
 async def deliver_subscription_report_async(
     subscription_id: int,
-    previous_value: Optional[str] = None,
-    invite_message: Optional[str] = None,
+    previous_value: str | None = None,
+    invite_message: str | None = None,
 ) -> None:
     """Async function for delivering subscription reports."""
     logger.info("deliver_subscription_report_async.starting", subscription_id=subscription_id)
@@ -232,8 +231,8 @@ async def deliver_subscription_report_async(
 
 def deliver_subscription_report_sync(
     subscription_id: int,
-    previous_value: Optional[str] = None,
-    invite_message: Optional[str] = None,
+    previous_value: str | None = None,
+    invite_message: str | None = None,
 ) -> None:
     """Sync function for delivering subscription reports."""
     subscription = Subscription.objects.select_related("created_by", "insight", "dashboard").get(pk=subscription_id)
@@ -359,7 +358,7 @@ def deliver_subscription_report(subscription_id: int) -> None:
     queue=CeleryQueue.SUBSCRIPTION_DELIVERY.value,
 )
 def handle_subscription_value_change(
-    subscription_id: int, previous_value: str, invite_message: Optional[str] = None
+    subscription_id: int, previous_value: str, invite_message: str | None = None
 ) -> None:
     return deliver_subscription_report_sync(subscription_id, previous_value, invite_message)
 

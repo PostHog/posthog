@@ -1,7 +1,6 @@
 import os
 import json
 from contextlib import suppress
-from typing import Optional
 from urllib.parse import urlparse
 
 from django.core.exceptions import ImproperlyConfigured
@@ -233,7 +232,7 @@ except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
 
 # Set of teams querying the data before we switched to new limits
-API_QUERIES_LEGACY_TEAM_LIST: Optional[set[int]] = None
+API_QUERIES_LEGACY_TEAM_LIST: set[int] | None = None
 with suppress(Exception):
     as_json = json.loads(get_from_env("API_QUERIES_LEGACY_TEAM_LIST"))
     API_QUERIES_LEGACY_TEAM_LIST = {int(v) for v in as_json}

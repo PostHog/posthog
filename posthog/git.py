@@ -1,7 +1,6 @@
 import subprocess
-from typing import Optional
 
-_git_commit_baked_in: Optional[str] = None
+_git_commit_baked_in: str | None = None
 try:
     # Docker containers should have a commit.txt file in the base directory with the git
     # commit hash used to generate them.
@@ -11,7 +10,7 @@ except FileNotFoundError:
     pass
 
 
-def get_git_commit_short() -> Optional[str]:
+def get_git_commit_short() -> str | None:
     """Return the short hash of the last commit.
 
     Example: get_git_commit_short() => "86a3c3b529"
@@ -24,7 +23,7 @@ def get_git_commit_short() -> Optional[str]:
         return None
 
 
-def get_git_branch() -> Optional[str]:
+def get_git_branch() -> str | None:
     """Returns the symbolic name of the current active branch. Will return None in case of failure.
 
     Example: get_git_branch() => "master"

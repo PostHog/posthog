@@ -1,7 +1,7 @@
 from datetime import timedelta
 from enum import Enum
 from functools import cached_property
-from typing import Optional, Union
+from typing import Union
 
 from django.core.paginator import Paginator
 from django.utils.timezone import now
@@ -81,7 +81,7 @@ class LazyLoader:
         return set(recently_viewed_insights.values_list("insight_id", flat=True))
 
 
-def insight_can_be_cached(insight: Optional[Insight]) -> bool:
+def insight_can_be_cached(insight: Insight | None) -> bool:
     if insight is None:
         return False
 
@@ -130,9 +130,9 @@ def sync_insight_cache_states():
 def upsert(  # TODO: Rename to `upsert_insight_caching_state` for clarity
     team: Team,
     target: Union[DashboardTile, Insight],
-    lazy_loader: Optional[LazyLoader] = None,
+    lazy_loader: LazyLoader | None = None,
     execute=True,
-) -> Optional[InsightCachingState]:
+) -> InsightCachingState | None:
     lazy_loader = lazy_loader or LazyLoader()
     cache_key = calculate_cache_key(target)
     if cache_key is None:  # Non-cachable model
@@ -164,12 +164,12 @@ def upsert(  # TODO: Rename to `upsert_insight_caching_state` for clarity
 
 def sync_insight_caching_state(
     team_id: int,
-    insight_id: Optional[int] = None,
-    dashboard_tile_id: Optional[int] = None,
+    insight_id: int | None = None,
+    dashboard_tile_id: int | None = None,
 ):
     try:
         team = Team.objects.get(pk=team_id)
-        item: Optional[DashboardTile | Insight] = None
+        item: DashboardTile | Insight | None = None
         if dashboard_tile_id is not None:
             item = DashboardTile.objects_including_soft_deleted.get(pk=dashboard_tile_id)
         elif insight_id is not None:
@@ -256,7 +256,7 @@ def _iterate_large_queryset(queryset, page_size):
         yield page.object_list
 
 
-def _execute_insert(states: list[Optional[InsightCachingState]]):
+def _execute_insert(states: list[InsightCachingState | None]):
     from django.db import connection
 
     models: list[InsightCachingState] = list(filter(None, states))

@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
@@ -66,7 +66,7 @@ def count_saved_filters(playlist: SessionRecordingPlaylist, user: User, team: Te
 
     if counts:
         count_data = json.loads(counts)
-        id_list: Optional[list[str]] = count_data.get("session_ids", None)
+        id_list: list[str] | None = count_data.get("session_ids", None)
         current_count = len(id_list) if id_list else 0
         previous_ids = count_data.get("previous_ids", None)
         return {
@@ -94,7 +94,7 @@ def log_playlist_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
-    changes: Optional[list[Change]] = None,
+    changes: list[Change] | None = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
@@ -102,7 +102,7 @@ def log_playlist_activity(
     The experiments feature creates insights without a name, this does not log those
     """
 
-    playlist_name: Optional[str] = playlist.name if playlist.name else playlist.derived_name
+    playlist_name: str | None = playlist.name if playlist.name else playlist.derived_name
     if playlist_name:
         log_activity(
             organization_id=organization_id,

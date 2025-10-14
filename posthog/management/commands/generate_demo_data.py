@@ -4,7 +4,6 @@ import logging
 import secrets
 import datetime as dt
 from time import monotonic
-from typing import Optional
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
@@ -108,7 +107,7 @@ class Command(BaseCommand):
         seed = options.get("seed") or secrets.token_hex(16)
         now = options.get("now") or dt.datetime.now(dt.UTC)
         existing_team_id = options.get("team_id")
-        existing_team: Optional[Team] = None
+        existing_team: Team | None = None
         if existing_team_id is not None and existing_team_id != 0:
             try:
                 existing_team = Team.objects.get(pk=existing_team_id)

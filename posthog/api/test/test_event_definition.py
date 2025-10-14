@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from freezegun.api import freeze_time
@@ -135,7 +135,7 @@ class TestEventDefinitionAPI(APIBaseTest):
             },
         )
 
-        activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="EventDefinition").first()
+        activity_log: ActivityLog | None = ActivityLog.objects.filter(scope="EventDefinition").first()
         assert activity_log is not None
         assert activity_log.activity == "deleted"
         assert activity_log.item_id == str(event_definition.id)

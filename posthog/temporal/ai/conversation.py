@@ -2,7 +2,7 @@ import json
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -39,13 +39,13 @@ class AssistantConversationRunnerWorkflowInputs:
     team_id: int
     user_id: int
     conversation_id: UUID
-    message: Optional[dict[str, Any]] = None
-    contextual_tools: Optional[dict[str, Any]] = None
+    message: dict[str, Any] | None = None
+    contextual_tools: dict[str, Any] | None = None
     is_new_conversation: bool = False
-    trace_id: Optional[str] = None
-    session_id: Optional[str] = None
+    trace_id: str | None = None
+    session_id: str | None = None
     mode: AssistantMode = AssistantMode.ASSISTANT
-    billing_context: Optional[MaxBillingContext] = None
+    billing_context: MaxBillingContext | None = None
 
 
 @workflow.defn(name="conversation-processing")

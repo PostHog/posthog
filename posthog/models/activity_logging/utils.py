@@ -1,5 +1,5 @@
 import traceback
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.db import models
 
@@ -20,7 +20,7 @@ class ActivityLoggingStorage:
     def set_user(self, user: Any) -> None:
         self._local.user = user
 
-    def get_user(self) -> Optional[Any]:
+    def get_user(self) -> Any | None:
         return getattr(self._local, "user", None)
 
     def clear_user(self) -> None:

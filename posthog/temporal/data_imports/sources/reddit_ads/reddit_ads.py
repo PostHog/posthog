@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 from dateutil import parser
@@ -16,7 +16,7 @@ logger = structlog.get_logger(__name__)
 
 
 def _get_incremental_date_range(
-    should_use_incremental_field: bool, db_incremental_field_last_value: Optional[Any] = None
+    should_use_incremental_field: bool, db_incremental_field_last_value: Any | None = None
 ) -> tuple[str, str]:
     # Reddit Ads API will throw bad request error if the start or end time params has minutes or seconds
     # so we set it to the floor of the current or next hour for the start and end times respectively
@@ -47,7 +47,7 @@ def get_resource(
     name: str,
     account_id: str,
     should_use_incremental_field: bool,
-    db_incremental_field_last_value: Optional[Any] = None,
+    db_incremental_field_last_value: Any | None = None,
 ) -> EndpointResource:
     if name not in REDDIT_ADS_CONFIG:
         raise ValueError(f"Unknown endpoint: {name}")
@@ -118,7 +118,7 @@ class RedditAdsPaginator(BasePaginator):
         self._next_url = None
         self._has_next_page = False
 
-    def update_state(self, response: Response, data: Optional[Any] = None) -> None:
+    def update_state(self, response: Response, data: Any | None = None) -> None:
         """Update pagination state from response"""
         try:
             response_data = response.json()
@@ -144,7 +144,7 @@ def reddit_ads_source(
     team_id: int,
     job_id: str,
     access_token: str,
-    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_last_value: Any | None,
     should_use_incremental_field: bool = False,
 ):
     config: RESTAPIConfig = {

@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, TypeVar
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
@@ -381,9 +381,9 @@ class CloningVisitor(Visitor[Any]):
 
     def __init__(
         self,
-        clear_types: Optional[bool] = True,
-        clear_locations: Optional[bool] = False,
-        inline_subquery_field_names: Optional[bool] = False,
+        clear_types: bool | None = True,
+        clear_locations: bool | None = False,
+        inline_subquery_field_names: bool | None = False,
     ):
         self.clear_types = clear_types
         self.clear_locations = clear_locations

@@ -47,8 +47,8 @@ class BytecodeResult:
 
 def execute_bytecode(
     input: list[Any] | dict,
-    globals: Optional[dict[str, Any]] = None,
-    functions: Optional[dict[str, Callable[..., Any]]] = None,
+    globals: dict[str, Any] | None = None,
+    functions: dict[str, Callable[..., Any]] | None = None,
     timeout=timedelta(seconds=5),
     team: Optional["Team"] = None,
     debug=False,
@@ -677,7 +677,7 @@ def execute_bytecode(
     return BytecodeResult(result=pop_stack() if len(stack) > 0 else None, stdout=stdout, bytecodes=bytecodes)
 
 
-def validate_bytecode(bytecode: list[Any] | dict, inputs: Optional[dict] = None) -> tuple[bool, Optional[str]]:
+def validate_bytecode(bytecode: list[Any] | dict, inputs: dict | None = None) -> tuple[bool, str | None]:
     try:
         event = {
             "uuid": "test-event-id",

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from django.conf import settings
 from django.db import models
@@ -178,10 +178,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def set_partitioning_enabled(
         self,
         partitioning_keys: list[str],
-        partition_count: Optional[int],
-        partition_size: Optional[int],
-        partition_mode: Optional[PartitionMode],
-        partition_format: Optional[PartitionFormat],
+        partition_count: int | None,
+        partition_size: int | None,
+        partition_mode: PartitionMode | None,
+        partition_format: PartitionFormat | None,
     ) -> None:
         self.sync_type_config["partitioning_enabled"] = True
         self.sync_type_config["partition_count"] = partition_count

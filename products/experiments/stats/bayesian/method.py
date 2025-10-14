@@ -7,7 +7,7 @@ and difference types.
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from ..shared.enums import DifferenceType
 from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
@@ -78,7 +78,7 @@ class BayesianMethod:
         print(f"Credible interval: {result.credible_interval}")
     """
 
-    def __init__(self, config: Optional[BayesianConfig] = None):
+    def __init__(self, config: BayesianConfig | None = None):
         """
         Initialize BayesianMethod with configuration.
 

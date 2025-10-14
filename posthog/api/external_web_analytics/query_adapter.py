@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any
 
 from rest_framework.utils.urls import remove_query_param, replace_query_param
 
@@ -105,7 +105,7 @@ class ExternalWebAnalyticsQueryAdapter:
         self.breakdown_metrics_config = BreakdownMetricsConfig()
         self.request = request
 
-    def _get_base_properties(self, host: Optional[str] = None) -> list[EventPropertyFilter]:
+    def _get_base_properties(self, host: str | None = None) -> list[EventPropertyFilter]:
         properties = []
         if host:
             properties.append(
@@ -304,7 +304,7 @@ class ExternalWebAnalyticsQueryAdapter:
 
     def _get_pagination_info(
         self, response: WebStatsTableQueryResponse, limit: int, offset: int
-    ) -> dict[str, Optional[str]]:
+    ) -> dict[str, str | None]:
         if not self.request:
             return {"next": None}
 
@@ -324,7 +324,7 @@ class ExternalWebAnalyticsQueryAdapter:
             "next": next_url,
         }
 
-    def _build_pagination_url(self, limit: int, offset: int) -> Optional[str]:
+    def _build_pagination_url(self, limit: int, offset: int) -> str | None:
         if not self.request:
             return None
 

@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from datetime import datetime, timedelta
-from typing import Optional, Union
+from typing import Union
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -304,7 +304,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
 
     def revenue_subqueries(
         self,
-        ViewKind: Optional[type[RevenueAnalyticsBaseView]] = None,
+        ViewKind: type[RevenueAnalyticsBaseView] | None = None,
         union: bool = False,
     ) -> Iterable[RevenueAnalyticsBaseView]:
         for view_name in self.database.get_views():
@@ -333,7 +333,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
 
     def timestamp_where_clause(
         self,
-        chain: Optional[list[str | int]] = None,
+        chain: list[str | int] | None = None,
         extra_days_before: int = 0,
     ) -> ast.Expr:
         if chain is None:
@@ -446,7 +446,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
     SMALL_CACHE_TARGET_AGE = timedelta(minutes=1)
     DEFAULT_CACHE_TARGET_AGE = timedelta(hours=6)
 
-    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+    def cache_target_age(self, last_refresh: datetime | None, lazy: bool = False) -> datetime | None:
         """
         If we're syncing Revenue data for the first time, cache for `SMALL_CACHE_TARGET_AGE`
         Otherwise, cache it for half the frequency we sync data from Stripe

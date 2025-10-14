@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
@@ -438,7 +437,7 @@ class TestExports(APIBaseTest):
             with self.settings(OBJECT_STORAGE_ENABLED=False):
                 exporter.export_asset(instance["id"], limit=1)
 
-            download_response: Optional[HttpResponse] = None
+            download_response: HttpResponse | None = None
             attempt_count = 0
             while attempt_count < 10 and not download_response:
                 download_response = self.client.get(

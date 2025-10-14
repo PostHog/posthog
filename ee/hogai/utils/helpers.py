@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
-from typing import Any, Optional, TypeVar, Union
+from typing import Any, TypeVar, Union
 
 from jsonref import replace_refs
 from langchain_core.messages import (
@@ -77,12 +77,12 @@ def filter_and_merge_messages(
 T = TypeVar("T", bound=AssistantMessageUnion)
 
 
-def find_last_message_of_type(messages: Sequence[AssistantMessageUnion], message_type: type[T]) -> Optional[T]:
+def find_last_message_of_type(messages: Sequence[AssistantMessageUnion], message_type: type[T]) -> T | None:
     return next((msg for msg in reversed(messages) if isinstance(msg, message_type)), None)
 
 
 def slice_messages_to_conversation_start(
-    messages: Sequence[AssistantMessageUnion], start_id: Optional[str] = None
+    messages: Sequence[AssistantMessageUnion], start_id: str | None = None
 ) -> Sequence[AssistantMessageUnion]:
     result = []
     for msg in messages:

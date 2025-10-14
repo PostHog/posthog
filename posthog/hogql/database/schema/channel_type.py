@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from functools import cache
-from typing import Optional, Union
+from typing import Union
 
 from posthog.schema import CustomChannelField, CustomChannelOperator, CustomChannelRule, DefaultChannelTypes
 
@@ -40,7 +40,7 @@ class ChannelTypeExprs:
 
 
 def create_initial_domain_type(
-    name: str, timings: Optional[HogQLTimings] = None, properties_path: Optional[list[str]] = None
+    name: str, timings: HogQLTimings | None = None, properties_path: list[str] | None = None
 ) -> ExpressionField:
     if timings is None:
         timings = HogQLTimings()
@@ -80,9 +80,9 @@ if(
 
 def create_initial_channel_type(
     name: str,
-    custom_rules: Optional[list[CustomChannelRule]] = None,
-    timings: Optional[HogQLTimings] = None,
-    properties_path: Optional[list[str]] = None,
+    custom_rules: list[CustomChannelRule] | None = None,
+    timings: HogQLTimings | None = None,
+    properties_path: list[str] | None = None,
 ) -> ExpressionField:
     if not properties_path:
         properties_path = ["properties"]
@@ -121,7 +121,7 @@ def create_initial_channel_type(
 
 def custom_condition_to_expr(
     expr: ast.Expr,
-    value: Optional[str],
+    value: str | None,
     operator: CustomChannelOperator,
 ) -> ast.Expr:
     if operator == CustomChannelOperator.EXACT:
@@ -229,15 +229,15 @@ def custom_rule_to_expr(custom_rule: CustomChannelRule, source_exprs: ChannelTyp
 
 
 def create_channel_type_expr(
-    custom_rules: Optional[list[CustomChannelRule]],
+    custom_rules: list[CustomChannelRule] | None,
     source_exprs: ChannelTypeExprs,
-    timings: Optional[HogQLTimings] = None,
+    timings: HogQLTimings | None = None,
 ) -> ast.Expr:
     if timings is None:
         timings = HogQLTimings()
 
     with timings.measure("custom_channel_rules"):
-        custom_rule_expr: Optional[ast.Expr] = None
+        custom_rule_expr: ast.Expr | None = None
         if custom_rules:
             if_args = []
             for rule in custom_rules:

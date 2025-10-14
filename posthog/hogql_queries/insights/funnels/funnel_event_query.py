@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from rest_framework.exceptions import ValidationError
 
@@ -31,8 +31,8 @@ class FunnelEventQuery:
     def __init__(
         self,
         context: FunnelQueryContext,
-        extra_fields: Optional[list[ColumnName]] = None,
-        extra_event_properties: Optional[list[PropertyName]] = None,
+        extra_fields: list[ColumnName] | None = None,
+        extra_event_properties: list[PropertyName] | None = None,
     ):
         if extra_event_properties is None:
             extra_event_properties = []

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Union
 
 from posthog.schema import (
     BaseMathType,
@@ -150,7 +150,7 @@ class ConversionGoalProcessor:
 
     def _generate_funnel_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """Generate multi-step funnel query with attribution window"""
-        conversion_event: Optional[str] = self.goal.event if self.goal.kind == "EventsNode" else None
+        conversion_event: str | None = self.goal.event if self.goal.kind == "EventsNode" else None
 
         # Build complete WHERE conditions
         where_conditions = self.get_base_where_conditions()
@@ -166,7 +166,7 @@ class ConversionGoalProcessor:
         return self._build_final_aggregation_query(attribution)
 
     def _build_array_collection_subquery(
-        self, conversion_event: Optional[str], where_conditions: list[ast.Expr]
+        self, conversion_event: str | None, where_conditions: list[ast.Expr]
     ) -> ast.SelectQuery:
         """Build subquery that collects arrays of conversion and UTM data per person"""
         schema_map = self.goal.schema_map
@@ -207,7 +207,7 @@ class ConversionGoalProcessor:
 
     def _build_comprehensive_where_clause(
         self,
-        conversion_event: Optional[str],
+        conversion_event: str | None,
         input_conditions: list[ast.Expr],
         utm_campaign_field: str,
         utm_source_field: str,
@@ -379,7 +379,7 @@ class ConversionGoalProcessor:
             ],
         )
 
-    def _build_conversion_timestamps_array(self, conversion_event: Optional[str]) -> ast.Alias:
+    def _build_conversion_timestamps_array(self, conversion_event: str | None) -> ast.Alias:
         """Build conversion timestamps array"""
         return ast.Alias(
             alias="conversion_timestamps",
@@ -411,7 +411,7 @@ class ConversionGoalProcessor:
             ),
         )
 
-    def _build_conversion_math_values_array(self, conversion_event: Optional[str]) -> ast.Alias:
+    def _build_conversion_math_values_array(self, conversion_event: str | None) -> ast.Alias:
         """Build conversion math values array"""
         return ast.Alias(
             alias="conversion_math_values",
@@ -443,7 +443,7 @@ class ConversionGoalProcessor:
             ),
         )
 
-    def _build_conversion_event_condition(self, conversion_event: Optional[str]) -> ast.Expr:
+    def _build_conversion_event_condition(self, conversion_event: str | None) -> ast.Expr:
         """Build condition for conversion event matching"""
         if conversion_event:
             return ast.CompareOperation(
@@ -481,7 +481,7 @@ class ConversionGoalProcessor:
 
         return ast.Call(name="toFloat", args=[ast.Constant(value=1)])
 
-    def _build_conversion_utm_array(self, alias: str, conversion_event: Optional[str], utm_field: str) -> ast.Alias:
+    def _build_conversion_utm_array(self, alias: str, conversion_event: str | None, utm_field: str) -> ast.Alias:
         """Build array for conversion event UTM data"""
         return ast.Alias(
             alias=alias,
@@ -828,7 +828,7 @@ class ConversionGoalProcessor:
         ]
 
         # Build WHERE clause
-        where_expr: Optional[ast.Expr] = None
+        where_expr: ast.Expr | None = None
         if where_conditions:
             where_expr = ast.And(exprs=where_conditions) if len(where_conditions) > 1 else where_conditions[0]
 
@@ -924,7 +924,7 @@ class ConversionGoalProcessor:
 
         return has_timestamp_field(condition)
 
-    def _is_event_condition(self, condition: ast.Expr, conversion_event: Optional[str]) -> bool:
+    def _is_event_condition(self, condition: ast.Expr, conversion_event: str | None) -> bool:
         """Check if condition filters on event types that we handle explicitly"""
         # For ActionsNode, we need to check if this is an action condition
         if self.goal.kind == "ActionsNode" and conversion_event is None:

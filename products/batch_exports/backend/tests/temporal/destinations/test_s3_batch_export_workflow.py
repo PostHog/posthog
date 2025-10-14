@@ -282,9 +282,9 @@ async def assert_metrics_in_clickhouse(
         except KeyError:
             raise ValueError(f"Ingested unexpected metric: '{ingested_metric_kind}'")
 
-        assert (
-            ingested_count == expected_count
-        ), f"Ingested metric '{ingested_metric_kind}' with count {ingested_count} does not match expected {expected_count}"
+        assert ingested_count == expected_count, (
+            f"Ingested metric '{ingested_metric_kind}' with count {ingested_count} does not match expected {expected_count}"
+        )
 
 
 async def assert_clickhouse_records_in_s3(

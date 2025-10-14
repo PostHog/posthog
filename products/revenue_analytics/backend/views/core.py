@@ -1,7 +1,7 @@
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal
 
 from posthog.schema import DatabaseSchemaManagedViewTableKind, RevenueAnalyticsEventItem
 
@@ -15,8 +15,8 @@ from posthog.warehouse.models.external_data_source import ExternalDataSource
 class SourceHandle:
     type: Literal["events", "stripe"]
     team: Team
-    source: Optional[ExternalDataSource] = None
-    event: Optional[RevenueAnalyticsEventItem] = None
+    source: ExternalDataSource | None = None
+    event: RevenueAnalyticsEventItem | None = None
 
 
 @dataclass

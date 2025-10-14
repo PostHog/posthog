@@ -1,6 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any
 
 import posthoganalytics
 from temporalio import activity, workflow
@@ -45,7 +45,7 @@ def log_with_workflow_context(message: str, **extra_context: Any) -> None:
 @asynccontextmanager
 async def log_activity_execution(
     activity_name: str,
-    distinct_id: Optional[str] = None,
+    distinct_id: str | None = None,
     **context: Any,
 ) -> AsyncIterator[None]:
     """Context manager for activity execution with automatic logging and analytics.
@@ -119,7 +119,7 @@ async def log_activity_execution(
 def track_event(
     event_name: str,
     distinct_id: str,
-    properties: Optional[dict[str, Any]] = None,
+    properties: dict[str, Any] | None = None,
 ) -> None:
     try:
         enriched_properties = {**(properties or {})}

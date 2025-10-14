@@ -1,7 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 from enum import Enum, auto
-from typing import Any, Optional, Union, overload
+from typing import Any, Union, overload
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
@@ -82,7 +82,7 @@ PERIOD_TO_INTERVAL_FUNC: dict[str, str] = {
 
 
 # TODO: refactor since this is only used in one spot now
-def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] = None):
+def format_ch_timestamp(timestamp: datetime, convert_to_timezone: str | None = None):
     if convert_to_timezone:
         # Here we probably get a timestamp set to the beginning of the day (00:00), in UTC
         # We need to convert that UTC timestamp to the local timestamp (00:00 in US/Pacific for example)
@@ -128,7 +128,7 @@ def get_start_of_interval_sql(
     return f"toDateTime({interval_sql}, %(timezone)s)" if ensure_datetime else interval_sql
 
 
-def get_trunc_func_ch(period: Optional[str]) -> str:
+def get_trunc_func_ch(period: str | None) -> str:
     if period is None:
         period = "day"
     ch_function = PERIOD_TO_TRUNC_FUNC.get(period.lower())
@@ -137,7 +137,7 @@ def get_trunc_func_ch(period: Optional[str]) -> str:
     return ch_function
 
 
-def get_interval_func_ch(period: Optional[str]) -> str:
+def get_interval_func_ch(period: str | None) -> str:
     if period is None:
         period = "day"
     ch_function = PERIOD_TO_INTERVAL_FUNC.get(period.lower())
@@ -146,7 +146,7 @@ def get_interval_func_ch(period: Optional[str]) -> str:
     return ch_function
 
 
-def get_time_in_seconds_for_period(period: Optional[str]) -> str:
+def get_time_in_seconds_for_period(period: str | None) -> str:
     if period is None:
         period = "day"
     seconds_in_period = TIME_IN_SECONDS.get(period.lower())
@@ -170,8 +170,8 @@ def convert_to_datetime_aware(date_obj):
 
 def correct_result_for_sampling(
     value: Union[int, float],
-    sampling_factor: Optional[float],
-    entity_math: Optional[str] = None,
+    sampling_factor: float | None,
+    entity_math: str | None = None,
 ) -> Union[int, float]:
     from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 

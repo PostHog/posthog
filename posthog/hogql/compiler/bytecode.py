@@ -84,12 +84,12 @@ def to_bytecode(expr: str) -> list[Any]:
 
 def create_bytecode(
     expr: ast.Expr | ast.Statement | ast.Program,
-    supported_functions: Optional[set[str]] = None,
-    args: Optional[list[str]] = None,
-    context: Optional[HogQLContext] = None,
+    supported_functions: set[str] | None = None,
+    args: list[str] | None = None,
+    context: HogQLContext | None = None,
     enclosing: Optional["BytecodeCompiler"] = None,
-    in_repl: Optional[bool] = False,
-    locals: Optional[list[Local]] = None,
+    in_repl: bool | None = False,
+    locals: list[Local] | None = None,
 ) -> CompiledBytecode:
     supported_functions = supported_functions or set()
     bytecode: list[Any] = []
@@ -106,12 +106,12 @@ class BytecodeCompiler(Visitor):
 
     def __init__(
         self,
-        supported_functions: Optional[set[str]] = None,
-        args: Optional[list[str]] = None,
-        context: Optional[HogQLContext] = None,
+        supported_functions: set[str] | None = None,
+        args: list[str] | None = None,
+        context: HogQLContext | None = None,
         enclosing: Optional["BytecodeCompiler"] = None,
-        in_repl: Optional[bool] = False,
-        locals: Optional[list[Local]] = None,
+        in_repl: bool | None = False,
+        locals: list[Local] | None = None,
     ):
         super().__init__()
         self.enclosing = enclosing
@@ -974,8 +974,8 @@ class BytecodeCompiler(Visitor):
 def execute_hog(
     source_code: str,
     team: Optional["Team"] = None,
-    globals: Optional[dict[str, Any]] = None,
-    functions: Optional[dict[str, Callable[..., Any]]] = None,
+    globals: dict[str, Any] | None = None,
+    functions: dict[str, Callable[..., Any]] | None = None,
     timeout=timedelta(seconds=10),
 ) -> BytecodeResult:
     source_code = source_code.strip()

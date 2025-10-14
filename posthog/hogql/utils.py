@@ -87,14 +87,12 @@ def deserialize_hx_ast(hog_ast: dict) -> AST:
         if is_ast_subclass(field_type):
             if (field_type in (Expr, Constant)) and is_simple_value(value):
                 return Constant(value=value)
-            raise ValueError(
-                f"Invalid type for field expecting '{field_type.__name__}', " f"got '{type(value).__name__}'"
-            )
+            raise ValueError(f"Invalid type for field expecting '{field_type.__name__}', got '{type(value).__name__}'")
 
         if is_simple_value(value):
             return value
 
-        raise ValueError(f"Unexpected value of type '{type(value).__name__}' for field " f"expecting '{field_type}'")
+        raise ValueError(f"Unexpected value of type '{type(value).__name__}' for field expecting '{field_type}'")
 
     for key, value in hog_ast.items():
         if key == "__hx_ast":

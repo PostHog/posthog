@@ -1,6 +1,6 @@
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 from prometheus_client import Counter
@@ -43,9 +43,9 @@ def capture_internal(
     event_name: str,
     event_source: str,
     distinct_id: str,
-    timestamp: Optional[datetime | str],
+    timestamp: datetime | str | None,
     properties: dict[str, Any],
-    sent_at: Optional[datetime | str] = None,
+    sent_at: datetime | str | None = None,
     process_person_profile: bool = False,
 ) -> Response:
     """
@@ -172,10 +172,10 @@ def prepare_capture_internal_payload(
     token: str,
     event_name: str,
     event_source: str,
-    distinct_id: Optional[str],
-    timestamp: Optional[datetime | str],
+    distinct_id: str | None,
+    timestamp: datetime | str | None,
     properties: dict[str, Any],
-    sent_at: Optional[datetime | str] = None,
+    sent_at: datetime | str | None = None,
     process_person_profile: bool = False,
 ) -> dict[str, Any]:
     # mark event as internal for observability

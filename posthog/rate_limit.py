@@ -3,7 +3,6 @@ import time
 import hashlib
 from contextlib import suppress
 from functools import lru_cache
-from typing import Optional
 
 from django.conf import settings
 from django.urls import resolve
@@ -52,7 +51,7 @@ def get_team_allow_list(_ttl: int) -> list[str]:
     return get_list(get_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS"))
 
 
-def team_is_allowed_to_bypass_throttle(team_id: Optional[int]) -> bool:
+def team_is_allowed_to_bypass_throttle(team_id: int | None) -> bool:
     """
     Check if a given team_id belongs to a throttle bypass allow list.
     """
@@ -279,7 +278,7 @@ class DecideRateThrottle(BaseThrottle):
         )
 
     @staticmethod
-    def safely_get_token_from_request(request: Request) -> Optional[str]:
+    def safely_get_token_from_request(request: Request) -> str | None:
         """
         Gets the token from a request without throwing.
 

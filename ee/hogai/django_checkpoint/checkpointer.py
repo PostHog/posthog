@@ -1,7 +1,7 @@
 import json
 import random
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Prefetch, Q
@@ -54,9 +54,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
 
     def _get_checkpoint_qs(
         self,
-        config: Optional[RunnableConfig],
-        filter: Optional[dict[str, Any]],
-        before: Optional[RunnableConfig],
+        config: RunnableConfig | None,
+        filter: dict[str, Any] | None,
+        before: RunnableConfig | None,
     ):
         query = Q(checkpoint__isnull=False)
 
@@ -106,11 +106,11 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
 
     async def alist(
         self,
-        config: Optional[RunnableConfig],
+        config: RunnableConfig | None,
         *,
-        filter: Optional[dict[str, Any]] = None,
-        before: Optional[RunnableConfig] = None,
-        limit: Optional[int] = None,
+        filter: dict[str, Any] | None = None,
+        before: RunnableConfig | None = None,
+        limit: int | None = None,
     ) -> AsyncIterator[CheckpointTuple]:
         """List checkpoints from the database.
 
@@ -187,7 +187,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 self._load_writes([write async for write in checkpoint.writes.all()]),
             )
 
-    async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
+    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         """Get a checkpoint tuple from the database.
 
         This method retrieves a checkpoint tuple from the Postgres database based on the
@@ -341,7 +341,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 update_fields=["channel", "type", "blob"],
             )
 
-    def get_next_version(self, current: Optional[str | int], channel: ChannelProtocol) -> str:
+    def get_next_version(self, current: str | int | None, channel: ChannelProtocol) -> str:
         if current is None:
             current_v = 0
         elif isinstance(current, int):

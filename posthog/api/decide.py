@@ -1,5 +1,5 @@
 from random import random
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -52,7 +52,7 @@ REMOTE_CONFIG_CACHE_COUNTER = Counter(
 )
 
 
-def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Optional[dict] = None):
+def maybe_log_decide_data(request_body: dict | None = None, response_body: dict | None = None):
     try:
         context = structlog.contextvars.get_contextvars()
         team_id_filter: list[str] = settings.DECIDE_TRACK_TEAM_IDS
@@ -463,7 +463,7 @@ def get_feature_flags_response_or_body(
 def _format_feature_flags_response(
     feature_flags: dict[str, Any],
     feature_flag_payloads: dict[str, Any],
-    flags_details: Optional[dict[str, Any]],
+    flags_details: dict[str, Any] | None,
     errors: bool,
     api_version: int,
 ) -> dict[str, Any]:
@@ -489,7 +489,7 @@ def _format_feature_flags_response(
 
 
 @tracer.start_as_current_span("_format_feature_flag_details")
-def _format_feature_flag_details(flags_details: Optional[dict]) -> dict:
+def _format_feature_flag_details(flags_details: dict | None) -> dict:
     if flags_details is None:
         return {}
 

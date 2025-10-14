@@ -1,4 +1,4 @@
-from typing import Any, Optional, TypedDict
+from typing import Any, TypedDict
 
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
@@ -26,7 +26,7 @@ class EnterpriseFeatureException(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "payment_required"
 
-    def __init__(self, feature: Optional[str] = None) -> None:
+    def __init__(self, feature: str | None = None) -> None:
         super().__init__(
             detail=(
                 f"{feature.capitalize() if feature else 'This feature'} is part of the premium PostHog offering. "
@@ -74,7 +74,7 @@ class ExceptionContext(TypedDict):
     request: HttpRequest
 
 
-def exception_reporting(exception: Exception, context: ExceptionContext) -> Optional[str]:
+def exception_reporting(exception: Exception, context: ExceptionContext) -> str | None:
     """
     Determines which exceptions to report and sends them to error tracking.
     Used through drf-exceptions-hog
@@ -91,7 +91,7 @@ def generate_exception_response(
     detail: Any,
     code: str = "invalid",
     type: str = "validation_error",
-    attr: Optional[str] = None,
+    attr: str | None = None,
     status_code: int = status.HTTP_400_BAD_REQUEST,
 ) -> JsonResponse:
     """

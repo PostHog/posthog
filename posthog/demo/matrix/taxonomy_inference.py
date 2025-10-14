@@ -1,6 +1,5 @@
 import json
 import datetime
-from typing import Optional
 
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition
 from posthog.models.group.sql import GROUPS_TABLE
@@ -62,8 +61,8 @@ def _get_events_last_seen_at(team_id: int) -> dict[str, datetime.datetime]:
     return dict(sync_execute(_GET_EVENTS_LAST_SEEN_AT, {"team_id": team_id}))
 
 
-InferredPropertyKey = tuple[PropertyDefinition.Type, str, Optional[int]]
-InferredProperties = dict[InferredPropertyKey, Optional[PropertyType]]
+InferredPropertyKey = tuple[PropertyDefinition.Type, str, int | None]
+InferredProperties = dict[InferredPropertyKey, PropertyType | None]
 
 
 def _get_property_types(team_id: int) -> InferredProperties:
@@ -95,7 +94,7 @@ def _get_property_types(team_id: int) -> InferredProperties:
     return property_types
 
 
-def _infer_property_type(sample_json_value: str) -> Optional[PropertyType]:
+def _infer_property_type(sample_json_value: str) -> PropertyType | None:
     """Parse the provided sample value as JSON and return its property type."""
     parsed_value = json.loads(sample_json_value)
     if isinstance(parsed_value, bool):

@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
@@ -52,8 +52,8 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         series_index: int,
         condition_type: AlertConditionType,
         threshold_type: InsightThresholdType,
-        lower: Optional[float] = None,
-        upper: Optional[float] = None,
+        lower: float | None = None,
+        upper: float | None = None,
         check_ongoing_interval: bool = False,
     ) -> dict:
         alert = self.client.post(
@@ -78,7 +78,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
     def create_time_series_trend_insight(
         self,
         interval: IntervalType,
-        breakdown: Optional[BreakdownFilter] = None,
+        breakdown: BreakdownFilter | None = None,
     ) -> dict[str, Any]:
         query_dict = TrendsQuery(
             series=[

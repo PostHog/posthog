@@ -2,7 +2,7 @@ import uuid
 import datetime as dt
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -176,12 +176,12 @@ class Cluster(ABC):
 
     # Utilities
 
-    def roll_uuidt(self, at_timestamp: Optional[dt.datetime] = None) -> UUIDT:
+    def roll_uuidt(self, at_timestamp: dt.datetime | None = None) -> UUIDT:
         if at_timestamp is None:
             at_timestamp = self.simulation_time
         return UUIDT(int(at_timestamp.timestamp() * 1000), seeded_random=self.random)
 
-    def roll_uuid_v7(self, at_timestamp: Optional[dt.datetime] = None) -> uuid.UUID:
+    def roll_uuid_v7(self, at_timestamp: dt.datetime | None = None) -> uuid.UUID:
         if at_timestamp is None:
             at_timestamp = self.simulation_time
         return uuid7(int(at_timestamp.timestamp() * 1000), random=self.random)
@@ -210,7 +210,7 @@ class Matrix(ABC):
     groups: defaultdict[str, defaultdict[str, dict[str, Any]]]
     distinct_id_to_person: dict[str, SimPerson]
     clusters: list[Cluster]
-    is_complete: Optional[bool]
+    is_complete: bool | None
     server_client: SimServerClient
 
     random: mimesis.random.Random
@@ -226,9 +226,9 @@ class Matrix(ABC):
 
     def __init__(
         self,
-        seed: Optional[str] = None,
+        seed: str | None = None,
         *,
-        now: Optional[dt.datetime] = None,
+        now: dt.datetime | None = None,
         days_past: int = 180,
         days_future: int = 30,
         n_clusters: int = settings.DEMO_MATRIX_N_CLUSTERS,
@@ -289,7 +289,7 @@ class Matrix(ABC):
             raise Exception(f"Cannot add group type {group_type} to simulation, limit of {GROUP_TYPES_LIMIT} reached!")
         self.groups[group_type][group_key].update(set_properties)
 
-    def _get_group_type_index(self, group_type: str) -> Optional[int]:
+    def _get_group_type_index(self, group_type: str) -> int | None:
         try:
             return list(self.groups.keys()).index(group_type) + self.group_type_index_offset
         except ValueError:

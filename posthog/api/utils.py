@@ -6,7 +6,7 @@ import urllib.parse
 from enum import Enum, auto
 from functools import wraps
 from ipaddress import ip_address
-from typing import Any, Optional, Union
+from typing import Any, Union
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -88,7 +88,7 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         raise ValidationError("An entity must be provided for target entity to be determined")
 
 
-def entity_from_order(order: Optional[str], entities: list[Entity]) -> Optional[Entity]:
+def entity_from_order(order: str | None, entities: list[Entity]) -> Entity | None:
     if not order:
         return None
 
@@ -99,12 +99,12 @@ def entity_from_order(order: Optional[str], entities: list[Entity]) -> Optional[
 
 
 def retrieve_entity_from(
-    entity_id: Optional[str],
-    entity_type: Optional[str],
+    entity_id: str | None,
+    entity_type: str | None,
     entity_math: MathType,
     events: list[Entity],
     actions: list[Entity],
-) -> Optional[Entity]:
+) -> Entity | None:
     """
     Retrieves the entity from the events and actions.
 
@@ -156,7 +156,7 @@ def is_csp_report(request) -> bool:
     )
 
 
-def get_token(data, request) -> Optional[str]:
+def get_token(data, request) -> str | None:
     token = None
 
     if request.method == "GET" or is_csp_report(
@@ -187,7 +187,7 @@ def get_token(data, request) -> Optional[str]:
     return token
 
 
-def get_project_id(data, request) -> Optional[int]:
+def get_project_id(data, request) -> int | None:
     if request.GET.get("project_id"):
         return int(request.GET["project_id"])
     if request.POST.get("project_id"):
@@ -251,7 +251,7 @@ def get_data(request):
 
 
 def check_definition_ids_inclusion_field_sql(
-    raw_included_definition_ids: Optional[str], is_property: bool, named_key: str
+    raw_included_definition_ids: str | None, is_property: bool, named_key: str
 ):
     # Create conditional field based on whether id exists in included_properties
     if is_property:
@@ -416,13 +416,13 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
         }
 
 
-def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
+def unparsed_hostname_in_allowed_url_list(allowed_url_list: list[str] | None, hostname: str | None) -> bool:
     # if the browser url encodes the hostname, we need to decode it first
     hostname = urlparse(urllib.parse.unquote(hostname)).hostname if hostname else hostname
     return hostname_in_allowed_url_list(allowed_url_list, hostname)
 
 
-def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
+def hostname_in_allowed_url_list(allowed_url_list: list[str] | None, hostname: str | None) -> bool:
     if not hostname:
         return False
 
@@ -444,7 +444,7 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname
     return False
 
 
-def parse_domain(url: Any) -> Optional[str]:
+def parse_domain(url: Any) -> str | None:
     return urlparse(url).hostname
 
 

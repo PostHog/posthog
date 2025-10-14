@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -34,7 +34,7 @@ class TestResolver(BaseTest):
     maxDiff = None
     snapshot: Any
 
-    def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.SelectQuery:
+    def _select(self, query: str, placeholders: dict[str, ast.Expr] | None = None) -> ast.SelectQuery:
         return cast(
             ast.SelectQuery,
             clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True),

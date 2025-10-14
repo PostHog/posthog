@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
 import structlog
 
@@ -47,7 +47,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
     # Implementation of abstract methods from base class
 
     def _build_main_select_query(
-        self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
+        self, conversion_aggregator: ConversionGoalsAggregator | None = None
     ) -> ast.SelectQuery:
         """Build the main SELECT query for table queries with detailed rows"""
         return self._build_select_query(conversion_aggregator)
@@ -235,7 +235,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         return self._build_paginated_query(tuple_columns, join_expr)
 
     def _build_select_columns_mapping(
-        self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
+        self, conversion_aggregator: ConversionGoalsAggregator | None = None
     ) -> dict[str, ast.Expr]:
         all_columns: dict[str, ast.Expr] = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
 
@@ -252,7 +252,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         return all_columns
 
-    def _build_select_query(self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None) -> ast.SelectQuery:
+    def _build_select_query(self, conversion_aggregator: ConversionGoalsAggregator | None = None) -> ast.SelectQuery:
         """Build the complete SELECT query with base columns and conversion goal columns"""
         # Get conversion goal components
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)

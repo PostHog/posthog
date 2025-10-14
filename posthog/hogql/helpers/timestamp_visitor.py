@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.ast import ArithmeticOperationOp
@@ -11,7 +10,7 @@ from posthog.hogql.visitor import Visitor
 
 
 def is_simple_timestamp_field_expression(
-    expr: ast.Expr, context: HogQLContext, tombstone_string: Optional[str] = None
+    expr: ast.Expr, context: HogQLContext, tombstone_string: str | None = None
 ) -> bool:
     result = IsSimpleTimestampFieldExpressionVisitor(context, tombstone_string).visit(expr)
     return result
@@ -20,7 +19,7 @@ def is_simple_timestamp_field_expression(
 class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     context: HogQLContext
 
-    def __init__(self, context: HogQLContext, tombstone_string: Optional[str] = None):
+    def __init__(self, context: HogQLContext, tombstone_string: str | None = None):
         self.context = context
         self.tombstone_string = tombstone_string
 
@@ -157,12 +156,12 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         return all(self.visit(arg) for arg in node.exprs)
 
 
-def is_time_or_interval_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
+def is_time_or_interval_constant(expr: ast.Expr, tombstone_string: str | None = None) -> bool:
     return IsTimeOrIntervalConstantVisitor(tombstone_string).visit(expr)
 
 
 class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
-    def __init__(self, tombstone_string: Optional[str]):
+    def __init__(self, tombstone_string: str | None):
         self.tombstone_string = tombstone_string
 
     def visit_constant(self, node: ast.Constant) -> bool:
@@ -229,7 +228,7 @@ class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
     constant_if_first_arg_constant_fns: list[str]
     interval_fns: list[str]
 
-    def __init__(self, tombstone_string: Optional[str]):
+    def __init__(self, tombstone_string: str | None):
         self.tombstone_string = tombstone_string
 
     @abstractmethod
@@ -333,7 +332,7 @@ class IsStartOfDayConstantVisitor(IsStartOfPeriodConstantVisitor):
         return parsed.hour == 0 and parsed.minute == 0 and parsed.second == 0 and parsed.microsecond == 0
 
 
-def is_start_of_day_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
+def is_start_of_day_constant(expr: ast.Expr, tombstone_string: str | None = None) -> bool:
     return IsStartOfDayConstantVisitor(tombstone_string).visit(expr)
 
 
@@ -360,7 +359,7 @@ class IsStartOfHourConstantVisitor(IsStartOfPeriodConstantVisitor):
         return parsed.minute == 0 and parsed.second == 0 and parsed.microsecond == 0
 
 
-def is_start_of_hour_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
+def is_start_of_hour_constant(expr: ast.Expr, tombstone_string: str | None = None) -> bool:
     return IsStartOfHourConstantVisitor(tombstone_string).visit(expr)
 
 
@@ -369,7 +368,7 @@ class IsEndOfPeriodConstantVisitor(Visitor[bool], ABC):
     def check_parsed(self, parsed: datetime) -> bool:
         raise NotImplementedError("check_parsed must be implemented in subclasses")
 
-    def __init__(self, tombstone_string: Optional[str]):
+    def __init__(self, tombstone_string: str | None):
         self.tombstone_string = tombstone_string
 
     def visit_constant(self, node: ast.Constant) -> bool:
@@ -441,7 +440,7 @@ class IsEndOfDayConstantVisitor(IsEndOfPeriodConstantVisitor):
         return parsed.hour == 23 and parsed.minute == 59 and parsed.second == 59
 
 
-def is_end_of_day_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
+def is_end_of_day_constant(expr: ast.Expr, tombstone_string: str | None = None) -> bool:
     return IsEndOfDayConstantVisitor(tombstone_string).visit(expr)
 
 
@@ -450,5 +449,5 @@ class IsEndOfHourConstantVisitor(IsEndOfPeriodConstantVisitor):
         return parsed.minute == 59 and parsed.second == 59
 
 
-def is_end_of_hour_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
+def is_end_of_hour_constant(expr: ast.Expr, tombstone_string: str | None = None) -> bool:
     return IsEndOfHourConstantVisitor(tombstone_string).visit(expr)

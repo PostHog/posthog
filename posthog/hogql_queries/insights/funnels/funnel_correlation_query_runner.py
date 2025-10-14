@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any, Literal, Optional, TypedDict, cast
+from typing import Any, Literal, TypedDict, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -97,7 +97,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
     funnels_query: FunnelsQuery
     actors_query: FunnelsActorsQuery
-    correlation_actors_query: Optional[FunnelCorrelationActorsQuery]
+    correlation_actors_query: FunnelCorrelationActorsQuery | None
 
     _funnel_actors_generator: FunnelActors | FunnelStrictActors | FunnelUnorderedActors | FunnelUDF
 
@@ -105,9 +105,9 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         self,
         query: FunnelCorrelationQuery | dict[str, Any],
         team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
+        timings: HogQLTimings | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.actors_query = self.query.source
@@ -385,7 +385,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             prop_query = property_to_expr(properties, self.team)
 
         conversion_filter = (
-            f'AND funnel_actors.steps {"=" if self.correlation_actors_query.funnelCorrelationPersonConverted else "<>"} target_step'
+            f"AND funnel_actors.steps {'=' if self.correlation_actors_query.funnelCorrelationPersonConverted else '<>'} target_step"
             if self.correlation_actors_query.funnelCorrelationPersonConverted is not None
             else ""
         )
@@ -442,7 +442,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         funnel_persons_query = self.get_funnel_actors_cte()
 
         conversion_filter = (
-            f'funnel_actors.steps {"=" if self.correlation_actors_query.funnelCorrelationPersonConverted else "<>"} target_step'
+            f"funnel_actors.steps {'=' if self.correlation_actors_query.funnelCorrelationPersonConverted else '<>'} target_step"
             if self.correlation_actors_query.funnelCorrelationPersonConverted is not None
             else ""
         )

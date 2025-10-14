@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from django.db import connections, models, router, transaction
 from django.db.models import F, Q
@@ -31,7 +31,7 @@ class PersonManager(models.Manager):
 
 class Person(models.Model):
     id = models.BigAutoField(primary_key=True)
-    _distinct_ids: Optional[list[str]]
+    _distinct_ids: list[str] | None
 
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
@@ -73,7 +73,7 @@ class Person(models.Model):
         ]
 
     @property
-    def email(self) -> Optional[str]:
+    def email(self) -> str | None:
         return self.properties.get("email")
 
     # :DEPRECATED: This should happen through the plugin server
@@ -85,7 +85,7 @@ class Person(models.Model):
         for distinct_id in distinct_ids:
             self.add_distinct_id(distinct_id)
 
-    def split_person(self, main_distinct_id: Optional[str], max_splits: Optional[int] = None):
+    def split_person(self, main_distinct_id: str | None, max_splits: int | None = None):
         original_person = Person.objects.get(pk=self.pk)
         distinct_ids = original_person.distinct_ids
         original_person_version = original_person.version or 0

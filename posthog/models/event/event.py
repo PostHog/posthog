@@ -2,7 +2,7 @@ import re
 import copy
 import datetime
 from collections import defaultdict
-from typing import Optional, Union
+from typing import Union
 
 from django.db import models
 from django.utils import timezone
@@ -105,7 +105,7 @@ class Selector:
 
     def _split(self, selector):
         in_attribute_selector = False
-        in_quotes: Optional[str] = None
+        in_quotes: str | None = None
         part: list[str] = []
         for char in selector:
             if char == "[" and in_quotes is None:

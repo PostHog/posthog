@@ -1,6 +1,6 @@
 from dataclasses import asdict, dataclass
 from hashlib import md5
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -22,7 +22,7 @@ class WebJsUrl:
     type: str
 
 
-def get_site_config_from_schema(config_schema: Optional[list[dict]], config: Optional[dict]):
+def get_site_config_from_schema(config_schema: list[dict] | None, config: dict | None):
     if not config or not config_schema:
         return {}
     return {
@@ -32,7 +32,7 @@ def get_site_config_from_schema(config_schema: Optional[list[dict]], config: Opt
     }
 
 
-def get_transpiled_site_source(id: int, token: str) -> Optional[WebJsSource]:
+def get_transpiled_site_source(id: int, token: str) -> WebJsSource | None:
     from posthog.models import PluginConfig, PluginSourceFile
 
     response = (

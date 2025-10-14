@@ -1,6 +1,6 @@
 import time
 import logging
-from typing import Literal, Optional, TypedDict
+from typing import Literal, TypedDict
 
 from django.core.cache import caches
 
@@ -94,7 +94,7 @@ class ConversationHistory:
         return f"support_max_rate_limit_last_update_{limit_type}"
 
     @classmethod
-    def check_rate_limits(cls) -> tuple[bool, Optional[int], Optional[RateLimitType]]:
+    def check_rate_limits(cls) -> tuple[bool, int | None, RateLimitType | None]:
         """
         Check all rate limits using token bucket algorithm
         Returns (is_limited, retry_after, limit_type)

@@ -1,7 +1,7 @@
 import gzip
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from django.db import close_old_connections
 
@@ -68,7 +68,7 @@ class BillingConsumer(SQSConsumer):
             logger.exception(f"Error processing billing message: {e}")
             capture_exception(e, {"message_id": message_id, "message_type": message_type})
 
-    def _decompress_and_parse_message(self, raw_body: str, message_attributes: Optional[dict] = None) -> dict:
+    def _decompress_and_parse_message(self, raw_body: str, message_attributes: dict | None = None) -> dict:
         """
         Decompress and parse message body based on content encoding.
 

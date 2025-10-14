@@ -1,6 +1,6 @@
 import base64
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import requests
 from dateutil import parser
@@ -283,7 +283,7 @@ class VitallyPaginator(BasePaginator):
 
         super().__init__()
 
-    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         res = response.json()
 
         self._cursor = None
@@ -322,8 +322,8 @@ class VitallyPaginator(BasePaginator):
 def get_messages(
     secret_token: str,
     region: str,
-    subdomain: Optional[str],
-    db_incremental_field_last_value: Optional[Any],
+    subdomain: str | None,
+    db_incremental_field_last_value: Any | None,
     should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
 ):
@@ -390,7 +390,7 @@ def get_messages(
             paginator.update_state(response)
 
 
-def get_base_url(region: str, subdomain: Optional[str]) -> str:
+def get_base_url(region: str, subdomain: str | None) -> str:
     if region == "US" and subdomain:
         return f"https://{subdomain}.rest.vitally.io/"
 
@@ -400,12 +400,12 @@ def get_base_url(region: str, subdomain: Optional[str]) -> str:
 def vitally_source(
     secret_token: str,
     region: str,
-    subdomain: Optional[str],
+    subdomain: str | None,
     endpoint: str,
     team_id: int,
     job_id: str,
     logger: FilteringBoundLogger,
-    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_last_value: Any | None,
     should_use_incremental_field: bool = False,
 ):
     if endpoint == "Messages":
@@ -443,7 +443,7 @@ def vitally_source(
     yield from dlt_resources[0]
 
 
-def validate_credentials(secret_token: str, region: str, subdomain: Optional[str]) -> bool:
+def validate_credentials(secret_token: str, region: str, subdomain: str | None) -> bool:
     basic_token = base64.b64encode(f"{secret_token}:".encode("ascii")).decode("ascii")
     res = requests.get(
         f"{get_base_url(region, subdomain)}resources/users?limit=1",

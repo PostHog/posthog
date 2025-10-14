@@ -2,7 +2,6 @@ import os
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import partial
-from typing import Optional
 
 import dagster
 from dagster import Array, Backoff, DagsterRunStatus, Field, Jitter, RetryPolicy, RunsFilter, SkipReason
@@ -47,7 +46,7 @@ def format_clickhouse_settings(settings_dict: dict[str, str]) -> str:
     return ",".join([f"{key}={value}" for key, value in settings_dict.items()])
 
 
-def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: Optional[str] = None) -> str:
+def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: str | None = None) -> str:
     settings = base_settings.copy()
 
     if extra_settings:
@@ -186,7 +185,7 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
 }
 
 
-def check_for_concurrent_runs(context: dagster.ScheduleEvaluationContext) -> Optional[SkipReason]:
+def check_for_concurrent_runs(context: dagster.ScheduleEvaluationContext) -> SkipReason | None:
     # Get the schedule name from the context
     schedule_name = context._schedule_name
 

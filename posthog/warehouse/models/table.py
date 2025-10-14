@@ -2,7 +2,7 @@ import csv
 import time
 from datetime import datetime
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import models
@@ -314,7 +314,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
-    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> HogQLDataWarehouseTable:
+    def hogql_definition(self, modifiers: HogQLQueryModifiers | None = None) -> HogQLDataWarehouseTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -391,7 +391,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_id=str(self.id),
         )
 
-    def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
+    def get_clickhouse_column_type(self, column_name: str) -> str | None:
         clickhouse_type = self.columns.get(column_name, None)
 
         if isinstance(clickhouse_type, dict) and self.columns[column_name].get("clickhouse"):

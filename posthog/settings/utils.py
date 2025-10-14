@@ -1,6 +1,6 @@
 import os
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -14,7 +14,7 @@ def get_from_env(
     default: Any = None,
     *,
     optional: bool = False,
-    type_cast: Optional[Callable] = None,
+    type_cast: Callable | None = None,
 ) -> Any:
     value = os.getenv(key)
     if value is None or value == "":

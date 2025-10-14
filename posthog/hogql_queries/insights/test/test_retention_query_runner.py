@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -4276,7 +4275,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
-    def run_query(self, query, *, limit_context: Optional[LimitContext] = None):
+    def run_query(self, query, *, limit_context: LimitContext | None = None):
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
         runner = RetentionQueryRunner(team=self.team, query=query, limit_context=limit_context)

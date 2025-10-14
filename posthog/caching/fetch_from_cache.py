@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from prometheus_client import Counter
 
@@ -15,27 +15,27 @@ insight_cache_read_counter = Counter(
 
 @dataclass(frozen=True)
 class InsightResult:
-    result: Optional[Any]
-    last_refresh: Optional[datetime]
-    cache_key: Optional[str]
+    result: Any | None
+    last_refresh: datetime | None
+    cache_key: str | None
     is_cached: bool
-    timezone: Optional[str]
-    has_more: Optional[bool] = None
-    next_allowed_client_refresh: Optional[datetime] = None
-    cache_target_age: Optional[datetime] = None
-    timings: Optional[list[QueryTiming]] = None
-    columns: Optional[list] = None
-    query_status: Optional[Any] = None
-    hogql: Optional[str] = None
-    types: Optional[list] = None
+    timezone: str | None
+    has_more: bool | None = None
+    next_allowed_client_refresh: datetime | None = None
+    cache_target_age: datetime | None = None
+    timings: list[QueryTiming] | None = None
+    columns: list | None = None
+    query_status: Any | None = None
+    hogql: str | None = None
+    types: list | None = None
 
 
 @dataclass(frozen=True)
 class NothingInCacheResult(InsightResult):
-    result: Optional[Any] = None
-    last_refresh: Optional[datetime] = None
-    cache_key: Optional[str] = None
+    result: Any | None = None
+    last_refresh: datetime | None = None
+    cache_key: str | None = None
     is_cached: bool = False
-    timezone: Optional[str] = None
-    next_allowed_client_refresh: Optional[datetime] = None
-    columns: Optional[list] = None
+    timezone: str | None = None
+    next_allowed_client_refresh: datetime | None = None
+    columns: list | None = None

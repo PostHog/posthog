@@ -1,5 +1,4 @@
 from copy import deepcopy
-from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -91,7 +90,7 @@ class WhereClauseExtractor:
         if len(field.chain) == 0:
             return False
 
-        type: Optional[ast.Type] = None
+        type: ast.Type | None = None
 
         # If the field contains at least two parts, the first might be a table.
         if len(field.chain) > 1 and str(field.chain[0]) in self.select_query_type.tables:

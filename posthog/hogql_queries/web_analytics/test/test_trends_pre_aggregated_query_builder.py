@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Optional, cast
+from typing import cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock
@@ -14,7 +14,7 @@ from posthog.hogql_queries.web_analytics.trends_pre_aggregated_query_builder imp
 
 
 class TestTrendsPreAggregatedQueryBuilder(ClickhouseTestMixin, APIBaseTest):
-    def _create_mock_runner(self, query: WebTrendsQuery, modifiers: Optional[HogQLQueryModifiers] = None):
+    def _create_mock_runner(self, query: WebTrendsQuery, modifiers: HogQLQueryModifiers | None = None):
         runner = MagicMock()
         runner.query = query
         runner.team = self.team

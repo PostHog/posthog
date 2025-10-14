@@ -3,7 +3,7 @@ import uuid
 import urllib
 import dataclasses
 from datetime import datetime
-from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
+from typing import Any, Iterator, List, Union  # noqa: UP035
 
 from django.db.models.query import Prefetch
 from django.utils import timezone
@@ -226,7 +226,7 @@ class EventViewSet(
                 context={"people": self._get_people(query_result, team)},
             ).data
 
-            next_url: Optional[str] = None
+            next_url: str | None = None
             if not is_csv_request and len(query_result) > limit:
                 next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"], order_by)
             return response.Response({"next": next_url, "results": result})
@@ -248,7 +248,7 @@ class EventViewSet(
     def retrieve(
         self,
         request: request.Request,
-        pk: Optional[Union[int, str]] = None,
+        pk: Union[int, str] | None = None,
         *args: Any,
         **kwargs: Any,
     ) -> response.Response:

@@ -216,7 +216,7 @@ dev = [
     "python-dateutil>=2.8.2",
     "requests-mock>=1.12.1",
     "responses==0.23.1",
-    "ruff~=0.8.1",
+    "ruff~=0.14.0",
     "sqlalchemy==2.0.38",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
@@ -278,6 +278,12 @@ ignore = [
     "F601",
     "UP007",
     "UP032",
+    # Temporarily ignored after ruff 0.14.0 upgrade - require careful review/testing
+    "DJ012",  # Django model method ordering - style preference
+    "RUF005", # List concatenation to unpacking - minor perf optimization
+    "UP045",  # Type annotation simplification - needs mypy verification
+    "UP046",  # PEP 695 type parameters for classes - may affect mypy
+    "UP047",  # PEP 695 type parameters for functions - may affect mypy
 ]
 select = [
     "B",

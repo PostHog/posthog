@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from typing import Optional
 
 from django.utils import timezone
 
@@ -121,7 +120,7 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
             "core_memory": self.core_memory.formatted_text if self.core_memory else None,
         }
 
-    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+    def _is_stale(self, last_refresh: datetime | None, lazy: bool = False) -> bool:
         # We don't want to regenerate suggestions more often than 3 days, as there's no point
         return last_refresh is None or (datetime.now(UTC) - last_refresh) > timedelta(days=3)
 

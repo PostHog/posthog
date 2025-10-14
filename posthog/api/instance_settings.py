@@ -1,5 +1,5 @@
 import re
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
@@ -48,7 +48,7 @@ class InstanceSettingHelper:
             setattr(self, field, kwargs.get(field, None))
 
 
-def get_instance_setting(key: str, setting_config: Optional[tuple] = None) -> InstanceSettingHelper:
+def get_instance_setting(key: str, setting_config: tuple | None = None) -> InstanceSettingHelper:
     setting_config = setting_config or CONSTANCE_CONFIG[key]
     is_secret = key in SECRET_SETTINGS
     value = get_instance_setting_raw(key)

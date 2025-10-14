@@ -2,7 +2,7 @@
 Workflow-agnostic activities for the configurable task system.
 """
 
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 import temporalio
 
@@ -124,7 +124,7 @@ async def get_workflow_configuration_activity(params: dict[str, Any]) -> dict[st
 
 
 @temporalio.activity.defn(name="get_agent_triggered_transition")
-async def get_agent_triggered_transition_activity(params: dict[str, Any]) -> Optional[dict[str, Any]]:
+async def get_agent_triggered_transition_activity(params: dict[str, Any]) -> dict[str, Any] | None:
     """Return agent info for the current stage if present (no transition logic)."""
     try:
         task_id = params["task_id"]

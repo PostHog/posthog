@@ -1,5 +1,4 @@
 from decimal import Decimal
-from typing import Optional
 
 from posthog.schema import (
     CachedRevenueAnalyticsMetricsQueryResponse,
@@ -74,7 +73,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
     def _to_query_from(
         self,
         subscription_view: RevenueAnalyticsBaseView,
-        revenue_item_view: Optional[RevenueAnalyticsBaseView],
+        revenue_item_view: RevenueAnalyticsBaseView | None,
     ) -> ast.SelectQuery:
         with self.timings.measure("get_subquery"):
             subquery = self._get_subquery(subscription_view, revenue_item_view)
@@ -236,7 +235,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
     def _get_subquery(
         self,
         subscription_view: RevenueAnalyticsBaseView,
-        revenue_item_view: Optional[RevenueAnalyticsBaseView],
+        revenue_item_view: RevenueAnalyticsBaseView | None,
     ) -> ast.SelectQuery:
         with self.timings.measure("subquery"):
             dates_expr = self._dates_expr()

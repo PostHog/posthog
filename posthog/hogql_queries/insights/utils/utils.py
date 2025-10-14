@@ -1,5 +1,4 @@
 from copy import deepcopy
-from typing import Optional
 
 from posthog.schema import ActionsNode, BaseMathType, DataWarehouseNode, EventsNode, IntervalType, TrendsQuery
 
@@ -10,7 +9,7 @@ from posthog.models.team.team import Team, WeekStartDay
 from posthog.queries.util import get_trunc_func_ch
 
 
-def get_start_of_interval_hogql(interval: str, *, team: Team, source: Optional[ast.Expr] = None) -> ast.Expr:
+def get_start_of_interval_hogql(interval: str, *, team: Team, source: ast.Expr | None = None) -> ast.Expr:
     trunc_func = get_trunc_func_ch(interval)
     trunc_func_args: list[ast.Expr] = [source] if source else [ast.Field(chain=["timestamp"])]
     if trunc_func == "toStartOfWeek":

@@ -139,7 +139,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> dict[str, bool]:
         """Check if summaries exist for given session IDs without fetching the full data"""
-        result: dict[str, bool] = {session_id: False for session_id in session_ids}
+        result: dict[str, bool] = dict.fromkeys(session_ids, False)
         queryset = self.filter(team_id=team_id, session_id__in=session_ids)
         # Filter by context presence at DB level
         if extra_summary_context is not None:

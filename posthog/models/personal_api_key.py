@@ -1,5 +1,5 @@
 import hashlib
-from typing import Literal, Optional
+from typing import Literal
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.contrib.postgres.fields import ArrayField
@@ -11,7 +11,7 @@ from django_deprecate_fields import deprecate_field
 from .utils import generate_random_token
 
 ModeType = Literal["sha256", "pbkdf2"]
-PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[ModeType, Optional[int]], ...] = (
+PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[ModeType, int | None], ...] = (
     ("sha256", None),  # Moved to simple hashing in 2024-02
     ("pbkdf2", 260000),  # This is the iteration count used by PostHog since the beginning of time.
     ("pbkdf2", 390000),  # This is the iteration count used briefly on some API keys.
@@ -20,7 +20,7 @@ PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[ModeType, Optional[int]], ...] = (
 LEGACY_PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 
 
-def hash_key_value(value: str, mode: ModeType = "sha256", iterations: Optional[int] = None) -> str:
+def hash_key_value(value: str, mode: ModeType = "sha256", iterations: int | None = None) -> str:
     if mode == "pbkdf2":
         if not iterations:
             raise ValueError("Iterations must be provided when using legacy PBKDF2 mode")

@@ -1,5 +1,4 @@
 import math
-from typing import Optional
 
 import unittest
 from freezegun import freeze_time
@@ -167,11 +166,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         include_scroll_depth=False,
         properties=None,
         compare_filter=None,
-        action: Optional[Action] = None,
-        custom_event: Optional[str] = None,
+        action: Action | None = None,
+        custom_event: str | None = None,
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
-        filter_test_accounts: Optional[bool] = False,
-        bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
+        filter_test_accounts: bool | None = False,
+        bounce_rate_mode: BounceRatePageViewMode | None = BounceRatePageViewMode.COUNT_PAGEVIEWS,
         orderBy=None,
     ):
         with freeze_time(self.QUERY_TIMESTAMP):

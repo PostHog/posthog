@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
 from re import escape
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 
 from posthog.schema import (
     CachedPathsQueryResponse,
@@ -50,9 +50,9 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         self,
         query: PathsQuery | dict[str, Any],
         team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
+        timings: HogQLTimings | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
@@ -133,7 +133,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
         return event_hogql
 
-    def handle_funnel(self) -> tuple[list, Optional[ast.Expr]]:
+    def handle_funnel(self) -> tuple[list, ast.Expr | None]:
         if not self.query.funnelPathsFilter:
             return [], None
 
@@ -798,7 +798,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         date_from = self.query_date_range.date_from()
         interval = self.query_date_range.interval_name
 
-        delta_days: Optional[int] = None
+        delta_days: int | None = None
         if date_from and date_to:
             delta = date_to - date_from
             delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())

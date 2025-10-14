@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any
 
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
@@ -56,7 +56,7 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
     def _create_insight(
         self,
         data: dict[str, Any],
-        team_id: Optional[int] = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_201_CREATED,
     ) -> tuple[int, dict[str, Any]]:
         if team_id is None:

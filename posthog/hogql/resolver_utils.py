@@ -1,5 +1,4 @@
 from collections.abc import Generator
-from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -11,11 +10,11 @@ from posthog import schema
 
 def lookup_field_by_name(
     scope: ast.SelectQueryType | ast.SelectSetQueryType, name: str, context: HogQLContext
-) -> Optional[ast.Type]:
+) -> ast.Type | None:
     """Looks for a field in the scope's list of aliases and children for each joined table."""
 
     if isinstance(scope, ast.SelectSetQueryType):
-        field: Optional[ast.Type] = None
+        field: ast.Type | None = None
         for type in scope.types:
             new_field = lookup_field_by_name(type, name, context)
             if new_field:
@@ -42,14 +41,14 @@ def lookup_field_by_name(
         return None
 
 
-def lookup_table_by_name(scope: ast.SelectQueryType, node: ast.Field) -> Optional[ast.TableOrSelectType]:
+def lookup_table_by_name(scope: ast.SelectQueryType, node: ast.Field) -> ast.TableOrSelectType | None:
     if len(node.chain) > 1 and str(node.chain[0]) in scope.tables:
         return scope.tables[str(node.chain[0])]
 
     return None
 
 
-def lookup_cte_by_name(scopes: list[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
+def lookup_cte_by_name(scopes: list[ast.SelectQueryType], name: str) -> ast.CTE | None:
     for scope in reversed(scopes):
         if scope and scope.ctes and name in scope.ctes:
             return scope.ctes[name]
@@ -97,7 +96,7 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
         raise SyntaxError(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
 
 
-def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
+def expand_hogqlx_query(node: ast.HogQLXTag, team_id: int | None):
     from posthog.hogql_queries.query_runner import get_query_runner
     from posthog.models import Team
 

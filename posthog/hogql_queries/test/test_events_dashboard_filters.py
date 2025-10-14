@@ -1,5 +1,3 @@
-from typing import Optional
-
 from posthog.test.base import BaseTest
 
 from posthog.schema import DashboardFilter, EventPropertyFilter, EventsQuery
@@ -11,9 +9,9 @@ class TestEventsDashboardFilters(BaseTest):
     def _create_events_runner(
         self,
         *,
-        after: Optional[str] = None,
-        before: Optional[str] = None,
-        properties: Optional[list[EventPropertyFilter]] = None,
+        after: str | None = None,
+        before: str | None = None,
+        properties: list[EventPropertyFilter] | None = None,
     ) -> EventsQueryRunner:
         return EventsQueryRunner(
             query=EventsQuery(

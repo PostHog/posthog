@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
@@ -11,8 +10,8 @@ class EndpointConfig:
     partition_keys: list[str]
     partition_mode: PartitionMode
     resource: EndpointResource
-    incremental_fields: Optional[list[IncrementalField]] = None
-    partition_format: Optional[PartitionFormat] = None
+    incremental_fields: list[IncrementalField] | None = None
+    partition_format: PartitionFormat | None = None
     partition_size: int = 1
 
 

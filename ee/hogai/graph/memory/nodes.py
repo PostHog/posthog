@@ -1,4 +1,4 @@
-from typing import Literal, Optional, Union, cast
+from typing import Literal, Union, cast
 from uuid import uuid4
 
 from django.utils import timezone
@@ -131,7 +131,7 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.MEMORY_ONBOARDING
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         core_memory.change_status_to_pending()
 

@@ -1,5 +1,5 @@
 import json
-from typing import Optional, cast
+from typing import cast
 
 from django.db.models import QuerySet
 
@@ -147,7 +147,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         ]
 
     def validate(self, data):
-        instance = cast(Optional[HogFlow], self.instance)
+        instance = cast(HogFlow | None, self.instance)
         actions = data.get("actions", instance.actions if instance else [])
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
         trigger_actions = [action for action in actions if action.get("type") == "trigger"]

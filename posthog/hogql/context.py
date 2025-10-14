@@ -17,8 +17,8 @@ if TYPE_CHECKING:
 @dataclass
 class HogQLFieldAccess:
     input: list[str]
-    type: Optional[Literal["event", "event.properties", "person", "person.properties"]]
-    field: Optional[str]
+    type: Literal["event", "event.properties", "person", "person.properties"] | None
+    field: str | None
     sql: str
 
 
@@ -27,7 +27,7 @@ class HogQLContext:
     """Context given to a HogQL expression printer"""
 
     # Team making the queries
-    team_id: Optional[int] = None
+    team_id: int | None = None
     # Team making the queries - if team is passed in, then the team isn't queried when creating the database
     team: Optional["Team"] = None
     # Virtual database we're querying, will be populated from team_id if not present
@@ -41,11 +41,11 @@ class HogQLContext:
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
     # Context for determining the appropriate limit to apply
-    limit_context: Optional[LimitContext] = None
+    limit_context: LimitContext | None = None
     # Apply a FORMAT clause to output data in given format.
     output_format: str | None = None
     # Globals that will be resolved in the context of the query
-    globals: Optional[dict] = None
+    globals: dict | None = None
 
     # Warnings returned with the metadata query
     warnings: list["HogQLNotice"] = field(default_factory=list)
@@ -80,9 +80,9 @@ class HogQLContext:
     def add_notice(
         self,
         message: str,
-        start: Optional[int] = None,
-        end: Optional[int] = None,
-        fix: Optional[str] = None,
+        start: int | None = None,
+        end: int | None = None,
+        fix: str | None = None,
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.notices):
             self.notices.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
@@ -90,9 +90,9 @@ class HogQLContext:
     def add_warning(
         self,
         message: str,
-        start: Optional[int] = None,
-        end: Optional[int] = None,
-        fix: Optional[str] = None,
+        start: int | None = None,
+        end: int | None = None,
+        fix: str | None = None,
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.warnings):
             self.warnings.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
@@ -100,9 +100,9 @@ class HogQLContext:
     def add_error(
         self,
         message: str,
-        start: Optional[int] = None,
-        end: Optional[int] = None,
-        fix: Optional[str] = None,
+        start: int | None = None,
+        end: int | None = None,
+        fix: str | None = None,
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.errors):
             self.errors.append(HogQLNotice(start=start, end=end, message=message, fix=fix))

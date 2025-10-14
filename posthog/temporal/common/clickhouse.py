@@ -159,7 +159,7 @@ class ClickHouseQueryNotFound(ClickHouseError):
         super().__init__(query, f"Query with ID '{query_id}' was not found in query log")
 
 
-def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
+def update_query_tags_with_temporal_info(query_tags: QueryTags | None = None):
     """
     Updates query_tags with a temporal workflow's properties.
 
@@ -183,7 +183,7 @@ def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] 
     query_tags.with_temporal(temporal_tags)
 
 
-def add_log_comment_param(params: dict[str, typing.Any], query_tags: typing.Optional[QueryTags] = None):
+def add_log_comment_param(params: dict[str, typing.Any], query_tags: QueryTags | None = None):
     """
     Collects temporal tags and adds them to existing tags.
 
@@ -675,7 +675,7 @@ class ClickHouseClient:
 
 @contextlib.asynccontextmanager
 async def get_client(
-    *, team_id: typing.Optional[int] = None, clickhouse_url: str | None = None, **kwargs
+    *, team_id: int | None = None, clickhouse_url: str | None = None, **kwargs
 ) -> collections.abc.AsyncIterator[ClickHouseClient]:
     """
     Returns a ClickHouse client based on the aiochclient library. This is an

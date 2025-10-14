@@ -180,14 +180,14 @@ async def create_pr_activity(inputs: CreatePRInputs) -> dict[str, Any]:
         # Create PR title and body
         pr_title = f"Fix task: {task_details['title']}"
         pr_body = f"""
-## Task: {task_details['title']}
+## Task: {task_details["title"]}
 
-**Task ID:** {task_details['id']}
-**Status:** {task_details['stage_key']}
-**Priority:** {task_details['priority']}
+**Task ID:** {task_details["id"]}
+**Status:** {task_details["stage_key"]}
+**Priority:** {task_details["priority"]}
 
 ### Description
-{task_details['description']}
+{task_details["description"]}
 
 ---
 *This PR was automatically created by PostHog Task Agent*

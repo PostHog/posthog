@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 from django.conf import settings
 from django.core.cache import cache
@@ -24,7 +24,7 @@ class CacheMetrics(NamedTuple):
 
 
 # Default metrics for long-running processes (lazy-initialized)
-_default_metrics: Optional[CacheMetrics] = None
+_default_metrics: CacheMetrics | None = None
 
 
 def _is_celery_context() -> bool:
@@ -69,7 +69,7 @@ def _is_short_lived_context() -> bool:
     return _is_celery_context() or _is_temporal_context()
 
 
-def _create_cache_metrics(registry: Optional[CollectorRegistry] = None) -> CacheMetrics:
+def _create_cache_metrics(registry: CollectorRegistry | None = None) -> CacheMetrics:
     """Create all cache metrics with optional registry."""
     hit_counter = Counter(
         name="posthog_query_cache_hit_total",
@@ -112,7 +112,7 @@ def _create_cache_metrics(registry: Optional[CollectorRegistry] = None) -> Cache
     return CacheMetrics(hit_counter, write_counter, bytes_counter, size_histogram)
 
 
-def _get_cache_metrics(registry: Optional[CollectorRegistry] = None) -> CacheMetrics:
+def _get_cache_metrics(registry: CollectorRegistry | None = None) -> CacheMetrics:
     if registry is not None:
         return _create_cache_metrics(registry)
     else:
@@ -162,7 +162,7 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
     'cache_timestamps:{team_id}' -> '{self.insight_id}:{self.dashboard_id or ''}' -> timestamp (epoch time when calculated)
     """
 
-    def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
+    def set_cache_data(self, *, response: dict, target_age: datetime | None) -> None:
         fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
         data_size = len(fresh_response_serialized)
 
@@ -176,8 +176,8 @@ class DjangoCacheQueryCacheManager(QueryCacheManagerBase):
         # Track cache write metrics
         count_cache_write_data(self.team_id, data_size)
 
-    def get_cache_data(self) -> Optional[dict]:
-        cached_response_bytes: Optional[bytes] = get_safe_cache(self.cache_key)
+    def get_cache_data(self) -> dict | None:
+        cached_response_bytes: bytes | None = get_safe_cache(self.cache_key)
 
         if not cached_response_bytes:
             return None

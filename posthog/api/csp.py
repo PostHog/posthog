@@ -1,6 +1,5 @@
 import json
 from datetime import UTC, datetime
-from typing import Optional
 
 from django.http import HttpResponse
 from django.utils.html import escape
@@ -118,7 +117,7 @@ def parse_report_to(data: dict) -> dict:
     return properties
 
 
-def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str, user_agent: Optional[str]) -> dict:
+def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str, user_agent: str | None) -> dict:
     props = {f"$csp_{k}": v for k, v in props.items()}
 
     return {

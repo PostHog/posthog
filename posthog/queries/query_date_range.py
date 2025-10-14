@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Literal, Optional
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
@@ -27,16 +27,16 @@ class QueryDateRange:
     _filter: AnyFilter
     _team: Team
     _table: str
-    _should_round: Optional[bool]
-    _earliest_timestamp_fallback: Optional[datetime]
+    _should_round: bool | None
+    _earliest_timestamp_fallback: datetime | None
 
     def __init__(
         self,
         filter: AnyFilter,
         team: Team,
-        should_round: Optional[bool] = None,
+        should_round: bool | None = None,
         table="",
-        earliest_timestamp_fallback: Optional[datetime] = None,
+        earliest_timestamp_fallback: datetime | None = None,
     ) -> None:
         filter.team = team  # This is a dirty - but the easiest - way to get the team into the filter
         self._filter = filter
@@ -155,7 +155,7 @@ class QueryDateRange:
         return f"AND {event_timestamp_expr} {operator} {date_expr}"
 
     @staticmethod
-    def _normalize_datetime(*, column: Optional[str] = None, param: Optional[str] = None) -> str:
+    def _normalize_datetime(*, column: str | None = None, param: str | None = None) -> str:
         """Return expression with datetime normalized to project timezone.
 
         If normalizing a column (such as `events.timestamp`) provide the column expression as `column`

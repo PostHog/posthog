@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from django.db import models
 from django.db.models.functions import Coalesce
@@ -123,9 +123,9 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
         self,
         query: CalendarHeatmapQuery | dict[str, Any],
         team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
+        timings: HogQLTimings | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        limit_context: LimitContext | None = None,
     ):
         if isinstance(query, dict):
             query = CalendarHeatmapQuery.model_validate(query)
@@ -137,7 +137,7 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
         date_from = self.query_date_range.date_from()
         interval = self.query_date_range.interval_name
 
-        delta_days: Optional[int] = None
+        delta_days: int | None = None
         if date_from and date_to:
             delta = date_to - date_from
             delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
@@ -280,7 +280,7 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
         return self.getEvent()
 
     @cached_property
-    def conversion_goal_expr(self) -> Optional[ast.Expr]:
+    def conversion_goal_expr(self) -> ast.Expr | None:
         if self.query.series[0].kind == "ActionsNode":
             action = Action.objects.get(pk=self.query.series[0].id, team__project_id=self.team.project_id)
             return action_to_expr(action)
@@ -299,7 +299,7 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
         else:
             return None
 
-    def getEvent(self) -> Optional[ast.Expr]:
+    def getEvent(self) -> ast.Expr | None:
         # Use event from the first series if available
         if (
             hasattr(self.query, "series")
@@ -342,7 +342,7 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
         self,
         field: str,
         field_type: PropertyDefinition.Type,
-        group_type_index: Optional[int],
+        group_type_index: int | None,
     ) -> str:
         try:
             return (

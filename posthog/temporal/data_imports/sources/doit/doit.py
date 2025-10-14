@@ -1,6 +1,6 @@
 import hashlib
 import datetime
-from typing import Any, Optional
+from typing import Any
 
 import pyarrow as pa
 import requests
@@ -75,7 +75,7 @@ def doit_source(
     config: DoItSourceConfig,
     report_name: str,
     logger: FilteringBoundLogger,
-    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_last_value: Any | None,
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     all_reports = doit_list_reports(config)

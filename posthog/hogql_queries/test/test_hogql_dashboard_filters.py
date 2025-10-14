@@ -1,5 +1,3 @@
-from typing import Optional
-
 from posthog.test.base import BaseTest
 
 from posthog.schema import DashboardFilter, DateRange, EventPropertyFilter, HogQLFilters, HogQLQuery
@@ -9,7 +7,7 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
 class TestHogQLDashboardFilters(BaseTest):
     def _create_hogql_runner(
-        self, query: str = "SELECT uuid FROM events", filters: Optional[HogQLFilters] = None
+        self, query: str = "SELECT uuid FROM events", filters: HogQLFilters | None = None
     ) -> HogQLQueryRunner:
         return HogQLQueryRunner(team=self.team, query=HogQLQuery(query=query, filters=filters))
 

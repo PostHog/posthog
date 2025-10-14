@@ -1,4 +1,4 @@
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
@@ -13,8 +13,8 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 def resolve_in_cohorts(
     node: _T_AST,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[list[ast.SelectQuery]] = None,
-    context: Optional[HogQLContext] = None,
+    stack: list[ast.SelectQuery] | None = None,
+    context: HogQLContext | None = None,
 ):
     InCohortResolver(stack=stack, dialect=dialect, context=context).visit(node)
 
@@ -23,7 +23,7 @@ def resolve_in_cohorts_conjoined(
     node: ast.AST,
     dialect: Literal["hogql", "clickhouse"],
     context: HogQLContext,
-    stack: Optional[list[ast.SelectQuery]] = None,
+    stack: list[ast.SelectQuery] | None = None,
 ):
     MultipleInCohortResolver(stack=stack, dialect=dialect, context=context).visit(node)
 
@@ -50,7 +50,7 @@ class MultipleInCohortResolver(TraversingVisitor):
         self,
         dialect: Literal["hogql", "clickhouse"],
         context: HogQLContext,
-        stack: Optional[list[ast.SelectQuery]] = None,
+        stack: list[ast.SelectQuery] | None = None,
     ):
         super().__init__()
         self.stack: list[ast.SelectQuery] = stack or []
@@ -265,8 +265,8 @@ class InCohortResolver(TraversingVisitor):
     def __init__(
         self,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[list[ast.SelectQuery]] = None,
-        context: Optional[HogQLContext] = None,
+        stack: list[ast.SelectQuery] | None = None,
+        context: HogQLContext | None = None,
     ):
         super().__init__()
         self.stack: list[ast.SelectQuery] = stack or []
@@ -339,7 +339,7 @@ class InCohortResolver(TraversingVisitor):
         self,
         cohort_id: int,
         is_static: bool,
-        version: Optional[int],
+        version: int | None,
         select: ast.SelectQuery,
         compare: ast.CompareOperation,
         negative: bool,

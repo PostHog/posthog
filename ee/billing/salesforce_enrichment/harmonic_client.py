@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 
@@ -34,7 +34,7 @@ class AsyncHarmonicClient:
         if not self.api_key:
             raise ValueError("Missing Harmonic API key: HARMONIC_API_KEY")
 
-        self.session: Optional[aiohttp.ClientSession] = None
+        self.session: aiohttp.ClientSession | None = None
 
     async def __aenter__(self):
         """Async context manager entry - create session."""
@@ -51,7 +51,7 @@ class AsyncHarmonicClient:
         """Clean domain name by removing protocols and www prefix."""
         return domain.lower().strip().removeprefix("https://").removeprefix("http://").removeprefix("www.")
 
-    async def enrich_company_by_domain(self, domain: str) -> Optional[dict[str, Any]]:
+    async def enrich_company_by_domain(self, domain: str) -> dict[str, Any] | None:
         """Get company data from Harmonic API for a domain.
 
         Tries domain variations: example.com → www.example.com if first fails.

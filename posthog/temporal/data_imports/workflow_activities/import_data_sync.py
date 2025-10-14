@@ -1,6 +1,6 @@
 import uuid
 import dataclasses
-from typing import Any, Optional
+from typing import Any
 
 from django.db import close_old_connections
 from django.db.models import Prefetch
@@ -31,7 +31,7 @@ class ImportDataActivityInputs:
     schema_id: uuid.UUID
     source_id: uuid.UUID
     run_id: str
-    reset_pipeline: Optional[bool] = None
+    reset_pipeline: bool | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:

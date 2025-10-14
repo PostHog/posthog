@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Union, cast
 
 import structlog
 from opentelemetry import trace
@@ -104,7 +104,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self,
         team: Team,
         query: RecordingsQuery,
-        hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
+        hogql_query_modifiers: HogQLQueryModifiers | None = None,
         allow_event_property_expansion: bool = False,
         **_,
     ):

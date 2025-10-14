@@ -6,7 +6,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -236,7 +236,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     def get_viewers(self, obj: SessionRecording) -> list[str]:
         return getattr(obj, "viewers", [])
 
-    def get_activity_score(self, obj: SessionRecording) -> Optional[float]:
+    def get_activity_score(self, obj: SessionRecording) -> float | None:
         return getattr(obj, "activity_score", None)
 
     class Meta:

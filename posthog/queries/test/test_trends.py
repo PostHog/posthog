@@ -2,7 +2,7 @@ import json
 import uuid
 import dataclasses
 from datetime import datetime
-from typing import Optional, Union
+from typing import Union
 from urllib.parse import parse_qsl, urlparse
 from zoneinfo import ZoneInfo
 
@@ -48,8 +48,8 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import generate_cache_key
 
 
-def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:
-    ret_dict: dict[str, Optional[Union[str, int]]] = {}
+def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Union[str, int] | None]:
+    ret_dict: dict[str, Union[str, int] | None] = {}
     if not value or not isinstance(value, str) or "cohort_" not in value:
         label = (
             value

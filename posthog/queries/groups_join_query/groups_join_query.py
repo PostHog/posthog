@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from posthog.schema import PersonsOnEventsMode
 
@@ -23,8 +23,8 @@ class GroupsJoinQuery:
         self,
         filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter],
         team_id: int,
-        column_optimizer: Optional[ColumnOptimizer] = None,
-        join_key: Optional[str] = None,
+        column_optimizer: ColumnOptimizer | None = None,
+        join_key: str | None = None,
         person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.DISABLED,
     ) -> None:
         self._filter = filter

@@ -28,7 +28,7 @@ class EmailNormalizer:
 
 class EmailLookupHandler:
     @staticmethod
-    def get_user_by_email(email: str, is_active: Optional[bool] = True) -> Optional["User"]:
+    def get_user_by_email(email: str, is_active: bool | None = True) -> Optional["User"]:
         """
         Get user by email with backwards compatibility.
         First tries exact match (for existing users), then case-insensitive fallback.

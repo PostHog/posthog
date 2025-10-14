@@ -1,5 +1,4 @@
 from itertools import chain
-from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.ast import BooleanType, IntegerType, StringType
@@ -248,7 +247,7 @@ ALL_EXPOSED_FUNCTION_NAMES = [
 ]
 
 
-def _find_function(name: str, functions: dict[str, HogQLFunctionMeta]) -> Optional[HogQLFunctionMeta]:
+def _find_function(name: str, functions: dict[str, HogQLFunctionMeta]) -> HogQLFunctionMeta | None:
     func = functions.get(name)
     if func is not None:
         return func
@@ -264,15 +263,15 @@ def _find_function(name: str, functions: dict[str, HogQLFunctionMeta]) -> Option
     return func
 
 
-def find_hogql_aggregation(name: str) -> Optional[HogQLFunctionMeta]:
+def find_hogql_aggregation(name: str) -> HogQLFunctionMeta | None:
     return _find_function(name, HOGQL_AGGREGATIONS)
 
 
-def find_hogql_function(name: str) -> Optional[HogQLFunctionMeta]:
+def find_hogql_function(name: str) -> HogQLFunctionMeta | None:
     return _find_function(name, HOGQL_CLICKHOUSE_FUNCTIONS)
 
 
-def find_hogql_posthog_function(name: str) -> Optional[HogQLFunctionMeta]:
+def find_hogql_posthog_function(name: str) -> HogQLFunctionMeta | None:
     return _find_function(name, HOGQL_POSTHOG_FUNCTIONS)
 
 

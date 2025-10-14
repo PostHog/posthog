@@ -3,7 +3,7 @@ Repository resolution helpers for the multi-repository issue tracker system.
 """
 
 import fnmatch
-from typing import Any, Optional
+from typing import Any
 
 from django.apps import apps
 
@@ -185,7 +185,7 @@ async def validate_repository_access(issue, org: str, repo: str) -> bool:
     return issue.can_access_repository(org, repo)
 
 
-async def get_primary_repository(issue) -> Optional[RepositoryContext]:
+async def get_primary_repository(issue) -> RepositoryContext | None:
     """Get the primary repository for an issue"""
     repositories = await resolve_repositories_for_issue(issue)
 
@@ -198,7 +198,7 @@ async def get_primary_repository(issue) -> Optional[RepositoryContext]:
     return repositories[0] if repositories else None
 
 
-async def _get_team_github_integration(team_id: int) -> Optional[Integration]:
+async def _get_team_github_integration(team_id: int) -> Integration | None:
     """Get the team's first GitHub integration"""
     try:
         return await Integration.objects.filter(team_id=team_id, kind="github").afirst()

@@ -1,6 +1,6 @@
 import datetime as dt
 import dataclasses
-from typing import Any, Optional
+from typing import Any
 
 from django.dispatch import receiver
 
@@ -99,7 +99,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def get_sync_type(self, schema: ExternalDataSchema) -> ExternalDataSchema.SyncType | None:
         return schema.sync_type
 
-    def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
+    def get_table(self, schema: ExternalDataSchema) -> dict | None:
         from posthog.warehouse.api.table import SimpleTableSerializer
 
         hogql_context = self.context.get("database", None)

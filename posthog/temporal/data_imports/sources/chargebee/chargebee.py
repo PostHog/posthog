@@ -1,5 +1,5 @@
 import base64
-from typing import Any, Optional
+from typing import Any
 
 import dlt
 import requests
@@ -191,7 +191,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
 
 
 class ChargebeePaginator(BasePaginator):
-    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         res = response.json()
 
         self._next_offset = None
@@ -220,7 +220,7 @@ def chargebee_source(
     endpoint: str,
     team_id: int,
     job_id: str,
-    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_last_value: Any | None,
     should_use_incremental_field: bool = False,
 ):
     config: RESTAPIConfig = {

@@ -1224,9 +1224,9 @@ class TestUserAPI(APIBaseTest):
 
         for field, value in fields.items():
             response = self.client.patch("/api/users/@me/", {field: value})
-            assert (
-                response.json()[field] == initial_user[field]
-            ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+            assert response.json()[field] == initial_user[field], (
+                f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+            )
 
     def test_can_update_notification_settings(self):
         response = self.client.patch(

@@ -2,7 +2,7 @@ import os
 import tempfile
 import collections
 from collections.abc import Iterator
-from typing import Any, Optional
+from typing import Any
 
 import snowflake.connector
 from cryptography.hazmat.backends import default_backend
@@ -86,15 +86,15 @@ def get_schemas(config: SnowflakeSourceConfig) -> dict[str, list[tuple[str, str]
 
 def _get_connection(
     account_id: str,
-    user: Optional[str],
-    password: Optional[str],
-    passphrase: Optional[str],
-    private_key: Optional[str],
+    user: str | None,
+    password: str | None,
+    passphrase: str | None,
+    private_key: str | None,
     auth_type: str,
     database: str,
     warehouse: str,
     schema: str,
-    role: Optional[str] = None,
+    role: str | None = None,
 ) -> snowflake.connector.SnowflakeConnection:
     if auth_type == "password" and user is not None and password is not None:
         return snowflake.connector.connect(
@@ -138,9 +138,9 @@ def _build_query(
     schema: str,
     table_name: str,
     should_use_incremental_field: bool,
-    incremental_field: Optional[str],
-    incremental_field_type: Optional[IncrementalFieldType],
-    db_incremental_field_last_value: Optional[Any],
+    incremental_field: str | None,
+    incremental_field_type: IncrementalFieldType | None,
+    db_incremental_field_last_value: Any | None,
 ) -> tuple[str, tuple[Any, ...]]:
     if not should_use_incremental_field:
         return "SELECT * FROM IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",)
@@ -200,10 +200,10 @@ def _get_primary_keys(cursor: SnowflakeCursor, database: str, schema: str, table
 
 def snowflake_source(
     account_id: str,
-    user: Optional[str],
-    password: Optional[str],
-    passphrase: Optional[str],
-    private_key: Optional[str],
+    user: str | None,
+    password: str | None,
+    passphrase: str | None,
+    private_key: str | None,
     auth_type: str,
     database: str,
     warehouse: str,
@@ -211,10 +211,10 @@ def snowflake_source(
     table_names: list[str],
     should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
-    db_incremental_field_last_value: Optional[Any],
-    role: Optional[str] = None,
-    incremental_field: Optional[str] = None,
-    incremental_field_type: Optional[IncrementalFieldType] = None,
+    db_incremental_field_last_value: Any | None,
+    role: str | None = None,
+    incremental_field: str | None = None,
+    incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:

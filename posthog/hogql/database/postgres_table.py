@@ -1,5 +1,3 @@
-from typing import Optional
-
 from django.conf import settings
 
 from posthog.hogql.context import HogQLContext
@@ -7,7 +5,7 @@ from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 
-def build_function_call(postgres_table_name: str, context: Optional[HogQLContext] = None):
+def build_function_call(postgres_table_name: str, context: HogQLContext | None = None):
     raw_params: dict[str, str] = {}
 
     def add_param(value: str, is_sensitive: bool = True) -> str:

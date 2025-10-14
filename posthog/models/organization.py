@@ -29,34 +29,34 @@ logger = structlog.get_logger(__name__)
 
 
 class OrganizationUsageResource(TypedDict):
-    usage: Optional[int]
-    limit: Optional[int]
-    todays_usage: Optional[int]
+    usage: int | None
+    limit: int | None
+    todays_usage: int | None
 
 
 # The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
 # as well as for enforcing limits.
 class OrganizationUsageInfo(TypedDict):
-    events: Optional[OrganizationUsageResource]
-    exceptions: Optional[OrganizationUsageResource]
-    recordings: Optional[OrganizationUsageResource]
-    survey_responses: Optional[OrganizationUsageResource]
-    rows_synced: Optional[OrganizationUsageResource]
-    cdp_trigger_events: Optional[OrganizationUsageResource]
-    rows_exported: Optional[OrganizationUsageResource]
-    feature_flag_requests: Optional[OrganizationUsageResource]
-    api_queries_read_bytes: Optional[OrganizationUsageResource]
-    llm_events: Optional[OrganizationUsageResource]
-    period: Optional[list[str]]
+    events: OrganizationUsageResource | None
+    exceptions: OrganizationUsageResource | None
+    recordings: OrganizationUsageResource | None
+    survey_responses: OrganizationUsageResource | None
+    rows_synced: OrganizationUsageResource | None
+    cdp_trigger_events: OrganizationUsageResource | None
+    rows_exported: OrganizationUsageResource | None
+    feature_flag_requests: OrganizationUsageResource | None
+    api_queries_read_bytes: OrganizationUsageResource | None
+    llm_events: OrganizationUsageResource | None
+    period: list[str] | None
 
 
 class ProductFeature(TypedDict):
     key: str
     name: str
     description: str
-    unit: Optional[str]
-    limit: Optional[int]
-    note: Optional[str]
+    unit: str | None
+    limit: int | None
+    note: str | None
     is_plan_default: bool
 
 
@@ -68,7 +68,7 @@ class OrganizationManager(models.Manager):
         self,
         user: Optional["User"],
         *,
-        team_fields: Optional[dict[str, Any]] = None,
+        team_fields: dict[str, Any] | None = None,
         **kwargs,
     ) -> tuple["Organization", Optional["OrganizationMembership"], "Team"]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
@@ -79,7 +79,7 @@ class OrganizationManager(models.Manager):
             _, team = Project.objects.create_with_team(
                 initiating_user=user, organization=organization, team_fields=team_fields
             )
-            organization_membership: Optional[OrganizationMembership] = None
+            organization_membership: OrganizationMembership | None = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(
                     organization=organization,
@@ -209,7 +209,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
     __repr__ = sane_repr("name")
 
     @property
-    def _billing_plan_details(self) -> tuple[Optional[str], Optional[str]]:
+    def _billing_plan_details(self) -> tuple[str | None, str | None]:
         """
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
@@ -260,7 +260,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
         return self.available_product_features
 
-    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> Optional[ProductFeature]:
+    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> ProductFeature | None:
         return next(
             filter(lambda f: f and f.get("key") == feature, self.available_product_features or []),
             None,
@@ -327,7 +327,7 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     def validate_update(
         self,
         membership_being_updated: "OrganizationMembership",
-        new_level: Optional[Level] = None,
+        new_level: Level | None = None,
     ) -> None:
         if new_level is not None:
             if membership_being_updated.id == self.id:

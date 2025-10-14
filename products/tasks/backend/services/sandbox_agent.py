@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 from django.conf import settings
 
@@ -33,7 +32,7 @@ class SandboxAgent:
     def __init__(self, sandbox: SandboxEnvironment):
         self.sandbox = sandbox
 
-    async def clone_repository(self, repository: str, github_token: Optional[str] = "") -> ExecutionResult:
+    async def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult:
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
 

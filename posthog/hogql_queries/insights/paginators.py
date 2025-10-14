@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from posthog.schema import HogQLQueryResponse
 
@@ -19,9 +19,9 @@ class HogQLHasMorePaginator:
     """
 
     def __init__(
-        self, *, limit: Optional[int] = None, offset: Optional[int] = None, limit_context: Optional[LimitContext] = None
+        self, *, limit: int | None = None, offset: int | None = None, limit_context: LimitContext | None = None
     ):
-        self.response: Optional[HogQLQueryResponse] = None
+        self.response: HogQLQueryResponse | None = None
         self.results: list[Any] = []
         self.limit = limit if limit and limit > 0 else DEFAULT_RETURNED_ROWS
         self.offset = offset if offset and offset > 0 else 0
@@ -29,7 +29,7 @@ class HogQLHasMorePaginator:
 
     @classmethod
     def from_limit_context(
-        cls, *, limit_context: LimitContext, limit: Optional[int] = None, offset: Optional[int] = None
+        cls, *, limit_context: LimitContext, limit: int | None = None, offset: int | None = None
     ) -> "HogQLHasMorePaginator":
         max_rows = get_max_limit_for_context(limit_context)
         default_rows = get_default_limit_for_context(limit_context)

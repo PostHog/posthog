@@ -2,7 +2,7 @@ import uuid
 import itertools
 from abc import ABC
 from functools import cached_property
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -346,8 +346,8 @@ class FunnelBase(ABC):
         step: ActionsNode | EventsNode | DataWarehouseNode,
         count: int,
         index: int,
-        people: Optional[list[uuid.UUID]] = None,
-        sampling_factor: Optional[float] = None,
+        people: list[uuid.UUID] | None = None,
+        sampling_factor: float | None = None,
     ) -> dict[str, Any]:
         if isinstance(step, DataWarehouseNode):
             raise ValidationError(
@@ -365,7 +365,7 @@ class FunnelBase(ABC):
                 "type": "events" if isinstance(step, EventsNode) else "actions",
             }
 
-        action_id: Optional[str | int]
+        action_id: str | int | None
         if isinstance(step, EventsNode):
             name = step.event
             action_id = step.event
@@ -391,7 +391,7 @@ class FunnelBase(ABC):
         return self._extra_event_fields + self._extra_event_properties
 
     @property
-    def _absolute_actors_step(self) -> Optional[int]:
+    def _absolute_actors_step(self) -> int | None:
         """The actor query's 1-indexed target step converted to our 0-indexed SQL form. Never a negative integer."""
         if self.context.actorsQuery is None or self.context.actorsQuery.funnelStep is None:
             return None
@@ -602,7 +602,7 @@ class FunnelBase(ABC):
 
             if self._query_has_array_breakdown():
                 assert isinstance(breakdown, list)
-                default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
+                default_breakdown_value = f"""[{",".join(["''" for _ in range(len(breakdown or []))])}]"""
                 # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
                 breakdown_selector = parse_expr(
                     f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
@@ -869,11 +869,11 @@ class FunnelBase(ABC):
         statement = None
         for i in range(max_steps - 1, -1, -1):
             if i == max_steps - 1:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,step_{i}_matching_event)"
             elif i == 0:
                 statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
             else:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,{statement})"
         return [parse_expr(f"{statement} as final_matching_event")] if statement else []
 
     def _get_matching_events(self, max_steps: int) -> list[ast.Expr]:
@@ -1009,7 +1009,7 @@ class FunnelBase(ABC):
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i-1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) as step_{i}_conversion_time"
+                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i - 1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) as step_{i}_conversion_time"
                 ),
             )
 
@@ -1218,7 +1218,7 @@ class FunnelBase(ABC):
 
     def actor_query(
         self,
-        extra_fields: Optional[list[str]] = None,
+        extra_fields: list[str] | None = None,
     ) -> ast.SelectQuery:
         select: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),

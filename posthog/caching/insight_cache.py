@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
@@ -107,9 +107,9 @@ def update_cache(caching_state_id: UUID):
 
     insight, dashboard = _extract_insight_dashboard(caching_state)
 
-    exception: Optional[Exception] = None
-    cache_key: Optional[str] = None
-    cache_type: Optional[str] = None
+    exception: Exception | None = None
+    cache_key: str | None = None
+    cache_type: str | None = None
     result: Any = None
 
     metadata = {
@@ -177,7 +177,7 @@ def update_cached_state(
     cache_key: str,
     timestamp: datetime | str,
     result: Any,
-    ttl: Optional[int] = None,
+    ttl: int | None = None,
 ):
     if result is not None:  # This is particularly the case for HogQL-based queries, which cache.set() on their own
         cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
@@ -190,7 +190,7 @@ def update_cached_state(
     )
 
 
-def _extract_insight_dashboard(caching_state: InsightCachingState) -> tuple[Insight, Optional[Dashboard]]:
+def _extract_insight_dashboard(caching_state: InsightCachingState) -> tuple[Insight, Dashboard | None]:
     if caching_state.dashboard_tile is not None:
         assert caching_state.dashboard_tile.insight is not None
 

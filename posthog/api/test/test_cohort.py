@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 from posthog.test.base import (
     APIBaseTest,
@@ -47,8 +47,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
     def _get_cohort_activity(
         self,
-        flag_id: Optional[int] = None,
-        team_id: Optional[int] = None,
+        flag_id: int | None = None,
+        team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,
     ):
         if team_id is None:
@@ -63,7 +63,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
 
-    def assert_cohort_activity(self, cohort_id: Optional[int], expected: list[dict]):
+    def assert_cohort_activity(self, cohort_id: int | None, expected: list[dict]):
         activity_response = self._get_cohort_activity(cohort_id)
 
         activity: list[dict] = activity_response["results"]
@@ -2954,9 +2954,9 @@ email@example.org,
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(cohort_id), type="cohort").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Cohort."
-        assert (
-            "Special Folder/Cohorts" in fs_entry.path
-        ), f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
+        assert "Special Folder/Cohorts" in fs_entry.path, (
+            f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
+        )
 
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_filter_with_hogql_event_filter_and_null_value(self, patch_capture):

@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from enum import Enum, StrEnum
-from typing import Generic, Optional, TypeVar
+from typing import Generic, TypeVar
 
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
@@ -18,17 +18,17 @@ class TaxonomyAgentState(BaseStateWithIntermediateSteps, Generic[OutputType]):
     Only includes fields relevant to filter options generation.
     """
 
-    output: Optional[OutputType | str] = Field(default=None)
+    output: OutputType | str | None = Field(default=None)
     """
     The output of the taxonomy agent.
     """
 
-    change: Optional[str] = Field(default=None)
+    change: str | None = Field(default=None)
     """
     The change requested for the filters.
     """
 
-    instructions: Optional[str] = Field(default=None)
+    instructions: str | None = Field(default=None)
     """
     The instructions for the taxonomy agent.
     """

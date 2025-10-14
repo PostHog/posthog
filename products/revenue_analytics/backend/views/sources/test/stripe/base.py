@@ -5,7 +5,6 @@ This module provides common setup and utilities specifically for testing
 Stripe-based revenue analytics view sources.
 """
 
-from typing import Optional
 from uuid import uuid4
 
 from unittest.mock import Mock
@@ -27,7 +26,7 @@ from products.revenue_analytics.backend.views.core import SourceHandle
 from products.revenue_analytics.backend.views.sources.test.base import RevenueAnalyticsViewSourceBaseTest
 
 
-def create_mock_stripe_external_data_source(team, schemas: Optional[list[str]] = None):
+def create_mock_stripe_external_data_source(team, schemas: list[str] | None = None):
     """
     Create a mock external data source for Stripe with specified schemas.
 
@@ -134,7 +133,7 @@ class StripeSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
     including mock external data sources, schemas, and helper methods.
     """
 
-    def setup_stripe_external_data_source(self, schemas: Optional[list[str]] = None):
+    def setup_stripe_external_data_source(self, schemas: list[str] | None = None):
         """
         Create a mock Stripe external data source with specified schemas.
 

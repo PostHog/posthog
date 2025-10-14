@@ -476,17 +476,17 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         for source, data in source_efficiency.items():
             campaigns_with_clicks = [c for c in data["campaigns"] if c["clicks"] > 0]
             if source == "Facebook Ads":
-                assert (
-                    len(campaigns_with_clicks) == 4
-                ), f"Expected 4 Facebook campaigns with clicks, got {len(campaigns_with_clicks)}"
+                assert len(campaigns_with_clicks) == 4, (
+                    f"Expected 4 Facebook campaigns with clicks, got {len(campaigns_with_clicks)}"
+                )
             elif source == "TikTok Ads":
-                assert (
-                    len(campaigns_with_clicks) == 4
-                ), f"Expected 4 TikTok campaigns with clicks, got {len(campaigns_with_clicks)}"
+                assert len(campaigns_with_clicks) == 4, (
+                    f"Expected 4 TikTok campaigns with clicks, got {len(campaigns_with_clicks)}"
+                )
             elif source == "LinkedIn Ads":
-                assert (
-                    len(campaigns_with_clicks) == 8
-                ), f"Expected 8 LinkedIn campaigns with clicks, got {len(campaigns_with_clicks)}"
+                assert len(campaigns_with_clicks) == 8, (
+                    f"Expected 8 LinkedIn campaigns with clicks, got {len(campaigns_with_clicks)}"
+                )
 
             best_cpc_campaign = min(campaigns_with_clicks, key=lambda x: x["cpc"])
             worst_cpc_campaign = max(campaigns_with_clicks, key=lambda x: x["cpc"])
@@ -519,12 +519,12 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         total_zero_total_impressions = sum(int(row[4].value or 0) for row in zero_cost_campaigns)
         total_zero_total_clicks = sum(int(row[3].value or 0) for row in zero_cost_campaigns)
 
-        assert (
-            total_zero_total_impressions == 56
-        ), f"Expected 56 total impressions for zero-cost campaigns, got {total_zero_total_impressions}"
-        assert (
-            total_zero_total_clicks == 0
-        ), f"Expected 0 total clicks for zero-cost campaigns, got {total_zero_total_clicks}"
+        assert total_zero_total_impressions == 56, (
+            f"Expected 56 total impressions for zero-cost campaigns, got {total_zero_total_impressions}"
+        )
+        assert total_zero_total_clicks == 0, (
+            f"Expected 0 total clicks for zero-cost campaigns, got {total_zero_total_clicks}"
+        )
 
     def test_pagination_basic(self):
         linkedin_info = self._setup_csv_table("linkedin_ads")
@@ -564,9 +564,9 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         page1_campaigns = [row[0].value for row in response.results]
         page2_campaigns = [row[0].value for row in response_page2.results]
 
-        assert set(page1_campaigns).isdisjoint(
-            set(page2_campaigns)
-        ), "Page 1 and Page 2 should have different campaigns"
+        assert set(page1_campaigns).isdisjoint(set(page2_campaigns)), (
+            "Page 1 and Page 2 should have different campaigns"
+        )
 
     def test_pagination_edge_cases(self):
         facebook_info = self._setup_csv_table("facebook_ads")
@@ -633,9 +633,9 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         assert len(response_narrow.results) == 1, "Should have exactly 1 campaign from Dec 15"
         actual_campaigns = [row[0].value for row in response_narrow.results]
         expected_campaigns = ["test_brand_campaign"]
-        assert any(
-            campaign in expected_campaigns for campaign in actual_campaigns
-        ), "Should have expected campaigns from Dec 15"
+        assert any(campaign in expected_campaigns for campaign in actual_campaigns), (
+            "Should have expected campaigns from Dec 15"
+        )
 
     def test_invalid_table_configuration(self):
         source_configs = [
@@ -709,9 +709,9 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
 
         expected_columns = 10
         actual_columns = len(response.columns) if response.columns else 0
-        assert (
-            actual_columns == expected_columns
-        ), f"Expected {expected_columns} columns, got {actual_columns}: {response.columns}"
+        assert actual_columns == expected_columns, (
+            f"Expected {expected_columns} columns, got {actual_columns}: {response.columns}"
+        )
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
@@ -913,9 +913,9 @@ def test_campaign_performance_ranking(test_name, order_by, expected_sort_reverse
 
         # Verify ordering
         expected_values = sorted(values, reverse=expected_sort_reverse)
-        assert (
-            values == expected_values
-        ), f"{test_name} should be in {'descending' if expected_sort_reverse else 'ascending'} order. Got {values}, expected {expected_values}"
+        assert values == expected_values, (
+            f"{test_name} should be in {'descending' if expected_sort_reverse else 'ascending'} order. Got {values}, expected {expected_values}"
+        )
     finally:
         test_instance.tearDown()
         test_instance.tearDownClass()

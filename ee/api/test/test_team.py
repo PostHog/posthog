@@ -1,5 +1,4 @@
 import uuid
-from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import FuzzyInt
@@ -29,7 +28,7 @@ def team_enterprise_api_test_factory():
     class TestTeamEnterpriseAPI(APILicensedTest):
         CLASS_DATA_LEVEL_SETUP = False
 
-        def _assert_activity_log(self, expected: list[dict], team_id: Optional[int] = None) -> None:
+        def _assert_activity_log(self, expected: list[dict], team_id: int | None = None) -> None:
             if not team_id:
                 team_id = self.team.pk
 

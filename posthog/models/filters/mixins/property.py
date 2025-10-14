@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -62,7 +62,7 @@ class PropertyMixin(BaseParamMixin):
             # old style dict properties or a list of properties
             return self._parse_properties(loaded_props)
 
-    def _parse_properties(self, properties: Optional[Any]) -> list[Property]:
+    def _parse_properties(self, properties: Any | None) -> list[Property]:
         if isinstance(properties, list):
             _properties = []
             for prop_params in properties:
@@ -92,7 +92,7 @@ class PropertyMixin(BaseParamMixin):
             )
         return ret
 
-    def _parse_property_group(self, group: Optional[dict]) -> PropertyGroup:
+    def _parse_property_group(self, group: dict | None) -> PropertyGroup:
         if group and "type" in group and "values" in group:
             return PropertyGroup(
                 PropertyOperatorType(group["type"].upper()),
@@ -101,7 +101,7 @@ class PropertyMixin(BaseParamMixin):
 
         return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
 
-    def _parse_property_group_list(self, prop_list: Optional[list]) -> Union[list[Property], list[PropertyGroup]]:
+    def _parse_property_group_list(self, prop_list: list | None) -> Union[list[Property], list[PropertyGroup]]:
         if not prop_list:
             # empty prop list
             return cast(list[Property], [])

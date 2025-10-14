@@ -68,9 +68,9 @@ def run_sql_with_exceptions(
 
         query = Query(sql)
         if sharded:
-            assert (NodeRole.DATA in node_roles and len(node_roles) == 1) or (
-                settings.E2E_TESTING or settings.DEBUG
-            ), "When running migrations on sharded tables, the node_role must be NodeRole.DATA"
+            assert (NodeRole.DATA in node_roles and len(node_roles) == 1) or (settings.E2E_TESTING or settings.DEBUG), (
+                "When running migrations on sharded tables, the node_role must be NodeRole.DATA"
+            )
             return cluster.map_one_host_per_shard(query).result()
         elif is_alter_on_replicated_table:
             logger.info("       Running ALTER on replicated table on just one host")

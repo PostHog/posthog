@@ -26,7 +26,7 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
     """
     if inspect.iscoroutinefunction(fn):
         raise TypeError(
-            f"@asyncify should only be used on sync functions. " f"'{fn.__name__}' is already async. Remove @asyncify."
+            f"@asyncify should only be used on sync functions. '{fn.__name__}' is already async. Remove @asyncify."
         )
 
     @wraps(fn)

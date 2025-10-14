@@ -1,5 +1,4 @@
 from io import BytesIO
-from typing import Optional
 
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -23,7 +22,7 @@ FOUR_MEGABYTES = 4 * 1024 * 1024
 logger = structlog.getLogger(__name__)
 
 
-def validate_image_file(file: Optional[bytes], user: int) -> bool:
+def validate_image_file(file: bytes | None, user: int) -> bool:
     """
     Django validates file content type by reading "magic bytes" from the start of the file.
     It doesn't then check that file really is the type it claims to be.
@@ -57,7 +56,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
     Images are immutable, so we can cache them forever
     They are served unauthenticated as they might be presented on shared dashboards
     """
-    instance: Optional[UploadedMedia] = None
+    instance: UploadedMedia | None = None
     try:
         instance = UploadedMedia.objects.get(pk=kwargs["image_uuid"])
     except UploadedMedia.DoesNotExist:

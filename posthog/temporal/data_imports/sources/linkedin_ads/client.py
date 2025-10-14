@@ -1,6 +1,6 @@
 import json
 from collections.abc import Generator
-from typing import Any, Optional
+from typing import Any
 
 from linkedin_api.clients.restli.client import RestliClient
 
@@ -51,8 +51,8 @@ class LinkedinAdsClient:
         self,
         account_id: str,
         pivot: LinkedinAdsPivot = LinkedinAdsPivot.CAMPAIGN,
-        date_start: Optional[str] = None,
-        date_end: Optional[str] = None,
+        date_start: str | None = None,
+        date_end: str | None = None,
     ) -> list[dict[str, Any]]:
         resource = (
             LinkedinAdsResource.CampaignStats
@@ -78,8 +78,8 @@ class LinkedinAdsClient:
         self,
         resource: LinkedinAdsResource,
         account_id: str,
-        date_start: Optional[str] = None,
-        date_end: Optional[str] = None,
+        date_start: str | None = None,
+        date_end: str | None = None,
     ) -> Generator[list[dict[str, Any]], None, None]:
         """Get data by resource, yielding each page separately for paginated endpoints."""
         if resource == LinkedinAdsResource.Accounts:

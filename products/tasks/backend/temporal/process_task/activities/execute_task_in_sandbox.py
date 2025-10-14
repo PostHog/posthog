@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 
 from temporalio import activity
 
@@ -23,7 +22,7 @@ class ExecuteTaskOutput:
     stdout: str
     stderr: str
     exit_code: int
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @activity.defn

@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import cast
 
 from django.conf import settings
 
@@ -60,7 +60,7 @@ class Migration(AsyncMigrationDefinition):
     def is_required(self):
         return "Distributed" not in cast(str, self.get_current_engine("events"))
 
-    def get_current_engine(self, table_name: str) -> Optional[str]:
+    def get_current_engine(self, table_name: str) -> str | None:
         result = sync_execute(
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
             {"database": settings.CLICKHOUSE_DATABASE, "name": table_name},

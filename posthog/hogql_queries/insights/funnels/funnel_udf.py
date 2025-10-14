@@ -1,4 +1,4 @@
-from typing import Optional, Protocol, cast, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 from rest_framework.exceptions import ValidationError
 
@@ -197,9 +197,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 raise ValidationError("Only the first step can be used for breakdown attribution in unordered funnels")
 
         step_results = ",".join(
-            [f"countIf(bitAnd(steps_bitfield, {1 << i}) != 0) AS step_{i+1}" for i in range(self.context.max_steps)]
+            [f"countIf(bitAnd(steps_bitfield, {1 << i}) != 0) AS step_{i + 1}" for i in range(self.context.max_steps)]
         )
-        step_results2 = ",".join([f"sum(step_{i+1}) AS step_{i+1}" for i in range(self.context.max_steps)])
+        step_results2 = ",".join([f"sum(step_{i + 1}) AS step_{i + 1}" for i in range(self.context.max_steps)])
 
         conversion_time_arrays = ",".join(
             [
@@ -208,7 +208,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ]
         )
 
-        order_by = ",".join([f"step_{i+1} DESC" for i in reversed(range(self.context.max_steps))])
+        order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
 
         other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
 
@@ -376,7 +376,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
     def actor_query(
         self,
-        extra_fields: Optional[list[str]] = None,
+        extra_fields: list[str] | None = None,
     ) -> ast.SelectQuery:
         select: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),

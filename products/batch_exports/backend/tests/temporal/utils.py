@@ -199,9 +199,7 @@ def fail_on_application_error():
                 stack_trace = failure.stack_trace if failure else None
 
                 detailed_error = (
-                    f"Workflow failed with an ApplicationError:\n\n"
-                    f"  Error: {message}\n\n"
-                    f"  Error Type: {error_type}\n"
+                    f"Workflow failed with an ApplicationError:\n\n  Error: {message}\n\n  Error Type: {error_type}\n"
                 )
                 if stack_trace:
                     detailed_error += f"  Error Stack Trace: {stack_trace}\n"

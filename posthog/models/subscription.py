@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -137,7 +137,7 @@ class Subscription(models.Model):
         return None
 
     @property
-    def resource_info(self) -> Optional[SubscriptionResourceInfo]:
+    def resource_info(self) -> SubscriptionResourceInfo | None:
         if self.insight:
             return SubscriptionResourceInfo(
                 "Insight",

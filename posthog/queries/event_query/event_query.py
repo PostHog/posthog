@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from posthog.schema import PersonsOnEventsMode
 
@@ -44,7 +44,7 @@ class EventQuery(metaclass=ABCMeta):
     _extra_event_properties: list[PropertyName]
     _extra_person_fields: list[ColumnName]
     _person_id_alias: str
-    _session_id_alias: Optional[str]
+    _session_id_alias: str | None
 
     def __init__(
         self,
@@ -61,10 +61,10 @@ class EventQuery(metaclass=ABCMeta):
         should_join_persons=False,
         should_join_sessions=False,
         # Extra events/person table columns to fetch since parent query needs them
-        extra_fields: Optional[list[ColumnName]] = None,
-        extra_event_properties: Optional[list[PropertyName]] = None,
-        extra_person_fields: Optional[list[ColumnName]] = None,
-        override_aggregate_users_by_distinct_id: Optional[bool] = None,
+        extra_fields: list[ColumnName] | None = None,
+        extra_event_properties: list[PropertyName] | None = None,
+        extra_person_fields: list[ColumnName] | None = None,
+        override_aggregate_users_by_distinct_id: bool | None = None,
         person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.DISABLED,
         **kwargs,
     ) -> None:
@@ -274,7 +274,7 @@ class EventQuery(metaclass=ABCMeta):
 
     def _get_prop_groups(
         self,
-        prop_group: Optional[PropertyGroup],
+        prop_group: PropertyGroup | None,
         person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         person_id_joined_alias="person_id",
         prepend="global",

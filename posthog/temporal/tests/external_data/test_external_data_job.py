@@ -1,7 +1,6 @@
 import uuid
 import functools
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
 import pytest
 from unittest import mock
@@ -125,7 +124,7 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
-def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, table_id: Optional[str] = None):
+def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, table_id: str | None = None):
     return ExternalDataSchema.objects.create(
         name=schema_name,
         team_id=team.pk,

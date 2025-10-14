@@ -1,7 +1,7 @@
 import sys
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Literal, Optional
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -97,32 +97,32 @@ def get_breakdown_limit_for_context(limit_context: LimitContext) -> int:
 # Settings applied at the SELECT level
 class HogQLQuerySettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    optimize_aggregation_in_order: Optional[bool] = None
-    date_time_output_format: Optional[str] = None
-    date_time_input_format: Optional[str] = None
-    join_algorithm: Optional[str] = None
+    optimize_aggregation_in_order: bool | None = None
+    date_time_output_format: str | None = None
+    date_time_input_format: str | None = None
+    join_algorithm: str | None = None
 
 
 # Settings applied on top of all HogQL queries.
 class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
-    readonly: Optional[int] = 2
-    max_execution_time: Optional[int] = 60
-    max_memory_usage: Optional[int] = None  # default value coming from cloud config
-    max_threads: Optional[int] = None
-    allow_experimental_object_type: Optional[bool] = True
-    format_csv_allow_double_quotes: Optional[bool] = False
-    max_ast_elements: Optional[int] = 4_000_000  # default value 50000
-    max_expanded_ast_elements: Optional[int] = 4_000_000
-    max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
-    allow_experimental_analyzer: Optional[bool] = None
-    transform_null_in: Optional[bool] = True
+    readonly: int | None = 2
+    max_execution_time: int | None = 60
+    max_memory_usage: int | None = None  # default value coming from cloud config
+    max_threads: int | None = None
+    allow_experimental_object_type: bool | None = True
+    format_csv_allow_double_quotes: bool | None = False
+    max_ast_elements: int | None = 4_000_000  # default value 50000
+    max_expanded_ast_elements: int | None = 4_000_000
+    max_bytes_before_external_group_by: int | None = 0  # default value means we don't swap ordering by to disk
+    allow_experimental_analyzer: bool | None = None
+    transform_null_in: bool | None = True
     # A bugfix workaround that stops clauses that look like
     # `or(event = '1', event = '2', event = '3')` from being optimized into `event IN ('1', '2', '3')`
     # which can cause an error like `Not found column if(in(__table1.event, __set_String_14734461331367945596_10185115430245904968), 1_UInt8, 0_UInt8) in block.
     # There are only columns: if(nullIn(__table1.event, __set_String_14734461331367945596_10185115430245904968), 1_UInt8, 0_UInt8)
     # https://github.com/ClickHouse/ClickHouse/issues/64487
-    optimize_min_equality_disjunction_chain_length: Optional[int] = 4294967295
+    optimize_min_equality_disjunction_chain_length: int | None = 4294967295
     # experimental support for nonequal joins
-    allow_experimental_join_condition: Optional[bool] = True
-    preferred_block_size_bytes: Optional[int] = None
+    allow_experimental_join_condition: bool | None = True
+    preferred_block_size_bytes: int | None = None

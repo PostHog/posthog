@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from typing import Any, Optional, Self, Union, cast
+from typing import Any, Self, Union, cast
 
 from django.db import connection, models
 from django.db.models import Manager, QuerySet
@@ -125,7 +125,7 @@ class QueryContext:
     property_definition_fields: str
     property_definition_table: str
 
-    limit: Optional[int]
+    limit: int | None
     offset: int
 
     should_join_event_property: bool = True
@@ -147,7 +147,7 @@ class QueryContext:
 
     params: dict = dataclasses.field(default_factory=dict)
 
-    def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> Self:
+    def with_properties_to_filter(self, properties_to_filter: str | None) -> Self:
         if properties_to_filter:
             return dataclasses.replace(
                 self,
@@ -157,7 +157,7 @@ class QueryContext:
         else:
             return self
 
-    def with_is_numerical_flag(self, is_numerical: Optional[str]) -> Self:
+    def with_is_numerical_flag(self, is_numerical: str | None) -> Self:
         if is_numerical:
             return dataclasses.replace(
                 self,
@@ -166,7 +166,7 @@ class QueryContext:
         else:
             return self
 
-    def with_feature_flags(self, is_feature_flag: Optional[bool]) -> Self:
+    def with_feature_flags(self, is_feature_flag: bool | None) -> Self:
         if is_feature_flag is None:
             return self
         elif is_feature_flag:
@@ -182,7 +182,7 @@ class QueryContext:
                 params={**self.params, "is_feature_flag_like": "$feature/%"},
             )
 
-    def with_type_filter(self, type: str, group_type_index: Optional[int]):
+    def with_type_filter(self, type: str, group_type_index: int | None):
         if type == "event":
             return dataclasses.replace(
                 self,
@@ -223,7 +223,7 @@ class QueryContext:
                 },
             )
 
-    def with_event_property_filter(self, event_names: Optional[str], filter_by_event_names: Optional[bool]) -> Self:
+    def with_event_property_filter(self, event_names: str | None, filter_by_event_names: bool | None) -> Self:
         event_property_filter = ""
         event_name_filter = ""
         event_property_field = "NULL"
@@ -254,7 +254,7 @@ class QueryContext:
             params={**self.params, "project_id": self.project_id, **search_kwargs},
         )
 
-    def with_excluded_properties(self, excluded_properties: Optional[str]) -> Self:
+    def with_excluded_properties(self, excluded_properties: str | None) -> Self:
         excluded_list = []
         if excluded_properties:
             excluded_list = list(set(json.loads(excluded_properties)))
@@ -492,7 +492,7 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
 
         return self.count
 
-    def paginate_queryset(self, queryset, request, view=None) -> Optional[list[Any]]:
+    def paginate_queryset(self, queryset, request, view=None) -> list[Any] | None:
         """
         Assumes the queryset has already had pagination applied
         """

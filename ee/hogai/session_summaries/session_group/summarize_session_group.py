@@ -123,7 +123,7 @@ def generate_session_group_patterns_combination_prompt(
     # Serialize all the pattern chunks to inject into the prompt
     patterns_chunks_yaml = []
     for i, chunk in enumerate(patterns_chunks):
-        patterns_chunks_yaml.append(f"Patterns chunk #{i+1}:\n\n{chunk.model_dump_json(exclude_none=True)}")
+        patterns_chunks_yaml.append(f"Patterns chunk #{i + 1}:\n\n{chunk.model_dump_json(exclude_none=True)}")
     combined_patterns_chunks = "\n\n---\n\n".join(patterns_chunks_yaml)
 
     # Render templates

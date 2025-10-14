@@ -1,7 +1,7 @@
 import pickle
 import asyncio
 from collections.abc import AsyncGenerator, Callable
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -39,7 +39,7 @@ class MessageEvent(BaseModel):
 
 class StatusPayload(BaseModel):
     status: Literal["complete", "error"]
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class StatusEvent(BaseModel):
@@ -172,7 +172,7 @@ class ConversationRedisStream:
         self,
         start_id: str = "0",
         block_ms: int = 50,  # Block for 50ms waiting for new messages
-        count: Optional[int] = CONVERSATION_STREAM_CONCURRENT_READ_COUNT,
+        count: int | None = CONVERSATION_STREAM_CONCURRENT_READ_COUNT,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Read updates from Redis stream.

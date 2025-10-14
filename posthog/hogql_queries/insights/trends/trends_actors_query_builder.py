@@ -1,7 +1,7 @@
 import typing
 from datetime import datetime
 from functools import cached_property
-from typing import Optional, cast
+from typing import cast
 
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
@@ -45,10 +45,10 @@ class TrendsActorsQueryBuilder:
     limit_context: LimitContext
 
     entity: EventsNode | ActionsNode
-    time_frame: Optional[datetime]
-    breakdown_value: Optional[str | int | list[str]] = None
-    compare_value: Optional[Compare] = None
-    include_recordings: Optional[bool] = None
+    time_frame: datetime | None
+    breakdown_value: str | int | list[str] | None = None
+    compare_value: Compare | None = None
+    include_recordings: bool | None = None
 
     def __init__(
         self,
@@ -57,10 +57,10 @@ class TrendsActorsQueryBuilder:
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         series_index: int,
-        time_frame: Optional[str | datetime],
-        breakdown_value: Optional[str | int | list[str]] = None,
-        compare_value: Optional[Compare] = None,
-        include_recordings: Optional[bool] = None,
+        time_frame: str | datetime | None,
+        breakdown_value: str | int | list[str] | None = None,
+        compare_value: Compare | None = None,
+        include_recordings: bool | None = None,
         limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.trends_query = trends_query
@@ -378,17 +378,17 @@ class TrendsActorsQueryBuilder:
         actors_to_op: ast.CompareOperationOp = ast.CompareOperationOp.Lt
 
         if self.is_total_value:
-            assert (
-                self.time_frame is None
-            ), "A `day` is forbidden for trends actors queries with total value aggregation"
+            assert self.time_frame is None, (
+                "A `day` is forbidden for trends actors queries with total value aggregation"
+            )
 
             actors_from = query_from
             actors_to = query_to
             actors_to_op = ast.CompareOperationOp.LtEq
         else:
-            assert (
-                self.time_frame is not None
-            ), "A `day` is required for trends actors queries without total value aggregation"
+            assert self.time_frame is not None, (
+                "A `day` is required for trends actors queries without total value aggregation"
+            )
 
             # use previous day/week/... for time_frame
             if self.is_compare_previous:

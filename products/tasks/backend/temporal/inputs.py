@@ -1,6 +1,5 @@
 import uuid
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -9,7 +8,7 @@ class TaskProcessingInputs:
 
     task_id: str
     team_id: int
-    user_id: Optional[int] = None
+    user_id: int | None = None
 
     def __post_init__(self):
         # Validate task_id is a valid UUID

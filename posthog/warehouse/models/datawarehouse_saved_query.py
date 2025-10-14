@@ -1,7 +1,7 @@
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Any, Union
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -147,7 +147,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
         return columns
 
-    def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
+    def get_clickhouse_column_type(self, column_name: str) -> str | None:
         clickhouse_type = self.columns.get(column_name, None)
 
         if isinstance(clickhouse_type, dict) and self.columns[column_name].get("clickhouse"):
@@ -201,7 +201,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
 
     def hogql_definition(
-        self, modifiers: Optional[HogQLQueryModifiers] = None
+        self, modifiers: HogQLQueryModifiers | None = None
     ) -> Union[SavedQuery, HogQLDataWarehouseTable]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)

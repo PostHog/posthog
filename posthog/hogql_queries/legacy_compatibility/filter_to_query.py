@@ -2,7 +2,7 @@ import re
 import copy
 import json
 from enum import StrEnum
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Union, cast
 
 from pydantic import Field
 
@@ -64,7 +64,7 @@ def is_entity_variable(item: Any) -> bool:
     return isinstance(item, str) and item.startswith("{") and item.endswith("}")
 
 
-def clean_display(display: Optional[str]):
+def clean_display(display: str | None):
     if display not in [c.value for c in ChartDisplayType]:
         return None
     else:
@@ -243,8 +243,8 @@ class FunnelsQueryWithTemplateVariables(FunnelsQuery):
 
 
 class RetentionFilterWithTemplateVariables(RetentionFilter):
-    returningEntity: Optional[RetentionEntity | str] = None  # type: ignore
-    targetEntity: Optional[RetentionEntity | str] = None  # type: ignore
+    returningEntity: RetentionEntity | str | None = None  # type: ignore
+    targetEntity: RetentionEntity | str | None = None  # type: ignore
 
 
 class RetentionQueryWithTemplateVariables(RetentionQuery):

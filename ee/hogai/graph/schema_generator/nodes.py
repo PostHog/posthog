@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
-from typing import Generic, Optional, cast
+from typing import Generic, cast
 from uuid import uuid4
 
 from langchain_core.agents import AgentAction
@@ -74,7 +74,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         self,
         state: AssistantState,
         prompt: ChatPromptTemplate,
-        config: Optional[RunnableConfig] = None,
+        config: RunnableConfig | None = None,
     ) -> PartialAssistantState:
         start_id = state.start_id
         generated_plan = state.plan or ""
@@ -165,7 +165,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         return ET.tostring(root, encoding="unicode")
 
     async def _construct_messages(
-        self, state: AssistantState, validation_error_message: Optional[str] = None
+        self, state: AssistantState, validation_error_message: str | None = None
     ) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.

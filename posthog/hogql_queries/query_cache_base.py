@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
-from typing import Optional
 
 from posthog import redis
 
@@ -18,8 +17,8 @@ class QueryCacheManagerBase(ABC):
         *,
         team_id: int,
         cache_key: str,
-        insight_id: Optional[int] = None,
-        dashboard_id: Optional[int] = None,
+        insight_id: int | None = None,
+        dashboard_id: int | None = None,
     ):
         self.team_id = team_id
         self.cache_key = cache_key
@@ -38,7 +37,7 @@ class QueryCacheManagerBase(ABC):
         return "cache_timestamps"
 
     @classmethod
-    def get_stale_insights(cls, *, team_id: int, limit: Optional[int] = None) -> list[str]:
+    def get_stale_insights(cls, *, team_id: int, limit: int | None = None) -> list[str]:
         """
         Use redis sorted set to get stale insights. We sort by the timestamp and get the insights that are
         stale compared to the current time.
@@ -97,11 +96,11 @@ class QueryCacheManagerBase(ABC):
         self.redis_client.zrem(redis_key, self.identifier)
 
     @abstractmethod
-    def set_cache_data(self, *, response: dict, target_age: Optional[datetime]) -> None:
+    def set_cache_data(self, *, response: dict, target_age: datetime | None) -> None:
         """Store query results in cache."""
         pass
 
     @abstractmethod
-    def get_cache_data(self) -> Optional[dict]:
+    def get_cache_data(self) -> dict | None:
         """Retrieve query results from cache."""
         pass

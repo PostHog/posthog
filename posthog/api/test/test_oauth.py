@@ -1,7 +1,7 @@
 import base64
 import hashlib
 from datetime import timedelta
-from typing import Optional, cast
+from typing import cast
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 from freezegun import freeze_time
@@ -145,7 +145,7 @@ class TestOAuthAPI(APIBaseTest):
             url, data=urlencode(body), content_type="application/x-www-form-urlencoded", headers=headers
         )
 
-    def replace_param_in_url(self, url: str, param: str, value: Optional[str] = None) -> str:
+    def replace_param_in_url(self, url: str, param: str, value: str | None = None) -> str:
         """
         Return `url` with the query parameter `param` replaced by `value`.
         If `value` is None, the parameter is removed entirely.

@@ -1,7 +1,6 @@
 import json
 import datetime as dt
 import dataclasses
-from typing import Optional
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -17,7 +16,7 @@ from posthog.temporal.product_analytics.upgrade_queries_activities import (
 
 @dataclasses.dataclass
 class WorkflowState:
-    after_id: Optional[int]
+    after_id: int | None
     migrated: int
     pages_done: int
     failed_ids: list[int]
@@ -28,8 +27,8 @@ class UpgradeQueriesWorkflowInputs:
     """Inputs for the upgrade queries workflow."""
 
     batch_size: int = dataclasses.field(default=100)
-    state: Optional[WorkflowState] = None
-    test_continue_as_new: Optional[bool] = None
+    state: WorkflowState | None = None
+    test_continue_as_new: bool | None = None
 
 
 @workflow.defn(name="upgrade-queries")
@@ -42,7 +41,7 @@ class UpgradeQueriesWorkflow(PostHogWorkflow):
             self.state = WorkflowState(after_id=None, migrated=0, pages_done=0, failed_ids=[])
 
         if input.test_continue_as_new:
-            self.max_history_length: Optional[int] = 120
+            self.max_history_length: int | None = 120
         else:
             self.max_history_length = None
 

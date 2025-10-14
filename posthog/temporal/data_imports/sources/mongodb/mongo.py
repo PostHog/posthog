@@ -4,7 +4,7 @@ import math
 import contextlib
 import collections
 from collections.abc import Iterator
-from typing import Any, Optional
+from typing import Any
 
 import certifi
 from bson import ObjectId
@@ -72,9 +72,9 @@ def filter_mongo_incremental_fields(
 
 def _build_query(
     should_use_incremental_field: bool,
-    incremental_field: Optional[str],
-    incremental_field_type: Optional[IncrementalFieldType],
-    db_incremental_field_last_value: Optional[Any],
+    incremental_field: str | None,
+    incremental_field_type: IncrementalFieldType | None,
+    db_incremental_field_last_value: Any | None,
 ) -> dict[str, Any]:
     query: dict[str, Any] = {}
 
@@ -331,9 +331,9 @@ def mongo_source(
     collection_name: str,
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool,
-    db_incremental_field_last_value: Optional[Any],
-    incremental_field: Optional[str] = None,
-    incremental_field_type: Optional[IncrementalFieldType] = None,
+    db_incremental_field_last_value: Any | None,
+    incremental_field: str | None = None,
+    incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
     connection_params = _parse_connection_string(connection_string)
 

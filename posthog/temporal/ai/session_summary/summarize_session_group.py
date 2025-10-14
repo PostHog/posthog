@@ -508,7 +508,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     async def run(self, inputs: SessionGroupSummaryInputs) -> EnrichedSessionGroupSummaryPatternsList:
         self._total_sessions = len(inputs.session_ids)
         # Initialize session tracking with all sessions as not yet summarized
-        self._single_sessions_summarized = {session_id: False for session_id in inputs.session_ids}
+        self._single_sessions_summarized = dict.fromkeys(inputs.session_ids, False)
         # Get events data from the DB (or cache)
         self._current_status = (SessionSummaryStep.WATCHING_SESSIONS, "Fetching session data from the database")
         db_session_inputs = await self._fetch_session_group_data(inputs)

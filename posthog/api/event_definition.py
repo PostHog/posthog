@@ -1,5 +1,5 @@
 import json
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 
 from django.core.cache import cache
 from django.db.models import Manager
@@ -30,7 +30,7 @@ def create_event_definitions_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
     conditions: str = "",
-    order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
+    order_expressions: list[tuple[str, Literal["ASC", "DESC"]]] | None = None,
 ) -> str:
     if order_expressions is None:
         order_expressions = []

@@ -1,7 +1,7 @@
 import json
 import functools
 from collections.abc import Callable
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock
@@ -79,7 +79,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
 
         return data
 
-    def run_function(self, inputs: dict, globals=None, functions: Optional[dict] = None):
+    def run_function(self, inputs: dict, globals=None, functions: dict | None = None):
         self.mock_fetch.reset_mock()
         self.mock_print.reset_mock()
         # Create the globals object
@@ -117,7 +117,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
         self.organization.save()
 
     @functools.lru_cache
-    def _get_transpiled(self, edit_payload: Optional[Callable[[dict], dict]] = None):
+    def _get_transpiled(self, edit_payload: Callable[[dict], dict] | None = None):
         # TODO do this without calling the API. There's a lot of logic in the endpoint which would need to be extracted
         payload = {
             "description": self.template.description,
@@ -156,9 +156,9 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
     def _process_event(
         self,
         event_name: str,
-        event_properties: Optional[dict] = None,
-        person_properties: Optional[dict] = None,
-        edit_payload: Optional[Callable[[dict], dict]] = None,
+        event_properties: dict | None = None,
+        person_properties: dict | None = None,
+        edit_payload: Callable[[dict], dict] | None = None,
     ):
         event_id = str(uuid7())
         js_globals = {

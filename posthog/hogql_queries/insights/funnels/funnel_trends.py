@@ -1,6 +1,6 @@
 from datetime import datetime
 from itertools import groupby
-from typing import Any, Optional
+from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -289,7 +289,7 @@ class FunnelTrends(FunnelBase):
         return fill_query
 
     def get_step_counts_without_aggregation_query(
-        self, *, specific_entrance_period_start: Optional[datetime] = None
+        self, *, specific_entrance_period_start: datetime | None = None
     ) -> ast.SelectQuery:
         team, interval, max_steps = self.context.team, self.context.interval, self.context.max_steps
 

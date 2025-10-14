@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Union
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -206,15 +206,15 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _get_query(
         self,
-        series: Optional[list[EventsNode | ActionsNode]] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
-        interval: Optional[IntervalType] = None,
-        intervalCount: Optional[int] = None,
-        properties: Optional[StickinessProperties] = None,
-        filters: Optional[StickinessFilter] = None,
-        filter_test_accounts: Optional[bool] = False,
-        compare_filters: Optional[CompareFilter] = None,
+        series: list[EventsNode | ActionsNode] | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        interval: IntervalType | None = None,
+        intervalCount: int | None = None,
+        properties: StickinessProperties | None = None,
+        filters: StickinessFilter | None = None,
+        filter_test_accounts: bool | None = False,
+        compare_filters: CompareFilter | None = None,
     ):
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query_date_from = date_from or self.default_date_from
@@ -233,7 +233,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         return query
 
-    def _run_query(self, limit_context: Optional[LimitContext] = None, **kwargs):
+    def _run_query(self, limit_context: LimitContext | None = None, **kwargs):
         query = self._get_query(**kwargs)
         return StickinessQueryRunner(team=self.team, query=query, limit_context=limit_context).calculate()
 

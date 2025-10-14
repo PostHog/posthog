@@ -33,7 +33,7 @@ from ee.clickhouse.materialized_columns.columns import materialize
 
 
 def zero_trust_scores():
-    return {k: 0 for k in TRUST_SCORE_KEYS.values()}
+    return dict.fromkeys(TRUST_SCORE_KEYS.values(), 0)
 
 
 class TestQuotaLimiting(BaseTest):
@@ -148,7 +148,7 @@ class TestQuotaLimiting(BaseTest):
         team_tokens = get_team_attribute_by_quota_resource(self.organization)
         add_limited_team_tokens(
             QuotaResource.EVENTS,
-            {x: 1612137599 for x in team_tokens},
+            dict.fromkeys(team_tokens, 1612137599),
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
         quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
@@ -1213,12 +1213,12 @@ class TestQuotaLimiting(BaseTest):
                 quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
 
                 # Should get at least 2-day grace period, or more if trust score allows
-                assert (
-                    quota_limited_orgs["feature_flag_requests"] == {}
-                ), f"Trust score {trust_score} should not immediately limit"
-                assert quota_limiting_suspended_orgs["feature_flag_requests"] == {
-                    org_id: expected_timestamp
-                }, f"Trust score {trust_score} should get appropriate grace period"
+                assert quota_limited_orgs["feature_flag_requests"] == {}, (
+                    f"Trust score {trust_score} should not immediately limit"
+                )
+                assert quota_limiting_suspended_orgs["feature_flag_requests"] == {org_id: expected_timestamp}, (
+                    f"Trust score {trust_score} should get appropriate grace period"
+                )
                 assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
                     f"@posthog/quota-limiting-suspended/feature_flag_requests", 0, -1
                 )

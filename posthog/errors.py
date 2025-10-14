@@ -1,6 +1,5 @@
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 from clickhouse_driver.errors import ServerException
 
@@ -14,7 +13,7 @@ from posthog.exceptions import (
 
 
 class InternalCHQueryError(ServerException):
-    code_name: Optional[str]
+    code_name: str | None
     """Can be null if re-raised from a thread (see `failhard_threadhook_context`)."""
 
     def __init__(self, message, *, code=None, nested=None, code_name=None):

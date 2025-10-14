@@ -1,5 +1,5 @@
 import dataclasses
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal
 
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.models.hog_function_template import HogFunctionTemplate
@@ -31,19 +31,19 @@ HogFunctionTemplateType = Literal[
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionMapping:
-    name: Optional[str] = None
-    filters: Optional[dict] = None
-    inputs: Optional[dict] = None
-    inputs_schema: Optional[list[dict]] = None
+    name: str | None = None
+    filters: dict | None = None
+    inputs: dict | None = None
+    inputs_schema: list[dict] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
 class HogFunctionMappingTemplate:
     name: str
-    include_by_default: Optional[bool] = None
-    filters: Optional[dict] = None
-    inputs: Optional[dict] = None
-    inputs_schema: Optional[list[dict]] = None
+    include_by_default: bool | None = None
+    filters: dict | None = None
+    inputs: dict | None = None
+    inputs_schema: list[dict] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -57,11 +57,11 @@ class HogFunctionTemplateDC:
     code_language: Literal["javascript", "hog"]
     inputs_schema: list[dict]
     category: list[str]
-    description: Optional[str] = None
-    filters: Optional[dict] = None
-    mapping_templates: Optional[list[HogFunctionMappingTemplate]] = None
-    masking: Optional[dict] = None
-    icon_url: Optional[str] = None
+    description: str | None = None
+    filters: dict | None = None
+    mapping_templates: list[HogFunctionMappingTemplate] | None = None
+    masking: dict | None = None
+    icon_url: str | None = None
 
 
 class HogFunctionTemplateMigrator:

@@ -1,5 +1,3 @@
-from typing import Optional
-
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.schema import (
@@ -41,15 +39,13 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             type=PropertyDefinition.Type.PERSON,
         )
 
-    def _select(
-        self, query: str, start: int, end: int, database: Optional[Database] = None
-    ) -> HogQLAutocompleteResponse:
+    def _select(self, query: str, start: int, end: int, database: Database | None = None) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(
             kind="HogQLAutocomplete", query=query, language=HogLanguage.HOG_QL, startPosition=start, endPosition=end
         )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
-    def _expr(self, query: str, start: int, end: int, database: Optional[Database] = None) -> HogQLAutocompleteResponse:
+    def _expr(self, query: str, start: int, end: int, database: Database | None = None) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(
             kind="HogQLAutocomplete",
             query=query,
@@ -61,7 +57,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
     def _template(
-        self, query: str, start: int, end: int, database: Optional[Database] = None
+        self, query: str, start: int, end: int, database: Database | None = None
     ) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(
             kind="HogQLAutocomplete",
@@ -73,7 +69,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
-    def _json(self, query: str, start: int, end: int, database: Optional[Database] = None) -> HogQLAutocompleteResponse:
+    def _json(self, query: str, start: int, end: int, database: Database | None = None) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(
             kind="HogQLAutocomplete",
             query=query,
@@ -84,9 +80,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         )
         return get_hogql_autocomplete(query=autocomplete, team=self.team, database_arg=database)
 
-    def _program(
-        self, query: str, start: int, end: int, database: Optional[Database] = None
-    ) -> HogQLAutocompleteResponse:
+    def _program(self, query: str, start: int, end: int, database: Database | None = None) -> HogQLAutocompleteResponse:
         autocomplete = HogQLAutocomplete(
             kind="HogQLAutocomplete",
             query=query,

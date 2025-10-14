@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
@@ -260,7 +259,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         return complete_results
 
     # Cache results for 24 hours
-    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+    def cache_target_age(self, last_refresh: datetime | None, lazy: bool = False) -> datetime | None:
         if last_refresh is None:
             return None
         return last_refresh + timedelta(hours=24)
@@ -270,7 +269,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         payload["experiment_exposures_response_version"] = 2
         return payload
 
-    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+    def _is_stale(self, last_refresh: datetime | None, lazy: bool = False) -> bool:
         if not last_refresh:
             return True
         return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)

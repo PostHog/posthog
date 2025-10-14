@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -54,7 +53,7 @@ class Command(BaseCommand):
         self.stdout.write(f'Starting consumer for queue "{queue_name}" ({queue_type})')
         consumer.run(max_messages=max_messages, continuous=continuous)
 
-    def _get_consumer(self, queue_type: str, queue_url: str, region_name: str) -> Optional[SQSConsumer]:
+    def _get_consumer(self, queue_type: str, queue_url: str, region_name: str) -> SQSConsumer | None:
         """
         Factory method to get the appropriate consumer based on queue type.
 

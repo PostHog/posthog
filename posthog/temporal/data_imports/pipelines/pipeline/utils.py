@@ -6,7 +6,7 @@ import hashlib
 import datetime
 from collections.abc import Iterator, Sequence
 from ipaddress import IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import orjson
@@ -349,8 +349,8 @@ def setup_partitioning(
 
 def append_partition_key_to_table(
     table: pa.Table,
-    partition_count: Optional[int],
-    partition_size: Optional[int],
+    partition_count: int | None,
+    partition_size: int | None,
     partition_keys: list[str],
     partition_mode: PartitionMode | None,
     partition_format: PartitionFormat | None,
@@ -471,7 +471,7 @@ def _json_dumps(obj: Any) -> str:
             return str(obj)
 
 
-def table_from_iterator(data_iterator: Iterator[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
+def table_from_iterator(data_iterator: Iterator[dict], schema: pa.Schema | None = None) -> pa.Table:
     batch = list(data_iterator)
     if not batch:
         return pa.Table.from_pylist([])
@@ -481,7 +481,7 @@ def table_from_iterator(data_iterator: Iterator[dict], schema: Optional[pa.Schem
     return processed_batch
 
 
-def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None) -> pa.Table:
+def table_from_py_list(table_data: list[Any], schema: pa.Schema | None = None) -> pa.Table:
     """
     Convert a list of Python dictionaries to a PyArrow Table.
     This is a wrapper around table_from_iterator for backward compatibility.
@@ -582,7 +582,7 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
 
-def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
+def _process_batch(table_data: list[dict], schema: pa.Schema | None = None) -> pa.Table:
     # Support both given schemas and inferred schemas
     if schema is None or len(schema.names) == 0:
         try:

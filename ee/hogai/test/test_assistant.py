@@ -1,5 +1,5 @@
 from itertools import cycle
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
@@ -141,14 +141,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def _run_assistant_graph(
         self,
-        test_graph: Optional[CompiledStateGraph] = None,
-        message: Optional[str] = "Hello",
-        conversation: Optional[Conversation] = None,
-        tool_call_partial_state: Optional[AssistantState] = None,
+        test_graph: CompiledStateGraph | None = None,
+        message: str | None = "Hello",
+        conversation: Conversation | None = None,
+        tool_call_partial_state: AssistantState | None = None,
         is_new_conversation: bool = False,
-        mode: Optional[AssistantMode] = None,
-        contextual_tools: Optional[dict[str, Any]] = None,
-        ui_context: Optional[MaxUIContext] = None,
+        mode: AssistantMode | None = None,
+        contextual_tools: dict[str, Any] | None = None,
+        ui_context: MaxUIContext | None = None,
         filter_ack_messages: bool = True,
     ) -> tuple[list[AssistantOutput], BaseAssistant]:
         # If no mode is specified, use ASSISTANT as default

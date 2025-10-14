@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import posthoganalytics
 from dateutil.parser import isoparse, parser
@@ -19,7 +19,7 @@ RECENTLY_ACCESSED_TEAMS_REDIS_KEY = "INSIGHT_CACHE_UPDATE_RECENTLY_ACCESSED_TEAM
 IN_A_DAY = 86_400
 
 
-def ensure_is_date(candidate: Optional[Union[str, datetime]]) -> Optional[datetime]:
+def ensure_is_date(candidate: Union[str, datetime] | None) -> datetime | None:
     if candidate is None:
         return None
     if isinstance(candidate, datetime):
@@ -98,7 +98,7 @@ def stale_cache_invalidation_disabled(team: Team) -> bool:
         return False
 
 
-def last_refresh_from_cached_result(cached_result: dict | object) -> Optional[datetime]:
+def last_refresh_from_cached_result(cached_result: dict | object) -> datetime | None:
     last_refresh: str | datetime | None
     if isinstance(cached_result, dict):
         last_refresh = cached_result.get("last_refresh")
@@ -127,7 +127,7 @@ class ThresholdMode(Enum):
     AI = "ai"
 
 
-staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
+staleness_threshold_map: dict[ThresholdMode, dict[str | None, timedelta]] = {
     ThresholdMode.DEFAULT: {
         None: timedelta(hours=6),
         "minute": timedelta(minutes=5),
@@ -151,8 +151,8 @@ staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
 
 
 def cache_target_age(
-    interval: Optional[str], last_refresh: datetime, mode: ThresholdMode = ThresholdMode.DEFAULT
-) -> Optional[datetime]:
+    interval: str | None, last_refresh: datetime, mode: ThresholdMode = ThresholdMode.DEFAULT
+) -> datetime | None:
     if interval not in staleness_threshold_map[mode]:
         return None
     return last_refresh + staleness_threshold_map[mode][interval]
@@ -160,9 +160,9 @@ def cache_target_age(
 
 def is_stale(
     team: Team,
-    date_to: Optional[datetime],
-    interval: Optional[str],
-    last_refresh: Optional[datetime],
+    date_to: datetime | None,
+    interval: str | None,
+    last_refresh: datetime | None,
     mode: ThresholdMode = ThresholdMode.DEFAULT,
 ) -> bool:
     """

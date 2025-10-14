@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from django.db import models
 from django.utils import timezone
@@ -44,7 +44,7 @@ class CohortCalculationHistory(RootTeamMixin, UUIDModel):
         return f"CohortCalculationHistory(cohort={self.cohort_id}, started_at={self.started_at})"
 
     @property
-    def duration_seconds(self) -> Optional[float]:
+    def duration_seconds(self) -> float | None:
         """Calculate duration in seconds if both start and end times are available"""
         if self.started_at and self.finished_at:
             return (self.finished_at - self.started_at).total_seconds()
@@ -62,12 +62,12 @@ class CohortCalculationHistory(RootTeamMixin, UUIDModel):
 
     def add_query_info(
         self,
-        query: Optional[str] = None,
-        query_id: Optional[str] = None,
-        query_ms: Optional[int] = None,
-        memory_mb: Optional[int] = None,
-        read_rows: Optional[int] = None,
-        written_rows: Optional[int] = None,
+        query: str | None = None,
+        query_id: str | None = None,
+        query_ms: int | None = None,
+        memory_mb: int | None = None,
+        read_rows: int | None = None,
+        written_rows: int | None = None,
     ) -> None:
         """Add query information to the queries array"""
         query_info: dict[str, Union[str, int]] = {}
@@ -91,35 +91,35 @@ class CohortCalculationHistory(RootTeamMixin, UUIDModel):
             self.queries.append(query_info)
 
     @property
-    def total_query_ms(self) -> Optional[int]:
+    def total_query_ms(self) -> int | None:
         """Get total query duration across all queries"""
         if not self.queries:
             return None
         return sum(q.get("query_ms", 0) for q in self.queries if q.get("query_ms"))
 
     @property
-    def total_memory_mb(self) -> Optional[int]:
+    def total_memory_mb(self) -> int | None:
         """Get total memory usage across all queries"""
         if not self.queries:
             return None
         return sum(q.get("memory_mb", 0) for q in self.queries if q.get("memory_mb"))
 
     @property
-    def total_read_rows(self) -> Optional[int]:
+    def total_read_rows(self) -> int | None:
         """Get total rows read across all queries"""
         if not self.queries:
             return None
         return sum(q.get("read_rows", 0) for q in self.queries if q.get("read_rows"))
 
     @property
-    def total_written_rows(self) -> Optional[int]:
+    def total_written_rows(self) -> int | None:
         """Get total rows written across all queries"""
         if not self.queries:
             return None
         return sum(q.get("written_rows", 0) for q in self.queries if q.get("written_rows"))
 
     @property
-    def main_query(self) -> Optional[str]:
+    def main_query(self) -> str | None:
         """Get the main query (first query in the array)"""
         if self.queries:
             return self.queries[0].get("query")

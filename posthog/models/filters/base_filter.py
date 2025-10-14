@@ -25,8 +25,8 @@ class BaseFilter(BaseParamMixin):
 
     def __init__(
         self,
-        data: Optional[dict[str, Any]] = None,
-        request: Optional[request.Request] = None,
+        data: dict[str, Any] | None = None,
+        request: request.Request | None = None,
         *,
         team: Optional["Team"] = None,
         **kwargs,

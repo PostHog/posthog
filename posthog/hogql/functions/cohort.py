@@ -1,5 +1,3 @@
-from typing import Optional
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
@@ -7,7 +5,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr
 
 
-def cohort_subquery(cohort_id, is_static, version: Optional[int] = None) -> ast.Expr:
+def cohort_subquery(cohort_id, is_static, version: int | None = None) -> ast.Expr:
     if is_static:
         sql = "(SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
     elif version is not None:

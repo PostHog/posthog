@@ -1,5 +1,4 @@
 from time import perf_counter
-from typing import Optional
 
 from django.db import transaction
 
@@ -62,7 +61,7 @@ EXCEPTIONS_TO_RETRY = (CHQueryErrorTooManySimultaneousQueries,)
     max_retries=3,
 )
 @transaction.atomic
-def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
+def export_asset(exported_asset_id: int, limit: int | None = None) -> None:
     # if Celery is lagging then you can end up with an exported asset that has had a TTL added
     # and that TTL has passed, in the exporter we don't care about that.
     # the TTL is for later cleanup.
@@ -72,7 +71,7 @@ def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
     export_asset_direct(exported_asset, limit)
 
 
-def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
+def export_asset_direct(exported_asset: ExportedAsset, limit: int | None = None) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
 
     start_time = perf_counter()

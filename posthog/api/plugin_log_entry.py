@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from django.utils import timezone
 
@@ -24,7 +23,7 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def list(self, request, *args, **kwargs):
         limit_raw = request.GET.get("limit")
-        limit: Optional[int]
+        limit: int | None
         if limit_raw:
             try:
                 limit = int(limit_raw)
@@ -33,13 +32,13 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         else:
             limit = None
 
-        after_raw: Optional[str] = request.GET.get("after")
-        after: Optional[datetime] = None
+        after_raw: str | None = request.GET.get("after")
+        after: datetime | None = None
         if after_raw is not None:
             after = timezone.datetime.fromisoformat(after_raw.replace("Z", "+00:00"))
 
-        before_raw: Optional[str] = request.GET.get("before")
-        before: Optional[datetime] = None
+        before_raw: str | None = request.GET.get("before")
+        before: datetime | None = None
         if before_raw is not None:
             before = timezone.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 

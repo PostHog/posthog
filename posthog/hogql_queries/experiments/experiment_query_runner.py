@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from typing import Optional
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -60,7 +59,7 @@ class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
 
-    def __init__(self, *args, override_end_date: Optional[datetime] = None, **kwargs):
+    def __init__(self, *args, override_end_date: datetime | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
 
@@ -111,7 +110,7 @@ class ExperimentQueryRunner(QueryRunner):
         self,
         exposure_query: ast.SelectQuery,
         metric_events_query: ast.SelectQuery,
-        denominator_events_query: Optional[ast.SelectQuery] = None,
+        denominator_events_query: ast.SelectQuery | None = None,
     ) -> ast.SelectQuery:
         """
         Aggregates all events per entity to get their total contribution to the metric
@@ -565,7 +564,7 @@ class ExperimentQueryRunner(QueryRunner):
         raise ValidationError(f"Cannot convert source query of type {self.query.metric.kind} to query")
 
     # Cache results for 24 hours
-    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+    def cache_target_age(self, last_refresh: datetime | None, lazy: bool = False) -> datetime | None:
         if last_refresh is None:
             return None
         return last_refresh + timedelta(hours=24)
@@ -576,7 +575,7 @@ class ExperimentQueryRunner(QueryRunner):
         payload["stats_method"] = self.stats_method
         return payload
 
-    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+    def _is_stale(self, last_refresh: datetime | None, lazy: bool = False) -> bool:
         if not last_refresh:
             return True
         return (datetime.now(UTC) - last_refresh) > timedelta(hours=24)

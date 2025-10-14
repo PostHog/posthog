@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -25,8 +25,8 @@ class DatabaseField(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    array: Optional[bool] = None
-    nullable: Optional[bool] = None
+    array: bool | None = None
+    nullable: bool | None = None
 
     def is_nullable(self) -> bool:
         return not not self.nullable
@@ -124,7 +124,7 @@ class UUIDDatabaseField(DatabaseField):
 class ExpressionField(DatabaseField):
     expr: Expr
     # Pushes the parent table type to the scope when resolving any child fields
-    isolate_scope: Optional[bool] = None
+    isolate_scope: bool | None = None
 
 
 class FieldTraverser(FieldOrTable):
@@ -223,7 +223,7 @@ class LazyJoin(FieldOrTable):
     join_function: Callable[["LazyJoinToAdd", "HogQLContext", "SelectQuery"], Any]
     join_table: Table | str
     from_field: list[str | int]
-    to_field: Optional[list[str | int]] = None
+    to_field: list[str | int] | None = None
 
     def resolve_table(self, context: "HogQLContext") -> Table:
         if isinstance(self.join_table, Table):
@@ -281,8 +281,8 @@ class FunctionCallTable(Table):
 
     name: str
     requires_args: bool = True
-    min_args: Optional[int] = None
-    max_args: Optional[int] = None
+    min_args: int | None = None
+    max_args: int | None = None
 
 
 class DANGEROUS_NoTeamIdCheckTable(Table):

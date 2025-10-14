@@ -1,4 +1,4 @@
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Union
 
 from django.conf import settings
 from django.db import models
@@ -55,16 +55,16 @@ class SessionRecording(UUIDTModel):
 
     # DYNAMIC FIELDS
 
-    viewed: Optional[bool] = False
-    viewers: Optional[list[str]] = None
-    _person: Optional[Person] = None
-    matching_events: Optional[RecordingMatchingEvents] = None
-    ongoing: Optional[bool] = None
-    activity_score: Optional[float] = None
-    ttl_days: Optional[int] = None
+    viewed: bool | None = False
+    viewers: list[str] | None = None
+    _person: Person | None = None
+    matching_events: RecordingMatchingEvents | None = None
+    ongoing: bool | None = None
+    activity_score: float | None = None
+    ttl_days: int | None = None
 
     # Metadata can be loaded from Clickhouse or S3
-    _metadata: Optional[RecordingMetadata] = None
+    _metadata: RecordingMetadata | None = None
 
     def load_metadata(self) -> bool:
         if self._metadata:
@@ -113,7 +113,7 @@ class SessionRecording(UUIDTModel):
         return "object_storage_lts"
 
     @property
-    def snapshot_source(self) -> Optional[str]:
+    def snapshot_source(self) -> str | None:
         return self._metadata.get("snapshot_source", "web") if self._metadata else "web"
 
     @property
@@ -157,7 +157,7 @@ class SessionRecording(UUIDTModel):
         else:
             raise NotImplementedError(f"Unknown session replay object storage version {version}")
 
-    def build_blob_ingestion_storage_path(self, root_prefix: Optional[str] = None) -> str:
+    def build_blob_ingestion_storage_path(self, root_prefix: str | None = None) -> str:
         root_prefix = root_prefix or settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
         return f"{root_prefix}/team_id/{self.team_id}/session_id/{self.session_id}/data"
 
@@ -208,7 +208,7 @@ class SessionRecording(UUIDTModel):
 
         return recordings
 
-    def set_start_url_from_urls(self, urls: Optional[list[str]] = None, first_url: Optional[str] = None):
+    def set_start_url_from_urls(self, urls: list[str] | None = None, first_url: str | None = None):
         if first_url:
             self.start_url = first_url[:512]
             return

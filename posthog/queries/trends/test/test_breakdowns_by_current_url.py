@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 
@@ -96,7 +95,7 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
 
         journeys_for(journey, team=self.team, create_people=True)
 
-    def _run(self, extra: Optional[dict] = None, events_extra: Optional[dict] = None):
+    def _run(self, extra: dict | None = None, events_extra: dict | None = None):
         if events_extra is None:
             events_extra = {}
         if extra is None:

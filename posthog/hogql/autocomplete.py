@@ -1,7 +1,7 @@
 import json
 from collections.abc import Callable
 from copy import deepcopy
-from typing import Optional, cast
+from typing import cast
 
 from django.db import models
 from django.db.models.functions.comparison import Coalesce
@@ -59,9 +59,9 @@ class GetNodeAtPositionTraverser(TraversingVisitor):
     start: int
     end: int
     selects: list[ast.SelectQuery]
-    node: Optional[AST] = None
-    parent_node: Optional[AST] = None
-    nearest_select_query: Optional[ast.SelectQuery] = None
+    node: AST | None = None
+    parent_node: AST | None = None
+    nearest_select_query: ast.SelectQuery | None = None
     stack: list[AST]
 
     def __init__(self, expr: ast.AST, start: int, end: int):
@@ -154,7 +154,7 @@ def convert_field_or_table_to_type_string(
     return None
 
 
-def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[dict[str, CTE]]) -> None | Table:
+def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: dict[str, CTE] | None) -> None | Table:
     assert context.database is not None
 
     def resolve_fields_on_table(table: Table | None, table_query: ast.SelectQuery) -> Table | None:
@@ -320,8 +320,8 @@ def extend_responses(
     keys: list[str],
     suggestions: list[AutocompleteCompletionItem],
     kind: AutocompleteCompletionItemKind = AutocompleteCompletionItemKind.VARIABLE,
-    insert_text: Optional[Callable[[str], str]] = None,
-    details: Optional[list[str | None]] = None,
+    insert_text: Callable[[str], str] | None = None,
+    details: list[str | None] | None = None,
 ) -> None:
     suggestions.extend(
         [
@@ -385,7 +385,7 @@ def gather_hog_variables_in_scope(root_node, node) -> list[str]:
 
 
 def get_hogql_autocomplete(
-    query: HogQLAutocomplete, team: Team, database_arg: Optional[Database] = None
+    query: HogQLAutocomplete, team: Team, database_arg: Database | None = None
 ) -> HogQLAutocompleteResponse:
     response = HogQLAutocompleteResponse(suggestions=[], incomplete_list=False)
     timings = HogQLTimings()
@@ -418,7 +418,7 @@ def get_hogql_autocomplete(
             query_to_try = query.query[: query.endPosition] + extra_characters + query.query[query.endPosition :]
             query_start = query.startPosition
             query_end = query.endPosition + length_to_add
-            select_ast: Optional[ast.AST] = None
+            select_ast: ast.AST | None = None
 
             if query.language == HogLanguage.HOG_QL:
                 with timings.measure("parse_select"):

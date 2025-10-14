@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -18,7 +18,7 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
         super().__init__(team, user, DeepResearchState)
 
     def add_onboarding_node(
-        self, node_map: Optional[dict[Literal["onboarding", "planning", "continue"], DeepResearchNodeName]] = None
+        self, node_map: dict[Literal["onboarding", "planning", "continue"], DeepResearchNodeName] | None = None
     ):
         builder = self._graph
         self._has_start_node = True

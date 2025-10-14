@@ -1,4 +1,4 @@
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -21,7 +21,7 @@ def earliest_timestamp_func(team_id: int):
     return get_earliest_timestamp(team_id)
 
 
-def get_filter(team, data: Optional[dict] = None, request: Optional[Request] = None):
+def get_filter(team, data: dict | None = None, request: Request | None = None):
     from .filter import Filter
     from .path_filter import PathFilter
     from .retention_filter import RetentionFilter
@@ -56,7 +56,7 @@ def get_filter(team, data: Optional[dict] = None, request: Optional[Request] = N
     return Filter(data=data, request=request, team=team)
 
 
-def validate_group_type_index(param_name: str, value: Any, required=False) -> Optional[GroupTypeIndex]:
+def validate_group_type_index(param_name: str, value: Any, required=False) -> GroupTypeIndex | None:
     error = ValidationError(
         f"{param_name} is required to be at least 0 and less than {GROUP_TYPES_LIMIT}",
         code="invalid",

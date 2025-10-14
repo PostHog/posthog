@@ -2,7 +2,7 @@ import re
 import logging
 import functools
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Union
 from urllib.parse import urlsplit
 
 from django.apps import apps
@@ -104,9 +104,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     def find_key_with_source(
         cls,
         request: Union[HttpRequest, Request],
-        request_data: Optional[dict[str, Any]] = None,
-        extra_data: Optional[dict[str, Any]] = None,
-    ) -> Optional[tuple[str, str]]:
+        request_data: dict[str, Any] | None = None,
+        extra_data: dict[str, Any] | None = None,
+    ) -> tuple[str, str] | None:
         """Try to find personal API key in request and return it along with where it was found."""
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
@@ -124,9 +124,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     def find_key(
         cls,
         request: Union[HttpRequest, Request],
-        request_data: Optional[dict[str, Any]] = None,
-        extra_data: Optional[dict[str, Any]] = None,
-    ) -> Optional[str]:
+        request_data: dict[str, Any] | None = None,
+        extra_data: dict[str, Any] | None = None,
+    ) -> str | None:
         """Try to find personal API key in request and return it."""
         key_with_source = cls.find_key_with_source(request, request_data, extra_data)
         return key_with_source[0] if key_with_source is not None else None
@@ -168,7 +168,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
         return personal_api_key_object
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> tuple[Any, None] | None:
         personal_api_key_with_source = self.find_key_with_source(request)
         if not personal_api_key_with_source:
             return None
@@ -221,7 +221,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     def find_secret_api_token(
         cls,
         request: Union[HttpRequest, Request],
-    ) -> Optional[str]:
+    ) -> str | None:
         """Try to find project secret API key in request and return it"""
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.META["HTTP_AUTHORIZATION"])
@@ -239,7 +239,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
 
         return None
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> tuple[Any, None] | None:
         secret_api_token = self.find_secret_api_token(request)
 
         if not secret_api_token:
@@ -319,7 +319,7 @@ class JwtAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
 
     @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(cls, request: Union[HttpRequest, Request]) -> tuple[Any, None] | None:
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
@@ -351,7 +351,7 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
 
     sharing_configuration: SharingConfiguration
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> tuple[Any, Any] | None:
         if sharing_access_token := request.GET.get("sharing_access_token"):
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
@@ -383,7 +383,7 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
     sharing_configuration: SharingConfiguration
     share_password: "SharePassword"
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> tuple[Any, Any] | None:
         if request.method != "GET":
             return None
 
@@ -446,7 +446,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
     access_token: OAuthAccessToken
 
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> tuple[Any, None] | None:
         authorization_token = self._extract_token(request)
 
         if not authorization_token:
@@ -473,7 +473,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         except Exception:
             raise AuthenticationFailed(detail="Invalid access token.")
 
-    def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
+    def _extract_token(self, request: Union[HttpRequest, Request]) -> str | None:
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:

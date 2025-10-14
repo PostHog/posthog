@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Literal, Optional, cast, get_args
+from typing import Any, Literal, cast, get_args
 from uuid import UUID, uuid4
 
 import structlog
@@ -68,19 +68,19 @@ class BaseAssistant(ABC):
     _mode: AssistantMode
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
-    _session_id: Optional[str]
-    _latest_message: Optional[HumanMessage]
-    _state: Optional[AssistantMaxGraphState]
-    _callback_handler: Optional[BaseCallbackHandler]
-    _trace_id: Optional[str | UUID]
+    _session_id: str | None
+    _latest_message: HumanMessage | None
+    _state: AssistantMaxGraphState | None
+    _callback_handler: BaseCallbackHandler | None
+    _trace_id: str | UUID | None
     _custom_update_ids: set[str]
-    _reasoning_headline_chunk: Optional[str]
+    _reasoning_headline_chunk: str | None
     """Like a message chunk, but specifically for the reasoning headline (and just a plain string)."""
-    _last_reasoning_headline: Optional[str]
+    _last_reasoning_headline: str | None
     """Last emitted reasoning headline, to be able to carry it over."""
-    _billing_context: Optional[MaxBillingContext]
-    _initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState]
-    _commentary_chunk: Optional[str]
+    _billing_context: MaxBillingContext | None
+    _initial_state: AssistantMaxGraphState | AssistantMaxPartialGraphState | None
+    _commentary_chunk: str | None
     """Buffer for accumulating partial commentary from tool call chunks."""
 
     def __init__(
@@ -88,19 +88,19 @@ class BaseAssistant(ABC):
         team: Team,
         conversation: Conversation,
         *,
-        new_message: Optional[HumanMessage] = None,
+        new_message: HumanMessage | None = None,
         user: User,
         graph: AssistantCompiledStateGraph,
         state_type: type[AssistantMaxGraphState],
         partial_state_type: type[AssistantMaxPartialGraphState],
         mode: AssistantMode,
-        session_id: Optional[str] = None,
-        contextual_tools: Optional[dict[str, Any]] = None,
+        session_id: str | None = None,
+        contextual_tools: dict[str, Any] | None = None,
         is_new_conversation: bool = False,
-        trace_id: Optional[str | UUID] = None,
-        billing_context: Optional[MaxBillingContext] = None,
-        initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState] = None,
-        callback_handler: Optional[BaseCallbackHandler] = None,
+        trace_id: str | UUID | None = None,
+        billing_context: MaxBillingContext | None = None,
+        initial_state: AssistantMaxGraphState | AssistantMaxPartialGraphState | None = None,
+        callback_handler: BaseCallbackHandler | None = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -326,7 +326,7 @@ class BaseAssistant(ABC):
 
     async def _node_to_reasoning_message(
         self, node_name: MaxNodeName, input: AssistantMaxGraphState
-    ) -> Optional[ReasoningMessage]:
+    ) -> ReasoningMessage | None:
         if node_name not in self.THINKING_NODES:
             return None
         async_callable = self._graph.aget_reasoning_message_by_node_name.get(node_name)
@@ -459,7 +459,7 @@ class BaseAssistant(ABC):
         """Subclasses can opt-in to persisting completed commentary messages."""
         return False
 
-    def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
+    def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> str | None:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it.
 
         Captures everything between the first opening ** and the last closing ** as the headline.
@@ -520,7 +520,7 @@ class BaseAssistant(ABC):
                 self._reasoning_headline_chunk += summary_text_chunk
                 return None
 
-    def _extract_commentary_from_tool_call_chunk(self, langchain_message: AIMessageChunk) -> Optional[tuple[str, bool]]:
+    def _extract_commentary_from_tool_call_chunk(self, langchain_message: AIMessageChunk) -> tuple[str, bool] | None:
         """Extract commentary from tool call chunks.
 
         Handles partial JSON parsing for "commentary": "some text" patterns.

@@ -1,5 +1,5 @@
 import logging
-from typing import Literal, Optional, cast
+from typing import Literal, cast
 from uuid import uuid4
 
 from langchain_core.messages import (
@@ -198,7 +198,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
         return DeepResearchNodeName.PLANNER_TOOLS
 
     async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
+        self, input: BaseState, default_message: str | None = None
     ) -> ReasoningMessage | None:
         if not isinstance(input, BaseStateWithMessages):
             return None

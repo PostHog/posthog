@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 
 from posthog.schema import PersonsOnEventsMode
 
@@ -33,10 +33,10 @@ class EnterpriseEventQuery(EventQuery):
         should_join_distinct_ids=False,
         should_join_persons=False,
         # Extra events/person table columns to fetch since parent query needs them
-        extra_fields: Optional[list[ColumnName]] = None,
-        extra_event_properties: Optional[list[PropertyName]] = None,
-        extra_person_fields: Optional[list[ColumnName]] = None,
-        override_aggregate_users_by_distinct_id: Optional[bool] = None,
+        extra_fields: list[ColumnName] | None = None,
+        extra_event_properties: list[PropertyName] | None = None,
+        extra_person_fields: list[ColumnName] | None = None,
+        override_aggregate_users_by_distinct_id: bool | None = None,
         person_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.DISABLED,
         **kwargs,
     ) -> None:

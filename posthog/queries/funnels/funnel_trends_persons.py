@@ -1,5 +1,3 @@
-from typing import Optional
-
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import DROP_OFF, ENTRANCE_PERIOD_START
@@ -33,7 +31,7 @@ class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):
                 return ", step_%(matching_events_step_num)s_matching_events as matching_events"
         return ""
 
-    def actor_query(self, limit_actors: Optional[bool] = True):
+    def actor_query(self, limit_actors: bool | None = True):
         drop_off = self._filter.drop_off
         if drop_off is None:
             raise ValidationError(f"Filter parameter {DROP_OFF} must be provided and a bool for funnel trends persons!")

@@ -1,5 +1,5 @@
 import hashlib
-from typing import Any, Optional
+from typing import Any
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -52,7 +52,7 @@ def log_notebook_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
-    changes: Optional[list[Change]] = None,
+    changes: list[Change] | None = None,
 ) -> None:
     short_id = str(notebook.short_id)
 

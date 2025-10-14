@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from posthog.schema import DateRange, IntervalType
 
@@ -13,15 +12,15 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
     _team: Team
-    _date_range: Optional[DateRange]
-    _interval: Optional[IntervalType]
+    _date_range: DateRange | None
+    _interval: IntervalType | None
     _now_without_timezone: datetime
 
     def __init__(
         self,
-        date_range: Optional[DateRange],
+        date_range: DateRange | None,
         team: Team,
-        interval: Optional[IntervalType],
+        interval: IntervalType | None,
         now: datetime,
         **kwargs,
     ) -> None:

@@ -96,7 +96,7 @@ class HogFunctionTemplate(UUIDTModel):
         return content_hash[:8]
 
     @classmethod
-    def get_template(cls, template_id: str, sha: Optional[str] = None) -> Optional["HogFunctionTemplate"]:
+    def get_template(cls, template_id: str, sha: str | None = None) -> Optional["HogFunctionTemplate"]:
         """
         Gets a template by ID and optionally sha.
         Args:

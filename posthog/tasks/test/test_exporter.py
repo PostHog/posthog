@@ -1,5 +1,4 @@
 import base64
-from typing import Optional
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -12,10 +11,10 @@ from posthog.tasks.exports.image_exporter import get_driver
 
 
 class MockWebDriver(MagicMock):
-    def find_element_by_css_selector(self, name: str) -> Optional[MagicMock]:
+    def find_element_by_css_selector(self, name: str) -> MagicMock | None:
         return MagicMock()  # Always return something for wait_for_css_selector
 
-    def find_element_by_class_name(self, name: str) -> Optional[MagicMock]:
+    def find_element_by_class_name(self, name: str) -> MagicMock | None:
         return None  # Never return anything for Spinner
 
 

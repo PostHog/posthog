@@ -1,5 +1,5 @@
 import json
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 from rest_framework.request import Request
 
@@ -45,7 +45,7 @@ class RetentionFilter(
     SampleMixin,
     BaseFilter,
 ):
-    def __init__(self, data: Optional[dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
+    def __init__(self, data: dict[str, Any] | None = None, request: Request | None = None, **kwargs) -> None:
         if data is None:
             data = {}
         if data:
@@ -55,7 +55,7 @@ class RetentionFilter(
         super().__init__(data, request, **kwargs)
 
     @cached_property
-    def breakdown_values(self) -> Optional[tuple[Union[str, int], ...]]:
+    def breakdown_values(self) -> tuple[Union[str, int], ...] | None:
         raw_value = self._data.get("breakdown_values", None)
         if raw_value is None:
             return None

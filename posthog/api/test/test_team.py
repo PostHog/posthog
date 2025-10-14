@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
@@ -40,7 +40,7 @@ def team_api_test_factory():
     class TestTeamAPI(APIBaseTest):
         """Tests for /api/environments/."""
 
-        def _assert_activity_log(self, expected: list[dict], team_id: Optional[int] = None) -> None:
+        def _assert_activity_log(self, expected: list[dict], team_id: int | None = None) -> None:
             if not team_id:
                 team_id = self.team.pk
 
