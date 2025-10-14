@@ -25,13 +25,27 @@ export default defineConfig(({ mode }) => {
                         setTimeout(() => {
                             console.info(`
 ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
-                                                            
-   🚀 Visit http://localhost:8010 to see the app             
-   ⚠️  You may need to wait for the other services to start   
-                                                            
+
+   🚀 Visit http://localhost:8010 to see the app
+   ⚠️  You may need to wait for the other services to start
+
 ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
 `)
                         }, 1000)
+                    })
+                },
+            },
+            {
+                name: 'cors-headers',
+                configureServer(server) {
+                    server.middlewares.use((_req, res, next) => {
+                        // Set CORS headers for cross-origin worker access
+                        res.setHeader('Access-Control-Allow-Origin', 'http://localhost:8010')
+                        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+                        res.setHeader('Access-Control-Allow-Credentials', 'true')
+                        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
+                        res.setHeader('Cache-Control', 'no-store')
+                        next()
                     })
                 },
             },
@@ -83,14 +97,19 @@ export default defineConfig(({ mode }) => {
             },
             sourcemap: true,
         },
+        worker: {
+            format: 'iife', // Use IIFE format to bundle everything into a single file
+            plugins: () => [react()],
+            rollupOptions: {
+                output: {
+                    entryFileNames: isDev ? '[name].js' : '[name]-[hash].js',
+                    inlineDynamicImports: true, // Bundle all imports into single file
+                },
+            },
+        },
         server: {
             port: 8234,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
-            cors: {
-                // Allow Django backend to access Vite dev server
-                origin: ['http://localhost:8000', 'http://localhost:8010'],
-            },
-            // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
         },
         define: {

@@ -1396,6 +1396,7 @@ class SessionRecordingViewSet(
                             session_recording_v2_object_storage.client().fetch_block, block.url
                         )
                     else:
+                        # Fetch compressed bytes - each block is independently compressed
                         content = await asyncio.to_thread(
                             session_recording_v2_object_storage.client().fetch_block_bytes, block.url
                         )
@@ -1409,40 +1410,68 @@ class SessionRecordingViewSet(
                     )
                     return block_index, None
 
-            with (
-                timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
-                tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
-            ):
-                tasks = [fetch_single_block_async(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
-
-                results = await asyncio.gather(*tasks)
-
-                blocks_data: list[str | bytes | None] = [None] * len(results)
-                block_errors: list[int] = []
-
-                for block_index, content in results:
-                    if content is None:
-                        block_errors.append(block_index)
-                    else:
-                        blocks_data[block_index - min_blob_key] = content
-
-            if block_errors:
-                raise exceptions.APIException("Failed to load recording block")
-
-            # After error check, all values are guaranteed to be strings or bytes
             if decompress:
-                # Decompressed blocks are strings, join with newlines
+                # When decompressing: fetch all blocks, decompress, join with newlines
+                with (
+                    timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
+                    tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
+                ):
+                    tasks = [fetch_single_block_async(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
+                    results = await asyncio.gather(*tasks)
+
+                    blocks_data: list[str | None] = [None] * len(results)
+                    block_errors: list[int] = []
+
+                    for block_index, content in results:
+                        if content is None:
+                            block_errors.append(block_index)
+                        else:
+                            blocks_data[block_index - min_blob_key] = cast(str, content)
+
+                if block_errors:
+                    raise exceptions.APIException("Failed to load recording block")
+
                 response = HttpResponse(
                     content="\n".join(cast(list[str], blocks_data)),
                     content_type="application/jsonl",
                 )
             else:
-                # Compressed blocks are bytes, concatenate without separators
+                # When not decompressing: fetch all blocks and build length-prefixed payload
+                # We collect blocks concurrently but send as one payload to avoid streaming issues
+                import struct
+
+                with (
+                    timer("fetch_compressed_blocks__stream_blob_v2_to_client"),
+                    tracer.start_as_current_span("fetch_compressed_blocks__stream_blob_v2_to_client"),
+                ):
+                    tasks = [fetch_single_block_async(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
+                    results = await asyncio.gather(*tasks)
+
+                    blocks_data: list[bytes | None] = [None] * len(results)
+                    block_errors: list[int] = []
+
+                    for block_index, content in results:
+                        if content is None:
+                            block_errors.append(block_index)
+                        else:
+                            blocks_data[block_index - min_blob_key] = cast(bytes, content)
+
+                if block_errors:
+                    raise exceptions.APIException("Failed to load recording block")
+
+                # Build length-prefixed binary payload
+                payload_chunks = []
+                for block in cast(list[bytes], blocks_data):
+                    # Add 4-byte length prefix (big-endian)
+                    payload_chunks.append(struct.pack('>I', len(block)))
+                    # Add the compressed block
+                    payload_chunks.append(block)
+
                 response = HttpResponse(
-                    content=b"".join(cast(list[bytes], blocks_data)),
+                    content=b"".join(payload_chunks),
                     content_type="application/octet-stream",
                 )
-                response["Content-Encoding"] = "snappy"
+
             response["Cache-Control"] = "max-age=3600"
             response["Content-Disposition"] = "inline"
             return response

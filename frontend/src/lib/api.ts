@@ -3034,23 +3034,39 @@ const api = {
             recordingId: SessionRecordingType['id'],
             params: SessionRecordingSnapshotParams,
             headers: Record<string, string> = {}
-        ): Promise<string[]> {
+        ): Promise<string[] | Uint8Array> {
+            const DEBUG_VERSION_API = 'v19'
+            console.log(`[DEBUG API ${DEBUG_VERSION_API}] getSnapshots called with params:`, params)
+
             const response = await new ApiRequest()
                 .recording(recordingId)
                 .withAction('snapshots')
                 .withQueryString(params)
                 .getResponse({ headers })
 
+            console.log(`[DEBUG API ${DEBUG_VERSION_API}] Response content-type:`, response.headers.get('content-type'))
+
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
+            console.log(`[DEBUG API ${DEBUG_VERSION_API}] Received buffer size:`, contentBuffer.length, 'bytes')
+
+            // If client requested uncompressed data (decompress=false), return binary data
+            if (params.decompress === false) {
+                console.log(`[DEBUG API ${DEBUG_VERSION_API}] Returning compressed binary data (Uint8Array)`)
+                return contentBuffer
+            }
+
+            // Otherwise try to decode as text
             try {
                 const textDecoder = new TextDecoder()
                 const textLines = textDecoder.decode(contentBuffer)
 
                 if (textLines) {
-                    return textLines.split('\n')
+                    const lines = textLines.split('\n')
+                    console.log(`[DEBUG API ${DEBUG_VERSION_API}] Decoded as text, line count:`, lines.length)
+                    return lines
                 }
-            } catch {
-                // we assume it is gzipped, swallow the error, and carry on below
+            } catch (error) {
+                console.error(`[DEBUG API ${DEBUG_VERSION_API}] Failed to decode as text:`, error)
             }
             return []
         },

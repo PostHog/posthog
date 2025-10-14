@@ -141,7 +141,14 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     )
 
 
-urlpatterns = [
+urlpatterns = []
+
+# Add dev-only routes first (before catch-all)
+if settings.DEBUG:
+    from posthog.dev_views import vite_worker_proxy
+    urlpatterns.append(re_path(r"^_vite/(?P<path>.*)$", vite_worker_proxy))
+
+urlpatterns.extend([
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     # Optional UI:
     path(
@@ -234,7 +241,7 @@ urlpatterns = [
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
-]
+])
 
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note

@@ -238,25 +238,81 @@ export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
     sessionId: string
 ): Promise<RecordingSnapshot[]> => {
+    const DEBUG_VERSION_PARSE = 'v19'
+
     if (!postHogEEModule) {
         postHogEEModule = await posthogEE()
     }
 
     // Check if we received compressed binary data (ArrayBuffer or Uint8Array)
     if (items instanceof ArrayBuffer || items instanceof Uint8Array) {
+        console.log(`[DEBUG PARSE ${DEBUG_VERSION_PARSE}] parseEncodedSnapshots received binary data:`, {
+            type: items instanceof Uint8Array ? 'Uint8Array' : 'ArrayBuffer',
+            size: items.byteLength,
+        })
         try {
-            const compressedData = items instanceof ArrayBuffer ? new Uint8Array(items) : items
-            const workerManager = getDecompressionWorkerManager()
-            const decompressedData = await workerManager.decompress(compressedData)
+            const uint8Data = items instanceof Uint8Array ? items : new Uint8Array(items)
+            console.log(`[DEBUG PARSE ${DEBUG_VERSION_PARSE}] Parsing length-prefixed compressed blocks...`)
 
-            // Convert decompressed bytes to string
-            const textDecoder = new TextDecoder('utf-8')
-            const decompressedText = textDecoder.decode(decompressedData)
+            const workerManager = getDecompressionWorkerManager()
+            const decompressedParts: string[] = []
+            let offset = 0
+
+            // Parse length-prefixed blocks: [4 bytes length][compressed block][4 bytes length][compressed block]...
+            while (offset < uint8Data.byteLength) {
+                // Read 4-byte length prefix (big-endian unsigned int)
+                if (offset + 4 > uint8Data.byteLength) {
+                    console.error(`[DEBUG PARSE ${DEBUG_VERSION_PARSE}] Incomplete length prefix at offset ${offset}`)
+                    break
+                }
+
+                const length =
+                    (uint8Data[offset] << 24) |
+                    (uint8Data[offset + 1] << 16) |
+                    (uint8Data[offset + 2] << 8) |
+                    uint8Data[offset + 3]
+                offset += 4
+
+                console.log(`[DEBUG PARSE ${DEBUG_VERSION_PARSE}] Block ${decompressedParts.length + 1} length: ${length}, offset: ${offset}`)
+
+                // Read compressed block
+                if (offset + length > uint8Data.byteLength) {
+                    console.error(
+                        `[DEBUG PARSE ${DEBUG_VERSION_PARSE}] Incomplete block at offset ${offset}, expected ${length} bytes, available ${uint8Data.byteLength - offset}`
+                    )
+                    break
+                }
+
+                const compressedBlock = uint8Data.slice(offset, offset + length)
+                offset += length
+
+                // Decompress this block
+                console.log(`[DEBUG PARSE ${DEBUG_VERSION_PARSE}] Decompressing block ${decompressedParts.length + 1}...`)
+                const decompressedData = await workerManager.decompress(compressedBlock)
+
+                // Convert bytes to string
+                const textDecoder = new TextDecoder('utf-8')
+                const decompressedText = textDecoder.decode(decompressedData)
+                decompressedParts.push(decompressedText)
+
+                console.log(
+                    `[DEBUG PARSE ${DEBUG_VERSION_PARSE}] Block ${decompressedParts.length} decompressed: ${decompressedText.length} characters`
+                )
+            }
+
+            // Join all decompressed blocks with newlines
+            const combinedText = decompressedParts.join('\n')
+            console.log(
+                `[DEBUG PARSE ${DEBUG_VERSION_PARSE}] Decompressed ${decompressedParts.length} blocks, total: ${combinedText.length} characters`
+            )
+            console.log(`[DEBUG PARSE ${DEBUG_VERSION_PARSE}] First 200 chars:`, combinedText.substring(0, 200))
 
             // Split into lines and parse as JSON
-            const lines = decompressedText.split('\n').filter((line) => line.trim().length > 0)
+            const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
+            console.log(`[DEBUG PARSE ${DEBUG_VERSION_PARSE}] Split into ${lines.length} lines, recursively parsing...`)
             return parseEncodedSnapshots(lines, sessionId)
         } catch (error) {
+            console.error(`[DEBUG PARSE ${DEBUG_VERSION_PARSE}] Decompression failed:`, error)
             posthog.captureException(new Error('Failed to decompress snapshot data'), {
                 sessionId,
                 error: error instanceof Error ? error.message : 'Unknown error',
@@ -265,6 +321,8 @@ export const parseEncodedSnapshots = async (
             return []
         }
     }
+
+    console.log(`[DEBUG PARSE ${DEBUG_VERSION_PARSE}] parseEncodedSnapshots received array data, length:`, items.length)
 
     const lineCount = items.length
     const unparseableLines: string[] = []
