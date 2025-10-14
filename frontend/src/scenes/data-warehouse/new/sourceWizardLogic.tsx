@@ -254,6 +254,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             syncTimeOfDay,
         }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
+        toggleAllTables: (selectAll: boolean) => ({ selectAll }),
     }),
     connect(() => ({
         values: [
@@ -274,6 +275,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     })),
     reducers({
+        tablesAllToggledOn: [
+            true as boolean,
+            {
+                toggleAllTables: (_, { selectAll }) => selectAll,
+            },
+        ],
         manualLinkingProvider: [
             null as ManualLinkSourceType | null,
             {
@@ -750,6 +757,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 product_type: ProductKey.DATA_WAREHOUSE,
                 intent_context: ProductIntentContext.SELECTED_CONNECTOR,
             })
+        },
+        toggleAllTables: ({ selectAll }) => {
+            actions.setDatabaseSchemas(
+                values.databaseSchema.map((schema) => ({
+                    ...schema,
+                    should_sync: selectAll,
+                }))
+            )
         },
     })),
     urlToAction(({ actions, values }) => {

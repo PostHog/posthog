@@ -25,9 +25,9 @@ import { SyncMethodForm } from './SyncMethodForm'
 
 export default function SchemaForm(): JSX.Element {
     const containerRef = useFloatingContainer()
-    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime } =
+    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime, toggleAllTables } =
         useActions(sourceWizardLogic)
-    const { databaseSchema, isProjectTime } = useValues(sourceWizardLogic)
+    const { databaseSchema, isProjectTime, tablesAllToggledOn } = useValues(sourceWizardLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
@@ -52,6 +52,12 @@ export default function SchemaForm(): JSX.Element {
                         dataSource={databaseSchema}
                         columns={[
                             {
+                                title: (
+                                    <LemonCheckbox
+                                        checked={tablesAllToggledOn}
+                                        onChange={(checked) => toggleAllTables(checked)}
+                                    />
+                                ),
                                 width: 0,
                                 key: 'enabled',
                                 render: function RenderEnabled(_, schema) {
