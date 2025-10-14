@@ -1411,6 +1411,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         seekToTimestamp: ({ timestamp, forcePlay }, breakpoint) => {
             actions.stopAnimation()
+            actions.pauseIframePlayback()
+
             cache.pausedMediaElements = []
             actions.setCurrentTimestamp(timestamp)
 
