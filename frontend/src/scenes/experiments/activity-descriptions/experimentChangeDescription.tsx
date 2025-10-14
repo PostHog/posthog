@@ -172,14 +172,5 @@ export const getExperimentChangeDescription = (
 
             return changes.filter(Boolean) as (string | JSX.Element)[]
         })
-        .otherwise(({ field }) => {
-            const fieldName = field
-                ? field
-                      .replace(/_/g, ' ')
-                      .replace(/([A-Z])/g, ' $1')
-                      .trim()
-                      .toLowerCase()
-                : 'a field'
-            return `changed the ${fieldName} of`
-        })
+        .otherwise(() => null)
 }
