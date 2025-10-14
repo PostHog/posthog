@@ -1,16 +1,16 @@
 from datetime import datetime
 
-from posthog.test.base import NonAtomicBaseTest
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.outputs import Generation, LLMResult
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.outputs import ChatGeneration, Generation, LLMResult
 
-from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.llm import MaxChatAnthropic, MaxChatOpenAI
 
 
-@patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key"})
-class TestMaxChatOpenAI(NonAtomicBaseTest):
+@patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key", "ANTHROPIC_API_KEY": "test-api-key"})
+class TestMaxChatOpenAI(BaseTest):
     def setUp(self):
         super().setUp()
         # Setup test data
@@ -23,54 +23,57 @@ class TestMaxChatOpenAI(NonAtomicBaseTest):
 
     def test_initialization_and_context_variables(self):
         """Test initialization and context variable extraction."""
-        llm = MaxChatOpenAI(user=self.user, team=self.team, max_retries=5)
-
-        # Test initialization
-        self.assertEqual(llm._user, self.user)
-        self.assertEqual(llm._team, self.team)
-        self.assertEqual(llm.max_retries, 5)
-
-        # Test context variables
         with patch("datetime.datetime") as mock_datetime:
-            mock_now = datetime(2024, 1, 15, 10, 30, 45)
-            mock_datetime.now.return_value = mock_now
+            for llm in (
+                MaxChatOpenAI(user=self.user, team=self.team),
+                MaxChatAnthropic(user=self.user, team=self.team, model="claude"),
+            ):
+                # Test initialization
+                self.assertEqual(llm.user, self.user)
+                self.assertEqual(llm.team, self.team)
+                self.assertIsNotNone(llm.max_retries)
 
-            variables = llm._get_project_org_user_variables()
+                # Test context variables
+                mock_now = datetime(2024, 1, 15, 10, 30, 45)
+                mock_datetime.now.return_value = mock_now
 
-            self.assertEqual(variables["project_name"], "Test Project")
-            self.assertEqual(variables["project_timezone"], "America/New_York")
-            self.assertEqual(variables["project_datetime"], "2024-01-15 10:30:45")
-            self.assertEqual(variables["organization_name"], "Test Organization")
-            self.assertEqual(variables["user_full_name"], "John Doe")
-            self.assertEqual(variables["user_email"], "john@example.com")
+                variables = llm._get_project_org_user_variables()
+
+                self.assertEqual(variables["project_name"], "Test Project")
+                self.assertEqual(variables["project_timezone"], "America/New_York")
+                self.assertEqual(variables["project_datetime"], "2024-01-15 05:30:45")
+                self.assertEqual(variables["organization_name"], "Test Organization")
+                self.assertEqual(variables["user_full_name"], "John Doe")
+                self.assertEqual(variables["user_email"], "john@example.com")
 
     def test_message_enrichment_with_context(self):
         """Test that context is properly injected into messages."""
-        llm = MaxChatOpenAI(user=self.user, team=self.team)
+        for llm in (
+            MaxChatOpenAI(user=self.user, team=self.team),
+            MaxChatAnthropic(user=self.user, team=self.team, model="claude"),
+        ):
+            # Test with system messages present
+            messages_with_system = [[SystemMessage(content="System prompt"), HumanMessage(content="User query")]]
 
-        # Test with system messages present
-        messages_with_system = [[SystemMessage(content="System prompt"), HumanMessage(content="User query")]]
+            variables = llm._get_project_org_user_variables()
+            messages_with_system = llm._enrich_messages(messages_with_system, variables)
 
-        variables = llm._get_project_org_user_variables()
-        llm._enrich_messages(messages_with_system, variables)
+            # Context should be inserted after system messages
+            self.assertEqual(len(messages_with_system[0]), 3)
+            self.assertIsInstance(messages_with_system[0][1], SystemMessage)  # Our context
+            self.assertIn("Test Project", str(messages_with_system[0][1].content))
 
-        # Context should be inserted after system messages
-        self.assertEqual(len(messages_with_system[0]), 3)
-        self.assertIsInstance(messages_with_system[0][1], SystemMessage)  # Our context
-        self.assertIn("Test Project", str(messages_with_system[0][1].content))
+            # Test without system messages
+            messages_no_system: list[list[BaseMessage]] = [[HumanMessage(content="User query")]]
+            messages_no_system = llm._enrich_messages(messages_no_system, variables)
 
-        # Test without system messages
-        messages_no_system = [[HumanMessage(content="User query")]]
-        llm._enrich_messages(messages_no_system, variables)
-
-        # Context should be inserted at the beginning
-        self.assertEqual(len(messages_no_system[0]), 2)
-        self.assertIsInstance(messages_no_system[0][0], SystemMessage)  # Our context
+            # Context should be inserted at the beginning
+            self.assertEqual(len(messages_no_system[0]), 2)
+            self.assertIsInstance(messages_no_system[0][0], SystemMessage)  # Our context
 
     def test_responses_api_instruction_enrichment(self):
         """Test instruction enrichment for responses API mode."""
         llm = MaxChatOpenAI(user=self.user, team=self.team)
-
         # Test with no existing instructions
         llm.model_kwargs = {}
         variables = llm._get_project_org_user_variables()
@@ -88,14 +91,14 @@ class TestMaxChatOpenAI(NonAtomicBaseTest):
         self.assertIn("Existing instructions", llm.model_kwargs["instructions"])
         self.assertTrue(llm.model_kwargs["instructions"].endswith("Existing instructions"))
 
-    def test_generate_methods_with_different_modes(self):
+    def test_openai_generate_methods_with_different_modes(self):
         """Test both sync and async generate methods in different modes."""
         # Test responses API mode
         llm_responses = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=True)
 
         mock_result = LLMResult(generations=[[Generation(text="Response")]])
         with patch("langchain_openai.ChatOpenAI.generate", return_value=mock_result) as mock_generate:
-            messages = [[HumanMessage(content="Test query")]]
+            messages: list[list[BaseMessage]] = [[HumanMessage(content="Test query")]]
             result = llm_responses.generate(messages)
 
             # Should have enriched instructions
@@ -115,16 +118,76 @@ class TestMaxChatOpenAI(NonAtomicBaseTest):
             self.assertEqual(len(called_messages[0]), 2)  # Original + context
             self.assertIsInstance(called_messages[0][0], SystemMessage)  # Context message
 
-    async def test_async_generate_with_context(self):
+    async def test_openai_async_generate_with_context(self):
         """Test async generation properly includes context."""
         llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False)
 
         mock_result = LLMResult(generations=[[Generation(text="Response")]])
         with patch("langchain_openai.ChatOpenAI.agenerate", return_value=mock_result) as mock_agenerate:
-            messages = [[HumanMessage(content="Test query")]]
+            messages: list[list[BaseMessage]] = [[HumanMessage(content="Test query")]]
             await llm.agenerate(messages)
 
             # Verify context was added
+            called_messages = mock_agenerate.call_args[0][0]
+            self.assertEqual(len(called_messages[0]), 2)
+            self.assertIn("Test Project", str(called_messages[0][0].content))
+
+    async def test_anthropic_async_generate_with_context(self):
+        """Test async generation properly includes context."""
+        llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude")
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        with patch("langchain_anthropic.ChatAnthropic.agenerate", return_value=mock_result) as mock_agenerate:
+            messages: list[list[BaseMessage]] = [[HumanMessage(content="Test query")]]
+            await llm.agenerate(messages)
+
+            # Verify context was added
+            called_messages = mock_agenerate.call_args[0][0]
+            self.assertEqual(len(called_messages[0]), 2)
+            self.assertIn("Test Project", str(called_messages[0][0].content))
+
+    def test_invoke_with_context(self):
+        """Test invoke method properly includes context."""
+        llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False)
+
+        mock_result = LLMResult(generations=[[ChatGeneration(message=AIMessage(content="Response"))]])
+        with patch("langchain_openai.ChatOpenAI.generate", return_value=mock_result) as mock_generate:
+            messages = [HumanMessage(content="Test query")]
+            llm.invoke(messages)
+
+            called_messages = mock_generate.call_args[0][0]
+            self.assertEqual(len(called_messages[0]), 2)
+            self.assertIn("Test Project", str(called_messages[0][0].content))
+
+        anthropic_llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude")
+
+        with patch("langchain_anthropic.ChatAnthropic.generate", return_value=mock_result) as mock_generate:
+            messages = [HumanMessage(content="Test query")]
+            anthropic_llm.invoke(messages)
+
+            called_messages = mock_generate.call_args[0][0]
+            self.assertEqual(len(called_messages[0]), 2)
+            self.assertIn("Test Project", str(called_messages[0][0].content))
+
+    async def test_ainvoke_with_context(self):
+        """Test ainvoke method properly includes context."""
+        llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False)
+
+        mock_result = LLMResult(generations=[[ChatGeneration(message=AIMessage(content="Response"))]])
+        with patch("langchain_openai.ChatOpenAI.agenerate", return_value=mock_result) as mock_agenerate:
+            messages = [HumanMessage(content="Test query")]
+            await llm.ainvoke(messages)
+
+            called_messages = mock_agenerate.call_args[0][0]
+            self.assertEqual(len(called_messages[0]), 2)
+            self.assertIn("Test Project", str(called_messages[0][0].content))
+
+        anthropic_llm = MaxChatAnthropic(user=self.user, team=self.team, model="claude")
+
+        with patch("langchain_anthropic.ChatAnthropic.agenerate", return_value=mock_result) as mock_agenerate:
+            messages = [HumanMessage(content="Test query")]
+            await anthropic_llm.ainvoke(messages)
+
             called_messages = mock_agenerate.call_args[0][0]
             self.assertEqual(len(called_messages[0]), 2)
             self.assertIn("Test Project", str(called_messages[0][0].content))

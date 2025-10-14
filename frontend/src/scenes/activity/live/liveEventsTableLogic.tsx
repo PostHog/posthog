@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Breadcrumb, LiveEvent } from '~/types'
@@ -115,7 +116,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             (events: LiveEvent[], clientSideFilters: Record<string, any>) => {
                 return events.filter((event) => {
                     return Object.entries(clientSideFilters).every(([key, value]) => {
-                        return key in event && event[key] === value
+                        return key in event && event[key as keyof LiveEvent] === value
                     })
                 })
             },
@@ -125,8 +126,8 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             (): Breadcrumb[] => [
                 {
                     key: Scene.LiveEvents,
-                    name: 'Live',
-                    iconType: 'dashboard',
+                    name: sceneConfigurations[Scene.LiveEvents].name,
+                    iconType: sceneConfigurations[Scene.LiveEvents].iconType,
                 },
             ],
         ],

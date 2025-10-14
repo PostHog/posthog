@@ -456,6 +456,7 @@ export type RecordingOrder =
     | 'keypress_count'
     | 'mouse_activity_count'
     | 'activity_score'
+    | 'recording_ttl'
 
 export type RecordingOrderDirection = 'ASC' | 'DESC'
 
@@ -1344,6 +1345,8 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     cumulative?: RetentionFilterLegacy['cumulative']
+    /** @description The time window mode to use for retention calculations */
+    timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -2306,6 +2309,24 @@ export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTracking
 
 export type LogSeverityLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
+export interface LogMessage {
+    uuid: string
+    trace_id: string
+    span_id: string
+    body: string
+    attributes: Record<string, any>
+    /**  @format date-time */
+    timestamp: string
+    /**  @format date-time */
+    observed_timestamp: string
+    severity_text: LogSeverityLevel
+    severity_number: number
+    level: LogSeverityLevel
+    resource_attributes: any
+    instrumentation_scope: string
+    event_name: string
+}
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
@@ -2319,7 +2340,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
-    results: unknown
+    results: LogMessage[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2369,24 +2390,6 @@ export type CachedSessionBatchEventsQueryResponse = CachedEventsQueryResponse & 
 }
 export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
-export interface LogMessage {
-    uuid: string
-    trace_id: string
-    span_id: string
-    body: string
-    attributes: Record<string, any>
-    /**  @format date-time */
-    timestamp: string
-    /**  @format date-time */
-    observed_timestamp: string
-    severity_text: LogSeverityLevel
-    severity_number: number
-    level: LogSeverityLevel
-    resource: string
-    instrumentation_scope: string
-    event_name: string
-}
-
 export interface FileSystemCount {
     count: number
 }
@@ -2417,6 +2420,7 @@ export interface FileSystemEntry {
 }
 
 export type FileSystemIconType =
+    | 'default_icon_type'
     | 'dashboard'
     | 'llm_analytics'
     | 'product_analytics'
@@ -2448,7 +2452,8 @@ export type FileSystemIconType =
     | 'event_definition'
     | 'property_definition'
     | 'ingestion_warning'
-    | 'person'
+    | 'persons'
+    | 'user'
     | 'cohort'
     | 'group'
     | 'insight/funnels'
@@ -2460,6 +2465,8 @@ export type FileSystemIconType =
     | 'insight/hog'
     | 'team_activity'
     | 'home'
+    | 'apps'
+    | 'live'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -4060,6 +4067,7 @@ export const externalDataSources = [
     'LinkedinAds',
     'RedditAds',
     'TikTokAds',
+    'Shopify',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

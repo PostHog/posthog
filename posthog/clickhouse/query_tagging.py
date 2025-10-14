@@ -28,6 +28,7 @@ class Product(StrEnum):
     SESSION_SUMMARY = "session_summary"
     WAREHOUSE = "warehouse"
     EXPERIMENTS = "experiments"
+    SDK_DOCTOR = "sdk_doctor"
 
 
 class Feature(StrEnum):

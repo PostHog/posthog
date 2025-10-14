@@ -8,7 +8,7 @@ from posthog.schema import SurveyCreationSchema
 
 from posthog.models import FeatureFlag
 
-from products.surveys.backend.max_tools import CreateSurveyTool, FeatureFlagLookupGraph
+from products.surveys.backend.max_tools import FeatureFlagLookupGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.models.assistant import Conversation
@@ -120,8 +120,6 @@ def call_surveys_max_tool(demo_org_team_user, create_feature_flags):
         """
 
         try:
-            max_tool = CreateSurveyTool(team=team, user=user)
-            max_tool._context = {"user_id": str(user.uuid)}  # Additional context
             conversation = await Conversation.objects.acreate(team=team, user=user)
 
             graph_context = {
@@ -129,7 +127,15 @@ def call_surveys_max_tool(demo_org_team_user, create_feature_flags):
                 "output": None,
             }
             graph = FeatureFlagLookupGraph(team=team, user=user).compile_full_graph(checkpointer=DjangoCheckpointer())
-            result = await graph.ainvoke(graph_context, config={"configurable": {"thread_id": conversation.id}})
+            result = await graph.ainvoke(
+                graph_context,
+                config={
+                    "configurable": {
+                        "thread_id": conversation.id,
+                        "contextual_tools": {"create_survey": {"user_id": str(user.uuid)}},
+                    }
+                },
+            )
 
             if "output" not in result or not isinstance(result["output"], SurveyCreationSchema):
                 message = "Survey creation failed"
