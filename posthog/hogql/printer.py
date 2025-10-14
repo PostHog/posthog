@@ -1382,7 +1382,7 @@ class _Printer(Visitor[str]):
                     db = settings.CLICKHOUSE_DATABASE
                     return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
                 elif node.name == "getSurveyResponse":
-                    question_index_obj = node_args[0]
+                    question_index_obj = args[0]
                     if not isinstance(question_index_obj, ast.Constant):
                         raise QueryError("getSurveyResponse first argument must be a constant")
                     if (
@@ -1390,8 +1390,8 @@ class _Printer(Visitor[str]):
                         or not str(question_index_obj.value).lstrip("-").isdigit()
                     ):
                         raise QueryError("getSurveyResponse first argument must be a valid integer")
-                    second_arg = node_args[1] if len(node_args) > 1 else None
-                    third_arg = node_args[2] if len(node_args) > 2 else None
+                    second_arg = args[1] if len(args) > 1 else None
+                    third_arg = args[2] if len(args) > 2 else None
                     question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
                     is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
                     return get_survey_response_clickhouse_query(
@@ -1399,7 +1399,7 @@ class _Printer(Visitor[str]):
                     )
 
                 elif node.name == "uniqueSurveySubmissionsFilter":
-                    survey_id = node_args[0]
+                    survey_id = args[0]
                     if not isinstance(survey_id, ast.Constant):
                         raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
                     return filter_survey_sent_events_by_unique_submission(survey_id.value)
