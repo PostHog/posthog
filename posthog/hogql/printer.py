@@ -639,7 +639,7 @@ class _Printer(Visitor[str]):
         """
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
-        
+
         if self.dialect == "hogql":
             return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
@@ -664,7 +664,7 @@ class _Printer(Visitor[str]):
         """
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
-        
+
         if self.dialect == "hogql":
             return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
