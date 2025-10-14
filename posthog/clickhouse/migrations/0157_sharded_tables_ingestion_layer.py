@@ -43,6 +43,13 @@ from posthog.models.behavioral_cohorts.sql import (
     DROP_BEHAVIORAL_COHORTS_MATCHES_MV_SQL,
     KAFKA_BEHAVIORAL_COHORTS_MATCHES_TABLE_SQL,
 )
+from posthog.models.error_tracking.sql import (
+    DROP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_KAFKA_TABLE_SQL,
+    DROP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL,
+    ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
+    WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
+)
 from posthog.models.ingestion_warnings.sql import (
     DROP_INGESTION_WARNINGS_TABLE_MV_SQL,
     DROP_KAFKA_INGESTION_WARNINGS_TABLE_SQL,
@@ -110,4 +117,15 @@ operations = [
     run_sql_with_exceptions(WRITABLE_DEAD_LETTER_QUEUE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(DEAD_LETTER_QUEUE_TABLE_MV_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+    run_sql_with_exceptions(DROP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL, node_roles=[NodeRole.DATA]),
+    run_sql_with_exceptions(
+        DROP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_KAFKA_TABLE_SQL, node_roles=[NodeRole.DATA]
+    ),
+    run_sql_with_exceptions(
+        WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]
+    ),
+    run_sql_with_exceptions(
+        KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]
+    ),
+    run_sql_with_exceptions(ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
 ]
