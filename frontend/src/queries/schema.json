@@ -629,9 +629,6 @@
                     "$ref": "#/definitions/CohortPropertyFilter"
                 },
                 {
-                    "$ref": "#/definitions/DraftCohortPropertyFilter"
-                },
-                {
                     "$ref": "#/definitions/HogQLPropertyFilter"
                 },
                 {
@@ -659,9 +656,6 @@
                 },
                 {
                     "$ref": "#/definitions/CohortPropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/DraftCohortPropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/RecordingPropertyFilter"
@@ -10089,35 +10083,6 @@
                 "Unknown"
             ],
             "type": "string"
-        },
-        "DraftCohortPropertyFilter": {
-            "additionalProperties": false,
-            "description": "Cohort property filter for incomplete/draft cohorts where value may be null",
-            "properties": {
-                "cohort_name": {
-                    "type": "string"
-                },
-                "key": {
-                    "const": "id",
-                    "type": "string"
-                },
-                "label": {
-                    "type": "string"
-                },
-                "operator": {
-                    "$ref": "#/definitions/PropertyOperator",
-                    "default": "in"
-                },
-                "type": {
-                    "const": "cohort",
-                    "type": "string"
-                },
-                "value": {
-                    "type": "integer"
-                }
-            },
-            "required": ["key", "operator", "type"],
-            "type": "object"
         },
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
