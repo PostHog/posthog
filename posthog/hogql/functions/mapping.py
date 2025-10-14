@@ -2,8 +2,9 @@ from itertools import chain
 from typing import Optional
 
 from posthog.hogql import ast
-from posthog.hogql.ast import IntegerType
+from posthog.hogql.ast import IntegerType, StringType
 from posthog.hogql.base import UnknownType
+from posthog.hogql.language_mappings import LANGUAGE_CODES, LANGUAGE_NAMES
 
 from .aggregations import HOGQL_AGGREGATIONS
 from .clickhouse.arithmetic import ARITHMETIC_FUNCTIONS
@@ -217,6 +218,18 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((UnknownType(), IntegerType()), UnknownType()),
             ((UnknownType(), IntegerType(), UnknownType()), UnknownType()),
         ],
+    ),
+    # Translates languages codes to full language name
+    "languageCodeToName": HogQLFunctionMeta(
+        clickhouse_name="transform",
+        min_args=1,
+        max_args=1,
+        suffix_args=[
+            ast.Constant(value=LANGUAGE_CODES),
+            ast.Constant(value=LANGUAGE_NAMES),
+            ast.Constant(value="Unknown"),
+        ],
+        signatures=[((StringType(),), StringType())],
     ),
 }
 

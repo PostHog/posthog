@@ -1,14 +1,4 @@
-from posthog.hogql.ast import (
-    ArrayType,
-    BooleanType,
-    Constant,
-    DateTimeType,
-    DateType,
-    DecimalType,
-    IntegerType,
-    StringType,
-)
-from posthog.hogql.language_mappings import LANGUAGE_CODES, LANGUAGE_NAMES
+from posthog.hogql.ast import ArrayType, BooleanType, DateTimeType, DateType, DecimalType, IntegerType, StringType
 
 from .core import HogQLFunctionMeta
 
@@ -72,17 +62,5 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
         "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
-    ),
-    # Translates languages codes to full language name
-    "languageCodeToName": HogQLFunctionMeta(
-        clickhouse_name="transform",
-        min_args=1,
-        max_args=1,
-        suffix_args=[
-            Constant(value=LANGUAGE_CODES),
-            Constant(value=LANGUAGE_NAMES),
-            Constant(value="Unknown"),
-        ],
-        signatures=[((StringType(),), StringType())],
     ),
 }
