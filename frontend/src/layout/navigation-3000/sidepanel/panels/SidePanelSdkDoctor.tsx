@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconStethoscope } from '@posthog/icons'
+import { IconInfo, IconStethoscope } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -113,7 +113,14 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
         },
     },
     {
-        title: 'Last event at',
+        title: (
+            <span>
+                LAST EVENT AT{' '}
+                <Tooltip title="This gets refreshed every 6 hours, click 'Scan Events' to refresh manually">
+                    <IconInfo />
+                </Tooltip>
+            </span>
+        ),
         dataIndex: 'maxTimestamp',
         render: function RenderMaxTimestamp(_, record) {
             return <TZLabel time={record.maxTimestamp} />
