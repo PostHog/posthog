@@ -39,10 +39,10 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
         computeSourceUrls: async () => {
             const records = values.stackFrameRecords
 
-            for (const [rawId, record] of Object.entries(records)) {
+            const searchPromises = Object.entries(records).map(async ([rawId, record]) => {
                 // Skip if already computed or not in-app
                 if (values.frameSourceUrls[rawId] !== undefined || !record.contents?.in_app) {
-                    continue
+                    return
                 }
 
                 const codeSample = record.context?.line.line
@@ -50,7 +50,7 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
 
                 if (!codeSample || !remoteUrl) {
                     actions.setSourceUrl(rawId, null)
-                    continue
+                    return
                 }
 
                 const parsed = GitMetadataParser.parseRemoteUrl(remoteUrl)
@@ -61,7 +61,9 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                 } else {
                     actions.setSourceUrl(rawId, null)
                 }
-            }
+            })
+
+            await Promise.all(searchPromises)
         },
     })),
 
