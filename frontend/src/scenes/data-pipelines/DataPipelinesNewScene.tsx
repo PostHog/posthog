@@ -46,7 +46,7 @@ export const dataPipelinesNewSceneLogic = kea<dataPipelinesNewSceneLogicType>([
                     },
                     {
                         key: Scene.DataPipelinesNew,
-                        name: 'New ' + humanizeHogFunctionType(kind, true),
+                        name: 'New ' + humanizeHogFunctionType(kind),
                         iconType: 'data_pipeline',
                     },
                 ]
