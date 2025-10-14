@@ -204,14 +204,16 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
 }
 
 const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element => {
-    const type = (
-        {
-            debug: 'completion',
-            info: 'caution',
-            warn: 'warning',
-            error: 'danger',
-        } as Record<LogMessage['severity_text'], LemonTagType>
-    )[level]
+    const type =
+        (
+            {
+                debug: 'muted',
+                info: 'default',
+                warn: 'warning',
+                error: 'danger',
+                fatal: 'danger',
+            } as Record<LogMessage['severity_text'], LemonTagType>
+        )[level] ?? 'muted'
 
     return <LemonTag type={type}>{level}</LemonTag>
 }
