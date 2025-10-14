@@ -6,9 +6,7 @@ use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::utils::client::get_client;
-
-use super::{auth::Token, git::get_git_info};
+use crate::utils::{auth::Token, client::get_client, git::get_git_info};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CreateReleaseRequest {

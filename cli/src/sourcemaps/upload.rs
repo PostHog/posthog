@@ -6,45 +6,50 @@ use anyhow::{anyhow, bail, Context, Ok, Result};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use reqwest::blocking::multipart::{Form, Part};
 use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use tracing::{info, warn};
 
-use crate::commands::UploadArgs;
+use crate::api::symbol_sets::SymbolSetUpload;
+use crate::releases::{create_release, CreateReleaseResponse};
+
+use crate::sourcemaps::source_pair::read_pairs;
 use crate::utils::auth::load_token;
 use crate::utils::client::{get_client, SKIP_SSL};
 use crate::utils::posthog::capture_command_invoked;
-use crate::utils::release::{create_release, CreateReleaseResponse};
-use crate::utils::sourcemaps::{read_pairs, ChunkUpload, SourcePair};
 
-const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
+#[derive(clap::Args, Clone)]
+pub struct UploadArgs {
+    /// The directory containing the bundled chunks
+    #[arg(short, long)]
+    pub directory: PathBuf,
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct StartUploadResponseData {
-    presigned_url: PresignedUrl,
-    symbol_set_id: String,
-}
+    /// One or more directory glob patterns to ignore
+    #[arg(short, long)]
+    pub ignore: Vec<String>,
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PresignedUrl {
-    pub url: String,
-    pub fields: HashMap<String, String>,
-}
+    /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
+    /// a specific release, auto-discovered from git information on disk if not provided.
+    #[arg(long)]
+    pub project: Option<String>,
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BulkUploadStartRequest {
-    release_id: Option<String>,
-    chunk_ids: Vec<String>,
-}
+    /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
+    /// to have the uploaded chunks associated with a specific release. Auto-discovered from git information on
+    /// disk if not provided.
+    #[arg(long)]
+    pub version: Option<String>,
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BulkUploadStartResponse {
-    id_map: HashMap<String, StartUploadResponseData>,
-}
+    /// Whether to delete the source map files after uploading them
+    #[arg(long, default_value = "false")]
+    pub delete_after: bool,
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BulkUploadFinishRequest {
-    content_hashes: HashMap<String, String>,
+    /// Whether to skip SSL verification when uploading chunks - only use when using self-signed certificates for
+    /// self-deployed instances
+    #[arg(long, default_value = "false")]
+    pub skip_ssl_verification: bool,
+
+    /// The maximum number of chunks to upload in a single batch
+    #[arg(long, default_value = "50")]
+    pub batch_size: usize,
 }
 
 pub fn upload(host: Option<String>, args: UploadArgs) -> Result<()> {
@@ -77,7 +82,12 @@ pub fn upload(host: Option<String>, args: UploadArgs) -> Result<()> {
         .collect::<Vec<_>>();
     info!("Found {} chunks to upload", pairs.len());
 
-    let uploads = collect_uploads(pairs).context("While preparing files for upload")?;
+    let uploads = pairs
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect::<Result<Vec<SymbolSetUpload>>>()
+        .context("While preparing files for upload")?;
+
     let release = create_release(
         &host,
         &token,
@@ -118,18 +128,10 @@ fn into_batches<T>(mut array: Vec<T>, batch_size: usize) -> Vec<Vec<T>> {
     batches
 }
 
-fn collect_uploads(pairs: Vec<SourcePair>) -> Result<Vec<ChunkUpload>> {
-    let uploads: Vec<ChunkUpload> = pairs
-        .into_iter()
-        .map(|pair| pair.into_chunk_upload())
-        .collect::<Result<Vec<ChunkUpload>>>()?;
-    Ok(uploads)
-}
-
 fn upload_chunks(
     base_url: &str,
     token: &str,
-    uploads: Vec<ChunkUpload>,
+    uploads: Vec<SymbolSetUpload>,
     release: Option<&CreateReleaseResponse>,
 ) -> Result<()> {
     let client = get_client()?;
@@ -269,10 +271,9 @@ fn finish_upload(
     Ok(())
 }
 
-fn content_hash<Iter, Item>(upload_data: Iter) -> String
+fn content_hash<Iter, Item: AsRef<[u8]>>(upload_data: Iter) -> String
 where
     Iter: IntoIterator<Item = Item>,
-    Item: AsRef<[u8]>,
 {
     let mut hasher = sha2::Sha512::new();
     for data in upload_data {

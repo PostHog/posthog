@@ -603,7 +603,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 if new_status is None:
                     raise ValidationError("Invalid status")
                 for issue in issues:
-                    log_activity(
+                    _ = log_activity(
                         organization_id=self.organization.id,
                         team_id=self.team_id,
                         user=request.user,
@@ -994,12 +994,19 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_start_upload(self, request, **kwargs):
+        # Later versions of the CLI send a list of {"chunk_id": chunk_id, "release_id": $id}
+        symbol_sets: list[dict[str, str]] = request.data.get("symbol_sets") or []
+        # Earlier ones send a list of chunk IDs, all associated with one release
         # Extract a list of chunk IDs from the request json
-        chunk_ids: list[str] | None = request.data.get("chunk_ids")
+        chunk_ids: list[str] = request.data.get("chunk_ids") or []
         # Grab the release ID from the request json
         release_id: str | None = request.data.get("release_id", None)
         if not chunk_ids:
             return Response({"detail": "chunk_ids query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        cid_release_id_map: dict[str, str | None] = {sset["chunk_id"]: sset.get("release_id") for sset in symbol_sets}
+        for chunk_id in chunk_ids:
+            cid_release_id_map[chunk_id] = release_id
 
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
@@ -1007,7 +1014,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
-        chunk_id_url_map = bulk_create_symbol_sets(chunk_ids, self.team, release_id)
+        chunk_id_url_map = bulk_create_symbol_sets(cid_release_id_map, self.team)
 
         return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
 
@@ -1314,32 +1321,31 @@ def create_symbol_set(
 
 
 def bulk_create_symbol_sets(
-    chunk_ids: list[str],
+    chunk_release_map: dict[str, str | None],  # from chunk_id to release_id
     team: Team,
-    release_id: str | None,
 ) -> dict[str, dict[str, str]]:
-    release = create_release(team, release_id) if release_id else None
-
     id_url_map: dict[str, dict[str, str]] = {}
+
+    chunk_ids = chunk_release_map.keys()
 
     with transaction.atomic():
         existing_symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids))
         existing_symbol_set_refs = [s.ref for s in existing_symbol_sets]
-        missing_symbol_set_refs = list(set(chunk_ids) - set(existing_symbol_set_refs))
+        missing_sets = [chunk_id for chunk_id in chunk_ids if chunk_id not in existing_symbol_set_refs]
 
         symbol_sets_to_be_created = []
-        for chunk_id in missing_symbol_set_refs:
+        for chunk_id in missing_sets:
             storage_ptr = generate_symbol_set_file_key()
             presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
             id_url_map[chunk_id] = {"presigned_url": presigned_url}
-            symbol_sets_to_be_created.append(
-                ErrorTrackingSymbolSet(
-                    team=team,
-                    ref=chunk_id,
-                    release=release,
-                    storage_ptr=storage_ptr,
-                )
+            to_create = ErrorTrackingSymbolSet(
+                team=team,
+                ref=chunk_id,
+                storage_ptr=storage_ptr,
             )
+            if chunk_release_map[chunk_id] is not None:
+                to_create.release_id = chunk_release_map[chunk_id]
+            symbol_sets_to_be_created.append(to_create)
 
         # create missing symbol sets
         created_symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
@@ -1350,9 +1356,9 @@ def bulk_create_symbol_sets(
         # update existing symbol sets
         for symbol_set in existing_symbol_sets:
             if symbol_set.release is None:
-                symbol_set.release = release
-            elif symbol_set.release != release:
-                raise ValidationError(f"Symbol set has already been uploaded for a different release")
+                symbol_set.release = chunk_release_map[symbol_set.ref]
+            elif symbol_set.release != chunk_release_map[symbol_set.ref]:
+                raise ValidationError(f"Symbol set already belongs to a different release")
 
             storage_ptr = generate_symbol_set_file_key()
             presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
@@ -1365,13 +1371,6 @@ def bulk_create_symbol_sets(
         ErrorTrackingStackFrame.objects.filter(team=team, symbol_set__ref__in=chunk_ids).delete()
 
     return id_url_map
-
-
-def create_release(team: Team, release_id: str) -> ErrorTrackingRelease | None:
-    objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)
-    if len(objects) < 1:
-        raise ValueError(f"Unknown release: {release_id}")
-    return objects[0]
 
 
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:

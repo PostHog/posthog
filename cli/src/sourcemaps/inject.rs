@@ -1,12 +1,24 @@
 use anyhow::{anyhow, bail, Ok, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::info;
 use uuid;
 
-use crate::utils::{posthog::capture_command_invoked, sourcemaps::read_pairs};
+use crate::{sourcemaps::source_pair::read_pairs, utils::posthog::capture_command_invoked};
+
+#[derive(clap::Args)]
+pub struct InjectArgs {
+    /// The directory containing the bundled chunks
+    #[arg(short, long)]
+    pub directory: PathBuf,
+
+    /// One or more directory glob patterns to ignore
+    #[arg(short, long)]
+    pub ignore: Vec<String>,
+}
 
 pub fn inject(directory: &Path, ignore_globs: &[String]) -> Result<()> {
     let capture_handle = capture_command_invoked("sourcemap_inject", None::<&str>);
+
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
             "Directory '{}' not found or inaccessible: {}",
@@ -14,12 +26,14 @@ pub fn inject(directory: &Path, ignore_globs: &[String]) -> Result<()> {
             e
         )
     })?;
+
     info!("Processing directory: {}", directory.display());
     let mut pairs = read_pairs(&directory, ignore_globs)?;
     if pairs.is_empty() {
         bail!("No source files found");
     }
     info!("Found {} pairs", pairs.len());
+
     let mut skipped_pairs = 0;
     for pair in &mut pairs {
         if pair.has_chunk_id() {

@@ -3,12 +3,11 @@ use clap::Subcommand;
 use miette::{Diagnostic, SourceSpan};
 
 use crate::{
-    tui::query::start_query_editor,
-    utils::{
-        auth::load_token,
-        posthog::capture_command_invoked,
+    experimental::{
         query::{check_query, run_query, MetadataResponse, Notice},
+        tui::query::start_query_editor,
     },
+    utils::{auth::load_token, posthog::capture_command_invoked},
 };
 
 #[derive(Debug, Subcommand)]

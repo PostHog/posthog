@@ -1,68 +1,27 @@
-use anyhow::{anyhow, bail, Context, Ok, Result};
-use core::str;
+use std::path::PathBuf;
+
+use crate::{
+    api::symbol_sets::SymbolSetUpload,
+    sourcemaps::{
+        constant::{CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE},
+        get_sourcemap_path, is_javascript_file, SourceMapChunkId,
+    },
+    utils::files::SourceFile,
+};
+use anyhow::{anyhow, bail, Context, Result};
 use globset::{Glob, GlobSetBuilder};
 use magic_string::{GenerateDecodedMapOptions, MagicString};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sourcemap::SourceMap;
-use std::collections::BTreeMap;
-use std::str::Lines;
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
-use tracing::{debug, info, warn};
-use walkdir::{DirEntry, WalkDir};
+use tracing::{info, warn};
+use walkdir::WalkDir;
 
-use super::constant::{CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE};
-
-pub struct SourceFile {
-    pub path: PathBuf,
-    pub content: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SourceMapChunkId {
-    chunk_id: Option<String>,
-    #[serde(flatten)]
-    fields: BTreeMap<String, Value>,
-}
-
-impl SourceFile {
-    pub fn new(path: PathBuf, content: String) -> Self {
-        SourceFile { path, content }
-    }
-
-    pub fn load(path: &PathBuf) -> Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        Ok(SourceFile::new(path.clone(), content))
-    }
-
-    pub fn save(&self, dest: Option<PathBuf>) -> Result<()> {
-        let final_path = dest.unwrap_or(self.path.clone());
-        std::fs::write(&final_path, &self.content)?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SourceMapContent {
-    chunk_id: Option<String>,
-    #[serde(flatten)]
-    fields: HashMap<String, Value>,
-}
-
+// Source pairs are the fundamental unit of a frontend symbol set
 pub struct SourcePair {
     pub chunk_id: Option<String>,
 
     pub source: SourceFile,
     pub sourcemap: SourceFile,
-}
-
-pub struct ChunkUpload {
-    pub chunk_id: String,
-    pub data: Vec<u8>,
 }
 
 impl SourcePair {
@@ -139,18 +98,6 @@ impl SourcePair {
         self.sourcemap.save(None)?;
         Ok(())
     }
-
-    pub fn into_chunk_upload(self) -> Result<ChunkUpload> {
-        let chunk_id = self.chunk_id.ok_or_else(|| anyhow!("Chunk ID not found"))?;
-        let source_content = self.source.content;
-        let sourcemap_content = self.sourcemap.content;
-        let data = SourceAndMap {
-            minified_source: source_content,
-            sourcemap: sourcemap_content,
-        };
-        let data = write_symbol_data(data)?;
-        Ok(ChunkUpload { chunk_id, data })
-    }
 }
 
 pub fn read_pairs(directory: &PathBuf, ignore_globs: &[String]) -> Result<Vec<SourcePair>> {
@@ -195,64 +142,22 @@ pub fn read_pairs(directory: &PathBuf, ignore_globs: &[String]) -> Result<Vec<So
     Ok(pairs)
 }
 
-pub fn get_chunk_id(sourcemap: &SourceFile) -> Option<String> {
-    #[derive(Deserialize)]
-    struct SourceChunkId {
-        chunk_id: String,
+impl TryInto<SymbolSetUpload> for SourcePair {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<SymbolSetUpload> {
+        let chunk_id = self.chunk_id.ok_or_else(|| anyhow!("Chunk ID not found"))?;
+        let source_content = self.source.content;
+        let sourcemap_content = self.sourcemap.content;
+        let data = SourceAndMap {
+            minified_source: source_content,
+            sourcemap: sourcemap_content,
+        };
+        let data = write_symbol_data(data)?;
+        Ok(SymbolSetUpload {
+            chunk_id: (),
+            release_id: (),
+            data: (),
+        })
     }
-    serde_json::from_str(&sourcemap.content)
-        .map(|chunk_id: SourceChunkId| chunk_id.chunk_id)
-        .ok()
-}
-
-pub fn get_sourcemap_reference(lines: Lines) -> Result<Option<String>> {
-    for line in lines.rev() {
-        if line.starts_with("//# sourceMappingURL=") || line.starts_with("//@ sourceMappingURL=") {
-            let url = str::from_utf8(&line.as_bytes()[21..])?.trim().to_owned();
-            let decoded_url = urlencoding::decode(&url)?;
-            return Ok(Some(decoded_url.into_owned()));
-        }
-    }
-    Ok(None)
-}
-
-pub fn get_sourcemap_path(source: &SourceFile) -> Result<Option<PathBuf>> {
-    match get_sourcemap_reference(source.content.lines())? {
-        Some(url) => {
-            let sourcemap_path = source
-                .path
-                .parent()
-                .map(|p| p.join(&url))
-                .unwrap_or_else(|| PathBuf::from(&url));
-            debug!("Found sourcemap path: {}", sourcemap_path.display());
-            Ok(Some(sourcemap_path))
-        }
-        None => {
-            let sourcemap_path = guess_sourcemap_path(&source.path);
-            debug!("Guessed sourcemap path: {}", sourcemap_path.display());
-            if sourcemap_path.exists() {
-                Ok(Some(sourcemap_path))
-            } else {
-                Ok(None)
-            }
-        }
-    }
-}
-
-pub fn guess_sourcemap_path(path: &Path) -> PathBuf {
-    // Try to resolve the sourcemap by adding .map to the path
-    let mut sourcemap_path = path.to_path_buf();
-    match path.extension() {
-        Some(ext) => sourcemap_path.set_extension(format!("{}.map", ext.to_string_lossy())),
-        None => sourcemap_path.set_extension("map"),
-    };
-    sourcemap_path
-}
-
-fn is_javascript_file(entry: &DirEntry) -> bool {
-    entry.file_type().is_file()
-        && entry
-            .path()
-            .extension()
-            .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs")
 }

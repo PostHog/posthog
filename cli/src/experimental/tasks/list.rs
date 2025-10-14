@@ -2,14 +2,15 @@ use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use std::collections::VecDeque;
 
-use super::{TaskListResponse, TaskWorkflow, WorkflowStage};
 use crate::{
-    commands::tasks::{
+    experimental::tasks::{
         utils::{fetch_stages, fetch_tasks, fetch_workflows},
         Task,
     },
     utils::auth::Token,
 };
+
+use super::{TaskListResponse, TaskWorkflow, WorkflowStage};
 
 const BUFFER_SIZE: usize = 50;
 

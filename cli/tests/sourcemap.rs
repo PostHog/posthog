@@ -1,4 +1,4 @@
-use posthog_cli::utils::sourcemaps::read_pairs;
+use posthog_cli::sourcemaps::source_pair::read_pairs;
 use std::{
     fs,
     path::{Path, PathBuf},

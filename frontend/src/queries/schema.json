@@ -22458,11 +22458,6 @@
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
-                "timeWindowMode": {
-                    "description": "The time window mode to use for retention calculations",
-                    "enum": ["strict_calendar_dates", "24_hour_windows"],
-                    "type": "string"
-                },
                 "totalIntervals": {
                     "$ref": "#/definitions/integer",
                     "default": 8
