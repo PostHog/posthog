@@ -25,11 +25,11 @@ QUERY = parse_select("""
     SELECT
         properties.$lib AS lib,
         properties.$lib_version AS lib_version,
-        MAX(created_at) AS max_timestamp,
+        MAX(timestamp) AS max_timestamp,
         COUNT(*) AS event_count
     FROM events
     WHERE
-        created_at >= now() - INTERVAL 7 DAY
+        timestamp >= now() - INTERVAL 7 DAY
         AND lib IS NOT NULL
         AND lib_version IS NOT NULL
     GROUP BY lib, lib_version
