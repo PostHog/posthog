@@ -444,7 +444,7 @@ def recalculate_cohortpeople(
             count = get_static_cohort_size(cohort_id=cohort.id, team_id=team.id)
         else:
             count = get_cohort_size(cohort, override_version=pending_version, team_id=team.id)
-        count_by_team_id[team.id] = count or 0
+        count_by_team_id[team.id] = count if count is not None else 0
 
     return count_by_team_id[cohort.team_id]
 
