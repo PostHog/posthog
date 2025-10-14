@@ -1396,13 +1396,13 @@ class SessionRecordingViewSet(
 
     async def _fetch_blocks_parallel(
         self,
-        blocks: list,
+        blocks: BlockList,
         min_blob_key: int,
         max_blob_key: int,
         recording: SessionRecording,
         async_storage_client,
         decompress: bool,
-    ) -> list:
+    ) -> BlockList:
         async def fetch_single_block(block_index: int) -> tuple[int, str | bytes | None]:
             try:
                 block = blocks[block_index]
@@ -1423,19 +1423,19 @@ class SessionRecordingViewSet(
         tasks = [fetch_single_block(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
         results = await asyncio.gather(*tasks)
 
-        blocks_data = [None] * len(results)
+        blocks_data: list[str | bytes] = []
         block_errors = []
 
         for block_index, content in results:
             if content is None:
                 block_errors.append(block_index)
             else:
-                blocks_data[block_index - min_blob_key] = content
+                blocks_data.append(content)
 
         if block_errors:
             raise exceptions.APIException("Failed to load recording block")
 
-        return cast(list[str | bytes], blocks_data)
+        return blocks_data
 
     async def _stream_decompressed_blocks(
         self,
