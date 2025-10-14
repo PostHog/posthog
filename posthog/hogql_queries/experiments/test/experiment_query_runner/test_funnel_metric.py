@@ -159,9 +159,10 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         control_sampled_success_events = [s.event_uuid for s in control_variant.step_sessions[1]]
         self.assertEqual(sorted(control_success_events), sorted(control_sampled_success_events))
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_group_aggregation_funnel_metric(self):
+    def test_query_runner_group_aggregation_funnel_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         feature_flag.filters["aggregation_group_type_index"] = 0
         feature_flag.save()
@@ -271,7 +272,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+        )
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1501,7 +1504,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+        )
         result = query_runner.calculate()
 
         assert result.variant_results is not None
