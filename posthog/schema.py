@@ -3635,7 +3635,7 @@ class CohortPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: Optional[PropertyOperator] = PropertyOperator.IN_
     type: Literal["cohort"] = "cohort"
-    value: int
+    value: Optional[int] = None
 
 
 class CustomChannelCondition(BaseModel):
@@ -14786,6 +14786,7 @@ class DataTableNode(BaseModel):
         TracesQuery,
         TraceQuery,
     ] = Field(..., description="Source of the events")
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
