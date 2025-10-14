@@ -1140,6 +1140,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (iframeFetch && !(iframeFetch as any).__isWrappedForErrorReporting && iframeContentWindow) {
                     // We have to monkey patch fetch as rrweb doesn't provide a way to listen for these errors
                     // We do this after every fullsnapshot-rebuilded as rrweb creates a new iframe each time
+                    const originalFetch = iframeFetch
+                    const windowRef = new WeakRef(iframeContentWindow)
+
                     iframeContentWindow.fetch = wrapFetchAndReport({
                         fetch: iframeFetch,
                         onError: (errorDetails: ResourceErrorDetails) => {
@@ -1147,6 +1150,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         },
                     })
                     ;(iframeContentWindow.fetch as any).__isWrappedForErrorReporting = true
+
+                    cache.disposables.add(() => {
+                        return () => {
+                            const window = windowRef.deref()
+                            if (window && window.fetch) {
+                                window.fetch = originalFetch
+                                delete (window.fetch as any).__isWrappedForErrorReporting
+                            }
+                        }
+                    }, 'iframeFetchWrapper')
                 }
 
                 if (iframeContentWindow) {
