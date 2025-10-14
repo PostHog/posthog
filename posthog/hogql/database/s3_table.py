@@ -28,7 +28,8 @@ def build_function_call(
     # If a table has a queryable url set, then use that directly
     if queryable_folder and format == "DeltaS3Wrapper":
         # Hack: Remove the last directory from the URL and add the queryable folder instead
-        # TODO(Gilbert09): Fix this plz
+        # TODO(Gilbert09): Fix this: simplify logic around how we construct the S3 and
+        # http urls and make all url generation going through a single place
         parsed = urlparse(url)
         new_path = str(PurePosixPath(parsed.path).parent) + "/"
         new_url = urlunparse(parsed._replace(path=new_path))

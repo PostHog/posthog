@@ -11,6 +11,7 @@ from posthog.temporal.data_imports.deltalake_compaction_job import capture_excep
 from posthog.utils import str_to_bool
 from posthog.warehouse.s3 import get_s3_client
 
+# 10 mins buffer to avoid deleting files Clickhouse may be reading
 S3_DELETE_TIME_BUFFER = 600
 
 
@@ -74,7 +75,7 @@ def prepare_s3_files_for_querying(
                     continue
 
                 try:
-                    if (datetime.now().timestamp() - directory_timestamp) >= S3_DELETE_TIME_BUFFER:  # 10 mins
+                    if (datetime.now().timestamp() - directory_timestamp) >= S3_DELETE_TIME_BUFFER:
                         s3.delete(directory_path, recursive=True)
 
                     # Delete the old format query folder if it exists
