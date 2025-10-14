@@ -1047,6 +1047,12 @@ async def upload_manifest_file(
             nonlocal entries
 
             response = await client.list_objects_v2(Bucket=bucket, Prefix=f)
+
+            if "Contents" not in response or len(response["Contents"]) == 0:
+                # Unlikely as this should be called after the files have been
+                # successfully uploaded.
+                raise ValueError(f"File {f} not found in bucket {bucket}")
+
             entries.append(
                 {
                     "url": f"s3://{bucket}/{f}",
