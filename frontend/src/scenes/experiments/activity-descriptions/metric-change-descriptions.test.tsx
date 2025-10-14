@@ -7,6 +7,7 @@ import {
     ExperimentMetric,
     ExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
+import { ExperimentMetricGoal, FunnelConversionWindowTimeUnit, StepOrderValue } from '~/types'
 
 import { getMetricChanges } from './metric-change-descriptions'
 
@@ -107,10 +108,10 @@ describe('metric-change-descriptions', () => {
 
             it('detects changes when fingerprint and other properties changed', () => {
                 const before: ExperimentMetric[] = [
-                    createBaseMeanMetric({ fingerprint: 'old-fingerprint', goal: 'increase' }),
+                    createBaseMeanMetric({ fingerprint: 'old-fingerprint', goal: ExperimentMetricGoal.Increase }),
                 ]
                 const after: ExperimentMetric[] = [
-                    createBaseMeanMetric({ fingerprint: 'new-fingerprint', goal: 'decrease' }),
+                    createBaseMeanMetric({ fingerprint: 'new-fingerprint', goal: ExperimentMetricGoal.Decrease }),
                 ]
 
                 const result = getMetricChanges(before, after)
@@ -137,8 +138,12 @@ describe('metric-change-descriptions', () => {
 
         describe('goal changes', () => {
             it('detects goal change and renders JSX', () => {
-                const before: ExperimentMetric[] = [createBaseMeanMetric({ fingerprint: 'old', goal: 'increase' })]
-                const after: ExperimentMetric[] = [createBaseMeanMetric({ fingerprint: 'new', goal: 'decrease' })]
+                const before: ExperimentMetric[] = [
+                    createBaseMeanMetric({ fingerprint: 'old', goal: ExperimentMetricGoal.Increase }),
+                ]
+                const after: ExperimentMetric[] = [
+                    createBaseMeanMetric({ fingerprint: 'new', goal: ExperimentMetricGoal.Decrease }),
+                ]
 
                 const result = getMetricChanges(before, after)
                 expect(Array.isArray(result)).toBe(true)
@@ -150,8 +155,12 @@ describe('metric-change-descriptions', () => {
             })
 
             it('does not detect goal change when goal is the same', () => {
-                const before: ExperimentMetric[] = [createBaseMeanMetric({ fingerprint: 'old', goal: 'increase' })]
-                const after: ExperimentMetric[] = [createBaseMeanMetric({ fingerprint: 'new', goal: 'increase' })]
+                const before: ExperimentMetric[] = [
+                    createBaseMeanMetric({ fingerprint: 'old', goal: ExperimentMetricGoal.Increase }),
+                ]
+                const after: ExperimentMetric[] = [
+                    createBaseMeanMetric({ fingerprint: 'new', goal: ExperimentMetricGoal.Increase }),
+                ]
 
                 const result = getMetricChanges(before, after)
                 // Should return null because only fingerprint changed
@@ -163,14 +172,14 @@ describe('metric-change-descriptions', () => {
             it.each([
                 {
                     name: 'detects conversion window removal',
-                    before: { conversion_window: 7, conversion_window_unit: 'day' as const },
+                    before: { conversion_window: 7, conversion_window_unit: FunnelConversionWindowTimeUnit.Day },
                     after: {},
                     expectedText: 'set the conversion window to the experiment duration',
                 },
                 {
                     name: 'detects conversion window addition',
                     before: {},
-                    after: { conversion_window: 14, conversion_window_unit: 'day' as const },
+                    after: { conversion_window: 14, conversion_window_unit: FunnelConversionWindowTimeUnit.Day },
                     expectedText: 'set the conversion window to 14 day',
                 },
             ])('$name', (testCase) => {
@@ -191,10 +200,10 @@ describe('metric-change-descriptions', () => {
         describe('funnel-specific changes', () => {
             it('detects funnel order type change', () => {
                 const before: ExperimentMetric[] = [
-                    createBaseFunnelMetric({ fingerprint: 'old', funnel_order_type: 'ordered' }),
+                    createBaseFunnelMetric({ fingerprint: 'old', funnel_order_type: StepOrderValue.ORDERED }),
                 ]
                 const after: ExperimentMetric[] = [
-                    createBaseFunnelMetric({ fingerprint: 'new', funnel_order_type: 'unordered' }),
+                    createBaseFunnelMetric({ fingerprint: 'new', funnel_order_type: StepOrderValue.UNORDERED }),
                 ]
 
                 const result = getMetricChanges(before, after)
@@ -377,14 +386,14 @@ describe('metric-change-descriptions', () => {
                 const before: ExperimentMetric[] = [
                     createBaseMeanMetric({
                         fingerprint: 'old',
-                        goal: 'increase',
+                        goal: ExperimentMetricGoal.Increase,
                         source: { kind: NodeKind.EventsNode, event: 'old_event' },
                     }),
                 ]
                 const after: ExperimentMetric[] = [
                     createBaseMeanMetric({
                         fingerprint: 'new',
-                        goal: 'decrease',
+                        goal: ExperimentMetricGoal.Decrease,
                         source: { kind: NodeKind.EventsNode, event: 'new_event' },
                     }),
                 ]
@@ -405,10 +414,18 @@ describe('metric-change-descriptions', () => {
         describe('metric naming in output', () => {
             it('includes custom metric name in output', () => {
                 const before: ExperimentMetric[] = [
-                    createBaseMeanMetric({ fingerprint: 'old', name: 'Custom Metric Name', goal: 'increase' }),
+                    createBaseMeanMetric({
+                        fingerprint: 'old',
+                        name: 'Custom Metric Name',
+                        goal: ExperimentMetricGoal.Increase,
+                    }),
                 ]
                 const after: ExperimentMetric[] = [
-                    createBaseMeanMetric({ fingerprint: 'new', name: 'Custom Metric Name', goal: 'decrease' }),
+                    createBaseMeanMetric({
+                        fingerprint: 'new',
+                        name: 'Custom Metric Name',
+                        goal: ExperimentMetricGoal.Decrease,
+                    }),
                 ]
 
                 const result = getMetricChanges(before, after)
@@ -426,7 +443,7 @@ describe('metric-change-descriptions', () => {
                     createBaseMeanMetric({
                         fingerprint: 'old',
                         name: undefined,
-                        goal: 'increase',
+                        goal: ExperimentMetricGoal.Increase,
                         source: { kind: NodeKind.EventsNode, event: 'test_event' },
                     }),
                 ]
@@ -434,7 +451,7 @@ describe('metric-change-descriptions', () => {
                     createBaseMeanMetric({
                         fingerprint: 'new',
                         name: undefined,
-                        goal: 'decrease',
+                        goal: ExperimentMetricGoal.Decrease,
                         source: { kind: NodeKind.EventsNode, event: 'test_event' },
                     }),
                 ]
