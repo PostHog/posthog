@@ -11,6 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -337,16 +338,16 @@ export const personsLogic = kea<personsLogicType>([
                 const breadcrumbs: Breadcrumb[] = [
                     {
                         key: Scene.Persons,
-                        name: 'People',
+                        name: 'Persons',
                         path: urls.persons(),
-                        iconType: 'person',
+                        iconType: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                     },
                 ]
                 if (showPerson) {
                     breadcrumbs.push({
                         key: [Scene.Person, person.id || 'unknown'],
                         name: asDisplay(person),
-                        iconType: 'person',
+                        iconType: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                     })
                 }
                 return breadcrumbs
