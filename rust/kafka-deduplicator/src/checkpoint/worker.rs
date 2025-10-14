@@ -184,12 +184,13 @@ impl CheckpointWorker {
 
         // TODO: this should accept CheckpointMode argument to implement incremental local checkpoint step
         match store.create_checkpoint_with_metadata(&self.target.local_path) {
-            Ok(sst_files) => {
+            Ok(metadata) => {
                 let checkpoint_duration = start_time.elapsed();
                 metrics::histogram!(CHECKPOINT_DURATION_HISTOGRAM)
                     .record(checkpoint_duration.as_secs_f64());
 
-                metrics::histogram!(CHECKPOINT_FILE_COUNT_HISTOGRAM).record(sst_files.len() as f64);
+                metrics::histogram!(CHECKPOINT_FILE_COUNT_HISTOGRAM)
+                    .record(metadata.sst_files.len() as f64);
                 if let Ok(checkpoint_size) = Self::get_directory_size(&self.target.local_path).await
                 {
                     metrics::histogram!(CHECKPOINT_SIZE_HISTOGRAM).record(checkpoint_size as f64);
@@ -198,7 +199,8 @@ impl CheckpointWorker {
                 info!(
                     self.worker_id,
                     local_path = self.target.local_path_tag,
-                    sst_file_count = sst_files.len(),
+                    sst_file_count = metadata.sst_files.len(),
+                    sequence = metadata.sequence,
                     checkpoint_mode = mode.as_str(),
                     "Created local checkpoint",
                 );

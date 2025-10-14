@@ -807,6 +807,10 @@
                 "search_insights",
                 "session_summarization",
                 "create_dashboard",
+                "read_taxonomy",
+                "search",
+                "read_data",
+                "todo_write",
                 "filter_revenue_analytics"
             ],
             "type": "string"
@@ -1529,6 +1533,9 @@
                 "type": {
                     "const": "ai",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -1539,6 +1546,13 @@
             "properties": {
                 "form": {
                     "$ref": "#/definitions/AssistantForm"
+                },
+                "thinking": {
+                    "items": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "type": "array"
                 }
             },
             "type": "object"
@@ -1547,6 +1561,7 @@
             "enum": [
                 "human",
                 "tool",
+                "context",
                 "ai",
                 "ai/reasoning",
                 "ai/viz",
@@ -2248,6 +2263,9 @@
             "properties": {
                 "id": {
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -4257,7 +4275,12 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {},
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/LogMessage"
+                    },
+                    "type": "array"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -7221,6 +7244,26 @@
                 }
             },
             "required": ["id", "templateId", "columnName", "bytecode", "input", "color"],
+            "type": "object"
+        },
+        "ContextMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "context",
+                    "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["type", "content"],
             "type": "object"
         },
         "ConversionGoalFilter": {
@@ -12783,6 +12826,9 @@
                 "type": {
                     "const": "ai/failure",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type"],
@@ -14705,6 +14751,9 @@
                 },
                 "ui_context": {
                     "$ref": "#/definitions/MaxUIContext"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -15947,9 +15996,7 @@
                     "format": "date-time",
                     "type": "string"
                 },
-                "resource": {
-                    "type": "string"
-                },
+                "resource_attributes": {},
                 "severity_number": {
                     "type": "number"
                 },
@@ -15981,7 +16028,7 @@
                 "severity_text",
                 "severity_number",
                 "level",
-                "resource",
+                "resource_attributes",
                 "instrumentation_scope",
                 "event_name"
             ],
@@ -16108,7 +16155,12 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {},
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/LogMessage"
+                    },
+                    "type": "array"
+                },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -17111,6 +17163,9 @@
                     "const": "ai/multi_viz",
                     "type": "string"
                 },
+                "visible": {
+                    "type": "boolean"
+                },
                 "visualizations": {
                     "items": {
                         "$ref": "#/definitions/VisualizationItem"
@@ -17279,6 +17334,9 @@
                 "type": {
                     "const": "ai/notebook",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "notebook_id", "content"],
@@ -17749,6 +17807,9 @@
                 "type": {
                     "const": "ai/planning",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "steps"],
@@ -21351,7 +21412,12 @@
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
                             "description": "The date range used for the query"
                         },
-                        "results": {},
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/LogMessage"
+                            },
+                            "type": "array"
+                        },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -22012,6 +22078,9 @@
                 "type": {
                     "const": "ai/reasoning",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -25362,6 +25431,9 @@
                 "type": {
                     "const": "ai/task_execution",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "tasks"],
@@ -26575,6 +26647,9 @@
                 "type": {
                     "const": "ai/viz",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["answer", "query", "type"],

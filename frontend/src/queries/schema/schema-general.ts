@@ -2309,6 +2309,24 @@ export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTracking
 
 export type LogSeverityLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
+export interface LogMessage {
+    uuid: string
+    trace_id: string
+    span_id: string
+    body: string
+    attributes: Record<string, any>
+    /**  @format date-time */
+    timestamp: string
+    /**  @format date-time */
+    observed_timestamp: string
+    severity_text: LogSeverityLevel
+    severity_number: number
+    level: LogSeverityLevel
+    resource_attributes: any
+    instrumentation_scope: string
+    event_name: string
+}
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
@@ -2322,7 +2340,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
-    results: unknown
+    results: LogMessage[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2371,24 +2389,6 @@ export type CachedSessionBatchEventsQueryResponse = CachedEventsQueryResponse & 
     timings?: QueryTiming[]
 }
 export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
-
-export interface LogMessage {
-    uuid: string
-    trace_id: string
-    span_id: string
-    body: string
-    attributes: Record<string, any>
-    /**  @format date-time */
-    timestamp: string
-    /**  @format date-time */
-    observed_timestamp: string
-    severity_text: LogSeverityLevel
-    severity_number: number
-    level: LogSeverityLevel
-    resource: string
-    instrumentation_scope: string
-    event_name: string
-}
 
 export interface FileSystemCount {
     count: number
