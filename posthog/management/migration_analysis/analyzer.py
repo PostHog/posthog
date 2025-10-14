@@ -54,9 +54,11 @@ class RiskAnalyzer:
     }
 
     def analyze_migration(self, migration, path: str) -> MigrationRisk:
-        # Collect newly created models for this migration
+        # Collect newly created models for this migration (normalized to lowercase for case-insensitive matching)
         self.newly_created_models = {
-            op.name for op in migration.operations if op.__class__.__name__ == "CreateModel" and hasattr(op, "name")
+            op.name.lower()
+            for op in migration.operations
+            if op.__class__.__name__ == "CreateModel" and hasattr(op, "name")
         }
 
         operation_risks = []
@@ -110,6 +112,8 @@ class RiskAnalyzer:
         if risk.type not in ["AddIndex", "AddConstraint"]:
             return False
         model_name = risk.details.get("model") or getattr(op, "model_name", None)
+        if model_name:
+            model_name = model_name.lower()
         return model_name in self.newly_created_models
 
     def analyze_operation(self, op) -> OperationRisk:

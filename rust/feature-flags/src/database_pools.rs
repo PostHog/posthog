@@ -4,6 +4,7 @@ use common_database::{get_pool_with_config, PoolConfig};
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::info;
 
 /// Direct database pool access for different operation types
 #[derive(Clone)]
@@ -94,6 +95,25 @@ impl DatabasePools {
         } else {
             non_persons_writer.clone()
         };
+
+        // Log pool configuration at startup
+        info!(
+            max_connections = config.max_pg_connections,
+            acquire_timeout_secs = config.acquire_timeout_secs,
+            idle_timeout_secs = config.idle_timeout_secs,
+            max_lifetime_secs = config.max_lifetime_secs,
+            test_before_acquire = config.test_before_acquire.0,
+            persons_routing_enabled = config.is_persons_db_routing_enabled(),
+            "Database pool configuration"
+        );
+
+        // Log whether pools are actually separate or aliased
+        let pools_are_separate = config.is_persons_db_routing_enabled();
+        if pools_are_separate {
+            info!("Using separate persons database pools");
+        } else {
+            info!("Persons pools are aliased to non-persons pools (persons DB routing disabled)");
+        }
 
         Ok(DatabasePools {
             non_persons_reader,

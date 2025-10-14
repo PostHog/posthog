@@ -228,6 +228,7 @@ class AddIndexAnalyzer(OperationAnalyzer):
     default_score = 0
 
     def analyze(self, op) -> OperationRisk:
+        model_name = getattr(op, "model_name", None)
         if hasattr(op, "index"):
             concurrent = getattr(op.index, "concurrent", False)
             if not concurrent:
@@ -235,7 +236,7 @@ class AddIndexAnalyzer(OperationAnalyzer):
                     type=self.operation_type,
                     score=4,
                     reason="Non-concurrent index creation locks table",
-                    details={},
+                    details={"model": model_name},
                     guidance=f"""Use AddIndexConcurrently for existing large tables (requires atomic=False).
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#adding-indexes)""",
@@ -244,7 +245,7 @@ class AddIndexAnalyzer(OperationAnalyzer):
             type=self.operation_type,
             score=0,
             reason="Concurrent index is safe",
-            details={},
+            details={"model": model_name},
         )
 
 
@@ -253,11 +254,12 @@ class AddConstraintAnalyzer(OperationAnalyzer):
     default_score = 3
 
     def analyze(self, op) -> OperationRisk:
+        model_name = getattr(op, "model_name", None)
         return OperationRisk(
             type=self.operation_type,
             score=3,
             reason="Adding constraint may lock table (use NOT VALID pattern)",
-            details={},
+            details={"model": model_name},
             guidance=f"""Add constraints in 2 phases without locking:
 1. Add constraint with NOT VALID (instant, validates new rows only)
 2. Validate constraint in separate migration (scans table with non-blocking lock)

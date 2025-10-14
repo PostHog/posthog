@@ -781,7 +781,7 @@ class TestCombinationRisks:
         assert len(ddl_warnings) == 0, f"Should not warn about DDL isolation for CONCURRENTLY: {ddl_warnings}"
 
     def test_create_model_with_add_index_safe(self):
-        """AddIndex on newly created table should be filtered out (safe, not shown in PR)"""
+        """AddIndex on newly created table should be filtered out (case-insensitive matching like Django)"""
         mock_migration = MagicMock()
         mock_migration.app_label = "test"
         mock_migration.name = "0001_create_new_table"
@@ -791,14 +791,15 @@ class TestCombinationRisks:
         index = MagicMock()
         index.concurrent = False
 
+        # Mimics real Django behavior: CreateModel uses capitalized name, AddIndex uses lowercase model_name
         mock_migration.operations = [
-            create_mock_operation(migrations.CreateModel, name="NewTable", fields=[]),
-            create_mock_operation(migrations.AddIndex, model_name="NewTable", index=index),
+            create_mock_operation(migrations.CreateModel, name="SchemaPropertyGroup", fields=[]),
+            create_mock_operation(migrations.AddIndex, model_name="schemapropertygroup", index=index),
         ]
 
         migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_create_new_table.py")
 
-        # AddIndex on new table should be filtered out (not shown in operations)
+        # AddIndex on new table should be filtered out despite case mismatch
         assert len(migration_risk.operations) == 1  # Only CreateModel
         assert migration_risk.operations[0].type == "CreateModel"
         assert migration_risk.level == RiskLevel.SAFE
@@ -808,20 +809,21 @@ class TestCombinationRisks:
         assert "Skipped operations on newly created tables" in migration_risk.info_messages[0]
 
     def test_create_model_with_add_constraint_safe(self):
-        """AddConstraint on newly created table should be filtered out (safe, not shown in PR)"""
+        """AddConstraint on newly created table should be filtered out (case-insensitive matching)"""
         mock_migration = MagicMock()
         mock_migration.app_label = "test"
         mock_migration.name = "0001_create_new_table"
         mock_migration.atomic = True
 
+        # Mimics real Django behavior: CreateModel uses capitalized name, AddConstraint uses lowercase model_name
         mock_migration.operations = [
-            create_mock_operation(migrations.CreateModel, name="NewTable", fields=[]),
-            create_mock_operation(migrations.AddConstraint, model_name="NewTable"),
+            create_mock_operation(migrations.CreateModel, name="EventSchema", fields=[]),
+            create_mock_operation(migrations.AddConstraint, model_name="eventschema"),
         ]
 
         migration_risk = self.analyzer.analyze_migration(mock_migration, "test/migrations/0001_create_new_table.py")
 
-        # AddConstraint on new table should be filtered out (not shown in operations)
+        # AddConstraint on new table should be filtered out despite case mismatch
         assert len(migration_risk.operations) == 1  # Only CreateModel
         assert migration_risk.operations[0].type == "CreateModel"
         assert migration_risk.level == RiskLevel.SAFE
