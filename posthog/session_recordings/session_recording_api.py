@@ -1364,6 +1364,7 @@ class SessionRecordingViewSet(
             ):
                 posthoganalytics.tag("lts_v2_blob_key", blob_key)
                 storage_client = session_recording_v2_object_storage.client()
+                content: str | bytes
                 if decompress:
                     content = await asyncio.to_thread(storage_client.fetch_file, blob_key)
                 else:
