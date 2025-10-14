@@ -172,7 +172,6 @@ async def run_in_retryable_transaction(
     Args:
         connection: The PostgreSQL connection to use
         fn: An async callable to execute within the transaction
-        max_retries: Maximum number of retry attempts
         max_attempts: Maximum number of retry attempts
     Returns:
         The return value of fn
