@@ -9,6 +9,8 @@ from structlog.contextvars import bind_contextvars
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
@@ -188,7 +190,6 @@ def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> Coh
         raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
 
     with HeartbeaterSync(logger=logger):
-        memberships = []
         for idx, condition_data in enumerate(inputs.conditions, 1):
             team_id = condition_data["team_id"]
             cohort_id = condition_data["cohort_id"]
@@ -275,24 +276,17 @@ def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> Coh
                     # TODO: We'll need to stream the query results to avoid memory issues:
                     # https://clickhouse.com/docs/integrations/language-clients/python/advanced-querying
                     # To test the producer let's go first with a simple approach
-                    memberships = [
-                        *memberships,
-                        *(
-                            {
-                                "team_id": row[0],
-                                "cohort_id": row[1],
-                                "person_id": row[2],
-                                "last_updated": row[3],
-                                "status": row[4],
-                            }
-                            for row in results
-                        ),
-                    ]
-
-                    if len(memberships) >= 100_000:
-                        logger.info(f"Processed {len(memberships)} memberships. Flushing to Kafka...")
-                        # TODO: Flush to Kafka
-                        memberships = []
+                    for row in results:
+                        payload = {
+                            "team_id": row[0],
+                            "cohort_id": row[1],
+                            "person_id": row[2],
+                            "last_updated": row[3],
+                            "status": row[4],
+                        }
+                        KafkaProducer().produce(
+                            topic=KAFKA_COHORT_MEMBERSHIP_CHANGED, key=payload["person_id"], data=payload
+                        )
 
             except Exception as e:
                 logger.exception(
