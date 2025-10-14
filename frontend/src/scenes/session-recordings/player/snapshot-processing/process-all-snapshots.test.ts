@@ -160,13 +160,36 @@ describe('process all snapshots', () => {
             ;(getDecompressionWorkerManager as jest.Mock).mockReturnValue(mockWorkerManager)
         })
 
-        it('handles ArrayBuffer input by decompressing and parsing', async () => {
+        const createLengthPrefixedData = (blocks: Uint8Array[]): Uint8Array => {
+            let totalLength = 0
+            for (const block of blocks) {
+                totalLength += 4 + block.byteLength
+            }
+
+            const result = new Uint8Array(totalLength)
+            let offset = 0
+
+            for (const block of blocks) {
+                const length = block.byteLength
+                result[offset] = (length >>> 24) & 0xff
+                result[offset + 1] = (length >>> 16) & 0xff
+                result[offset + 2] = (length >>> 8) & 0xff
+                result[offset + 3] = length & 0xff
+                offset += 4
+
+                result.set(block, offset)
+                offset += length
+            }
+
+            return result
+        }
+
+        it.each([
+            ['ArrayBuffer', (data: Uint8Array) => data.buffer as ArrayBuffer | Uint8Array],
+            ['Uint8Array', (data: Uint8Array) => data],
+        ])('handles %s input by decompressing and parsing', async (_name, convertInput) => {
             const sessionId = 'test-session'
 
-            // Create mock compressed data (ArrayBuffer)
-            const mockCompressedData = new ArrayBuffer(10)
-
-            // Create mock decompressed JSON lines
             const snapshotJson = JSON.stringify({
                 window_id: '1',
                 data: [
@@ -177,56 +200,23 @@ describe('process all snapshots', () => {
                     },
                 ],
             })
-            const decompressedText = snapshotJson + '\n'
-            const decompressedBytes = new TextEncoder().encode(decompressedText)
+            const decompressedBytes = new TextEncoder().encode(snapshotJson + '\n')
+            const fakeCompressedBlock = new Uint8Array([1, 2, 3, 4, 5])
+            const mockCompressedData = createLengthPrefixedData([fakeCompressedBlock])
 
-            // Mock the worker manager to return decompressed bytes
             mockWorkerManager.decompress.mockResolvedValue(decompressedBytes)
 
-            const result = await parseEncodedSnapshots(mockCompressedData, sessionId)
+            const result = await parseEncodedSnapshots(convertInput(mockCompressedData), sessionId)
 
-            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(expect.any(Uint8Array))
+            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeCompressedBlock)
             expect(result).toHaveLength(1)
             expect(result[0].windowId).toBe('1')
             expect(result[0].timestamp).toBe(1234567890)
         })
 
-        it('handles Uint8Array input by decompressing and parsing', async () => {
-            const sessionId = 'test-session'
-
-            // Create mock compressed data (Uint8Array)
-            const mockCompressedData = new Uint8Array([1, 2, 3, 4, 5])
-
-            // Create mock decompressed JSON lines
-            const snapshotJson = JSON.stringify({
-                window_id: '2',
-                data: [
-                    {
-                        type: 3,
-                        timestamp: 9876543210,
-                        data: { source: 0 },
-                    },
-                ],
-            })
-            const decompressedText = snapshotJson + '\n'
-            const decompressedBytes = new TextEncoder().encode(decompressedText)
-
-            // Mock the worker manager to return decompressed bytes
-            mockWorkerManager.decompress.mockResolvedValue(decompressedBytes)
-
-            const result = await parseEncodedSnapshots(mockCompressedData, sessionId)
-
-            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(mockCompressedData)
-            expect(result).toHaveLength(1)
-            expect(result[0].windowId).toBe('2')
-            expect(result[0].timestamp).toBe(9876543210)
-        })
-
         it('handles multiple snapshots in decompressed data', async () => {
             const sessionId = 'test-session'
-            const mockCompressedData = new Uint8Array([1, 2, 3])
 
-            // Create multiple snapshots
             const snapshot1 = JSON.stringify({
                 window_id: '1',
                 data: [{ type: 2, timestamp: 1000, data: {} }],
@@ -235,10 +225,16 @@ describe('process all snapshots', () => {
                 window_id: '1',
                 data: [{ type: 3, timestamp: 2000, data: {} }],
             })
-            const decompressedText = snapshot1 + '\n' + snapshot2 + '\n'
-            const decompressedBytes = new TextEncoder().encode(decompressedText)
+            const decompressedBytes1 = new TextEncoder().encode(snapshot1 + '\n')
+            const decompressedBytes2 = new TextEncoder().encode(snapshot2 + '\n')
 
-            mockWorkerManager.decompress.mockResolvedValue(decompressedBytes)
+            const fakeCompressedBlock1 = new Uint8Array([1, 2, 3])
+            const fakeCompressedBlock2 = new Uint8Array([4, 5, 6])
+            const mockCompressedData = createLengthPrefixedData([fakeCompressedBlock1, fakeCompressedBlock2])
+
+            mockWorkerManager.decompress
+                .mockResolvedValueOnce(decompressedBytes1)
+                .mockResolvedValueOnce(decompressedBytes2)
 
             const result = await parseEncodedSnapshots(mockCompressedData, sessionId)
 
@@ -251,7 +247,6 @@ describe('process all snapshots', () => {
             const sessionId = 'test-session'
             const mockCompressedData = new Uint8Array([1, 2, 3])
 
-            // Mock decompression failure
             mockWorkerManager.decompress.mockRejectedValue(new Error('Decompression failed'))
 
             const result = await parseEncodedSnapshots(mockCompressedData, sessionId)
@@ -261,15 +256,14 @@ describe('process all snapshots', () => {
 
         it('filters out empty lines in decompressed data', async () => {
             const sessionId = 'test-session'
-            const mockCompressedData = new Uint8Array([1, 2, 3])
 
-            // Create snapshots with empty lines
-            const snapshot1 = JSON.stringify({
+            const snapshot = JSON.stringify({
                 window_id: '1',
                 data: [{ type: 2, timestamp: 1000, data: {} }],
             })
-            const decompressedText = '\n\n' + snapshot1 + '\n\n\n'
-            const decompressedBytes = new TextEncoder().encode(decompressedText)
+            const decompressedBytes = new TextEncoder().encode('\n\n' + snapshot + '\n\n\n')
+            const fakeCompressedBlock = new Uint8Array([10, 11, 12])
+            const mockCompressedData = createLengthPrefixedData([fakeCompressedBlock])
 
             mockWorkerManager.decompress.mockResolvedValue(decompressedBytes)
 
