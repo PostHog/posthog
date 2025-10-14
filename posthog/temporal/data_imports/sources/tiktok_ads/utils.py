@@ -297,14 +297,20 @@ class TikTokAdsPaginator(BasePaginator):
                     response_status=response.status_code,
                 )
 
+                # https://business-api.tiktok.com/portal/docs?rid=xmtaqatxqj8&id=1737172488964097
                 retryable_codes = [
-                    40100,  # QPS limit reached (confirmed from our tests - 20 QPS limit)
-                    40200,  # Insufficient permissions
-                    40201,  # Access token expired
-                    40202,  # Access token invalid
-                    40700,  # Rate limit exceeded
-                    50000,  # Internal server error
-                    50002,  # Service error
+                    40016,  # Requests made too frequently
+                    40100,  # Requests made too frequently
+                    40101,  # Requests made too frequently
+                    40102,  # Requests made too frequently for a certain field value.
+                    40200,  # Task error
+                    40201,  # Task is not ready
+                    40202,  # Write or update entity conflict
+                    40700,  # Internal service validation error
+                    50000,  # System error
+                    50002,  # Error processing request on TikTok side. Please see error message for details.
+                    51305,  # Satellite service error
+                    60001,  # The system is in maintenance.
                 ]
 
                 if api_code in retryable_codes:
