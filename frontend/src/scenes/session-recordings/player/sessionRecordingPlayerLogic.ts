@@ -47,6 +47,7 @@ import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverla
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
+import { AudioMuteReplayerPlugin } from './rrweb/audio-mute-plugin'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { snapshotDataLogic } from './snapshotDataLogic'
@@ -1101,6 +1102,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
+            plugins.push(AudioMuteReplayerPlugin(values.isMuted))
 
             // we override the console in the player, with one which stores its data instead of logging
             // there is a debounced logger hidden inside that.
@@ -1187,11 +1189,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.seekToTimestamp(values.currentTimestamp)
                 }
                 actions.syncPlayerSpeed()
-
-                // Apply mute state to newly initialized player
-                setTimeout(() => {
-                    actions.setMuted(values.isMuted)
-                }, 100)
             }
         },
         setCurrentSegment: ({ segment }) => {
@@ -1358,11 +1355,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (nextTimestamp !== undefined) {
                 actions.seekToTimestamp(nextTimestamp, true)
             }
-
-            // Apply current mute state to any media elements after a short delay
-            setTimeout(() => {
-                actions.setMuted(values.isMuted)
-            }, 100)
         },
         markViewed: async ({ delay }, breakpoint) => {
             breakpoint()
@@ -1566,8 +1558,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const audioElements = Array.from(iframeDocument.getElementsByTagName('audio'))
-            const videoElements = Array.from(iframeDocument.getElementsByTagName('video'))
+            const audioElements = Array.from(iframeDocument.getElementsByTagName('audio')) as HTMLAudioElement[]
+            const videoElements = Array.from(iframeDocument.getElementsByTagName('video')) as HTMLVideoElement[]
             const mediaElements: HTMLMediaElement[] = [...audioElements, ...videoElements]
             const playingElements = mediaElements.filter(isMediaElementPlaying)
 
@@ -1735,20 +1727,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return () => clearTimeout(timerId)
             }, 'playerTimeTracking')
         },
-        setMuted: (isMuted: boolean) => {
-            const iframe = values.rootFrame?.querySelector('iframe')
-            const iframeDocument = iframe?.contentWindow?.document
-            if (!iframeDocument) {
-                return
+        setMuted: () => {
+            // If we have an active player, reinitialize it with the new mute state
+            // The AudioMuteReplayerPlugin will be recreated with the updated mute state
+            if (values.player) {
+                actions.tryInitReplayer()
             }
-
-            const audioElements = Array.from(iframeDocument.getElementsByTagName('audio')) as HTMLAudioElement[]
-            const videoElements = Array.from(iframeDocument.getElementsByTagName('video')) as HTMLVideoElement[]
-            const mediaElements: HTMLMediaElement[] = [...audioElements, ...videoElements]
-
-            mediaElements.forEach((el) => {
-                el.muted = isMuted
-            })
         },
     })),
 
