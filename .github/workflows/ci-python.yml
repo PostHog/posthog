@@ -89,10 +89,10 @@ jobs:
               run: |
                   ruff format --check --diff .
 
-            - name: Add Problem Matcher
+            - name: Add ty Problem Matcher
               shell: bash
               run: |
-                  echo "::add-matcher::.github/mypy-problem-matcher.json"
+                  echo "::add-matcher::.github/ty-problem-matcher.json"
 
             - name: Check ty type checking (informational)
               shell: bash
@@ -102,6 +102,11 @@ jobs:
                   echo "This is a trial run to evaluate ty vs mypy. Please provide feedback in #team-devex"
                   echo ""
                   ./bin/ty.py check posthog ee common dags || echo "ty found type issues (see output above)"
+
+            - name: Add mypy Problem Matcher
+              shell: bash
+              run: |
+                  echo "::add-matcher::.github/mypy-problem-matcher.json"
 
             - name: Restore mypy cache
               uses: actions/cache@v4

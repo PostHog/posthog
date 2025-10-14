@@ -91,8 +91,7 @@
         "funnel-udf/**/*.rs": "rustfmt",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "./bin/ruff.sh check --fix",
-            "./bin/ruff.sh format",
-            "./bin/ty.py"
+            "./bin/ruff.sh format"
         ],
         "*.{md,mdx}": [
             "prettier --write",
