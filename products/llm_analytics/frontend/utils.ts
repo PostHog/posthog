@@ -1,7 +1,10 @@
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 
+import type { EvaluationRun } from './evaluations/types'
 import type { SpanAggregation } from './llmAnalyticsTraceDataLogic'
 import {
     AnthropicInputMessage,
@@ -146,16 +149,27 @@ export function isOpenAICompatMessage(output: unknown): output is OpenAICompleti
 }
 
 export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCall[] {
-    const toolsWithParsedArguments = toolCalls.map((toolCall) => ({
-        ...toolCall,
-        function: {
-            ...toolCall.function,
-            arguments:
-                typeof toolCall.function.arguments === 'string'
-                    ? JSON.parse(toolCall.function.arguments)
-                    : toolCall.function.arguments,
-        },
-    }))
+    const toolsWithParsedArguments = toolCalls.map((toolCall) => {
+        let parsedArguments = toolCall.function.arguments
+
+        if (typeof toolCall.function.arguments === 'string') {
+            try {
+                parsedArguments = JSON.parse(toolCall.function.arguments)
+            } catch (e) {
+                console.warn('Failed to parse tool call arguments as JSON:', toolCall.function.arguments, e)
+                // Keep the original string if parsing fails
+                parsedArguments = toolCall.function.arguments
+            }
+        }
+
+        return {
+            ...toolCall,
+            function: {
+                ...toolCall.function,
+                arguments: parsedArguments,
+            },
+        }
+    })
 
     return toolsWithParsedArguments
 }
@@ -489,6 +503,10 @@ export function removeMilliseconds(timestamp: string): string {
     return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
 }
 
+export function getTraceTimestamp(timestamp: string): string {
+    return dayjs(timestamp).utc().subtract(5, 'minutes').format('YYYY-MM-DDTHH:mm:ss[Z]')
+}
+
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     if (isLLMTraceEvent(event)) {
         if (event.event === '$ai_generation') {
@@ -568,4 +586,68 @@ export function truncateValue(value: unknown): string {
     }
 
     return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
+}
+
+type RawEvaluationRunRow = [
+    id: string,
+    timestamp: string,
+    evaluation_id: string,
+    evaluation_name: string | null,
+    generation_id: string,
+    trace_id: string,
+    result: boolean | string,
+    reasoning: string | null,
+]
+
+export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
+    return {
+        id: row[0],
+        timestamp: row[1],
+        evaluation_id: row[2],
+        evaluation_name: row[3] || 'Unknown Evaluation',
+        generation_id: row[4],
+        trace_id: row[5],
+        result: row[6] === true || row[6] === 'true',
+        reasoning: row[7] || 'No reasoning provided',
+        status: 'completed' as const,
+    }
+}
+
+export async function queryEvaluationRuns(params: {
+    evaluationId?: string
+    generationEventId?: string
+    forceRefresh?: boolean
+}): Promise<EvaluationRun[]> {
+    const { evaluationId, generationEventId, forceRefresh } = params
+
+    if (!evaluationId && !generationEventId) {
+        throw new Error('Either evaluationId or generationEventId must be provided')
+    }
+
+    const propertyName = evaluationId ? '$ai_evaluation_id' : '$ai_target_event_id'
+    const propertyValue = evaluationId || generationEventId
+
+    const query = hogql`
+        SELECT
+            uuid,
+            timestamp,
+            properties.$ai_evaluation_id as evaluation_id,
+            properties.$ai_evaluation_name as evaluation_name,
+            properties.$ai_target_event_id as generation_id,
+            properties.$ai_trace_id as trace_id,
+            properties.$ai_evaluation_result as result,
+            properties.$ai_evaluation_reasoning as reasoning
+        FROM events
+        WHERE
+            event = '$ai_evaluation'
+            AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+        ORDER BY timestamp DESC
+        LIMIT 100
+    `
+
+    const response = await api.queryHogQL(query, {
+        ...(forceRefresh && { refresh: 'force_blocking' }),
+    })
+
+    return (response.results || []).map(mapEvaluationRunRow)
 }

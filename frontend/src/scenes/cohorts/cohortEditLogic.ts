@@ -1,7 +1,7 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -42,11 +42,23 @@ import type { cohortEditLogicType } from './cohortEditLogicType'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
+    tabId?: string
 }
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
-    key((props) => props.id || 'new'),
+    key((props) => {
+        if (props.id === 'new' || !props.id) {
+            if (props.tabId == null) {
+                return 'new'
+            }
+            return `new-${props.tabId}`
+        }
+        if (props.tabId == null) {
+            return props.id
+        }
+        return `${props.id}-${props.tabId}`
+    }),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
@@ -80,6 +92,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         addPersonToCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCohort: (personId: string) => ({ personId }),
+        resetPersonsToCreateStaticCohort: true,
     }),
 
     reducers(({ props }) => ({
@@ -241,6 +254,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     delete newState[personId]
                     return newState
                 },
+                resetPersonsToCreateStaticCohort: () => ({}),
             },
         ],
     })),
@@ -382,6 +396,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         })
                         mountedDataNodeLogic?.actions.loadData('force_blocking')
                     }
+                    if (existingCohort.id === 'new') {
+                        router.actions.push(urls.cohort(cohort.id))
+                        if (existingCohort.is_static) {
+                            actions.resetPersonsToCreateStaticCohort()
+                        }
+                        return { ...NEW_COHORT }
+                    }
                     return processCohort(cohort)
                 },
                 onCriteriaChange: ({ newGroup, id }) => {
@@ -510,10 +531,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 }
             }
         },
-    })),
-
-    actionToUrl(({ values }) => ({
-        saveCohortSuccess: () => urls.cohort(values.cohort.id),
     })),
 
     afterMount(({ actions, props }) => {

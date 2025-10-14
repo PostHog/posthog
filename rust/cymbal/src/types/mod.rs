@@ -1,3 +1,4 @@
+use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
 use common_types::error_tracking::{ExceptionData, FrameData, FrameId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -12,6 +13,8 @@ use crate::fingerprinting::{
 };
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
+use crate::issue_resolution::Issue;
+use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {
@@ -340,6 +343,69 @@ impl OutputErrProps {
             }
         });
     }
+
+    pub fn to_fingerprint_embedding_request(&self, issue: &Issue) -> EmbeddingRequest {
+        let mut content = String::with_capacity(2048);
+
+        for exception in &self.exception_list.0 {
+            // Add exception type and value
+            let type_and_value = &format!(
+                "{}: {}\n",
+                exception.exception_type,
+                exception
+                    .exception_message
+                    .chars()
+                    .take(300)
+                    .collect::<String>()
+            );
+
+            content.push_str(type_and_value);
+
+            let Some(stack) = &exception.stack else {
+                continue;
+            };
+
+            // Add frame information
+            for frame in stack.get_frames() {
+                // Add resolved or mangled name
+                if let Some(resolved_name) = &frame.resolved_name {
+                    content.push_str(resolved_name);
+                } else {
+                    content.push_str(&frame.mangled_name);
+                }
+
+                // Add source file if available
+                if let Some(source) = &frame.source {
+                    content.push_str(&format!(" in {source}"));
+                }
+
+                // Add line number if available
+                if let Some(line) = frame.line {
+                    content.push_str(&format!(" line {line}"));
+                }
+
+                if let Some(column) = frame.column {
+                    content.push_str(&format!(" column {column}"));
+                }
+
+                content.push('\n');
+            }
+        }
+
+        EmbeddingRequest {
+            team_id: issue.team_id,
+            product: "error_tracking".to_string(),
+            document_type: "fingerprint".to_string(),
+            rendering: "type_message_and_stack".to_string(),
+            document_id: self.fingerprint.clone(),
+            timestamp: issue.created_at,
+            content,
+            models: vec![
+                EmbeddingModel::OpenAITextEmbeddingLarge,
+                EmbeddingModel::OpenAITextEmbeddingSmall,
+            ],
+        }
+    }
 }
 
 impl Stacktrace {
@@ -354,6 +420,10 @@ impl Stacktrace {
                 Some(resolved_frame) => resolved_frames.push(resolved_frame.clone()),
                 None => return None,
             }
+        }
+
+        if resolved_frames.iter().any(|f| f.suspicious) {
+            metrics::counter!(POSTHOG_SDK_EXCEPTION_RESOLVED).increment(1);
         }
 
         Some(Stacktrace::Resolved {

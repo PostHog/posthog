@@ -26,7 +26,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
@@ -72,7 +72,7 @@ UNPAIRED_SURROGATE_PATTERN_2 = re.compile(
 )
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on errors that are related to database operation.
@@ -114,6 +114,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "DatatypeMismatch",
     # Exceeded limits for indexes that we do not maintain.
     "ProgramLimitExceeded",
+    # Raised when the destination table schema is incompatible with the schema of the data we are trying to export.
+    "PostgreSQLIncompatibleSchemaError",
 )
 
 
@@ -124,6 +126,13 @@ class PostgreSQLConnectionError(Exception):
 class MissingPrimaryKeyError(Exception):
     def __init__(self, table: sql.Identifier, primary_key: sql.Composed):
         super().__init__(f"An operation could not be completed as '{table}' is missing a primary key on {primary_key}")
+
+
+class PostgreSQLIncompatibleSchemaError(Exception):
+    """Raised when the destination table schema is incompatible with the schema of the data we are trying to export."""
+
+    def __init__(self, err_msg: str):
+        super().__init__(f"The data being exported is incompatible with the schema of the destination table: {err_msg}")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -774,17 +783,23 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchEx
         # NOTE: PostgreSQL has a 63 byte limit on identifiers.
         # With a 6 digit `team_id`, this leaves 30 bytes for a table name input.
         # TODO: That should be enough, but we should add a proper check and alert on larger inputs.
-        stagle_table_name = (
+        stage_table_name = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
             if requires_merge
             else inputs.table_name
         )[:63]
 
         async with PostgreSQLClient.from_inputs(inputs).connect() as pg_client:
+            table_exists = False
             # handle the case where the final table doesn't contain all the fields present in the record batch schema
             try:
                 columns = await pg_client.aget_table_columns(inputs.schema, inputs.table_name)
+                table_exists = True
                 table_fields = [field for field in table_fields if field[0] in columns]
+                if not table_fields:
+                    raise PostgreSQLIncompatibleSchemaError(
+                        f"No matching columns found in the destination table '{inputs.schema}.{inputs.table_name}'"
+                    )
             except psycopg.errors.InsufficientPrivilege:
                 external_logger.warning(
                     "Insufficient privileges to get table columns for table '%s.%s'; "
@@ -805,13 +820,14 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchEx
                     inputs.schema,
                     inputs.table_name,
                     table_fields,
+                    create=not table_exists,
                     delete=False,
                     primary_key=primary_key,
                     log_statements=True,
                 ) as pg_table,
                 pg_client.managed_table(
                     inputs.schema,
-                    stagle_table_name,
+                    stage_table_name,
                     table_fields,
                     create=requires_merge,
                     delete=requires_merge,

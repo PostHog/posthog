@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
+import { IconEllipsis, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -18,12 +18,12 @@ import {
     SidePanelExportsIcon,
 } from '~/layout/navigation-3000/sidepanel/panels/exports/SidePanelExports'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelMax } from './panels/SidePanelMax'
+import { SidePanelSdkDoctor, SidePanelSdkDoctorIcon } from './panels/SidePanelSdkDoctor'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
@@ -107,6 +107,11 @@ export const SIDE_PANEL_TABS: Record<
         Icon: IconLock,
         Content: SidePanelAccessControl,
     },
+    [SidePanelTab.SdkDoctor]: {
+        label: 'SDK Doctor',
+        Icon: SidePanelSdkDoctorIcon,
+        Content: SidePanelSdkDoctor,
+    },
 }
 
 const DEFAULT_WIDTH = 512
@@ -116,8 +121,6 @@ export function SidePanel(): JSX.Element | null {
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
-    const { openAccountPopover } = useActions(navigationLogic)
-    const { featurePreviewChangeAcknowledged } = useValues(navigationLogic)
 
     const activeTab = sidePanelOpen && selectedTab
 
@@ -164,39 +167,15 @@ export function SidePanel(): JSX.Element | null {
         ? [
               {
                   title: 'Open in side panel',
-                  items: [
-                      ...extraTabs.map((tab) => {
-                          const { Icon, label } = SIDE_PANEL_TABS[tab]
+                  items: extraTabs.map((tab) => {
+                      const { Icon, label } = SIDE_PANEL_TABS[tab]
 
-                          return {
-                              label: label,
-                              icon: <Icon />,
-                              onClick: () => openSidePanel(tab),
-                          }
-                      }),
-                      // This is a off ramp for the feature previews moving from the side panel to the settings page,
-                      // TODO: Remove this in a while so all users have acknowledged the change.
-                      !featurePreviewChangeAcknowledged
-                          ? {
-                                label: 'Feature previews',
-                                icon: <IconFeatures />,
-                                onClick: () => {
-                                    openAccountPopover()
-                                },
-                                tooltip: (
-                                    <>
-                                        <div className="flex items-center gap-2">
-                                            <IconInfo className="size-4 shrink-0" />
-                                            <span>
-                                                <span className="font-bold">Feature previews</span> has moved, click
-                                                here to learn where to access it.
-                                            </span>
-                                        </div>
-                                    </>
-                                ),
-                            }
-                          : null,
-                  ],
+                      return {
+                          label: label,
+                          icon: <Icon />,
+                          onClick: () => openSidePanel(tab),
+                      }
+                  }),
               },
           ]
         : undefined

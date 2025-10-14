@@ -6,6 +6,8 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 from prometheus_client import Counter
+from temporalio import activity, workflow
+from temporalio.common import MetricCounter, MetricMeter
 
 from posthog import settings
 from posthog.exceptions_capture import capture_exception
@@ -24,21 +26,66 @@ from ee.tasks.subscriptions.subscription_utils import generate_assets, generate_
 
 logger = structlog.get_logger(__name__)
 
+# Prometheus metrics for Celery workers (web/worker pods)
 SUBSCRIPTION_QUEUED = Counter(
     "subscription_queued",
     "A subscription was queued for delivery",
-    labelnames=["destination"],
+    labelnames=["destination", "execution_path"],
 )
 SUBSCRIPTION_SUCCESS = Counter(
     "subscription_send_success",
     "A subscription was sent successfully",
-    labelnames=["destination"],
+    labelnames=["destination", "execution_path"],
 )
 SUBSCRIPTION_FAILURE = Counter(
     "subscription_send_failure",
     "A subscription failed to send",
-    labelnames=["destination"],
+    labelnames=["destination", "execution_path"],
 )
+
+
+# Temporal metrics for temporal workers
+def get_metric_meter() -> MetricMeter:
+    """Get metric meter for the current context (activity or workflow)."""
+    if activity.in_activity():
+        return activity.metric_meter()
+    elif workflow.in_workflow():
+        return workflow.metric_meter()
+    else:
+        raise RuntimeError("Not within workflow or activity context")
+
+
+def get_subscription_queued_metric(destination: str, execution_path: str) -> MetricCounter:
+    return (
+        get_metric_meter()
+        .with_additional_attributes({"destination": destination, "execution_path": execution_path})
+        .create_counter(
+            "subscription_queued",
+            "A subscription was queued for delivery",
+        )
+    )
+
+
+def get_subscription_success_metric(destination: str, execution_path: str) -> MetricCounter:
+    return (
+        get_metric_meter()
+        .with_additional_attributes({"destination": destination, "execution_path": execution_path})
+        .create_counter(
+            "subscription_send_success",
+            "A subscription was sent successfully",
+        )
+    )
+
+
+def get_subscription_failure_metric(destination: str, execution_path: str) -> MetricCounter:
+    return (
+        get_metric_meter()
+        .with_additional_attributes({"destination": destination, "execution_path": execution_path})
+        .create_counter(
+            "subscription_send_failure",
+            "A subscription failed to send",
+        )
+    )
 
 
 async def deliver_subscription_report_async(
@@ -91,7 +138,7 @@ async def deliver_subscription_report_async(
 
     if subscription.target_type == "email":
         logger.info("deliver_subscription_report_async.sending_email", subscription_id=subscription_id)
-        SUBSCRIPTION_QUEUED.labels(destination="email").inc()
+        get_subscription_queued_metric("email", "temporal").add(1)
 
         # Send emails
         emails = subscription.target_value.split(",")
@@ -119,9 +166,9 @@ async def deliver_subscription_report_async(
                 logger.info(
                     "deliver_subscription_report_async.email_sent", subscription_id=subscription_id, email=email
                 )
-                SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
+                get_subscription_success_metric("email", "temporal").add(1)
             except Exception as e:
-                SUBSCRIPTION_FAILURE.labels(destination="email").inc()
+                get_subscription_failure_metric("email", "temporal").add(1)
                 logger.error(
                     "deliver_subscription_report_async.email_failed",
                     subscription_id=subscription.id,
@@ -134,7 +181,7 @@ async def deliver_subscription_report_async(
 
     elif subscription.target_type == "slack":
         logger.info("deliver_subscription_report_async.sending_slack", subscription_id=subscription_id)
-        SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
+        get_subscription_queued_metric("slack", "temporal").add(1)
 
         try:
             logger.info("deliver_subscription_report_async.loading_slack_integration", subscription_id=subscription_id)
@@ -144,7 +191,7 @@ async def deliver_subscription_report_async(
 
             if not integration:
                 logger.error("deliver_subscription_report_async.no_slack_integration", subscription_id=subscription_id)
-                SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
+                get_subscription_failure_metric("slack", "temporal").add(1)
                 return
 
             logger.info("deliver_subscription_report_async.sending_slack_message", subscription_id=subscription_id)
@@ -156,9 +203,9 @@ async def deliver_subscription_report_async(
                 is_new_subscription=is_new_subscription_target,
             )
             logger.info("deliver_subscription_report_async.slack_sent", subscription_id=subscription_id)
-            SUBSCRIPTION_SUCCESS.labels(destination="slack").inc()
+            get_subscription_success_metric("slack", "temporal").add(1)
         except Exception as e:
-            SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
+            get_subscription_failure_metric("slack", "temporal").add(1)
             logger.error(
                 "deliver_subscription_report_async.slack_failed",
                 subscription_id=subscription.id,
@@ -207,7 +254,7 @@ def deliver_subscription_report_sync(
         return
 
     if subscription.target_type == "email":
-        SUBSCRIPTION_QUEUED.labels(destination="email").inc()
+        SUBSCRIPTION_QUEUED.labels(destination="email", execution_path="celery").inc()
 
         # Send emails
         emails = subscription.target_value.split(",")
@@ -224,9 +271,9 @@ def deliver_subscription_report_sync(
                     invite_message=invite_message or "" if is_new_subscription_target else None,
                     total_asset_count=len(insights),
                 )
-                SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
+                SUBSCRIPTION_SUCCESS.labels(destination="email", execution_path="celery").inc()
             except Exception as e:
-                SUBSCRIPTION_FAILURE.labels(destination="email").inc()
+                SUBSCRIPTION_FAILURE.labels(destination="email", execution_path="celery").inc()
                 logger.error(
                     "sending subscription failed",
                     subscription_id=subscription.id,
@@ -237,7 +284,7 @@ def deliver_subscription_report_sync(
                 capture_exception(e)
 
     elif subscription.target_type == "slack":
-        SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
+        SUBSCRIPTION_QUEUED.labels(destination="slack", execution_path="celery").inc()
 
         try:
             send_slack_subscription_report(
@@ -246,9 +293,9 @@ def deliver_subscription_report_sync(
                 total_asset_count=len(insights),
                 is_new_subscription=is_new_subscription_target,
             )
-            SUBSCRIPTION_SUCCESS.labels(destination="slack").inc()
+            SUBSCRIPTION_SUCCESS.labels(destination="slack", execution_path="celery").inc()
         except Exception as e:
-            SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
+            SUBSCRIPTION_FAILURE.labels(destination="slack", execution_path="celery").inc()
             logger.error(
                 "sending subscription failed",
                 subscription_id=subscription.id,

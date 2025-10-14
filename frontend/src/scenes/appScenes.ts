@@ -14,6 +14,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Billing]: () => import('./billing/Billing'),
     [Scene.Canvas]: () => import('./notebooks/NotebookCanvasScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
+    [Scene.CohortCalculationHistory]: () => import('./cohorts/CohortCalculationHistory'),
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
     [Scene.CustomCss]: () => import('./themes/CustomCssScene'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),

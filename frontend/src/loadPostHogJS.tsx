@@ -1,9 +1,7 @@
 import posthog from 'posthog-js'
 
-import { Link, lemonToast } from '@posthog/lemon-ui'
-
 import { FEATURE_FLAGS } from 'lib/constants'
-import { getISOWeekString, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
@@ -80,33 +78,11 @@ export function loadPostHogJS(): void {
                 return
             }
 
-            // Show this toast once per week by using YYYY-WW format for the ID
-            const toastId = `toast-feature-flags-error-${getISOWeekString()}`
-            if (window.localStorage.getItem(toastId)) {
-                return
-            }
+            posthog.capture('onFeatureFlags error')
 
-            lemonToast.warning(
-                <div className="flex flex-col gap-2">
-                    <span>We couldn't load our internal feature flags.</span>
-                    <span>
-                        This could be due to the presence of adblockers running in your browser or due to a network
-                        issue (e.g. slow wifi). Some features may not be available.
-                    </span>
-                    <span className="italic">
-                        Note: If you use feature flags for your app, you can avoid this issue for your users by using a{' '}
-                        <Link to="https://posthog.com/docs/advanced/proxy" target="_blank">
-                            reverse proxy
-                        </Link>
-                        .
-                    </span>
-                </div>,
-                {
-                    toastId: toastId,
-                    onClose: () => window.localStorage.setItem(toastId, 'true'),
-                    autoClose: false,
-                }
-            )
+            // Track that we failed to load feature flags
+            window.POSTHOG_GLOBAL_ERRORS ||= {}
+            window.POSTHOG_GLOBAL_ERRORS['onFeatureFlagsLoadError'] = true
         })
     } else {
         posthog.init('fake_token', {
