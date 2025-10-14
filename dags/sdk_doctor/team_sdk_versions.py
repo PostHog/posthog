@@ -28,7 +28,7 @@ QUERY = parse_select(
         SELECT
             properties.$lib AS lib,
             properties.$lib_version AS lib_version,
-            MAX(timestamp) AS max_timestamp,
+            MAX(created_at) AS max_timestamp,
             COUNT(*) AS event_count
         FROM events
         WHERE
