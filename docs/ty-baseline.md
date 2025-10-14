@@ -1,74 +1,75 @@
 # Ty Type Checking
 
-ty runs automatically on every commit via `lint-staged`. If ty reports errors:
+ty runs in CI as an informational check to evaluate its usefulness vs mypy. If you see ty annotations in your PR:
 
-- **Just fix them** - ty is stricter than mypy, which improves code quality
-- No need to check if mypy agrees
-- You can temporarily skip with `git commit --no-verify` if needed
+- 👀 Review the feedback - ty often catches real type issues
+- 📊 Share your experience in #team-devex
+- ⚠️ ty warnings are informational and don't block CI
 
-The baseline system prevents pre-existing errors from blocking your commits - you're only responsible for fixing new errors you introduce.
+The baseline system filters out 567 pre-existing errors so you only see new issues introduced by your changes.
 
 ## Manual Usage
 
 ```bash
-./bin/ty.py path/to/file.py    # Check specific files
+./bin/ty.py check path/to/file.py    # Check specific files
+./bin/ty.py check posthog ee         # Check directories
 ```
 
-## Ty vs mypy: Fast preflight vs authoritative checking
+## Ty vs mypy: Fast trial vs authoritative checking
 
-**ty** serves as a **fast preflight check** during development:
+**ty** is currently in trial mode:
 
 - ⚡ Extremely fast (~10-100x faster than mypy)
-- 🧪 Alpha/beta software (expect occasional edge cases)
-- 🚦 Runs automatically in `lint-staged` on every commit
+- 🧪 Alpha software (v0.0.1a22 - expect edge cases)
+- 📢 Runs in CI only (non-blocking) to gather feedback
+- 🚨 Uses GitHub problem matcher to show warnings inline
 
 **mypy** remains the **authoritative type checker**:
 
 - 🎯 More mature and comprehensive
 - 🐌 Slower but thorough
-- ✅ Final source of truth (runs in CI and recommended for local deep checks)
+- ✅ Final source of truth (runs in CI and blocks on errors)
+- 📍 Runs in CI and recommended for local deep checks
 
-If ty reports an error, fix it - ty's stricter checking helps catch bugs early.
+This trial helps us evaluate whether ty should become a blocking check in the future.
 
 ## Baseline Management
 
 ### Two Separate Baselines
 
-- **`mypy-baseline.txt`** - Maintained by mypy (authoritative, ~1287 errors)
-- **`ty-baseline.txt`** - Maintained by ty (~2136 errors)
+- **`mypy-baseline.txt`** - Maintained by mypy (~1287 errors)
+- **`ty-baseline.txt`** - Maintained by ty (567 diagnostics)
 
-ty maintains its own baseline because it finds different/additional errors compared to mypy.
-This ensures developers aren't blocked by pre-existing ty errors in files they modify.
+ty maintains its own baseline because it reports different errors than mypy. The baseline contains pre-existing errors that won't trigger warnings in CI.
+
+### Baseline Contents
+
+The ty-baseline.txt contains:
+
+- 91 redundant-cast (easy cleanup opportunities)
+- 96 possibly-unbound-attribute (null safety checks)
+- 119 missing-argument (real bugs requiring investigation)
+- 52 deprecated warnings
+- Plus other categories
+
+About 50% are real bugs, 25% safety improvements, 25% trivial cleanups.
 
 ### Updating ty-baseline
 
-When you fix ty errors, update the baseline:
+When you fix ty errors across the codebase, update the baseline:
 
 ```bash
 ./bin/ty.py sync
 git add ty-baseline.txt
-git commit -m "chore: Update ty baseline after fixing type errors"
+git commit -m "chore: update ty baseline after fixing type errors"
 ```
 
-The sync command:
+The sync command runs ty on all Python directories and updates `ty-baseline.txt` with the current state.
 
-- Runs ty on all Python directories (`posthog`, `ee`, `common`, `dags`)
-- Normalizes output to baseline format
-- Updates `ty-baseline.txt` with current state
+### How Filtering Works in CI
 
-### How Filtering Works
-
-1. You modify a file with pre-existing ty errors
-2. ty runs and finds: 3 old errors + 1 your new error
-3. Baseline filter removes the 3 old errors from `ty-baseline.txt`
-4. Only your 1 new error is shown → commit blocked
-5. Fix your error, commit succeeds
-
-### Updating mypy-baseline
-
-mypy baseline is separate and only updated by mypy:
-
-```bash
-# mypy users (non-ty) still use mypy-baseline.txt
-mypy . | uvx mypy-baseline sync --config pyproject.toml --baseline-path mypy-baseline.txt
-```
+1. CI runs ty on your changed files
+2. ty finds errors (both old and new)
+3. Baseline filter removes errors already in `ty-baseline.txt`
+4. Only new errors you introduced are shown as warnings
+5. CI always passes (ty is informational only)

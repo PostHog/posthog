@@ -195,7 +195,7 @@ dev = [
     "mypy~=1.18.2",
     "mypy-baseline~=0.7.3",
     "mypy-extensions~=1.1.0",
-    "ty==0.0.1a21",
+    "ty==0.0.1a22",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.10.15",
