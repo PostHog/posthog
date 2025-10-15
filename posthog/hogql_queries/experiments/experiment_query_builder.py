@@ -25,6 +25,24 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
 
+def _optimize_and_chain(expr: ast.Expr) -> ast.Expr:
+    """
+    Remove True constants from AND chains to preserve ClickHouse index optimizations.
+    Keeps SQL templates readable while avoiding unnecessary conditions.
+    """
+    if not isinstance(expr, ast.And):
+        return expr
+
+    filtered = [e for e in expr.exprs if not (isinstance(e, ast.Constant) and e.value is True)]
+
+    if len(filtered) == 0:
+        return ast.Constant(value=True)
+    elif len(filtered) == 1:
+        return filtered[0]
+    else:
+        return ast.And(exprs=filtered)
+
+
 class ExperimentQueryBuilder:
     def __init__(
         self,
@@ -207,22 +225,24 @@ class ExperimentQueryBuilder:
                 ]
             )
 
-        return parse_expr(
-            """
-            timestamp >= {date_from}
-            AND timestamp <= {date_to}
-            AND {event_predicate}
-            AND {test_accounts_filter}
-            AND {variant_property} IN {variants}
-            """,
-            placeholders={
-                "date_from": self.date_range_query.date_from_as_hogql(),
-                "date_to": self.date_range_query.date_to_as_hogql(),
-                "event_predicate": event_predicate,
-                "variant_property": ast.Field(chain=["properties", self.variant_property]),
-                "variants": ast.Constant(value=self.variants),
-                "test_accounts_filter": self._build_test_accounts_filter(),
-            },
+        return _optimize_and_chain(
+            parse_expr(
+                """
+                timestamp >= {date_from}
+                AND timestamp <= {date_to}
+                AND {event_predicate}
+                AND {test_accounts_filter}
+                AND {variant_property} IN {variants}
+                """,
+                placeholders={
+                    "date_from": self.date_range_query.date_from_as_hogql(),
+                    "date_to": self.date_range_query.date_to_as_hogql(),
+                    "event_predicate": event_predicate,
+                    "variant_property": ast.Field(chain=["properties", self.variant_property]),
+                    "variants": ast.Constant(value=self.variants),
+                    "test_accounts_filter": self._build_test_accounts_filter(),
+                },
+            )
         )
 
     def _build_metric_predicate(self) -> ast.Expr:
