@@ -7,6 +7,7 @@ when they need to regenerate data after changes or fixes.
 
 import time as time_module
 from datetime import datetime, time, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import dagster
@@ -69,7 +70,7 @@ def get_metric(metric_data):
     tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
     retry_policy=RetryPolicy(max_retries=2, delay=300),
 )
-def experiment_timeseries_recalculation(context: AssetExecutionContext) -> dict:
+def experiment_timeseries_recalculation(context: AssetExecutionContext) -> dict[str, Any]:
     """
     Process entire experiment recalculation with resumability.
 
