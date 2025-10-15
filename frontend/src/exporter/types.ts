@@ -1,6 +1,6 @@
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
+import { AnyResponseType, SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import { DashboardType, DataColorThemeModel, HeatmapExportContext, InsightModel, SessionRecordingType } from '~/types'
 
 export enum ExportType {
@@ -17,6 +17,8 @@ export interface ExportedData extends SharingConfigurationSettings {
     type: ExportType
     dashboard?: DashboardType
     insight?: InsightModel
+    /** Optional cached results or overrides supplied directly by the embedding iframe element. */
+    iframeCachedInsight?: AnyResponseType | Partial<InsightModel>
     themes?: DataColorThemeModel[]
     recording?: SessionRecordingType
     autoplay?: boolean

@@ -28,7 +28,17 @@ import { exporterViewLogic } from './exporterViewLogic'
 export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
     const { exportedData } = useValues(exporterViewLogic(props))
-    const { type, dashboard, insight, recording, themes, accessToken, exportToken, ...exportOptions } = exportedData
+    const {
+        type,
+        dashboard,
+        insight,
+        recording,
+        themes,
+        accessToken,
+        exportToken,
+        iframeCachedInsight,
+        ...exportOptions
+    } = exportedData
     const { whitelabel, showInspector = false } = exportOptions
 
     const { setHref, setHeatmapFilters, setHeatmapFixedPositionMode, setHeatmapColorPalette, setCommonFilters } =
@@ -105,7 +115,12 @@ export function Exporter(props: ExportedData): JSX.Element {
                 ) : null
             ) : null}
             {insight ? (
-                <ExportedInsight insight={insight} themes={themes!} exportOptions={exportOptions} />
+                <ExportedInsight
+                    insight={insight}
+                    themes={themes!}
+                    exportOptions={exportOptions}
+                    iframeCachedInsight={iframeCachedInsight}
+                />
             ) : dashboard ? (
                 <Dashboard
                     id={String(dashboard.id)}

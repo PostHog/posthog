@@ -27,7 +27,18 @@ initKea({ replaceInitialPathInWindow: false })
 // Make sure to update the font family in the CSS if you change this.
 polyfillCountryFlagEmojis('Emoji Flags Polyfill')
 
-const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
+const exportedData: ExportedData = { ...window.POSTHOG_EXPORTED_DATA }
+
+const frameElement = window.frameElement as HTMLIFrameElement | null
+const cachedResultsAttribute = frameElement?.getAttribute('data-cached-results')
+
+if (cachedResultsAttribute) {
+    try {
+        exportedData.iframeCachedInsight = JSON.parse(cachedResultsAttribute)
+    } catch (error) {
+        console.error('Failed to parse data-cached-results attribute:', error)
+    }
+}
 
 function renderApp(): void {
     const root = document.getElementById('root')

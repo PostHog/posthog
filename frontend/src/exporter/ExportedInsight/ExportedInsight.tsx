@@ -16,7 +16,7 @@ import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable
 
 import { Query } from '~/queries/Query/Query'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
+import { AnyResponseType, SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { Logo } from '~/toolbar/assets/Logo'
 import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
@@ -25,14 +25,59 @@ export function ExportedInsight({
     insight: legacyInsight,
     themes,
     exportOptions: { whitelabel, noHeader, legend, detailed: detailedResults },
+    iframeCachedInsight,
 }: {
     insight: InsightModel
     themes: DataColorThemeModel[]
     exportOptions: SharingConfigurationSettings
+    iframeCachedInsight?: AnyResponseType | Partial<InsightModel>
 }): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
-    const insight = getQueryBasedInsightModel(legacyInsight)
+    let cachedInsightPayload: Partial<InsightModel> | null = null
+    let overrideResult: AnyResponseType | undefined
+
+    if (iframeCachedInsight !== undefined) {
+        if (iframeCachedInsight && typeof iframeCachedInsight === 'object' && !Array.isArray(iframeCachedInsight)) {
+            const payload = iframeCachedInsight as Record<string, any>
+            const isInsightOverride =
+                'short_id' in payload ||
+                'filters' in payload ||
+                'query' in payload ||
+                'name' in payload ||
+                'derived_name' in payload
+
+            if (isInsightOverride) {
+                cachedInsightPayload = payload as Partial<InsightModel>
+                const possibleResult =
+                    'result' in payload
+                        ? (payload.result as AnyResponseType)
+                        : 'results' in payload
+                          ? (payload.results as AnyResponseType)
+                          : undefined
+                if (possibleResult !== undefined) {
+                    overrideResult = possibleResult
+                }
+            } else {
+                overrideResult =
+                    'result' in payload
+                        ? (payload.result as AnyResponseType)
+                        : 'results' in payload
+                          ? (payload.results as AnyResponseType)
+                          : (payload as AnyResponseType)
+            }
+        } else {
+            overrideResult = iframeCachedInsight as AnyResponseType
+        }
+    }
+
+    const insight = getQueryBasedInsightModel(
+        (cachedInsightPayload ? { ...legacyInsight, ...cachedInsightPayload } : legacyInsight) as InsightModel
+    )
+
+    if (overrideResult !== undefined) {
+        insight.result = overrideResult
+    }
 
     if (
         isInsightVizNode(insight.query) &&
