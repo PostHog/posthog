@@ -1,7 +1,6 @@
-use std::path::Path;
 use std::time::Instant;
 
-use super::{CheckpointConfig, CheckpointPlan, CheckpointUploader};
+use super::{CheckpointPlan, CheckpointUploader};
 use crate::metrics_const::{CHECKPOINT_UPLOADS_COUNTER, CHECKPOINT_UPLOAD_DURATION_HISTOGRAM};
 
 use anyhow::Result;
@@ -10,84 +9,20 @@ use tracing::{error, info, warn};
 
 #[derive(Debug)]
 pub struct CheckpointExporter {
-    config: CheckpointConfig,
     uploader: Box<dyn CheckpointUploader>,
 }
 
 impl CheckpointExporter {
-    pub fn new(config: CheckpointConfig, uploader: Box<dyn CheckpointUploader>) -> Self {
-        Self { config, uploader }
-    }
-    // returns the remote key prefix for this checkpoint or an error
-    pub async fn export_checkpoint(
-        &self,
-        local_checkpoint_path: &Path,
-        checkpoint_name: &str,
-    ) -> Result<String> {
-        let remote_key_prefix = format!("{}/{}", self.config.s3_key_prefix, checkpoint_name);
-        let local_path_tag = local_checkpoint_path.to_string_lossy().to_string();
-
-        // Upload to remote storage in background
-        if self.is_available().await {
-            let upload_start = Instant::now();
-
-            match self
-                .uploader
-                .upload_checkpoint_dir(local_checkpoint_path, &remote_key_prefix)
-                .await
-            {
-                Ok(uploaded_files) => {
-                    let upload_duration = upload_start.elapsed();
-                    metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_HISTOGRAM, "result" => "success")
-                        .record(upload_duration.as_secs_f64());
-                    metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "success")
-                        .increment(1);
-                    info!(
-                        local_path = local_path_tag,
-                        remote_path = remote_key_prefix,
-                        uploaded_file_count = uploaded_files.len(),
-                        elapsed_seconds = upload_duration.as_secs_f64(),
-                        "Export successful: checkpoint uploaded",
-                    );
-                }
-
-                Err(e) => {
-                    metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "error").increment(1);
-                    error!(
-                        local_path = local_path_tag,
-                        remote_path = remote_key_prefix,
-                        "Export failed: uploading checkpoint: {}",
-                        e
-                    );
-                    return Err(e);
-                }
-            };
-
-            Ok(remote_key_prefix)
-        } else {
-            metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "unavailable").increment(1);
-            warn!(
-                local_path = local_path_tag,
-                remote_path = remote_key_prefix,
-                "Export failed: uploader not available"
-            );
-
-            Err(anyhow::anyhow!("Uploader not available"))
-        }
+    pub fn new(uploader: Box<dyn CheckpointUploader>) -> Self {
+        Self { uploader }
     }
 
     /// Export checkpoint using a plan with incremental deduplication
-    pub async fn export_checkpoint_with_plan(
-        &self,
-        plan: &CheckpointPlan,
-        checkpoint_name: &str,
-    ) -> Result<String> {
-        let remote_key_prefix = format!("{}/{}", self.config.s3_key_prefix, checkpoint_name);
-
+    pub async fn export_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<()> {
         if !self.is_available().await {
             metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "unavailable").increment(1);
             warn!(
-                remote_path = remote_key_prefix,
+                remote_metadata_path = plan.info.get_metadata_key(),
                 "Export failed: uploader not available"
             );
             return Err(anyhow::anyhow!("Uploader not available"));
@@ -95,14 +30,10 @@ impl CheckpointExporter {
 
         let upload_start = Instant::now();
 
-        match self
-            .uploader
-            .upload_checkpoint_with_plan(plan, &remote_key_prefix)
-            .await
-        {
+        match self.uploader.upload_checkpoint_with_plan(plan).await {
             Ok(uploaded_files) => {
                 let upload_duration = upload_start.elapsed();
-                let total_files = plan.metadata.files.len();
+                let total_files = plan.info.metadata.files.len();
                 let new_files = plan.files_to_upload.len();
                 let reused_files = total_files - new_files;
 
@@ -111,7 +42,7 @@ impl CheckpointExporter {
                 metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "success").increment(1);
 
                 info!(
-                    remote_path = remote_key_prefix,
+                    remote_path = plan.info.get_metadata_key(),
                     uploaded_file_count = uploaded_files.len(),
                     total_files = total_files,
                     new_files = new_files,
@@ -120,13 +51,13 @@ impl CheckpointExporter {
                     "Export successful: checkpoint uploaded with deduplication",
                 );
 
-                Ok(remote_key_prefix.to_string())
+                Ok(())
             }
 
             Err(e) => {
                 metrics::counter!(CHECKPOINT_UPLOADS_COUNTER, "result" => "error").increment(1);
                 error!(
-                    remote_path = remote_key_prefix,
+                    remote_path = plan.info.get_metadata_key(),
                     "Export failed: uploading checkpoint: {}", e
                 );
                 Err(e)

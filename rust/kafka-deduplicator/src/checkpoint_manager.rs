@@ -7,7 +7,7 @@ use std::sync::{
 use std::time::Duration;
 
 use crate::checkpoint::{
-    CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointTarget, CheckpointWorker,
+    CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointWorker,
 };
 use crate::kafka::types::Partition;
 use crate::metrics_const::CHECKPOINT_STORE_NOT_FOUND_COUNTER;
@@ -15,6 +15,7 @@ use crate::store::DeduplicationStore;
 use crate::store_manager::StoreManager;
 
 use anyhow::Result;
+use chrono::Utc;
 use dashmap::DashMap;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -190,13 +191,19 @@ impl CheckpointManager {
                             let worker_store_manager = store_manager.clone();
                             let worker_exporter = exporter.as_ref().map(|e| e.clone());
                             let worker_cancel_token = cancel_submit_loop_token.child_token();
+                            let attempt_timestamp = Utc::now();
+                            let worker_local_base_dir = Path::new(&submit_loop_config.local_checkpoint_dir);
+                            let worker_remote_namespace = submit_loop_config.s3_key_prefix.clone();
+                            let worker_partition = partition.clone();
 
                             // create worker with unique task ID and partition target helper
-                            let target = CheckpointTarget::new(partition.clone(), Path::new(&submit_loop_config.local_checkpoint_dir)).unwrap();
                             worker_task_id += 1;
                             let worker = CheckpointWorker::new(
                                 worker_task_id,
-                                target,
+                                worker_local_base_dir,
+                                worker_remote_namespace,
+                                worker_partition,
+                                attempt_timestamp,
                                 worker_exporter,
                             );
 
@@ -243,9 +250,9 @@ impl CheckpointManager {
 
                                 // handle releasing locks and reporting outcome
                                 let status = match &result {
-                                    Ok(Some((_, new_metadata))) => {
+                                    Ok(Some(new_checkpoint_info)) => {
                                         // Update counter and metadata atomically on success
-                                        worker_checkpoint_state.insert(partition.clone(), (counter + 1, new_metadata.clone()));
+                                        worker_checkpoint_state.insert(partition.clone(), (counter + 1, new_checkpoint_info.metadata.clone()));
                                         "success"
                                     },
                                     Ok(None) => "skipped",
@@ -334,11 +341,14 @@ impl CheckpointManager {
             })
             .collect();
 
+        let worker_id = 1;
         for (partition, store) in snapshot {
             let worker = CheckpointWorker::new(
-                partition.partition_number() as u32,
-                CheckpointTarget::new(partition, Path::new(&self.config.local_checkpoint_dir))
-                    .unwrap(),
+                worker_id,
+                Path::new(&self.config.local_checkpoint_dir),
+                self.config.s3_key_prefix.clone(),
+                partition.clone(),
+                Utc::now(),
                 None,
             );
 
@@ -407,57 +417,14 @@ mod tests {
         fn new(export_base_dir: PathBuf) -> Self {
             Self { export_base_dir }
         }
-
-        async fn copy_dir_recursive(&self, src: &Path, dest: &Path) -> Result<Vec<String>> {
-            let mut files_to_copy = Vec::new();
-            let mut stack = vec![(src.to_path_buf(), dest.to_path_buf())];
-
-            while let Some((current_src, current_dest)) = stack.pop() {
-                let entries = std::fs::read_dir(&current_src)?;
-                for entry in entries {
-                    let entry = entry?;
-                    let path = entry.path();
-                    let file_name = entry.file_name();
-                    let dest_path = current_dest.join(&file_name);
-
-                    if path.is_dir() {
-                        stack.push((path, dest_path));
-                    } else {
-                        files_to_copy.push((path, dest_path));
-                    }
-                }
-            }
-
-            let mut uploaded_files = Vec::new();
-            for (src_file, dest_file) in files_to_copy {
-                if let Some(parent) = dest_file.parent() {
-                    tokio::fs::create_dir_all(parent).await?;
-                }
-                tokio::fs::copy(&src_file, &dest_file).await?;
-                uploaded_files.push(dest_file.to_string_lossy().to_string());
-            }
-
-            Ok(uploaded_files)
-        }
     }
 
     #[async_trait]
     impl CheckpointUploader for FilesystemUploader {
-        async fn upload_checkpoint_dir(
-            &self,
-            local_path: &Path,
-            remote_key_prefix: &str,
-        ) -> Result<Vec<String>> {
-            let dest = self.export_base_dir.join(remote_key_prefix);
-            self.copy_dir_recursive(local_path, &dest).await
-        }
-
-        async fn upload_checkpoint_with_plan(
-            &self,
-            plan: &CheckpointPlan,
-            remote_key_prefix: &str,
-        ) -> Result<Vec<String>> {
-            let dest_dir = self.export_base_dir.join(remote_key_prefix);
+        async fn upload_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<Vec<String>> {
+            let dest_dir = self
+                .export_base_dir
+                .join(plan.info.get_remote_attempt_path());
             tokio::fs::create_dir_all(&dest_dir).await?;
 
             let mut uploaded_files = Vec::new();
@@ -474,7 +441,7 @@ mod tests {
 
             // Write metadata.json
             let metadata_path = dest_dir.join("metadata.json");
-            let metadata_json = serde_json::to_string_pretty(&plan.metadata)?;
+            let metadata_json = serde_json::to_string_pretty(&plan.info.metadata)?;
             tokio::fs::write(&metadata_path, metadata_json).await?;
             uploaded_files.push(metadata_path.to_string_lossy().to_string());
 
@@ -684,7 +651,7 @@ mod tests {
             s3_key_prefix: "test".to_string(),
             ..Default::default()
         };
-        let exporter = Arc::new(CheckpointExporter::new(config.clone(), uploader));
+        let exporter = Arc::new(CheckpointExporter::new(uploader));
 
         let partition = Partition::new("test_periodic_flush_task".to_string(), 0);
         let stores = store_manager.stores();
@@ -810,7 +777,7 @@ mod tests {
             s3_key_prefix: "test".to_string(),
             ..Default::default()
         };
-        let exporter = Arc::new(CheckpointExporter::new(config.clone(), uploader));
+        let exporter = Arc::new(CheckpointExporter::new(uploader));
 
         // start the manager and produce some exported checkpoint files
         let mut manager =
