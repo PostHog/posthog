@@ -235,16 +235,15 @@ function coerceToEventWithTime(
     isMobile: boolean = false
 ): eventWithTime | eventWithTime[] {
     // we decompress first so that we could support partial compression on mobile in the future
-    const currentEvent = decompressEvent(d, sessionRecordingId)
-    const transformedEvent =
-        postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
+    const currentEvent = decompressEvent(d, sessionRecordingId) as eventWithTime
+    const transformedEvent = postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || currentEvent
 
     // If this is the first event and it's not a full snapshot, and it's mobile, create a synthetic full snapshot first
-    if (isFirstEvent && transformedEvent.type !== EventType.FullSnapshot && isMobile && postHogEEModule?.mobileReplay) {
+    if (isFirstEvent && currentEvent.type !== EventType.FullSnapshot && isMobile && postHogEEModule?.mobileReplay) {
         // Create synthetic mobile full snapshot using the proper transformer
         const syntheticMobileFullSnapshot = {
             type: EventType.FullSnapshot,
-            timestamp: transformedEvent.timestamp - 1,
+            timestamp: currentEvent.timestamp - 1,
             data: {
                 wireframes: [], // Empty wireframes - just create the basic HTML structure
                 initialOffset: { top: 0, left: 0 },
