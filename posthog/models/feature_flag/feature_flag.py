@@ -20,7 +20,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
-from posthog.models.utils import RootTeamMixin
+from posthog.models.utils import RootTeamMixin, UUIDModel
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -641,7 +641,7 @@ class FeatureFlagEvaluationTag(models.Model):
         return f"{self.feature_flag.key} - {self.tag.name}"
 
 
-class TeamDefaultEvaluationTag(models.Model):
+class TeamDefaultEvaluationTag(UUIDModel):
     """
     Defines default evaluation tags that will be automatically applied to new feature flags in a team.
     These tags serve as default evaluation environments that can be configured at the team/organization level.
