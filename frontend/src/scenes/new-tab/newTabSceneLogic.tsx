@@ -630,13 +630,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         newTabSceneDataGroupedItems: [
-            (s) => [s.itemsGrid, s.featureFlags],
-            (itemsGrid: NewTabTreeDataItem[], featureFlags): Record<string, NewTabTreeDataItem[]> => {
+            (s) => [s.filteredItemsGrid, s.featureFlags],
+            (filteredItemsGrid: NewTabTreeDataItem[], featureFlags): Record<string, NewTabTreeDataItem[]> => {
                 if (!featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
                     return {}
                 }
 
-                return itemsGrid.reduce(
+                return filteredItemsGrid.reduce(
                     (acc: Record<string, NewTabTreeDataItem[]>, item: NewTabTreeDataItem) => {
                         const protocol =
                             normalizeDestination(item.protocol) || protocolFromCategory(item.category) || 'project://'
@@ -751,16 +751,18 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                 }
 
-                Object.entries(groupedItems).forEach(([key, items]) => {
-                    const value = normalizeDestination(key)
-                    if (!value || value === 'ask://') {
-                        return
-                    }
-                    if (!seen.has(value) && items.length > 0) {
-                        sections.push([value, items])
-                        seen.add(value)
-                    }
-                })
+                if (normalizedSelection.length === 0) {
+                    Object.entries(groupedItems).forEach(([key, items]) => {
+                        const value = normalizeDestination(key)
+                        if (!value || value === 'ask://') {
+                            return
+                        }
+                        if (!seen.has(value) && items.length > 0) {
+                            sections.push([value, items])
+                            seen.add(value)
+                        }
+                    })
+                }
 
                 return sections
             },
