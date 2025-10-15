@@ -50,7 +50,7 @@ export async function checkConditions(
 }> {
     // the index is used to find the right edge
     for (const [index, condition] of action.config.conditions.entries()) {
-        // TODO(messaging): Figure out error handling here - do we throw or just move on to other conditions?
+        // TODO(team-workflows): Figure out error handling here - do we throw or just move on to other conditions?
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
             filters: condition.filters,

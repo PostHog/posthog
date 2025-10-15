@@ -2445,7 +2445,7 @@ export type FileSystemIconType =
     | 'task'
     | 'link'
     | 'logs'
-    | 'messaging'
+    | 'workflows'
     | 'notebook'
     | 'action'
     | 'comment'

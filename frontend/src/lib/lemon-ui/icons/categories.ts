@@ -101,7 +101,7 @@ export const OBJECTS = {
 }
 
 export const TECHNOLOGY = {
-    Messaging: [
+    Workflows: [
         'IconSend',
         'IconHeadset',
         'IconMessage',

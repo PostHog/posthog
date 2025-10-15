@@ -610,7 +610,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.MESSAGING]
+                        featureFlags[FEATURE_FLAGS.WORKFLOWS]
                             ? {
                                   identifier: Scene.Workflows,
                                   label: 'Workflows',

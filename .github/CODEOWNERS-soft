@@ -16,16 +16,16 @@ posthog/tasks/update_survey_iteration @PostHog/team-surveys
 posthog/tasks/test/test_stop_surveys_reached_target.py @PostHog/team-surveys
 posthog/templates/surveys @PostHog/team-surveys
 
-# plugin server ownership is split between ingestion and messaging teams
+# plugin server ownership is split between ingestion and workflows teams
 
-plugin-server/src/ @PostHog/team-ingestion @PostHog/team-messaging
+plugin-server/src/ @PostHog/team-ingestion @PostHog/team-workflows
 plugin-server/tests/ @PostHog/team-ingestion
 plugin-server/src/ingestion/ @PostHog/team-ingestion
-plugin-server/src/cdp/ @PostHog/team-messaging
+plugin-server/src/cdp/ @PostHog/team-workflows
 
 # ClickHouse team owns Clickhouse migrations
 
-posthog/clickhouse/migrations/** @PostHog/clickhouse
+posthog/clickhouse/migrations/\*\* @PostHog/clickhouse
 
 # Web Analytics team owns web analytics code
 
@@ -43,7 +43,7 @@ dags/locations/web_analytics.py @PostHog/team-web-analytics
 
 # Revenue Analytics team owns revenue analytics stuff
 
-products/revenue_analytics/** @PostHog/team-revenue-analytics
+products/revenue_analytics/\*\* @PostHog/team-revenue-analytics
 
 # Feature Flags team
 
@@ -86,7 +86,7 @@ posthog/hogql/** @PostHog/team-data-warehouse
 
 # Team error tracking
 
-products/error_tracking/** @PostHog/team-error-tracking
+products/error_tracking/\*\* @PostHog/team-error-tracking
 posthog/models/error_tracking/ @PostHog/team-error-tracking
 posthog/api/error_tracking.py @PostHog/team-error-tracking
 posthog/hogql_queries/error_tracking/error_tracking_query_runner.py @PostHog/team-error-tracking
@@ -99,8 +99,8 @@ frontend/src/lib/components/RichContentEditor/ @daibhin
 
 # Own all .py files under session recordings
 
-posthog/session_recordings/**/*.py @PostHog/team-replay
-ee/session_recordings/**/*.py @PostHog/team-replay
+posthog/session_recordings/**/\*.py @PostHog/team-replay
+ee/session_recordings/**/\*.py @PostHog/team-replay
 
 # Own everything in mobile replay (all file types)
 

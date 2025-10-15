@@ -327,7 +327,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
-        // Messaging
+        // Workflows
         MAILJET_PUBLIC_KEY: '',
         MAILJET_SECRET_KEY: '',
 

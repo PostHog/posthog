@@ -205,9 +205,9 @@ export const FEATURE_FLAGS = {
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
     ENVIRONMENTS: 'environments', // owner: #team-platform-features
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
-    MESSAGING: 'messaging', // owner @haven #team-messaging
-    MESSAGING_EARLY_ACCESS: 'messaging-product', // owner @haven #team-messaging
-    MESSAGING_SES: 'messaging-ses', // owner #team-messaging
+    WORKFLOWS: 'messaging', // owner @haven #team-workflows
+    MESSAGING_EARLY_ACCESS: 'messaging-product', // owner @haven #team-workflows
+    MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen-posthog #team-platform-features
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
@@ -217,7 +217,7 @@ export const FEATURE_FLAGS = {
     REPLAY_GROUPS_FILTERS: 'replay-groups-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
-    CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-messaging-cdp
+    CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-workflows-cdp
     BATCH_EXPORT_NEW_METRICS: 'batch-export-new-metrics', // owner: #team-batch-exports
     BATCH_EXPORT_NEW_LOGS: 'batch-export-new-logs', // owner: #team-batch-exports
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: @robbie-c #team-web-analytics
@@ -269,9 +269,9 @@ export const FEATURE_FLAGS = {
     LLM_OBSERVABILITY_PLAYGROUND: 'llm-observability-playground', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS: 'llm-analytics-evaluations', // owner: #team-llm-analytics
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
-    CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-messaging-cdp
+    CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-workflows-cdp
     PERSON_READ_TEST_FLAG: 'person-read-test-flag', // owner: @nickbest - #team-ingestion
-    CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-messaging-cdp
+    CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-workflows-cdp
     ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-warehouse
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay
@@ -297,7 +297,7 @@ export const FEATURE_FLAGS = {
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-max-ai
     TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
     EXPERIMENTS_RATIO_METRIC: 'experiments-ratio-metric', // owner: @andehen #team-experiments
-    CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-messaging
+    CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-workflows
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
     REPLAY_EXPORT_FULL_VIDEO: 'replay-export-full-video', // owner: @veryayskiy #team-replay
     PLATFORM_PAYGATE_CTA: 'platform-paygate-cta', // owner: @a-lider #team-platform-features
@@ -341,7 +341,7 @@ export const PRODUCT_VISUAL_ORDER = {
     sqlEditor: 135,
     dataPipeline: 140,
     // alphas
-    messaging: 300,
+    workflows: 300,
     heatmaps: 310,
     links: 320,
     logs: 330,

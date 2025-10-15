@@ -60,4 +60,4 @@ jobs:
                       bot-ips
                       dependencies
                   reviewers: |
-                      PostHog/team-messaging
+                      PostHog/team-workflows

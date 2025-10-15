@@ -92,7 +92,7 @@ export function WorkflowsScene(): JSX.Element {
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
 
-    const hasWorkflowsFeatureFlag = useFeatureFlag('MESSAGING')
+    const hasWorkflowsFeatureFlag = useFeatureFlag('WORKFLOWS')
 
     if (!hasWorkflowsFeatureFlag) {
         return (

@@ -215,7 +215,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         return queryset
 
     def safely_get_object(self, queryset):
-        # TODO(team-messaging): Somehow implement version lookups
+        # TODO(team-workflows): Somehow implement version lookups
         return super().safely_get_object(queryset)
 
     def perform_create(self, serializer):
@@ -257,7 +257,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             logger.warning("Failed to capture hog_flow_started event", error=str(e))
 
     def perform_update(self, serializer):
-        # TODO(team-messaging): Atomically increment version, insert new object instead of default update behavior
+        # TODO(team-workflows): Atomically increment version, insert new object instead of default update behavior
         instance_id = serializer.instance.id
 
         try:

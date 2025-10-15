@@ -169,7 +169,7 @@ export function ProjectTree({
         if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
             return true
         }
-        if (item.name === 'Messaging' && currentPath.startsWith('/messaging/')) {
+        if (item.name === 'Workflows' && currentPath.startsWith('/workflows/')) {
             return true
         }
 

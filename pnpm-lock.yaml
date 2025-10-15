@@ -495,7 +495,7 @@ importers:
       '@posthog/products-managed-migrations':
         specifier: workspace:*
         version: link:../products/managed_migrations
-      '@posthog/products-messaging':
+      '@posthog/products-workflows':
         specifier: workspace:*
         version: link:../products/workflows
       '@posthog/products-notebooks':
@@ -2175,7 +2175,7 @@ importers:
         specifier: ^3.24.6
         version: 3.24.6(zod@3.25.76)
 
-  products/messaging:
+  products/workflows:
     dependencies:
       '@posthog/icons':
         specifier: 0.33.0
