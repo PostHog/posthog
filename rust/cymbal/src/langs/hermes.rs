@@ -127,6 +127,7 @@ impl From<(&RawHermesFrame, HermesError)> for Frame {
             context: None,
             release: None,
             suspicious: false,
+            module: None,
         };
 
         add_raw_to_junk(&mut res, frame);
@@ -159,6 +160,7 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
             context: get_token_context(&token, token.get_src_line() as usize),
             release: None,
             suspicious: false,
+            module: None,
         };
 
         add_raw_to_junk(&mut res, frame);
