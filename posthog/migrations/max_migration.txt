@@ -1,1 +1,1 @@
-0880_datawarehousetable_queryable_folder
+0881_drop_named_query
