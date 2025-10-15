@@ -6,7 +6,7 @@ import { LemonBadge, LemonButton, LemonCollapse, LemonDivider, LemonLabel, Lemon
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { urls } from 'scenes/urls'
 
-import { CategorySelect } from 'products/messaging/frontend/OptOuts/CategorySelect'
+import { CategorySelect } from 'products/workflows/frontend/OptOuts/CategorySelect'
 
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'

@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from products.messaging.backend.providers.ses import SESProvider
+from products.workflows.backend.providers.ses import SESProvider
 
 TEST_DOMAIN = "test.posthog.com"
 

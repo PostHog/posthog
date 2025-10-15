@@ -6,7 +6,7 @@ from rest_framework import exceptions
 
 from posthog.models import Organization, Team
 
-from products.messaging.backend.providers.mailjet import MailjetProvider
+from products.workflows.backend.providers.mailjet import MailjetProvider
 
 
 class TestMailjetProvider(TestCase):

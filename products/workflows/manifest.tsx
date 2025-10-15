@@ -13,7 +13,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
         },
         MessagingCampaign: {
-            import: () => import('./frontend/Campaigns/CampaignScene'),
+            import: () => import('./frontend/Workflows/CampaignScene'),
             name: 'Messaging',
             projectBased: true,
         },

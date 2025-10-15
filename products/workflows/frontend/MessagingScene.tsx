@@ -18,12 +18,12 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
-import { CampaignsTable } from './Campaigns/CampaignsTable'
 import { MessageChannels } from './Channels/MessageChannels'
 import type { messagingSceneLogicType } from './MessagingSceneType'
 import { OptOutScene } from './OptOuts/OptOutScene'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
+import { CampaignsTable } from './Workflows/CampaignsTable'
 
 const MESSAGING_SCENE_TABS = ['campaigns', 'library', 'channels', 'opt-outs'] as const
 export type MessagingSceneTab = (typeof MESSAGING_SCENE_TABS)[number]
