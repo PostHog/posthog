@@ -12,9 +12,9 @@ class TestSnapshot(TypedDict):
 
 
 SNAPSHOTS = [
-    TestSnapshot(external_id="snp_31KG974rmXNv2lMGVaZ8E", repos=[]),
-    TestSnapshot(external_id="snp_31KG9iidgGVcyQiGmXGCd", repos=["posthog/posthog-js"]),
-    TestSnapshot(external_id="snp_31KGAUUNL3Ef1ggCr3UiE", repos=["posthog/posthog-js", "posthog/posthog"]),
+    TestSnapshot(external_id="snp_31KHDGlDhW2GnAjcHjgk9", repos=[]),
+    TestSnapshot(external_id="snp_31KHDo02pJkpgLrZZO4AL", repos=["posthog/posthog-js"]),
+    TestSnapshot(external_id="snp_31KHEb4IsOV58fvUHrwCh", repos=["posthog/posthog-js", "posthog/posthog"]),
 ]
 
 
