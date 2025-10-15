@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -738,21 +739,36 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
                 // For new flags, load default evaluation environments and set default tags
                 if (props.id === 'new') {
-                    try {
-                        actions.loadDefaultEvaluationEnvironments()
-                    } catch (error) {
-                        // If loading default evaluation environments fails, continue with empty tags
-                        console.warn('Failed to load default evaluation environments:', error)
-                    }
-                    const defaultEnvs = values.defaultEvaluationEnvironments
-                    const defaultTags = defaultEnvs?.default_evaluation_tags || []
+                    // Only load and apply default evaluation environments if BOTH conditions are met:
+                    // 1. The feature flag is enabled globally
+                    // 2. The team has enabled default evaluation environments
+                    const isFeatureEnabled = values.enabledFeatures[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]
+                    const isTeamEnabled = values.currentTeam?.default_evaluation_environments_enabled
 
+                    if (isFeatureEnabled && isTeamEnabled) {
+                        try {
+                            actions.loadDefaultEvaluationEnvironments()
+                        } catch (error) {
+                            // If loading default evaluation environments fails, continue with empty tags
+                            console.warn('Failed to load default evaluation environments:', error)
+                        }
+                        const defaultEnvs = values.defaultEvaluationEnvironments
+                        const defaultTags = defaultEnvs?.default_evaluation_tags || []
+
+                        return {
+                            ...NEW_FLAG,
+                            ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                            _should_create_usage_dashboard: true,
+                            tags: defaultTags.map((tag) => tag.name),
+                            evaluation_tags: defaultTags.map((tag) => tag.name),
+                        }
+                    }
+
+                    // If either condition is false, return flag without default tags
                     return {
                         ...NEW_FLAG,
                         ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
                         _should_create_usage_dashboard: true,
-                        tags: defaultTags.map((tag) => tag.name),
-                        evaluation_tags: defaultTags.map((tag) => tag.name),
                     }
                 }
 
