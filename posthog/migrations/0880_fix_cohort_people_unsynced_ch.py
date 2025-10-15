@@ -183,6 +183,14 @@ def sync_cohort_people_from_clickhouse(apps, schema_editor):
         raise
 
 
+def reverse_sync_cohort_people_from_clickhouse(apps, schema_editor):
+    """
+    Reverse migration is a no-op since we're syncing historical data.
+    Removing synced data would be destructive and not necessary.
+    """
+    pass
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0879_migrate_error_tracking_models"),
@@ -191,6 +199,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunPython(
             sync_cohort_people_from_clickhouse,
+            reverse_sync_cohort_people_from_clickhouse,
             elidable=True,
         ),
     ]
