@@ -92,6 +92,10 @@ class AssistantContextualTool(StrEnum):
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
+    READ_TAXONOMY = "read_taxonomy"
+    SEARCH = "search"
+    READ_DATA = "read_data"
+    TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
 
 
