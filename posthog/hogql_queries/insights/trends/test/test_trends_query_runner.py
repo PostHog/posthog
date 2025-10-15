@@ -3335,6 +3335,46 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results[0]["count"] == 4
 
+        # Is Not Set
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        EventMetadataPropertyFilter(
+                            type="event_metadata", operator="is_not_set", key="$group_0", value="is_not_set"
+                        )
+                    ],
+                )
+            ],
+            None,
+        )
+
+        assert response.results[0]["count"] == 0
+
+        # Is Set
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        EventMetadataPropertyFilter(
+                            type="event_metadata", operator="is_set", key="$group_0", value="is_set"
+                        )
+                    ],
+                )
+            ],
+            None,
+        )
+
+        assert response.results[0]["count"] == 10
+
     def test_trends_event_multiple_breakdowns_normalizes_url(self):
         self._create_events(
             [
