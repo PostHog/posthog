@@ -462,7 +462,7 @@ mod test {
             exception_list[0].exception_type,
             "UnhandledRejection".to_string()
         );
-        assert_eq!(exception_list[0].exception_message, "");
+        assert_eq!(exception_list[0].exception_message, "Unexpected usage");
         let mechanism = exception_list[0].mechanism.as_ref().unwrap();
         assert_eq!(mechanism.handled, Some(false));
         assert_eq!(mechanism.mechanism_type, None);
