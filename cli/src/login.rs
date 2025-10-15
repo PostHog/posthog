@@ -1,5 +1,5 @@
 use anyhow::{Context, Error};
-use inquire::Text;
+use inquire::Select;
 use serde::{Deserialize, Serialize};
 use std::thread;
 use std::time::Duration;
@@ -18,7 +18,6 @@ use crate::{
 struct DeviceCodeResponse {
     device_code: String,
     user_code: String,
-    verification_uri: String,
     verification_uri_complete: String,
     expires_in: u64,
     interval: u64,
@@ -33,20 +32,31 @@ struct PollRequest {
 struct PollResponse {
     status: String,
     personal_api_key: Option<String>,
-    label: Option<String>,
     project_id: Option<String>,
 }
 
-pub fn login() -> Result<(), Error> {
-    let host = Text::new("Enter the PostHog host URL")
-        .with_default("https://us.posthog.com")
-        .with_validator(host_validator)
-        .prompt()?;
+pub fn login(host_override: Option<String>) -> Result<(), Error> {
+    let host = if let Some(override_host) = host_override {
+        override_host
+    } else {
+        // Prompt user to select region
+        let regions = vec!["US", "EU"];
+        let selection = Select::new("Select your PostHog region:", regions)
+            .with_help_message("Choose the region where your PostHog data is hosted")
+            .prompt()?;
+
+        match selection {
+            "US" => "https://us.posthog.com".to_string(),
+            "EU" => "https://eu.posthog.com".to_string(),
+            _ => unreachable!(),
+        }
+    };
+
+    info!("🔐 Starting OAuth Device Flow authentication...");
+    info!("Connecting to: {}", host);
 
     // Given this is an interactive command, we're happy enough to not join the capture handle
     let _ = capture_command_invoked("interactive_login", None::<String>);
-
-    info!("🔐 Starting OAuth Device Flow authentication...");
 
     // Step 1: Request device code
     let device_data = request_device_code(&host)?;
@@ -57,9 +67,9 @@ pub fn login() -> Result<(), Error> {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
     println!("To authenticate, visit this URL in your browser:");
-    println!("  {}", device_data.verification_uri);
+    println!("  {}", device_data.verification_uri_complete);
     println!();
-    println!("And enter this code:");
+    println!("Your authorization code:");
     println!("  ✨ {} ✨", device_data.user_code);
     println!();
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
