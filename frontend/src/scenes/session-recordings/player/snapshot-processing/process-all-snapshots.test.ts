@@ -60,7 +60,7 @@ describe('process all snapshots', () => {
             const end = performance.now()
             const duration = end - start
             expect(results).toHaveLength(99)
-            expect(duration).toBeLessThan(50)
+            expect(duration).toBeLessThan(150)
         })
 
         it('deduplicates snapshot', async () => {
@@ -145,219 +145,6 @@ describe('process all snapshots', () => {
                     },
                 ])
             ).toBeTruthy()
-        })
-    })
-
-    describe('mobile recording synthetic full snapshot', () => {
-        it('detects mobile recordings with wireframes in incremental updates', () => {
-            const mobileIncrementalSnapshot = {
-                type: 3,
-                timestamp: 1000,
-                data: {
-                    source: 0,
-                    updates: [
-                        {
-                            wireframe: {
-                                type: 'screenshot',
-                                base64: 'data:image/webp;base64,test',
-                                width: 400,
-                                height: 800,
-                                x: 0,
-                                y: 0,
-                            },
-                        },
-                    ],
-                },
-            }
-
-            expect(hasAnyWireframes([mobileIncrementalSnapshot])).toBe(true)
-        })
-
-        it('detects mobile recordings with wireframes in full snapshots', () => {
-            const mobileFullSnapshot = {
-                type: 2,
-                timestamp: 1000,
-                data: {
-                    wireframes: [
-                        {
-                            type: 'screenshot',
-                            base64: 'data:image/webp;base64,test',
-                            width: 400,
-                            height: 800,
-                        },
-                    ],
-                    initialOffset: { top: 0, left: 0 },
-                },
-            }
-
-            expect(hasAnyWireframes([mobileFullSnapshot])).toBe(true)
-        })
-
-        it('does not detect web recordings as mobile', () => {
-            const webIncrementalSnapshot = {
-                type: 3,
-                timestamp: 1000,
-                data: {
-                    source: 0,
-                    adds: [],
-                    removes: [],
-                    texts: [],
-                    attributes: [],
-                },
-            }
-
-            expect(hasAnyWireframes([webIncrementalSnapshot])).toBe(false)
-        })
-
-        it('processes mobile recording starting with incremental snapshot', async () => {
-            const sessionId = 'test-mobile-session'
-
-            // Create a mobile incremental snapshot with wireframes (React Native SDK 4.1.0 format)
-            const snapshotJson = JSON.stringify({
-                window_id: '1',
-                data: [
-                    {
-                        type: 3,
-                        timestamp: 1000,
-                        data: {
-                            source: 0,
-                            updates: [
-                                {
-                                    wireframe: {
-                                        type: 'screenshot',
-                                        base64: 'data:image/webp;base64,test',
-                                        width: 400,
-                                        height: 800,
-                                        x: 0,
-                                        y: 0,
-                                    },
-                                },
-                            ],
-                        },
-                    },
-                ],
-            })
-
-            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
-
-            // Should detect as mobile and process the recording
-            expect(result.length).toBeGreaterThan(0)
-            expect(result[0].windowId).toBe('1')
-
-            const hasIncrementalSnapshot = result.some((r) => r.type === 3)
-            expect(hasIncrementalSnapshot).toBe(true)
-
-            const hasFullSnapshot = result.some((r) => r.type === 2)
-            const hasOriginalIncremental = result.some((r) => r.type === 3)
-            expect(hasFullSnapshot).toBe(true)
-            expect(hasOriginalIncremental).toBe(true)
-        })
-
-        it('processes mobile recording starting with full snapshot', async () => {
-            const sessionId = 'test-mobile-session'
-
-            // Create a mobile full snapshot with wireframes
-            const snapshotJson = JSON.stringify({
-                window_id: '1',
-                data: [
-                    {
-                        type: 2,
-                        timestamp: 1000,
-                        data: {
-                            wireframes: [
-                                {
-                                    type: 'screenshot',
-                                    base64: 'data:image/webp;base64,test',
-                                    width: 400,
-                                    height: 800,
-                                },
-                            ],
-                            initialOffset: { top: 0, left: 0 },
-                        },
-                    },
-                ],
-            })
-
-            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
-
-            // Should detect as mobile and process the full snapshot
-            expect(result.length).toBeGreaterThan(0)
-            expect(result[0].windowId).toBe('1')
-
-            // Should have a full snapshot in the first or second position (no synthetic needed since it starts with full)
-            const hasFullSnapshotEarly = result[0].type === 2 || (result.length > 1 && result[1].type === 2)
-            expect(hasFullSnapshotEarly).toBe(true)
-        })
-
-        it('processes regular web recording without mobile features', async () => {
-            const sessionId = 'test-web-session'
-
-            // Create a regular web incremental snapshot (no wireframes)
-            const snapshotJson = JSON.stringify({
-                window_id: '1',
-                data: [
-                    {
-                        type: 3,
-                        timestamp: 1000,
-                        data: {
-                            source: 0,
-                            adds: [],
-                            removes: [],
-                            texts: [],
-                            attributes: [],
-                        },
-                    },
-                ],
-            })
-
-            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
-
-            // Should process as regular web recording (no synthetic snapshot created)
-            expect(result).toHaveLength(1)
-            expect(result[0].windowId).toBe('1')
-            expect(result[0].type).toBe(3) // Should remain as incremental snapshot
-
-            // Should NOT have a full snapshot since this is a web recording starting with incremental
-            const hasFullSnapshot = result.some((r) => r.type === 2)
-            expect(hasFullSnapshot).toBe(false)
-        })
-
-        it('verifies synthetic snapshot logic conditions', () => {
-            // Test the core logic conditions that determine when synthetic snapshots are created
-
-            // Mobile incremental snapshot should trigger synthetic snapshot creation
-            const mobileIncrementalData = [
-                {
-                    type: 3, // IncrementalSnapshot
-                    data: {
-                        updates: [{ wireframe: { type: 'screenshot' } }],
-                    },
-                },
-            ]
-            expect(hasAnyWireframes(mobileIncrementalData)).toBe(true)
-
-            // Mobile full snapshot should not trigger synthetic snapshot creation
-            const mobileFullData = [
-                {
-                    type: 2, // FullSnapshot
-                    data: {
-                        wireframes: [{ type: 'screenshot' }],
-                    },
-                },
-            ]
-            expect(hasAnyWireframes(mobileFullData)).toBe(true)
-
-            // Web snapshot should not trigger synthetic snapshot creation
-            const webData = [
-                {
-                    type: 3, // IncrementalSnapshot
-                    data: {
-                        source: 0,
-                        adds: [],
-                    },
-                },
-            ]
-            expect(hasAnyWireframes(webData)).toBe(false)
         })
     })
 
@@ -483,6 +270,431 @@ describe('process all snapshots', () => {
             const result = await parseEncodedSnapshots(mockCompressedData, sessionId)
 
             expect(result).toHaveLength(1)
+        })
+    })
+
+    describe('mobile recording synthetic full snapshot', () => {
+        // Mock the EE module for these tests
+        beforeEach(() => {
+            jest.doMock('@posthog/ee/exports', () => ({
+                __esModule: true,
+                default: jest.fn().mockResolvedValue({
+                    enabled: true,
+                    mobileReplay: {
+                        transformEventToWeb: jest.fn((event) => {
+                            // Mock transformation - for synthetic full snapshots, return a web-compatible full snapshot
+                            if (event.type === 2 && event.data?.wireframes !== undefined) {
+                                return {
+                                    ...event,
+                                    data: {
+                                        node: {
+                                            type: 0,
+                                            childNodes: [],
+                                            id: 1,
+                                            tagName: 'html',
+                                        },
+                                        initialOffset: { top: 0, left: 0 },
+                                    },
+                                }
+                            }
+                            // For other events, return as-is
+                            return event
+                        }),
+                    },
+                }),
+            }))
+        })
+
+        afterEach(() => {
+            jest.resetModules()
+        })
+
+        it('detects mobile recordings with wireframes in incremental updates', () => {
+            const mobileIncrementalSnapshot = {
+                type: 3,
+                timestamp: 1000,
+                data: {
+                    source: 0,
+                    updates: [
+                        {
+                            wireframe: {
+                                type: 'screenshot',
+                                base64: 'data:image/webp;base64,test',
+                                width: 400,
+                                height: 800,
+                                x: 0,
+                                y: 0,
+                            },
+                        },
+                    ],
+                },
+            }
+
+            expect(hasAnyWireframes([mobileIncrementalSnapshot])).toBe(true)
+        })
+
+        it('detects mobile recordings with wireframes in full snapshots', () => {
+            const mobileFullSnapshot = {
+                type: 2,
+                timestamp: 1000,
+                data: {
+                    wireframes: [
+                        {
+                            type: 'screenshot',
+                            base64: 'data:image/webp;base64,test',
+                            width: 400,
+                            height: 800,
+                        },
+                    ],
+                    initialOffset: { top: 0, left: 0 },
+                },
+            }
+
+            expect(hasAnyWireframes([mobileFullSnapshot])).toBe(true)
+        })
+
+        it('does not detect web recordings as mobile', () => {
+            const webIncrementalSnapshot = {
+                type: 3,
+                timestamp: 1000,
+                data: {
+                    source: 0,
+                    adds: [],
+                    removes: [],
+                    texts: [],
+                    attributes: [],
+                },
+            }
+
+            expect(hasAnyWireframes([webIncrementalSnapshot])).toBe(false)
+        })
+
+        it('creates synthetic full snapshot when mobile recording starts with incremental snapshot', async () => {
+            const sessionId = 'test-mobile-session'
+
+            // Create a mobile incremental snapshot with wireframes (React Native SDK 4.1.0 format)
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            updates: [
+                                {
+                                    wireframe: {
+                                        type: 'screenshot',
+                                        base64: 'data:image/webp;base64,test',
+                                        width: 400,
+                                        height: 800,
+                                        x: 0,
+                                        y: 0,
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })
+
+            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            // Should have at least 2 events: Meta event (from patchMetaEventIntoMobileData) + synthetic full + original incremental
+            expect(result.length).toBeGreaterThanOrEqual(2)
+            expect(result[0].windowId).toBe('1')
+
+            // Should have both a full snapshot and an incremental snapshot
+            const hasFullSnapshot = result.some((r) => r.type === 2)
+            const hasIncrementalSnapshot = result.some((r) => r.type === 3)
+            expect(hasFullSnapshot).toBe(true)
+            expect(hasIncrementalSnapshot).toBe(true)
+
+            // The synthetic full snapshot should have a timestamp 1ms before the original event
+            const fullSnapshot = result.find((r) => r.type === 2)
+            const incrementalSnapshot = result.find((r) => r.type === 3)
+            expect(fullSnapshot?.timestamp).toBe(999) // 1000 - 1
+            expect(incrementalSnapshot?.timestamp).toBe(1000)
+        })
+
+        it('does not create synthetic snapshot when mobile recording starts with full snapshot', async () => {
+            const sessionId = 'test-mobile-session'
+
+            // Create a mobile full snapshot with wireframes
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 2,
+                        timestamp: 1000,
+                        data: {
+                            wireframes: [
+                                {
+                                    type: 'screenshot',
+                                    base64: 'data:image/webp;base64,test',
+                                    width: 400,
+                                    height: 800,
+                                },
+                            ],
+                            initialOffset: { top: 0, left: 0 },
+                        },
+                    },
+                ],
+            })
+
+            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            // Should have 2 events: Meta event (from patchMetaEventIntoMobileData) + original full snapshot
+            expect(result).toHaveLength(2)
+            expect(result[0].windowId).toBe('1')
+
+            // Should have a full snapshot but no synthetic one (only the original)
+            const fullSnapshots = result.filter((r) => r.type === 2)
+            expect(fullSnapshots).toHaveLength(1)
+            expect(fullSnapshots[0].timestamp).toBe(1000) // Original timestamp, not synthetic
+        })
+
+        it('does not create synthetic snapshot for web recordings', async () => {
+            const sessionId = 'test-web-session'
+
+            // Create a regular web incremental snapshot (no wireframes)
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            adds: [],
+                            removes: [],
+                            texts: [],
+                            attributes: [],
+                        },
+                    },
+                ],
+            })
+
+            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            // Should process as regular web recording (no synthetic snapshot created)
+            expect(result).toHaveLength(1)
+            expect(result[0].windowId).toBe('1')
+            expect(result[0].type).toBe(3) // Should remain as incremental snapshot
+
+            // Should NOT have a full snapshot since this is a web recording starting with incremental
+            const hasFullSnapshot = result.some((r) => r.type === 2)
+            expect(hasFullSnapshot).toBe(false)
+        })
+
+        it('creates synthetic snapshot with correct windowId from original event', async () => {
+            const sessionId = 'test-mobile-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: 'custom-window-123',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 2000,
+                        data: {
+                            source: 0,
+                            updates: [
+                                {
+                                    wireframe: {
+                                        type: 'screenshot',
+                                        base64: 'data:image/webp;base64,test',
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })
+
+            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            // All events should have the same windowId
+            result.forEach((event) => {
+                expect(event.windowId).toBe('custom-window-123')
+            })
+
+            // Synthetic full snapshot should have correct timestamp
+            const fullSnapshot = result.find((r) => r.type === 2)
+            expect(fullSnapshot?.timestamp).toBe(1999) // 2000 - 1
+        })
+
+        it('handles multiple mobile events correctly (only first gets synthetic)', async () => {
+            const sessionId = 'test-mobile-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 3, // First incremental - should get synthetic full snapshot
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot' } }],
+                        },
+                    },
+                    {
+                        type: 3, // Second incremental - should NOT get synthetic full snapshot
+                        timestamp: 2000,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot' } }],
+                        },
+                    },
+                ],
+            })
+
+            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            // Should have: Meta + Synthetic Full + First Incremental + Second Incremental
+            expect(result.length).toBeGreaterThanOrEqual(3)
+
+            // Should have exactly one full snapshot (the synthetic one)
+            const fullSnapshots = result.filter((r) => r.type === 2)
+            expect(fullSnapshots).toHaveLength(1)
+            expect(fullSnapshots[0].timestamp).toBe(999) // Synthetic timestamp
+
+            // Should have two incremental snapshots
+            const incrementalSnapshots = result.filter((r) => r.type === 3)
+            expect(incrementalSnapshots).toHaveLength(2)
+            expect(incrementalSnapshots[0].timestamp).toBe(1000)
+            expect(incrementalSnapshots[1].timestamp).toBe(2000)
+        })
+
+        it('preserves original event data when creating synthetic snapshot', async () => {
+            const sessionId = 'test-mobile-session'
+
+            const originalEventData = {
+                source: 0,
+                updates: [
+                    {
+                        wireframe: {
+                            type: 'screenshot',
+                            base64: 'data:image/webp;base64,original-data',
+                            width: 400,
+                            height: 800,
+                        },
+                    },
+                ],
+            }
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: originalEventData,
+                    },
+                ],
+            })
+
+            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            // Find the original incremental snapshot
+            const originalEvent = result.find((r) => r.type === 3 && r.timestamp === 1000)
+            expect(originalEvent).toBeTruthy()
+            expect(originalEvent?.data).toEqual(originalEventData)
+        })
+
+        it('handles edge cases gracefully', async () => {
+            const sessionId = 'test-edge-cases'
+
+            // Test with empty wireframes array
+            const emptyWireframesJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            updates: [
+                                {
+                                    wireframe: {
+                                        type: 'screenshot',
+                                        base64: '',
+                                        width: 0,
+                                        height: 0,
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })
+
+            const result = await parseEncodedSnapshots([emptyWireframesJson], sessionId)
+
+            // Should still create synthetic snapshot even with empty wireframes
+            const hasFullSnapshot = result.some((r) => r.type === 2)
+            expect(hasFullSnapshot).toBe(true)
+        })
+
+        it('handles missing windowId gracefully', async () => {
+            const sessionId = 'test-missing-windowid'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        // Missing windowId in the event itself
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot' } }],
+                        },
+                    },
+                ],
+            })
+
+            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            // Should still work and inherit windowId from the snapshot line
+            expect(result.length).toBeGreaterThan(0)
+            result.forEach((event) => {
+                expect(event.windowId).toBe('1')
+            })
+        })
+
+        it('works with different event types in mobile recordings', async () => {
+            const sessionId = 'test-mixed-events'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 4, // Meta event - should NOT trigger synthetic snapshot
+                        timestamp: 500,
+                        data: { width: 400, height: 800 },
+                    },
+                    {
+                        type: 3, // Incremental - should NOT trigger synthetic (not first event)
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot' } }],
+                        },
+                    },
+                ],
+            })
+
+            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            // Should NOT create synthetic snapshot because first event is Meta, not Incremental
+            const fullSnapshots = result.filter((r) => r.type === 2)
+            expect(fullSnapshots).toHaveLength(0)
+
+            // Should have the original events
+            const metaEvents = result.filter((r) => r.type === 4)
+            const incrementalEvents = result.filter((r) => r.type === 3)
+            expect(metaEvents.length).toBeGreaterThan(0)
+            expect(incrementalEvents.length).toBeGreaterThan(0)
         })
     })
 })

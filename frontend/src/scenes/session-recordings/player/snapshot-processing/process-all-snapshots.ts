@@ -233,13 +233,13 @@ function coerceToEventWithTime(
     sessionRecordingId: string,
     isFirstEvent: boolean = false,
     isMobile: boolean = false
-): eventWithTime | eventWithTime[] {
+): eventWithTime[] {
     // we decompress first so that we could support partial compression on mobile in the future
     const currentEvent = decompressEvent(d, sessionRecordingId) as eventWithTime
     const transformedEvent = postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || currentEvent
 
     // If this is the first event and it's not a full snapshot, and it's mobile, create a synthetic full snapshot first
-    if (isFirstEvent && currentEvent.type !== EventType.FullSnapshot && isMobile && postHogEEModule?.mobileReplay) {
+    if (isFirstEvent && isMobile && currentEvent.type !== EventType.FullSnapshot && postHogEEModule?.mobileReplay) {
         // Create synthetic mobile full snapshot using the proper transformer
         const syntheticMobileFullSnapshot = {
             windowId: currentEvent.windowId,
@@ -259,7 +259,7 @@ function coerceToEventWithTime(
         return [syntheticFullSnapshot, transformedEvent]
     }
 
-    return transformedEvent
+    return [transformedEvent]
 }
 
 export const parseEncodedSnapshots = async (
@@ -372,12 +372,9 @@ export const parseEncodedSnapshots = async (
                 const isFirstEvent = index === 0 && dataIndex === 0
                 const snapResult = coerceToEventWithTime(d, sessionId, isFirstEvent, isMobileSnapshots)
 
-                // Handle both single event and array of events (synthetic + original)
-                const snaps = Array.isArray(snapResult) ? snapResult : [snapResult]
-
-                return snaps.flatMap((snap) => {
+                return snapResult.flatMap((snap) => {
                     const baseSnapshot: RecordingSnapshot = {
-                        windowId: (snapshotLine as any)['window_id'] || snapshotLine['windowId'],
+                        windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
                         ...snap,
                     }
 
