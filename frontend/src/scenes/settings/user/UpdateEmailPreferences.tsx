@@ -110,7 +110,6 @@ export function UpdateEmailPreferences(): JSX.Element {
                             label="Data pipeline errors"
                             description="Get notified when data pipeline components (destinations, batch exports) encounter errors for all projects"
                             dataAttr="pipeline_errors_enabled"
-                            inverse={true}
                         />
                     </div>
 
