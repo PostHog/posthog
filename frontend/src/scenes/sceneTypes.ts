@@ -133,7 +133,6 @@ export enum Scene {
     // MARKER DO NOT REMOVE THIS COMMENT
 
     // AUTO-GENERATED PRODUCT SCENES - DO NOT EDIT MANUALLY
-    ActionNew = 'ActionNew',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
     EndpointsUsage = 'EndpointsUsage',
@@ -150,6 +149,7 @@ export enum Scene {
     ManagedMigration = 'ManagedMigration',
     ManagedMigrationNew = 'ManagedMigrationNew',
     MessagingLibraryTemplate = 'MessagingLibraryTemplate',
+    NewAction = 'NewAction',
     TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
 }
