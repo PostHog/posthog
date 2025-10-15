@@ -121,7 +121,7 @@ impl Cli {
 
         match &command.command {
             Commands::Login => {
-                login::login()?;
+                login::login(command.host)?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
