@@ -124,6 +124,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         setSelectedDestinations(sanitizedValues)
         if (pendingCategoryReturn) {
             setPendingCategoryReturn(false)
+            setCategorySearchActive(false)
+            setCategoryFocusKey((key) => key + 1)
             window.requestAnimationFrame(() => inputRef.current?.focus())
         }
     }
@@ -177,6 +179,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         }
                                         setCategorySearchActive(false)
                                     }}
+                                    selectOnSpace
                                     autoFocus={categorySearchActive}
                                     className="@lg/main-content:max-w-[280px]"
                                     data-attr="new-tab-destination-picker"

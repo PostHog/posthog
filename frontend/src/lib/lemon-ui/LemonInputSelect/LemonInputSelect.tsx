@@ -71,6 +71,7 @@ export type LemonInputSelectProps<T = string> = Pick<
     disableCommaSplitting?: boolean
     action?: LemonInputSelectAction
     virtualized?: boolean
+    selectOnSpace?: boolean
 }
 
 export function LemonInputSelect<T = string>({
@@ -103,6 +104,7 @@ export function LemonInputSelect<T = string>({
     disableCommaSplitting = false,
     action,
     virtualized = false,
+    selectOnSpace = false,
 }: LemonInputSelectProps<T>): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -394,10 +396,13 @@ export function LemonInputSelect<T = string>({
     }
 
     const _onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-        if (['Enter', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
+        const isSpaceKey = e.key === ' ' || e.key === 'Space' || e.key === 'Spacebar'
+        const isSelectionKey = e.key === 'Enter' || (selectOnSpace && isSpaceKey && inputValue === '')
+
+        if (isSelectionKey || ['ArrowDown', 'ArrowUp'].includes(e.key)) {
             e.stopPropagation()
         }
-        if (e.key === 'Enter') {
+        if (isSelectionKey) {
             e.preventDefault()
             const itemToAdd = visibleOptions[selectedIndex]?.key
 

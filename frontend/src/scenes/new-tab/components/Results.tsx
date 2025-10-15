@@ -57,9 +57,9 @@ function Category({
     const description = meta?.description
 
     return (
-        <>
-            <div className={cn('mb-8', { 'mb-2': isFlagged })} key={category}>
-                <div className="mb-4">
+        <div className={cn('mb-8', { 'mb-2': isFlagged })}>
+            <div className="flex flex-col gap-3 @lg/main-content:grid @lg/main-content:grid-cols-[minmax(160px,1fr)_minmax(0,3fr)] @lg/main-content:gap-6 @lg/main-content:items-start">
+                <div className="flex flex-col gap-2">
                     <div className="flex items-baseline gap-2">
                         {isFlagged ? (
                             <Label intent="menu" className="px-2">
@@ -75,7 +75,7 @@ function Category({
                     </div>
                     {description ? <p className="text-xs text-tertiary mt-1 mb-0 min-h-8">{description}</p> : null}
                 </div>
-                <div className="flex flex-col gap-0.25">
+                <div className="flex flex-col gap-0.25 w-full">
                     {(category === 'recents' || isFlagged) && typedItems.length === 0 ? (
                         <div className="flex flex-col gap-2 text-tertiary text-balance">
                             {isLoading ? (
@@ -176,7 +176,7 @@ function Category({
                     <SceneDivider />
                 </div>
             )}
-        </>
+        </div>
     )
 }
 
