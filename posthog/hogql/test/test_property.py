@@ -867,8 +867,22 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("distinct_id in ('p3', 'p4')"),
         )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "distinct_id", "value": "is_set", "operator": "is_set"},
+                scope="event",
+            ),
+            self._parse_expr("distinct_id != NULL"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "distinct_id", "value": "is_not_set", "operator": "is_not_set"},
+                scope="event",
+            ),
+            self._parse_expr("distinct_id = NULL"),
+        )
 
-    def test_property_to_expr_event_meta_key_group(self):
+    def test_property_to_expr_event_metadata_key_group(self):
         self.assertEqual(
             self._property_to_expr(
                 {"type": "event_metadata", "key": "$group_0", "value": "is_set", "operator": "is_set"},
