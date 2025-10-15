@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from tempfile import mkstemp
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import pytz
@@ -104,8 +104,8 @@ async def group_recording_blocks(input: RecordingWithBlocks) -> list[RecordingBl
     block_map: dict[str, RecordingBlockGroup] = {}
 
     for block in input.blocks:
-        scheme, netloc, path, _, query, _ = urlparse(block.url)
-        base_key = urlunparse((scheme, netloc, path, None, None, None))
+        _, _, path, _, query, _ = urlparse(block.url)
+        path = path.lstrip("/")
 
         match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
 
@@ -114,9 +114,9 @@ async def group_recording_blocks(input: RecordingWithBlocks) -> list[RecordingBl
 
         start_byte, end_byte = int(match.group(1)), int(match.group(2))
 
-        block_group: RecordingBlockGroup = block_map.get(base_key, RecordingBlockGroup(input.recording, base_key, []))
+        block_group: RecordingBlockGroup = block_map.get(path, RecordingBlockGroup(input.recording, path, []))
         block_group.ranges.append((start_byte, end_byte))
-        block_map[base_key] = block_group
+        block_map[path] = block_group
 
     block_groups: list[RecordingBlockGroup] = list(block_map.values())
 
@@ -150,29 +150,34 @@ async def delete_recording_blocks(input: RecordingBlockGroup) -> None:
         try:
             _, tmpfile = mkstemp()
 
-            await storage.download_file(input.block_url, tmpfile)
+            await storage.download_file(input.path, tmpfile)
 
             for start_byte, end_byte in input.ranges:
-                block_length = end_byte - start_byte + 1
+                try:
+                    block_length = end_byte - start_byte + 1
 
-                size_before = Path(tmpfile).stat().st_size
+                    size_before = Path(tmpfile).stat().st_size
 
-                overwrite_block(tmpfile, start_byte, block_length)
+                    overwrite_block(tmpfile, start_byte, block_length)
 
-                size_after = Path(tmpfile).stat().st_size
+                    size_after = Path(tmpfile).stat().st_size
 
-                assert size_before == size_after
+                    assert size_before == size_after
+                    block_deleted_counter += 1
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to delete block at range ({start_byte}, {end_byte}) in file at {input.path}, skipping..."
+                    )
+                    logger.warning(f"Got exception {e}")
+                    block_deleted_error_counter += 1
 
-            await storage.upload_file(input.block_url, tmpfile)
+            await storage.upload_file(input.path, tmpfile)
 
-            logger.info(f"Deleted {len(input.ranges)} blocks in {input.block_url}")
-            block_deleted_counter += 1
+            logger.info(f"Deleted {len(input.ranges)} blocks in {input.path}")
         except session_recording_v2_object_storage.FileDownloadError:
-            logger.warning(f"Failed to download file at {input.block_url}, skipping...")
-            block_deleted_error_counter += 1
+            logger.warning(f"Failed to download file at {input.path}, skipping...")
         except session_recording_v2_object_storage.FileUploadError:
-            logger.warning(f"Failed to upload file to {input.block_url}, skipping...")
-            block_deleted_error_counter += 1
+            logger.warning(f"Failed to upload file to {input.path}, skipping...")
         finally:
             if tmpfile is not None:
                 os.remove(tmpfile)

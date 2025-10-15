@@ -31,7 +31,7 @@ async def test_single_group_recording_blocks():
                 session_id="abc",
                 team_id=123,
             ),
-            block_url="s3://test_bucket/session_recordings/5y/1756117699905-b688321ffa0fa994",
+            path="session_recordings/5y/1756117699905-b688321ffa0fa994",
             ranges=[
                 (12269307, 12294780),
                 (81788204, 81793010),
@@ -83,7 +83,7 @@ async def test_multiple_group_recording_blocks():
                 session_id="abc",
                 team_id=123,
             ),
-            block_url="s3://test_bucket/session_recordings/5y/1756117699905-b688321ffa0fa994",
+            path="session_recordings/5y/1756117699905-b688321ffa0fa994",
             ranges=[
                 (12269307, 12294780),
                 (81788204, 81793010),
@@ -95,7 +95,7 @@ async def test_multiple_group_recording_blocks():
                 session_id="abc",
                 team_id=123,
             ),
-            block_url="s3://test_bucket/session_recordings/90d/1756117747546-97a0b1e81d492d3a",
+            path="session_recordings/90d/1756117747546-97a0b1e81d492d3a",
             ranges=[
                 (2790658, 2800843),
             ],
@@ -105,7 +105,7 @@ async def test_multiple_group_recording_blocks():
                 session_id="abc",
                 team_id=123,
             ),
-            block_url="s3://test_bucket/session_recordings/1y/1756117652764-84b1bccb847e7ea6",
+            path="session_recordings/1y/1756117652764-84b1bccb847e7ea6",
             ranges=[
                 (12269307, 12294780),
             ],

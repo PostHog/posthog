@@ -25,7 +25,7 @@ class RecordingsWithPersonInput:
 @dataclass(frozen=True)
 class RecordingBlockGroup:
     recording: Recording
-    block_url: str
+    path: str
     ranges: list[tuple[int, int]]
 
 

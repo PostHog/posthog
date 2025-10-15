@@ -44,6 +44,11 @@ async def test_delete_recording_workflow():
         [(81788204, 81793010), (2790658, 2800843)],
     ]
 
+    EXPECTED_PATHS = [
+        "session_recordings/1y/1756117652764-84b1bccb847e7ea6",
+        "session_recordings/90d/1756117747546-97a0b1e81d492d3a",
+    ]
+
     @activity.defn(name="load-recording-blocks")
     async def load_recording_blocks_mocked(input: Recording) -> list[RecordingBlock]:
         assert input.session_id == TEST_SESSION_ID
@@ -55,6 +60,7 @@ async def test_delete_recording_workflow():
         assert input.recording.session_id == TEST_SESSION_ID
         assert input.recording.team_id == TEST_TEAM_ID
         assert input.ranges in EXPECTED_GROUPED_RANGES
+        assert input.path in EXPECTED_PATHS
         TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
 
     task_queue_name = str(uuid.uuid4())
@@ -142,6 +148,14 @@ async def test_delete_recording_with_person_workflow():
         ],
     }
 
+    EXPECTED_PATHS = [
+        "session_recordings/1y/1756117652764-84b1bccb847e7ea6",
+        "session_recordings/90d/1756117747546-97a0b1e81d492d3a",
+        "session_recordings/5y/1756117699905-b688321ffa0fa994",
+        "session_recordings/30d/1756117708699-28b991ee5019274d",
+        "session_recordings/30d/1756117711878-61ed9e32ebf3e27a",
+    ]
+
     @activity.defn(name="load-recordings-with-person")
     async def load_recordings_with_person_mocked(input: RecordingsWithPersonInput) -> list[str]:
         assert input.distinct_ids == TEST_DISTINCT_IDS
@@ -159,6 +173,7 @@ async def test_delete_recording_with_person_workflow():
         assert input.recording.session_id in TEST_SESSIONS
         assert input.recording.team_id == TEST_TEAM_ID
         assert input.ranges in EXPECTED_GROUPED_RANGES[input.recording.session_id]
+        assert input.path in EXPECTED_PATHS
         TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
 
     task_queue_name = str(uuid.uuid4())
