@@ -12,7 +12,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 def resolve_in_cohorts(
     node: _T_AST,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: Literal["hogql", "clickhouse", "duckdb"],
     stack: Optional[list[ast.SelectQuery]] = None,
     context: Optional[HogQLContext] = None,
 ):
@@ -21,7 +21,7 @@ def resolve_in_cohorts(
 
 def resolve_in_cohorts_conjoined(
     node: ast.AST,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: Literal["hogql", "clickhouse", "duckdb"],
     context: HogQLContext,
     stack: Optional[list[ast.SelectQuery]] = None,
 ):
@@ -44,11 +44,11 @@ StaticOrDynamic = Literal["dynamic"] | Literal["static"]
 
 
 class MultipleInCohortResolver(TraversingVisitor):
-    dialect: Literal["hogql", "clickhouse"]
+    dialect: Literal["hogql", "clickhouse", "duckdb"]
 
     def __init__(
         self,
-        dialect: Literal["hogql", "clickhouse"],
+        dialect: Literal["hogql", "clickhouse", "duckdb"],
         context: HogQLContext,
         stack: Optional[list[ast.SelectQuery]] = None,
     ):
@@ -264,7 +264,7 @@ class MultipleInCohortResolver(TraversingVisitor):
 class InCohortResolver(TraversingVisitor):
     def __init__(
         self,
-        dialect: Literal["hogql", "clickhouse"],
+        dialect: Literal["hogql", "clickhouse", "duckdb"],
         stack: Optional[list[ast.SelectQuery]] = None,
         context: Optional[HogQLContext] = None,
     ):

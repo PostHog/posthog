@@ -106,7 +106,7 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers
 def print_ast(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: Literal["hogql", "clickhouse", "duckdb"],
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
@@ -127,7 +127,7 @@ def print_ast(
 def prepare_ast_for_printing(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: Literal["hogql", "clickhouse", "duckdb"],
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
 ) -> _T_AST | None:
@@ -147,7 +147,12 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
-        node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
+        node = resolve_types(
+            node,
+            context,
+            dialect=dialect,
+            scopes=[node.type for node in stack if node.type is not None] if stack else None,
+        )
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
@@ -201,7 +206,7 @@ def prepare_ast_for_printing(
 def print_prepared_ast(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: Literal["hogql", "clickhouse", "duckdb"],
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
@@ -211,7 +216,7 @@ def print_prepared_ast(
         return _Printer(
             context=context,
             dialect=dialect,
-            stack=stack or [],
+            stack=stack or [],  # type: ignore
             settings=settings,
             pretty=pretty,
         ).visit(node)
@@ -274,7 +279,7 @@ class _Printer(Visitor[str]):
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["hogql", "clickhouse"],
+        dialect: Literal["hogql", "clickhouse", "duckdb"],
         stack: list[AST] | None = None,
         settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,
@@ -334,6 +339,10 @@ class _Printer(Visitor[str]):
                 raise InternalHogQLError("Full SELECT queries are disabled if context.enable_select_queries is False")
             if not self.context.team_id:
                 raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
+        elif self.dialect == "duckdb":
+            # Guard CH-only clauses early
+            if node.prewhere is not None:
+                raise QueryError("PREWHERE is not supported in DuckDB dialect")
 
         # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
@@ -381,7 +390,7 @@ class _Printer(Visitor[str]):
         if node.select:
             if self.dialect == "clickhouse":
                 # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
-                found_aliases = {}
+                found_aliases: dict[str, ast.Alias] = {}
                 for alias in reversed(node.select):
                     if isinstance(alias, ast.Alias):
                         if not found_aliases.get(alias.alias, None) or not alias.hidden:
@@ -425,6 +434,8 @@ class _Printer(Visitor[str]):
 
         array_join = ""
         if node.array_join_op is not None:
+            if self.dialect == "duckdb":
+                raise QueryError("ARRAY JOIN is not supported in DuckDB dialect")
             if node.array_join_op not in (
                 "ARRAY JOIN",
                 "LEFT ARRAY JOIN",
@@ -432,7 +443,7 @@ class _Printer(Visitor[str]):
             ):
                 raise ImpossibleASTError(f"Invalid ARRAY JOIN operation: {node.array_join_op}")
             array_join = node.array_join_op
-            if len(node.array_join_list) == 0:
+            if node.array_join_list is None or len(node.array_join_list) == 0:
                 raise ImpossibleASTError(f"Invalid ARRAY JOIN without an array")
             array_join += f" {', '.join(self.visit(expr) for expr in node.array_join_list)}"
 
@@ -467,6 +478,8 @@ class _Printer(Visitor[str]):
                 limit = ast.Constant(value=max_limit)
 
         if node.limit_by is not None:
+            if self.dialect == "duckdb":
+                raise QueryError("LIMIT BY is not supported in DuckDB dialect")
             clauses.append(
                 f"LIMIT {self.visit(node.limit_by.n)} {f'OFFSET {self.visit(node.limit_by.offset_value)}' if node.limit_by.offset_value else ''} BY {', '.join([self.visit(expr) for expr in node.limit_by.exprs])}"
             )
@@ -525,7 +538,7 @@ class _Printer(Visitor[str]):
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
             # Skip warehouse tables and tables with an explicit skip.
             if (
-                self.dialect == "clickhouse"
+                (self.dialect == "clickhouse" or self.dialect == "duckdb")
                 and not isinstance(table_type.table, DataWarehouseTable)
                 and not isinstance(table_type.table, SavedQuery)
                 and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
@@ -600,10 +613,14 @@ class _Printer(Visitor[str]):
                 f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
             )
 
-        if node.table_final:
-            join_strings.append("FINAL")
+            if node.table_final:
+                if self.dialect == "duckdb":
+                    raise QueryError("FINAL clause is not supported in DuckDB dialect")
+                join_strings.append("FINAL")
 
         if node.sample is not None:
+            if self.dialect == "duckdb":
+                raise QueryError("SAMPLE clause is not supported in DuckDB dialect")
             sample_clause = self.visit_sample_expr(node.sample)
             if sample_clause is not None:
                 join_strings.append(sample_clause)
@@ -617,7 +634,21 @@ class _Printer(Visitor[str]):
         return self.visit(node.expr)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
-        if node.op == ast.ArithmeticOperationOp.Add:
+        # DuckDB uses standard infix arithmetic operators (PostgreSQL-style)
+        if self.dialect == "duckdb":
+            if node.op == ast.ArithmeticOperationOp.Add:
+                return f"({self.visit(node.left)} + {self.visit(node.right)})"
+            elif node.op == ast.ArithmeticOperationOp.Sub:
+                return f"({self.visit(node.left)} - {self.visit(node.right)})"
+            elif node.op == ast.ArithmeticOperationOp.Mult:
+                return f"({self.visit(node.left)} * {self.visit(node.right)})"
+            elif node.op == ast.ArithmeticOperationOp.Div:
+                return f"({self.visit(node.left)} / {self.visit(node.right)})"
+            elif node.op == ast.ArithmeticOperationOp.Mod:
+                return f"({self.visit(node.left)} % {self.visit(node.right)})"
+            else:
+                raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
+        elif node.op == ast.ArithmeticOperationOp.Add:
             return f"plus({self.visit(node.left)}, {self.visit(node.right)})"
         elif node.op == ast.ArithmeticOperationOp.Sub:
             return f"minus({self.visit(node.left)}, {self.visit(node.right)})"
@@ -645,14 +676,24 @@ class _Printer(Visitor[str]):
         exprs: list[str] = []
         for expr in node.exprs:
             printed = self.visit(expr)
+            if self.dialect == "duckdb":
+                if printed == "FALSE":
+                    return "FALSE"
+                if printed != "TRUE":
+                    exprs.append(printed)
+                continue
             if printed == "0":  # optimization 2
                 return "0"
             if printed != "1":  # optimization 1
                 exprs.append(printed)
         if len(exprs) == 0:
-            return "1"
+            return "TRUE" if self.dialect == "duckdb" else "1"
         elif len(exprs) == 1:
             return exprs[0]
+
+        # DuckDB uses standard SQL AND operator
+        if self.dialect == "duckdb":
+            return f"({' AND '.join(exprs)})"
         return f"and({', '.join(exprs)})"
 
     def visit_or(self, node: ast.Or):
@@ -670,17 +711,35 @@ class _Printer(Visitor[str]):
         exprs: list[str] = []
         for expr in node.exprs:
             printed = self.visit(expr)
+            if self.dialect == "duckdb":
+                if printed == "TRUE":
+                    return "TRUE"
+                if printed != "FALSE":
+                    exprs.append(printed)
+                continue
             if printed == "1":
                 return "1"
             if printed != "0":
                 exprs.append(printed)
         if len(exprs) == 0:
-            return "0"
+            return "FALSE" if self.dialect == "duckdb" else "0"
         elif len(exprs) == 1:
             return exprs[0]
+
+        # DuckDB uses standard SQL OR operator
+        if self.dialect == "duckdb":
+            return f"({' OR '.join(exprs)})"
         return f"or({', '.join(exprs)})"
 
     def visit_not(self, node: ast.Not):
+        if self.dialect == "duckdb":
+            # Normalize constants to TRUE/FALSE when possible
+            inner = self.visit(node.expr)
+            if inner == "TRUE":
+                return "FALSE"
+            if inner == "FALSE":
+                return "TRUE"
+            return f"NOT ({inner})"
         return f"not({self.visit(node.expr)})"
 
     def visit_tuple_access(self, node: ast.TupleAccess):
@@ -708,7 +767,7 @@ class _Printer(Visitor[str]):
         return str + ")"
 
     def visit_lambda(self, node: ast.Lambda):
-        identifiers = [self._print_identifier(arg) for arg in node.args]
+        identifiers = [self._print_identifier(str(arg)) for arg in node.args]
         if len(identifiers) == 0:
             raise ValueError("Lambdas require at least one argument")
         elif len(identifiers) == 1:
@@ -889,7 +948,71 @@ class _Printer(Visitor[str]):
         value_if_one_side_is_null = False
         value_if_both_sides_are_null = False
 
-        if node.op == ast.CompareOperationOp.Eq:
+        # DuckDB uses standard SQL comparison operators
+        if self.dialect == "duckdb":
+            if node.op == ast.CompareOperationOp.Eq:
+                op = f"({left} = {right})"
+                constant_lambda = lambda left_op, right_op: left_op == right_op
+                value_if_both_sides_are_null = True
+            elif node.op == ast.CompareOperationOp.NotEq:
+                op = f"({left} != {right})"
+                constant_lambda = lambda left_op, right_op: left_op != right_op
+                value_if_one_side_is_null = True
+            elif node.op == ast.CompareOperationOp.Like:
+                op = f"({left} LIKE {right})"
+                value_if_both_sides_are_null = True
+            elif node.op == ast.CompareOperationOp.NotLike:
+                op = f"({left} NOT LIKE {right})"
+                value_if_one_side_is_null = True
+            elif node.op == ast.CompareOperationOp.ILike:
+                op = f"({left} ILIKE {right})"
+                value_if_both_sides_are_null = True
+            elif node.op == ast.CompareOperationOp.NotILike:
+                op = f"({left} NOT ILIKE {right})"
+                value_if_one_side_is_null = True
+            elif node.op == ast.CompareOperationOp.In:
+                op = f"({left} IN {right})"
+                return op
+            elif node.op == ast.CompareOperationOp.NotIn:
+                op = f"({left} NOT IN {right})"
+                return op
+            elif node.op == ast.CompareOperationOp.GlobalIn:
+                op = f"({left} IN {right})"  # DuckDB doesn't have globalIn, use regular IN
+            elif node.op == ast.CompareOperationOp.GlobalNotIn:
+                op = f"({left} NOT IN {right})"  # DuckDB doesn't have globalNotIn, use regular NOT IN
+            elif node.op == ast.CompareOperationOp.Regex:
+                op = f"({left} ~ {right})"  # DuckDB uses ~ for regex
+                value_if_both_sides_are_null = True
+            elif node.op == ast.CompareOperationOp.NotRegex:
+                op = f"({left} !~ {right})"  # DuckDB uses !~ for not regex
+                value_if_one_side_is_null = True
+            elif node.op == ast.CompareOperationOp.IRegex:
+                op = f"({left} ~* {right})"  # DuckDB uses ~* for case-insensitive regex
+                value_if_both_sides_are_null = True
+            elif node.op == ast.CompareOperationOp.NotIRegex:
+                op = f"({left} !~* {right})"  # DuckDB uses !~* for case-insensitive not regex
+                value_if_one_side_is_null = True
+            elif node.op == ast.CompareOperationOp.Gt:
+                op = f"({left} > {right})"
+                constant_lambda = lambda left_op, right_op: (
+                    left_op > right_op if left_op is not None and right_op is not None else False
+                )
+            elif node.op == ast.CompareOperationOp.GtEq:
+                op = f"({left} >= {right})"
+                constant_lambda = lambda left_op, right_op: (
+                    left_op >= right_op if left_op is not None and right_op is not None else False
+                )
+            elif node.op == ast.CompareOperationOp.Lt:
+                op = f"({left} < {right})"
+                constant_lambda = lambda left_op, right_op: (
+                    left_op < right_op if left_op is not None and right_op is not None else False
+                )
+            elif node.op == ast.CompareOperationOp.LtEq:
+                op = f"({left} <= {right})"
+                constant_lambda = lambda left_op, right_op: (
+                    left_op <= right_op if left_op is not None and right_op is not None else False
+                )
+        elif node.op == ast.CompareOperationOp.Eq:
             op = f"equals({left}, {right})"
             constant_lambda = lambda left_op, right_op: left_op == right_op
             value_if_both_sides_are_null = True
@@ -920,16 +1043,28 @@ class _Printer(Visitor[str]):
         elif node.op == ast.CompareOperationOp.GlobalNotIn:
             op = f"globalNotIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.Regex:
-            op = f"match({left}, {right})"
+            if self.dialect == "duckdb":
+                op = f"regexp_matches({left}, {right})"
+            else:
+                op = f"match({left}, {right})"
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotRegex:
-            op = f"not(match({left}, {right}))"
+            if self.dialect == "duckdb":
+                op = f"not(regexp_matches({left}, {right}))"
+            else:
+                op = f"not(match({left}, {right}))"
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.IRegex:
-            op = f"match({left}, concat('(?i)', {right}))"
+            if self.dialect == "duckdb":
+                op = f"regexp_matches({left}, {right}, 'i')"
+            else:
+                op = f"match({left}, concat('(?i)', {right}))"
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotIRegex:
-            op = f"not(match({left}, concat('(?i)', {right})))"
+            if self.dialect == "duckdb":
+                op = f"not(regexp_matches({left}, {right}, 'i'))"
+            else:
+                op = f"not(match({left}, concat('(?i)', {right})))"
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.Gt:
             op = f"greater({left}, {right})"
@@ -1042,7 +1177,9 @@ class _Printer(Visitor[str]):
             or isinstance(node.value, datetime)
             or isinstance(node.value, date)
         ):
-            # Inline some permitted types in ClickHouse
+            # Inline some permitted types
+            if self.dialect == "duckdb" and isinstance(node.value, bool):
+                return "TRUE" if node.value else "FALSE"
             value = self._print_escaped_string(node.value)
             if "%" in value:
                 # We don't know if this will be passed on as part of a legacy ClickHouse query or not.
@@ -1062,7 +1199,7 @@ class _Printer(Visitor[str]):
             if node.chain == ["*"]:
                 return "*"
             # When printing HogQL, we print the properties out as a chain as they are.
-            return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
+            return ".".join([self._print_hogql_identifier_or_index(str(identifier)) for identifier in node.chain])
 
         if node.type is not None:
             if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
@@ -1246,15 +1383,16 @@ class _Printer(Visitor[str]):
                 node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
-                    args: list[str] = []
+                    datetime_args: list[str] = []
                     for idx, arg in enumerate(node_args):
                         if idx == 0:
                             if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
-                                args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
+                                datetime_args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
                             else:
-                                args.append(f"toDateTime({self.visit(arg)}, 'UTC')")
+                                datetime_args.append(f"toDateTime({self.visit(arg)}, 'UTC')")
                         else:
-                            args.append(self.visit(arg))
+                            datetime_args.append(self.visit(arg))
+                    args = datetime_args
                 elif node.name == "concat":
                     args = []
                     for arg in node_args:
@@ -1662,6 +1800,24 @@ class _Printer(Visitor[str]):
                     materialized_property_sql, [self.context.add_value(name) for name in type.chain[1:]]
                 )
 
+        # Default JSON path extraction
+        if self.dialect == "duckdb":
+            base_expr = self.visit(type.field_type)
+            if len(type.chain) == 0:
+                return base_expr
+
+            def _json_path_for_chain(chain: list[str]) -> str:
+                # Build JSONPath like $['k1']['k2']...
+                parts = ["$"]
+                for key in chain:
+                    safe = key.replace("'", "\\'")
+                    parts.append(f"['{safe}']")
+                return "".join(parts)
+
+            json_path = _json_path_for_chain([str(name) for name in type.chain])
+            # Prefer string extraction (string columns) to match CH trimming semantics
+            return f"json_extract_string({base_expr}, {self.context.add_value(json_path)})"
+
         return self._unsafe_json_extract_trim_quotes(
             self.visit(type.field_type), [self.context.add_value(name) for name in type.chain]
         )
@@ -1753,36 +1909,44 @@ class _Printer(Visitor[str]):
         exprs = [self.visit(expr) for expr in node.exprs or []]
         cloned_node = cast(ast.WindowFunction, clone_expr(node))
 
-        # For compatibility with postgresql syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
-        if identifier in ("lag", "lead"):
-            identifier = f"{identifier}InFrame"
-            # Wrap the first expression (value) and third expression (default) in toNullable()
-            # The second expression (offset) must remain a non-nullable integer
-            if len(exprs) > 0:
-                exprs[0] = f"toNullable({exprs[0]})"  # value
-            # If there's no window frame specified, add the default one
-            if not cloned_node.over_expr and not cloned_node.over_identifier:
-                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
-            # If there's an over_identifier, we need to extract the new window expr just for this function
-            elif cloned_node.over_identifier:
-                # Find the last select query to look up the window definition
-                last_select = self._last_select()
-                if last_select and last_select.window_exprs and cloned_node.over_identifier in last_select.window_exprs:
-                    base_window = last_select.window_exprs[cloned_node.over_identifier]
-                    # Create a new window expr based on the referenced one
-                    cloned_node.over_expr = ast.WindowExpr(
-                        partition_by=base_window.partition_by,
-                        order_by=base_window.order_by,
-                        frame_method="ROWS" if not base_window.frame_method else base_window.frame_method,
-                        frame_start=base_window.frame_start
-                        or ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
-                        frame_end=base_window.frame_end
-                        or ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
-                    )
-                    cloned_node.over_identifier = None
-            # If there's an ORDER BY but no frame, add the default frame
-            elif cloned_node.over_expr and cloned_node.over_expr.order_by and not cloned_node.over_expr.frame_method:
-                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+        # Keep lag/lead standard in DuckDB; only apply CH compatibility remapping for non-DuckDB
+        if self.dialect != "duckdb":
+            # For compatibility with postgresql syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
+            if identifier in ("lag", "lead"):
+                identifier = f"{identifier}InFrame"
+                # Wrap the first expression (value) and third expression (default) in toNullable()
+                # The second expression (offset) must remain a non-nullable integer
+                if len(exprs) > 0:
+                    exprs[0] = f"toNullable({exprs[0]})"  # value
+                # If there's no window frame specified, add the default one
+                if not cloned_node.over_expr and not cloned_node.over_identifier:
+                    cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+                # If there's an over_identifier, we need to extract the new window expr just for this function
+                elif cloned_node.over_identifier:
+                    # Find the last select query to look up the window definition
+                    last_select = self._last_select()
+                    if (
+                        last_select
+                        and last_select.window_exprs
+                        and cloned_node.over_identifier in last_select.window_exprs
+                    ):
+                        base_window = last_select.window_exprs[cloned_node.over_identifier]
+                        # Create a new window expr based on the referenced one
+                        cloned_node.over_expr = ast.WindowExpr(
+                            partition_by=base_window.partition_by,
+                            order_by=base_window.order_by,
+                            frame_method="ROWS" if not base_window.frame_method else base_window.frame_method,
+                            frame_start=base_window.frame_start
+                            or ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+                            frame_end=base_window.frame_end
+                            or ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
+                        )
+                        cloned_node.over_identifier = None
+                # If there's an ORDER BY but no frame, add the default frame
+                elif (
+                    cloned_node.over_expr and cloned_node.over_expr.order_by and not cloned_node.over_expr.frame_method
+                ):
+                    cloned_node.over_expr = self._create_default_window_frame(cloned_node)
 
         # Handle any additional function arguments
         args = f"({', '.join(self.visit(arg) for arg in cloned_node.args)})" if cloned_node.args else ""
@@ -1792,6 +1956,8 @@ class _Printer(Visitor[str]):
                 f"({self.visit(cloned_node.over_expr)})"
                 if cloned_node.over_expr
                 else self._print_identifier(cloned_node.over_identifier)
+                if cloned_node.over_identifier
+                else ""
             )
         else:
             over = "()"
@@ -1862,6 +2028,12 @@ class _Printer(Visitor[str]):
     def _print_identifier(self, name: str) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_identifier(name)
+        elif self.dialect == "duckdb":
+            # DuckDB/PostgreSQL-style double-quoted identifiers; only quote when necessary
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+                return name
+            escaped = name.replace('"', '""')
+            return f'"{escaped}"'
         return escape_hogql_identifier(name)
 
     def _print_hogql_identifier_or_index(self, name: str | int) -> str:
@@ -1875,6 +2047,13 @@ class _Printer(Visitor[str]):
     ) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_string(name, timezone=self._get_timezone())
+        elif self.dialect == "duckdb":
+            # Reuse HogQL string escaping (single-quoted) for standard SQL dialect
+            if name is None:
+                return "NULL"
+            return escape_hogql_string(name, timezone=self._get_timezone())
+        if name is None:
+            return "NULL"
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
