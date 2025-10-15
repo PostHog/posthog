@@ -154,9 +154,13 @@ class RedshiftClient(PostgreSQLClient):
         update_key: Fields,
         final_table_fields: Fields,
         update_when_matched: Fields = (),
-        stage_fields_cast_to_json: collections.abc.Container[str] | None = None,
+        stage_fields_cast_to_super: collections.abc.Container[str] | None = None,
     ) -> None:
-        """Merge two tables in Redshift."""
+        """Merge two tables in Redshift.
+
+        This can handle transforming fields into 'SUPER' type if required by setting
+        `stage_fields_cast_to_super`, with the `JSON_PARSE` Redshift function.
+        """
         if schema:
             final_table_identifier = sql.Identifier(schema, final_table_name)
             stage_table_identifier = sql.Identifier(schema, stage_table_name)
@@ -209,10 +213,10 @@ class RedshiftClient(PostgreSQLClient):
             delete_extra_conditions=delete_extra_conditions,
         )
 
-        if stage_fields_cast_to_json is not None:
+        if stage_fields_cast_to_super is not None:
             select_stage_table_fields = sql.SQL(
                 ",".join(
-                    f"JSON_PARSE({field[0]}) AS {field[0]}" if field[0] in stage_fields_cast_to_json else field[0]
+                    f"JSON_PARSE({field[0]}) AS {field[0]}" if field[0] in stage_fields_cast_to_super else field[0]
                     for field in final_table_fields
                 )
             )
@@ -886,7 +890,15 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
     1. Check if anything is to be exported.
     2. Create destination table if not present.
     3. Query rows to export.
-    4. Insert rows into Redshift.
+    4. Insert rows into Redshift stage table (if required) or directly into final table.
+    5. Merge data from stage table (if required) into final table.
+
+    This MERGE step handles updates to mutable models, and converts fields from
+    'VARBYTE' to 'SUPER' type if required. We use 'VARBYTE' as the stage type due to
+    size restrictions: Executing a COPY directly to 'SUPER' type requires casting the
+    value to 'VARCHAR', which imposes a 64KB limit on the entire document. In contrast,
+    'VARBYTE' can ingest up to 16MB, and the 64KB limit only applies per value in the
+    document.
 
     Args:
         inputs: The dataclass holding inputs for this activity. The inputs
@@ -1011,7 +1023,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                         schema=inputs.table.schema_name,
                         merge_key=merge_settings.merge_key,
                         update_key=merge_settings.update_key,
-                        stage_fields_cast_to_json=table_schemas.super_columns if table_schemas.use_super else None,
+                        stage_fields_cast_to_super=table_schemas.super_columns if table_schemas.use_super else None,
                     )
 
                 return result
@@ -1126,8 +1138,15 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
     it cannot play the role of the user's bucket.
 
     So, this activity first exports a Parquet file from our stage bucket to the user's
-    bucket. Then, the Parquet file is copied into Redshift with a COPY command. Finally,
-    there's a MERGE step if the model we are batch export requires it.
+    bucket. Then, the Parquet file is copied into Redshift with a COPY command into a
+    stage table. Finally, we MERGE the stage table into the final table.
+
+    This MERGE step handles updates to mutable models, and converts fields from
+    'VARBYTE' to 'SUPER' type if required. We use 'VARBYTE' as the stage type due to
+    size restrictions: Executing a COPY directly to 'SUPER' type requires casting the
+    value to 'VARCHAR', which imposes a 64KB limit on the entire document. In contrast,
+    'VARBYTE' can ingest up to 16MB, and the 64KB limit only applies per value in the
+    document.
 
     To move the data to the user's bucket we make use of the tools available in our S3
     batch export, as it is functionally the same operation.
@@ -1309,7 +1328,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                             schema=inputs.table.schema_name,
                             merge_key=merge_settings.merge_key,
                             update_key=merge_settings.update_key,
-                            stage_fields_cast_to_json=table_schemas.super_columns if table_schemas.use_super else None,
+                            stage_fields_cast_to_super=table_schemas.super_columns if table_schemas.use_super else None,
                         )
 
                     external_logger.info(f"Finished {len(consumer.files_uploaded)} copying file/s into Redshift")
