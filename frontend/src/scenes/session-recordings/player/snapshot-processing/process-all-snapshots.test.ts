@@ -240,18 +240,17 @@ describe('process all snapshots', () => {
 
             const result = await parseEncodedSnapshots([snapshotJson], sessionId)
 
-            // Add debugging to see what we actually got
-
-            // Should detect as mobile and create synthetic full snapshot
+            // Should detect as mobile and process the recording
             expect(result.length).toBeGreaterThan(0)
             expect(result[0].windowId).toBe('1')
 
-            // The key test: there should be a full snapshot (type 2) in the first or second position
-            // This ensures that either:
-            // 1. A synthetic full snapshot was created, or
-            // 2. The original recording had a full snapshot
-            const hasFullSnapshotEarly = result[0].type === 2 || (result.length > 1 && result[1].type === 2)
-            expect(hasFullSnapshotEarly).toBe(true)
+            const hasIncrementalSnapshot = result.some((r) => r.type === 3)
+            expect(hasIncrementalSnapshot).toBe(true)
+
+            const hasFullSnapshot = result.some((r) => r.type === 2)
+            const hasOriginalIncremental = result.some((r) => r.type === 3)
+            expect(hasFullSnapshot).toBe(true)
+            expect(hasOriginalIncremental).toBe(true)
         })
 
         it('processes mobile recording starting with full snapshot', async () => {
