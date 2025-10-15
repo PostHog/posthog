@@ -1687,6 +1687,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     visible=False,
                 ),
             ),
+            ("message", AssistantMessage(content="Everything is fine")),
         ]
         self.assertConversationEqual(output, expected_output)
 
@@ -1711,6 +1712,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ui_payload={"create_and_query_insight": query.model_dump()},
                 visible=False,
             ),
+            AssistantMessage(content="Everything is fine"),
         ]
         state = cast(AssistantState, state)
         self.assertStateMessagesEqual(cast(list[Any], state.messages), expected_state_messages)

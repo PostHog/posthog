@@ -1676,6 +1676,10 @@ export interface SessionRecordingType {
     activity_score?: number
     /** retention period for this recording */
     retention_period_days?: number
+    /** When the recording expires, in ISO format. */
+    expiry_time?: string
+    /** Number of whole days left until the recording expires. */
+    recording_ttl?: number
 }
 
 export interface SessionRecordingUpdateType {
@@ -3890,6 +3894,7 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
+        timeseries?: boolean
     }
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
