@@ -38,6 +38,7 @@ from products.llm_analytics.backend.api import (
     LLMProxyViewSet,
 )
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
+from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 
 from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
@@ -68,7 +69,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    notebook,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -654,7 +654,7 @@ legacy_project_session_recordings_router.register(
 
 projects_router.register(
     r"notebooks",
-    notebook.NotebookViewSet,
+    NotebookViewSet,
     "project_notebooks",
     ["project_id"],
 )

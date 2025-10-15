@@ -46,7 +46,7 @@ class TestAccessControlPermission(BaseTest):
         self.other_user = self._create_user("other_user")
 
         # Create test notebooks
-        from posthog.models.notebook.notebook import Notebook
+        from products.notebooks.backend.models import Notebook
 
         self.notebook_1 = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Notebook 1")
         self.notebook_2 = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Notebook 2")
@@ -68,7 +68,7 @@ class TestAccessControlPermission(BaseTest):
 
     def _create_real_view(self, action="list", pk=None):
         """Helper to create a real NotebookViewSet instance"""
-        from posthog.api.notebook import NotebookViewSet
+        from products.notebooks.backend.api.notebook import NotebookViewSet
 
         view = NotebookViewSet()
         view.action = action

@@ -17,7 +17,6 @@ from posthog.models import (
     FeatureFlag,
     GroupTypeMapping,
     Insight,
-    Notebook,
     Organization,
     Project,
     PropertyDefinition,
@@ -29,6 +28,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.ph_client import get_client
 
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.notebooks.backend.models import Notebook
 
 
 @dataclass

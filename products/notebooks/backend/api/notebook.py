@@ -24,11 +24,12 @@ from posthog.exceptions import Conflict
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse
+
+from products.notebooks.backend.models import Notebook
 
 logger = structlog.get_logger(__name__)
 
@@ -301,26 +302,27 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
                         presence_match_structure: basic_structure | nested_structure = [{"type": f"ph-{target}"}]
 
+                        match_value: str | int | None = match
                         try:
                             # We try to parse the match as a number, as query params are always strings,
                             # but an id could be an integer and wouldn't match
                             if isinstance(match, str):  # because mypy
-                                match = int(match)
+                                match_value = int(match)
                         except (ValueError, TypeError):
                             pass
 
-                        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match}}]
+                        id_match_structure: basic_structure | nested_structure = [{"attrs": {"id": match_value}}]
                         if target == "replay-timestamp":
                             # replay timestamps are not at the top level, they're one-level down in a content array
                             presence_match_structure = [{"content": [{"type": f"ph-{target}"}]}]
-                            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match}}]}]
+                            id_match_structure = [{"content": [{"attrs": {"sessionRecordingId": match_value}}]}]
                         elif target == "query":
                             id_match_structure = [
                                 {
                                     "attrs": {
                                         "query": {
                                             "kind": "SavedInsightNode",
-                                            "shortId": match,
+                                            "shortId": match_value,
                                         }
                                     }
                                 }
