@@ -4,10 +4,8 @@ use tracing::info;
 use uuid;
 
 use crate::{
-    api::releases::{Release, ReleaseBuilder},
-    invocation_context::context,
-    sourcemaps::source_pair::read_pairs,
-    utils::git::get_git_info,
+    api::releases::ReleaseBuilder, invocation_context::context,
+    sourcemaps::source_pair::read_pairs, utils::git::get_git_info,
 };
 
 #[derive(clap::Args)]
@@ -31,6 +29,10 @@ pub struct InjectArgs {
     /// injection. Strongly prefer setting release information during injection.
     #[arg(long)]
     pub version: Option<String>,
+
+    /// Force injection. This will override any existing chunk or release information already in the sourcemaps.
+    #[arg(long, default_value = "false")]
+    pub force: bool,
 }
 
 pub fn inject(args: &InjectArgs) -> Result<()> {
@@ -39,6 +41,7 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
         ignore,
         project,
         version,
+        force,
     } = args;
 
     context().capture_command_invoked("sourcemap_inject");
@@ -58,32 +61,34 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
     }
     info!("Found {} pairs", pairs.len());
 
-    let mut skipped_pairs = 0;
-
-    let explicit_release = project.is_some() && version.is_some();
-
-    // We need a release ID to put on the pairs if either the user is explicitly specifying one,
-    // or if any of the pairs don't have one already set.
-    let needs_release = explicit_release || pairs.iter().any(|p| !p.has_release_id());
+    // We need to fetch or create a release if: the user specified one, any pair is missing one, or the user
+    // forced release overriding
+    let needs_release = project.is_some()
+        || version.is_some()
+        || pairs.iter().any(|p| !p.has_release_id())
+        || *force;
 
     let mut created_release = None;
     if needs_release {
-        if project.is_some() && version.is_some() {
-            created_release = Some(Release::fetch_or_create(
-                project.as_ref().unwrap(),
-                version.as_ref().unwrap(),
-                Some(directory.clone()),
-            )?)
-        } else if let Some(git_info) = get_git_info(Some(directory.clone()))? {
-            let builder = ReleaseBuilder::init_from_git(git_info);
-            if builder.can_create() {
-                created_release = Some(builder.create_release()?);
-            }
+        let mut builder = get_git_info(Some(directory))?
+            .map(|g| ReleaseBuilder::init_from_git(g))
+            .unwrap_or_default();
+
+        if let Some(project) = project {
+            builder.with_project(project);
+        }
+        if let Some(version) = version {
+            builder.with_version(version);
+        }
+
+        if builder.can_create() {
+            created_release = Some(builder.fetch_or_create()?);
         }
     }
 
+    let mut skipped_pairs = 0;
     for pair in &mut pairs {
-        if pair.has_chunk_id() {
+        if pair.has_chunk_id() && !force {
             skipped_pairs += 1;
             continue;
         }
@@ -92,7 +97,7 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
 
         // If we've got a release, and the user asked us to, or a set is missing one,
         // put the release ID on the pair
-        if created_release.is_some() && (explicit_release || !pair.has_release_id()) {
+        if created_release.is_some() && (*force || !pair.has_release_id()) {
             pair.set_release_id(created_release.as_ref().unwrap().id.to_string());
         }
     }

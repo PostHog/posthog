@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -8,10 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     invocation_context::context,
-    utils::{
-        files::content_hash,
-        git::{get_git_info, GitInfo},
-    },
+    utils::{files::content_hash, git::GitInfo},
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -69,20 +66,6 @@ impl Release {
             Ok(None) // unreachable
         }
     }
-
-    pub fn fetch_or_create(project: &str, version: &str, git_dir: Option<PathBuf>) -> Result<Self> {
-        // Either fetch an existing release, or create one
-        if let Some(existing) = Release::lookup(&project, &version)? {
-            Ok(existing)
-        } else {
-            let mut builder = ReleaseBuilder::default();
-            if let Some(info) = get_git_info(git_dir)? {
-                builder.with_git(info);
-            }
-            builder.with_version(&version).with_project(&project);
-            builder.create_release()
-        }
-    }
 }
 
 impl ReleaseBuilder {
@@ -138,6 +121,22 @@ impl ReleaseBuilder {
             missing.push("project");
         }
         missing
+    }
+
+    pub fn fetch_or_create(self) -> Result<Release> {
+        if !self.can_create() {
+            anyhow::bail!(
+                "Tried to create a release while missing key fields: {}",
+                self.missing().join(", ")
+            )
+        }
+        let version = self.version.as_ref().unwrap();
+        let project = self.project.as_ref().unwrap();
+        if let Some(release) = Release::lookup(project, version)? {
+            Ok(release)
+        } else {
+            self.create_release()
+        }
     }
 
     pub fn create_release(self) -> Result<Release> {

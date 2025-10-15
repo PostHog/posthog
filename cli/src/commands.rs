@@ -4,7 +4,7 @@ use crate::{
     error::CapturedError,
     experimental::{query::command::QueryCommand, tasks::TaskCommand},
     invocation_context::{context, init_context},
-    sourcemaps::{inject::InjectArgs, SourcemapCommand},
+    sourcemaps::SourcemapCommand,
 };
 
 #[derive(Parser)]
@@ -75,16 +75,11 @@ impl Cli {
                     init_context(command.host.clone(), upload_args.skip_ssl_verification)?;
                     crate::sourcemaps::upload::upload_cmd(upload_args.clone())?;
                 }
-                SourcemapCommand::Process(mut args) => {
+                SourcemapCommand::Process(args) => {
                     init_context(command.host.clone(), args.skip_ssl_verification)?;
-                    let inject_args = InjectArgs {
-                        directory: args.directory.clone(),
-                        ignore: args.ignore.clone(),
-                        project: args.project.take(), // Do release work in the inject, not the upload, step
-                        version: args.version.take(), // as above
-                    };
-                    crate::sourcemaps::inject::inject(&inject_args)?;
-                    crate::sourcemaps::upload::upload_cmd(args.clone())?;
+                    let (inject, upload) = args.into();
+                    crate::sourcemaps::inject::inject(&inject)?;
+                    crate::sourcemaps::upload::upload_cmd(upload)?;
                 }
             },
             Commands::Exp { cmd } => match cmd {
