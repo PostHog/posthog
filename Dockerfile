@@ -165,7 +165,7 @@ COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
-RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput --parallel
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
 
 
