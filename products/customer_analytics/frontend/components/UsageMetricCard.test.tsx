@@ -78,7 +78,7 @@ describe('getTrendFromPercentageChange', () => {
 })
 
 describe('getMetricTooltip', () => {
-    const baseMetric = {
+    const baseMetric: UsageMetric = {
         id: 'revenue',
         name: 'Revenue',
         value: 50000,
