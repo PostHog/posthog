@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional
 
 from django.conf import settings
@@ -276,9 +276,18 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         return value
 
     if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
+        if isinstance(value, datetime):
+            return value
+
         return parser.parse(value)
 
     if field_type == IncrementalFieldType.Date:
+        if isinstance(value, datetime):
+            return value.date()
+
+        if isinstance(value, date):
+            return value
+
         return parser.parse(value).date()
 
     if field_type == IncrementalFieldType.ObjectID:
