@@ -156,14 +156,19 @@ describe('process all snapshots', () => {
 
         beforeEach(() => {
             jest.clearAllMocks()
-            // Mock the postHogEEModule
-            ;(global as any).postHogEEModule = {
-                mobileReplay: mockMobileReplay,
-            }
+
+            // Mock the posthogEE import to return our mock
+            jest.doMock('@posthog/ee/exports', () => ({
+                __esModule: true,
+                default: () =>
+                    Promise.resolve({
+                        mobileReplay: mockMobileReplay,
+                    }),
+            }))
         })
 
         afterEach(() => {
-            delete (global as any).postHogEEModule
+            jest.dontMock('@posthog/ee/exports')
         })
 
         it('creates synthetic full snapshot when mobile recording starts with incremental snapshot', async () => {
