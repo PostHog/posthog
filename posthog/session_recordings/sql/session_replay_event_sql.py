@@ -123,7 +123,6 @@ SETTINGS index_granularity=512
 def KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL():
     return KAFKA_SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
         table_name="kafka_session_replay_events",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS),
     )
 
