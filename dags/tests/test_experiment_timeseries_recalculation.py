@@ -74,7 +74,7 @@ class TestExperimentRecalculation(BaseTest):
             ) as mock_remove_sessions:
                 mock_remove_sessions.return_value = mock_result
 
-                result = experiment_timeseries_recalculation(context)
+                result: dict = experiment_timeseries_recalculation(context)
 
         recalculation_request.refresh_from_db()
         assert recalculation_request.status == ExperimentTimeseriesRecalculation.Status.COMPLETED
