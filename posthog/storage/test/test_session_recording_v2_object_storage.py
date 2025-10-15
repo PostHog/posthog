@@ -5,6 +5,7 @@ from django.test import override_settings
 
 import snappy
 from botocore.client import Config
+from parameterized import parameterized
 
 from posthog.settings.session_replay_v2 import (
     SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
@@ -63,24 +64,26 @@ class TestSessionRecordingV2Storage(APIBaseTest):
         assert isinstance(storage_client, SessionRecordingV2ObjectStorage)
         assert storage_client.bucket == SESSION_RECORDING_V2_S3_BUCKET
 
-    @patch("posthog.storage.session_recording_v2_object_storage.boto3_client")
-    def test_does_not_create_client_if_required_settings_missing(self, patched_s3_client) -> None:
-        test_cases = [
-            {"SESSION_RECORDING_V2_S3_BUCKET": ""},
-            {"SESSION_RECORDING_V2_S3_ENDPOINT": ""},
-            {"SESSION_RECORDING_V2_S3_REGION": ""},
-            {
-                "SESSION_RECORDING_V2_S3_BUCKET": "",
-                "SESSION_RECORDING_V2_S3_ENDPOINT": "",
-                "SESSION_RECORDING_V2_S3_REGION": "",
-            },
+    @parameterized.expand(
+        [
+            ({"SESSION_RECORDING_V2_S3_BUCKET": ""},),
+            ({"SESSION_RECORDING_V2_S3_ENDPOINT": ""},),
+            ({"SESSION_RECORDING_V2_S3_REGION": ""},),
+            (
+                {
+                    "SESSION_RECORDING_V2_S3_BUCKET": "",
+                    "SESSION_RECORDING_V2_S3_ENDPOINT": "",
+                    "SESSION_RECORDING_V2_S3_REGION": "",
+                },
+            ),
         ]
-
-        for settings_override in test_cases:
-            with self.settings(**settings_override):
-                storage_client = client()
-                patched_s3_client.assert_not_called()
-                assert storage_client.read_bytes("any_key", 0, 100) is None
+    )
+    @patch("posthog.storage.session_recording_v2_object_storage.boto3_client")
+    def test_does_not_create_client_if_required_settings_missing(self, settings_override, patched_s3_client) -> None:
+        with self.settings(**settings_override):
+            storage_client = client()
+            patched_s3_client.assert_not_called()
+            assert storage_client.read_bytes("any_key", 0, 100) is None
 
     def test_read_bytes_with_byte_range(self):
         mock_client = MagicMock()
@@ -131,18 +134,18 @@ class TestSessionRecordingV2Storage(APIBaseTest):
             Bucket=TEST_BUCKET, Key="key1", Range=f"bytes=0-{len(compressed_data) - 1}"
         )
 
-    def test_fetch_block_invalid_url(self):
+    @parameterized.expand(
+        [
+            ("s3://bucket/key1", "Invalid byte range"),
+            ("s3://bucket/key1?range=invalid", "Invalid byte range"),
+        ]
+    )
+    def test_fetch_block_invalid_url(self, invalid_url, expected_error):
         storage = SessionRecordingV2ObjectStorage(MagicMock(), TEST_BUCKET)
 
-        # Test URL without byte range
         with self.assertRaises(BlockFetchError) as cm:
-            storage.fetch_block("s3://bucket/key1")
-        assert "Invalid byte range" in str(cm.exception)
-
-        # Test URL with invalid byte range format
-        with self.assertRaises(BlockFetchError) as cm:
-            storage.fetch_block("s3://bucket/key1?range=invalid")
-        assert "Invalid byte range" in str(cm.exception)
+            storage.fetch_block(invalid_url)
+        assert expected_error in str(cm.exception)
 
     def test_fetch_block_content_not_found(self):
         mock_client = MagicMock()
@@ -163,6 +166,71 @@ class TestSessionRecordingV2Storage(APIBaseTest):
         with self.assertRaises(BlockFetchError) as cm:
             storage.fetch_block("s3://bucket/key1?range=bytes=0-100")
         assert "Unexpected data length" in str(cm.exception)
+
+    def test_fetch_block_bytes_success(self):
+        mock_client = MagicMock()
+        mock_body = MagicMock()
+        test_data = "test data"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        block_url = f"s3://bucket/key1?range=bytes=0-{len(compressed_data) - 1}"
+        result = storage.fetch_block_bytes(block_url)
+
+        assert result == compressed_data
+        mock_client.get_object.assert_called_with(
+            Bucket=TEST_BUCKET, Key="key1", Range=f"bytes=0-{len(compressed_data) - 1}"
+        )
+
+    def test_fetch_block_bytes_returns_compressed_data(self):
+        mock_client = MagicMock()
+        mock_body = MagicMock()
+        test_data = "test data for compression"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        block_url = f"s3://bucket/key1?range=bytes=0-{len(compressed_data) - 1}"
+        result = storage.fetch_block_bytes(block_url)
+
+        # Verify it returns compressed bytes, not decompressed string
+        assert isinstance(result, bytes)
+        assert result == compressed_data
+        assert result != test_data.encode("utf-8")  # Should NOT be decompressed
+
+    def test_fetch_file_decompresses(self):
+        mock_client = MagicMock()
+        mock_body = MagicMock()
+        test_data = "test file content"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        result = storage.fetch_file("test-file-key")
+
+        assert result == test_data
+        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-file-key")
+
+    def test_fetch_file_bytes_returns_compressed(self):
+        mock_client = MagicMock()
+        mock_body = MagicMock()
+        test_data = "test file content"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = SessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        result = storage.fetch_file_bytes("test-file-key")
+
+        assert isinstance(result, bytes)
+        assert result == compressed_data
+        assert result != test_data.encode("utf-8")
+        assert snappy.decompress(result).decode("utf-8") == test_data
+        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-file-key")
 
     def test_store_lts_recording_success(self):
         mock_client = MagicMock()
@@ -192,14 +260,17 @@ class TestSessionRecordingV2Storage(APIBaseTest):
             assert target_key is None
             assert error is not None and "Failed to store LTS recording" in error
 
-    def test_is_lts_enabled(self):
+    @parameterized.expand(
+        [
+            ("", False),
+            ("lts", True),
+        ]
+    )
+    def test_is_lts_enabled(self, lts_prefix, expected):
         storage = SessionRecordingV2ObjectStorage(MagicMock(), TEST_BUCKET)
 
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX=""):
-            assert storage.is_lts_enabled() is False
-
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX="lts"):
-            assert storage.is_lts_enabled() is True
+        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX=lts_prefix):
+            assert storage.is_lts_enabled() is expected
 
 
 class AsyncContextManager:
@@ -214,20 +285,20 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
     def teardown_method(self, method) -> None:
         pass
 
-    @patch("posthog.storage.session_recording_v2_object_storage.get_session")
-    async def test_client_constructor_uses_correct_settings(self, patched_aiobotocore_get_session) -> None:
+    @patch("posthog.storage.session_recording_v2_object_storage.aioboto3")
+    async def test_client_constructor_uses_correct_settings(self, patched_aioboto3) -> None:
         # Reset the global client to ensure we test client creation
         import posthog.storage.session_recording_v2_object_storage as storage_module
 
-        create_client_mock = MagicMock(AsyncContextManager)
-        patched_aiobotocore_get_session.return_value.create_client = create_client_mock
+        client_mock = MagicMock(AsyncContextManager)
+        patched_aioboto3.Session.return_value.client = client_mock
 
         async with storage_module.async_client() as client:
-            assert patched_aiobotocore_get_session.call_count == 1
-            assert create_client_mock.call_count == 1
+            assert patched_aioboto3.Session.call_count == 1
+            assert client_mock.call_count == 1
 
-            call_args = create_client_mock.call_args[0]
-            call_kwargs = create_client_mock.call_args[1]
+            call_args = client_mock.call_args[0]
+            call_kwargs = client_mock.call_args[1]
 
             assert call_args == ("s3",)
             assert call_kwargs["endpoint_url"] == SESSION_RECORDING_V2_S3_ENDPOINT
@@ -244,29 +315,31 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
             assert isinstance(client, AsyncSessionRecordingV2ObjectStorage)
             assert client.bucket == SESSION_RECORDING_V2_S3_BUCKET
 
-    @patch("posthog.storage.session_recording_v2_object_storage.get_session")
-    async def test_throws_runtimeerror_if_required_settings_missing(self, patched_aiobotocore_get_session) -> None:
-        test_cases = [
-            {"SESSION_RECORDING_V2_S3_BUCKET": ""},
-            {"SESSION_RECORDING_V2_S3_ENDPOINT": ""},
-            {"SESSION_RECORDING_V2_S3_REGION": ""},
-            {
-                "SESSION_RECORDING_V2_S3_BUCKET": "",
-                "SESSION_RECORDING_V2_S3_ENDPOINT": "",
-                "SESSION_RECORDING_V2_S3_REGION": "",
-            },
+    @parameterized.expand(
+        [
+            ({"SESSION_RECORDING_V2_S3_BUCKET": ""},),
+            ({"SESSION_RECORDING_V2_S3_ENDPOINT": ""},),
+            ({"SESSION_RECORDING_V2_S3_REGION": ""},),
+            (
+                {
+                    "SESSION_RECORDING_V2_S3_BUCKET": "",
+                    "SESSION_RECORDING_V2_S3_ENDPOINT": "",
+                    "SESSION_RECORDING_V2_S3_REGION": "",
+                },
+            ),
         ]
+    )
+    @patch("posthog.storage.session_recording_v2_object_storage.aioboto3")
+    async def test_throws_runtimeerror_if_required_settings_missing(self, settings_override, patched_aioboto3) -> None:
+        with self.settings(**settings_override):
+            client_mock = MagicMock(AsyncContextManager)
+            patched_aioboto3.Session.return_value.client = client_mock
 
-        for settings_override in test_cases:
-            with self.settings(**settings_override):
-                create_client_mock = MagicMock(AsyncContextManager)
-                patched_aiobotocore_get_session.return_value.create_client = create_client_mock
+            with self.assertRaises(RuntimeError) as _:
+                async with async_client() as _:
+                    pass
 
-                with self.assertRaises(RuntimeError) as _:
-                    async with async_client() as _:
-                        pass
-
-                create_client_mock.assert_not_called()
+            client_mock.assert_not_called()
 
     async def test_read_bytes_with_byte_range(self):
         mock_client = AsyncMock()
@@ -317,18 +390,18 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
             Bucket=TEST_BUCKET, Key="key1", Range=f"bytes=0-{len(compressed_data) - 1}"
         )
 
-    async def test_fetch_block_invalid_url(self):
+    @parameterized.expand(
+        [
+            ("s3://bucket/key1", "Invalid byte range"),
+            ("s3://bucket/key1?range=invalid", "Invalid byte range"),
+        ]
+    )
+    async def test_fetch_block_invalid_url(self, invalid_url, expected_error):
         storage = AsyncSessionRecordingV2ObjectStorage(AsyncMock(), TEST_BUCKET)
 
-        # Test URL without byte range
         with self.assertRaises(BlockFetchError) as cm:
-            await storage.fetch_block("s3://bucket/key1")
-        assert "Invalid byte range" in str(cm.exception)
-
-        # Test URL with invalid byte range format
-        with self.assertRaises(BlockFetchError) as cm:
-            await storage.fetch_block("s3://bucket/key1?range=invalid")
-        assert "Invalid byte range" in str(cm.exception)
+            await storage.fetch_block(invalid_url)
+        assert expected_error in str(cm.exception)
 
     async def test_fetch_block_content_not_found(self):
         mock_client = AsyncMock()
@@ -349,6 +422,71 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         with self.assertRaises(BlockFetchError) as cm:
             await storage.fetch_block("s3://bucket/key1?range=bytes=0-100")
         assert "Unexpected data length" in str(cm.exception)
+
+    async def test_fetch_block_bytes_success(self):
+        mock_client = AsyncMock()
+        mock_body = AsyncMock()
+        test_data = "test data"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        block_url = f"s3://bucket/key1?range=bytes=0-{len(compressed_data) - 1}"
+        result = await storage.fetch_block_bytes(block_url)
+
+        assert result == compressed_data
+        mock_client.get_object.assert_called_with(
+            Bucket=TEST_BUCKET, Key="key1", Range=f"bytes=0-{len(compressed_data) - 1}"
+        )
+
+    async def test_fetch_block_bytes_returns_compressed_data(self):
+        mock_client = AsyncMock()
+        mock_body = AsyncMock()
+        test_data = "test data for compression"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        block_url = f"s3://bucket/key1?range=bytes=0-{len(compressed_data) - 1}"
+        result = await storage.fetch_block_bytes(block_url)
+
+        # Verify it returns compressed bytes, not decompressed string
+        assert isinstance(result, bytes)
+        assert result == compressed_data
+        assert result != test_data.encode("utf-8")  # Should NOT be decompressed
+
+    async def test_fetch_file_decompresses(self):
+        mock_client = AsyncMock()
+        mock_body = AsyncMock()
+        test_data = "test file content"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        result = await storage.fetch_file("test-file-key")
+
+        assert result == test_data
+        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-file-key")
+
+    async def test_fetch_file_bytes_returns_compressed(self):
+        mock_client = AsyncMock()
+        mock_body = AsyncMock()
+        test_data = "test file content"
+        compressed_data = snappy.compress(test_data.encode("utf-8"))
+        mock_body.read.return_value = compressed_data
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = AsyncSessionRecordingV2ObjectStorage(mock_client, TEST_BUCKET)
+
+        result = await storage.fetch_file_bytes("test-file-key")
+
+        assert isinstance(result, bytes)
+        assert result == compressed_data
+        assert result != test_data.encode("utf-8")
+        assert snappy.decompress(result).decode("utf-8") == test_data
+        mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-file-key")
 
     async def test_store_lts_recording_success(self):
         mock_client = AsyncMock()
@@ -378,11 +516,14 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
             assert target_key is None
             assert error is not None and "Failed to store LTS recording" in error
 
-    def test_is_lts_enabled(self):
+    @parameterized.expand(
+        [
+            ("", False),
+            ("lts", True),
+        ]
+    )
+    def test_is_lts_enabled(self, lts_prefix, expected):
         storage = AsyncSessionRecordingV2ObjectStorage(AsyncMock(), TEST_BUCKET)
 
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX=""):
-            assert storage.is_lts_enabled() is False
-
-        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX="lts"):
-            assert storage.is_lts_enabled() is True
+        with override_settings(SESSION_RECORDING_V2_S3_LTS_PREFIX=lts_prefix):
+            assert storage.is_lts_enabled() is expected

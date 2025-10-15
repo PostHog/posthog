@@ -74,6 +74,18 @@ class SandboxAgent:
         logger.info(f"Running code agent setup for {repository} in sandbox {self.sandbox.id}")
         return await self.sandbox.execute(setup_command, timeout_seconds=15 * 60)
 
+    async def is_git_clean(self, repository: str) -> tuple[bool, str]:
+        if not self.sandbox.is_running:
+            raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
+
+        org, repo = repository.lower().split("/")
+        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        result = await self.sandbox.execute(f"cd {repo_path} && git status --porcelain")
+        is_clean = not result.stdout.strip()
+
+        return is_clean, result.stdout
+
     async def execute_task(self, task_id: str, repository: str, workflow_id: str) -> ExecutionResult:
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
