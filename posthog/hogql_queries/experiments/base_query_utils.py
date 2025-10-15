@@ -722,14 +722,18 @@ def get_winsorized_metric_values_query(
 # Funnel utility functions (moved from funnel_query_utils.py to avoid circular imports)
 
 
-def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNode]) -> ast.Expr:
+def funnel_steps_to_filter(
+    team: Team, funnel_steps: list[EventsNode | ActionsNode | ExperimentEventExposureConfig]
+) -> ast.Expr:
     """
     Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
     """
     return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in funnel_steps])
 
 
-def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, events_alias: str) -> ast.Expr:
+def funnel_evaluation_expr(
+    team: Team, funnel_metric: ExperimentFunnelMetric, events_alias: str, include_exposure: bool = False
+) -> ast.Expr:
     """
     Returns an expression using the aggregate_funnel_array UDF to evaluate the funnel.
     Returns the highest step number (0-indexed) that the user reached.
@@ -747,6 +751,8 @@ def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, ev
         conversion_window_seconds = 3 * 365 * 24 * 60 * 60
 
     num_steps = len(funnel_metric.series)
+    if include_exposure:
+        num_steps += 1
 
     # Create field references with proper alias support
     timestamp_field = f"{events_alias}.timestamp"
