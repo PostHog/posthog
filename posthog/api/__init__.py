@@ -723,9 +723,9 @@ environments_router.register(
 )
 
 environments_router.register(
-    r"github_search",
-    git_provider_file_link_resolver.GitProviderFileLinkResolver,
-    "project_github_search",
+    r"error_tracking/git-provider-file-links",
+    git_provider_file_link_resolver.GitProviderFileLinksViewSet,
+    "project_error_tracking_git_provider_file_links",
     ["team_id"],
 )
 

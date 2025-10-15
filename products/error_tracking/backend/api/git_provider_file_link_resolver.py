@@ -43,7 +43,7 @@ def get_github_file_url(code_sample: str, token: str, owner: str, repository: st
         return None
 
 
-class GitProviderFileLinkResolver(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 
     @action(methods=["GET"], detail=False, url_path="resolve_github")

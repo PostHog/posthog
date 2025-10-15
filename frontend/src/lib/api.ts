@@ -1035,7 +1035,9 @@ export class ApiRequest {
     }
 
     public gitProviderFileLinkResolver(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('github_search')
+        return this.environmentsDetail(teamId)
+            .addPathComponent('error_tracking')
+            .addPathComponent('git-provider-file-links')
     }
 
     public errorTrackingStackFrames(): ApiRequest {
