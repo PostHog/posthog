@@ -344,6 +344,7 @@ def get_context_for_template(
     context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
+        context["is_connected_to_prod_pg"] = settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG
         context["git_branch"] = get_git_branch()
         # Add vite dev scripts for development
         context["vite_dev_scripts"] = """
@@ -370,7 +371,7 @@ def get_context_for_template(
         if posthoganalytics.api_key:
             context["js_posthog_api_key"] = posthoganalytics.api_key
             context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
-    else:
+    elif not settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
         context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
         context["js_posthog_host"] = "https://internal-j.posthog.com"
         context["js_posthog_ui_host"] = "https://us.posthog.com"
