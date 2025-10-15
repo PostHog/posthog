@@ -1064,18 +1064,21 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
         )
 
+        # Create a local copy to avoid mutating the shared parameter dict
+        test_filter = filter.copy()
+
         cohort = None
         if name == "cohort_static":
             cohort = Cohort.objects.create(
                 team=self.team,
-                name="cohort_static",
+                name=f"cohort_static_{use_new_query_builder}",
                 is_static=True,
             )
-            filter["value"] = cohort.pk
+            test_filter["value"] = cohort.pk
         elif name == "cohort_dynamic":
             cohort = Cohort.objects.create(
                 team=self.team,
-                name="cohort_dynamic",
+                name=f"cohort_dynamic_{use_new_query_builder}",
                 groups=[
                     {
                         "properties": [
@@ -1084,7 +1087,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     }
                 ],
             )
-            filter["value"] = cohort.pk
+            test_filter["value"] = cohort.pk
         elif name == "group":
             create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
@@ -1095,9 +1098,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 group_key="my_awesome_group",
                 properties={"name": "Test Group"},
             )
-            filter["value"] = ["Test Group"]
+            test_filter["value"] = ["Test Group"]
 
-        self.team.test_account_filters = [filter]
+        self.team.test_account_filters = [test_filter]
         self.team.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -1175,12 +1178,17 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         if name == "cohort_static" and cohort:
             cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
             self.assertEqual(cohort.people.count(), 3)
+            cohort.calculate_people_ch(pending_version=0)
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        # Only pass use_new_query_builder if True to match original behavior
+        if use_new_query_builder:
+            query_runner = ExperimentQueryRunner(
+                query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+            )
+        else:
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
 
         # Handle cases where filters result in no exposures
         if expected_results["control_absolute_exposure"] == 0 and expected_results["test_absolute_exposure"] == 0:
@@ -1219,9 +1227,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        # Only pass use_new_query_builder if True to match original behavior
+        if use_new_query_builder:
+            query_runner = ExperimentQueryRunner(
+                query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+            )
+        else:
+            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
         control_result = result.baseline
