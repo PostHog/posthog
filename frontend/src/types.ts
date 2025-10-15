@@ -682,6 +682,7 @@ export interface TeamType extends TeamBasicType {
     flags_persistence_default: boolean
     feature_flag_confirmation_enabled: boolean
     feature_flag_confirmation_message: string
+    default_evaluation_environments_enabled: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
     experiment_recalculation_time?: string | null
@@ -3455,6 +3456,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
+    _should_create_usage_dashboard?: boolean
 }
 
 export interface OrganizationFeatureFlag {
