@@ -2,9 +2,12 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import (
+    BehavioralCohortsCoordinatorWorkflow,
+    ConditionsCountResult,
     CoordinatorWorkflowInputs,
     RunningWorkflowsResult,
     check_running_workflows_activity,
+    get_conditions_count_activity,
 )
 
 
@@ -89,11 +92,6 @@ class TestBehavioralCohortsCoordinatorWorkflow:
     @pytest.mark.asyncio
     async def test_coordinator_behavior_exits_early_when_workflows_running(self):
         """Test coordinator calls the right APIs and exits early when workflows are running."""
-        from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import (
-            BehavioralCohortsCoordinatorWorkflow,
-            check_running_workflows_activity,
-        )
-
         inputs = CoordinatorWorkflowInputs(parallelism=3, team_id=123)
 
         # Mock Temporal APIs
@@ -122,13 +120,6 @@ class TestBehavioralCohortsCoordinatorWorkflow:
     @pytest.mark.asyncio
     async def test_coordinator_behavior_full_flow_creates_correct_child_workflows(self):
         """Test coordinator calls correct APIs and creates child workflows with right parameters."""
-        from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import (
-            BehavioralCohortsCoordinatorWorkflow,
-            ConditionsCountResult,
-            check_running_workflows_activity,
-            get_conditions_count_activity,
-        )
-
         inputs = CoordinatorWorkflowInputs(parallelism=3, team_id=123, min_matches=5)
 
         with (
@@ -192,11 +183,6 @@ class TestBehavioralCohortsCoordinatorWorkflow:
     @pytest.mark.asyncio
     async def test_coordinator_behavior_no_conditions_skips_child_workflows(self):
         """Test coordinator handles zero conditions correctly."""
-        from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import (
-            BehavioralCohortsCoordinatorWorkflow,
-            ConditionsCountResult,
-        )
-
         inputs = CoordinatorWorkflowInputs(parallelism=5)
 
         with (
