@@ -808,10 +808,6 @@
                 "session_summarization",
                 "create_dashboard",
                 "edit_current_dashboard",
-                "read_taxonomy",
-                "search",
-                "read_data",
-                "todo_write",
                 "filter_revenue_analytics"
             ],
             "type": "string"
@@ -9360,6 +9356,9 @@
                     ],
                     "description": "Source of the events"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -15997,9 +15996,7 @@
                     "format": "date-time",
                     "type": "string"
                 },
-                "resource": {
-                    "type": "string"
-                },
+                "resource_attributes": {},
                 "severity_number": {
                     "type": "number"
                 },
@@ -16031,7 +16028,7 @@
                 "severity_text",
                 "severity_number",
                 "level",
-                "resource",
+                "resource_attributes",
                 "instrumentation_scope",
                 "event_name"
             ],

@@ -92,10 +92,6 @@ class AssistantContextualTool(StrEnum):
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
-    READ_TAXONOMY = "read_taxonomy"
-    SEARCH = "search"
-    READ_DATA = "read_data"
-    TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
 
 
@@ -4215,7 +4211,7 @@ class LogMessage(BaseModel):
     instrumentation_scope: str
     level: LogSeverityLevel
     observed_timestamp: datetime
-    resource: str
+    resource_attributes: Any
     severity_number: float
     severity_text: LogSeverityLevel
     span_id: str
@@ -14817,6 +14813,7 @@ class DataTableNode(BaseModel):
         TracesQuery,
         TraceQuery,
     ] = Field(..., description="Source of the events")
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
