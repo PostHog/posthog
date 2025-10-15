@@ -170,11 +170,15 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     azure: 'Azure',
 }
 
+const isTimeRelatedField = (field: IncrementalField): boolean => {
+    return field.field_type === 'timestamp' || field.type === 'datetime' || field.type === 'date'
+}
+
 const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
     // check for timestamp field matching "updated_at" or "updatedAt" case insensitive
     const updatedAt = fields.find((field) => {
         const regex = /^updated/i
-        return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
+        return regex.test(field.field) && isTimeRelatedField(field)
     })
     if (updatedAt) {
         return updatedAt
@@ -182,15 +186,13 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     // fallback to timestamp field matching "created_at" or "createdAt" case insensitive
     const createdAt = fields.find((field) => {
         const regex = /^created/i
-        return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
+        return regex.test(field.field) && isTimeRelatedField(field)
     })
     if (createdAt) {
         return createdAt
     }
     // fallback to any timestamp or datetime field
-    const timestamp = fields.find((field) => {
-        return field.field_type === 'timestamp' || field.type === 'datetime'
-    })
+    const timestamp = fields.find((field) => isTimeRelatedField(field))
     if (timestamp) {
         return timestamp
     }
@@ -711,25 +713,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     values.selectedConnector.name,
                     values.source.payload ?? {}
                 )
-
-                for (const schema of schemas) {
+                schemas.forEach((schema) => {
                     if (schema.sync_type === null) {
-                        schema.should_sync = true
-
                         // Use incremental if available
                         if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
                             const field = resolveIncrementalField(schema.incremental_fields)
                             schema.sync_type = method
                             if (field) {
-                                schema.incremental_field = field.field
-                                schema.incremental_field_type = field.field_type
+                                actions.updateSchemaSyncType(schema, method, field.field, field.field_type)
                             }
                         } else {
-                            schema.sync_type = 'full_refresh'
+                            actions.updateSchemaSyncType(schema, 'full_refresh', null, null)
                         }
+                        actions.toggleSchemaShouldSync(schema, true)
                     }
-                }
+                })
 
                 lemonToast.info(
                     "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
