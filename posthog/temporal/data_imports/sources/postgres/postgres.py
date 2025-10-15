@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-import contextlib
+import time
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -29,10 +29,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
-
-
-def is_supabase_read_replica(host: str) -> bool:
-    return host.endswith(".supabase.co") and "-rr-" in host
 
 
 def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
@@ -312,7 +308,7 @@ def _has_duplicate_primary_keys(
 
 
 def _get_table_chunk_size(
-    cursor: psycopg.Cursor, inner_query: sql.Composed, host: str, logger: FilteringBoundLogger
+    cursor: psycopg.Cursor, inner_query: sql.Composed, is_read_replica: bool, logger: FilteringBoundLogger
 ) -> int:
     try:
         query = sql.SQL("""
@@ -334,7 +330,7 @@ def _get_table_chunk_size(
 
         min_chunk_size = min(chunk_size, DEFAULT_CHUNK_SIZE)
 
-        if is_supabase_read_replica(host):
+        if is_read_replica:
             sb_chunk = min(min_chunk_size, 5000)
             logger.debug(f"_get_table_chunk_size: Using supabase read replica, capping chunk size to {sb_chunk}")
             return sb_chunk
@@ -508,6 +504,15 @@ class PostgreSQLColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
+def _is_read_replica(cursor: psycopg.Cursor) -> bool:
+    cursor.execute("SELECT pg_is_in_recovery()")
+    row = cursor.fetchone()
+    if row is None:
+        return False
+
+    return row[0] is True
+
+
 def _get_table(
     cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
 ) -> Table[PostgreSQLColumn]:
@@ -649,12 +654,14 @@ def postgres_source(
                     )
                 )
                 try:
+                    logger.debug("Checking if source is a read replica...")
+                    using_read_replica = _is_read_replica(cursor)
                     logger.debug("Getting primary keys...")
                     primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                     logger.debug("Getting table types...")
                     table = _get_table(cursor, schema, table_name, logger)
                     logger.debug("Getting table chunk size...")
-                    chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, host, logger)
+                    chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, using_read_replica, logger)
                     logger.debug("Getting rows to sync...")
                     rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
                     logger.debug("Getting partition settings...")
@@ -684,12 +691,10 @@ def postgres_source(
     def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
         with tunnel() as (host, port):
-            using_sb_read_replica = is_supabase_read_replica(host)
-            cursor_factory = psycopg.ServerCursor if not using_sb_read_replica else None
+            cursor_factory = psycopg.ServerCursor if not using_read_replica else None
 
-            @contextlib.contextmanager
             def get_connection():
-                with psycopg.connect(
+                connection = psycopg.connect(
                     host=host,
                     port=port,
                     dbname=database,
@@ -701,22 +706,22 @@ def postgres_source(
                     sslcert="/tmp/no.txt",
                     sslkey="/tmp/no.txt",
                     cursor_factory=cursor_factory,
-                ) as connection:
-                    connection.adapters.register_loader("json", JsonAsStringLoader)
-                    connection.adapters.register_loader("jsonb", JsonAsStringLoader)
-                    connection.adapters.register_loader("int4range", RangeAsStringLoader)
-                    connection.adapters.register_loader("int8range", RangeAsStringLoader)
-                    connection.adapters.register_loader("numrange", RangeAsStringLoader)
-                    connection.adapters.register_loader("tsrange", RangeAsStringLoader)
-                    connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
-                    connection.adapters.register_loader("daterange", RangeAsStringLoader)
-                    yield connection
+                )
+                connection.adapters.register_loader("json", JsonAsStringLoader)
+                connection.adapters.register_loader("jsonb", JsonAsStringLoader)
+                connection.adapters.register_loader("int4range", RangeAsStringLoader)
+                connection.adapters.register_loader("int8range", RangeAsStringLoader)
+                connection.adapters.register_loader("numrange", RangeAsStringLoader)
+                connection.adapters.register_loader("tsrange", RangeAsStringLoader)
+                connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
+                connection.adapters.register_loader("daterange", RangeAsStringLoader)
+                return connection
 
-            if using_sb_read_replica:
+            if using_read_replica:
                 # If the db is a read replica, we create a new query for each chunk.
                 # This is due to how the primary replicates over, we often run into
                 # errors when vacuums are happening
-                logger.debug("Using a supabase read replica. Querying each chunk separately")
+                logger.debug("Using a read replica. Querying each chunk separately")
                 query = _build_query(
                     schema,
                     table_name,
@@ -728,39 +733,59 @@ def postgres_source(
 
                 offset = 0
                 successive_errors = 0
+                connection = get_connection()
                 while True:
                     try:
-                        with get_connection() as connection:
-                            with connection.cursor() as cursor:
-                                query_with_limit = cast(
-                                    LiteralString, f"{query.as_string()} LIMIT {chunk_size} OFFSET {offset}"
-                                )
-                                query_with_limit_sql = sql.SQL(query_with_limit).format()
+                        if connection.closed:
+                            logger.debug("Postgres connection was closed, reopening...")
+                            connection = get_connection()
 
-                                logger.debug(f"Postgres query: {query_with_limit}")
-                                cursor.execute(query_with_limit_sql)
+                        with connection.cursor() as cursor:
+                            query_with_limit = cast(
+                                LiteralString, f"{query.as_string()} LIMIT {chunk_size} OFFSET {offset}"
+                            )
+                            query_with_limit_sql = sql.SQL(query_with_limit).format()
 
-                                column_names = [column.name for column in cursor.description or []]
-                                rows = cursor.fetchall()
+                            logger.debug(f"Postgres query: {query_with_limit}")
+                            cursor.execute(query_with_limit_sql)
 
-                                if not rows or len(rows) == 0:
-                                    break
+                            column_names = [column.name for column in cursor.description or []]
+                            rows = cursor.fetchall()
 
-                                offset += len(rows)
+                            if not rows or len(rows) == 0:
+                                break
 
-                                yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            offset += len(rows)
 
-                                successive_errors = 0
+                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+
+                            successive_errors = 0
                     except psycopg.errors.SerializationFailure as e:
+                        if "terminating connection due to conflict with recovery" not in "".join(e.args):
+                            raise
+
                         # This error happens when the read replica is out of sync with the primary
                         logger.debug(f"SerializationFailure error: {e}. Retrying chunk at offset {offset}")
 
                         successive_errors += 1
                         if successive_errors >= 30:
+                            # The connection should be closed here, but want to double check to make sure
+                            if connection.closed is False:
+                                connection.__exit__(type(e), e, None)
+
                             raise Exception(
                                 f"Hit {successive_errors} successive SerializationFailure errors. Aborting."
                             ) from e
-                        continue
+                        else:
+                            # Linear backoff on successive errors to make sure we give the read replica time to catch up
+                            time.sleep(2 * successive_errors)
+                    except Exception as e:
+                        if connection.closed is False:
+                            connection.__exit__(type(e), e, None)
+                        raise
+
+                if connection.closed is False:
+                    connection.__exit__(None, None, None)
             else:
                 with get_connection() as connection:
                     with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
