@@ -19,7 +19,7 @@ from dags.sdk_doctor.github_sdk_versions import SDK_TYPES
 
 default_logger = structlog.get_logger(__name__)
 
-CACHE_EXPIRY = 60 * 60 * 24 * 3  # 3 days
+CACHE_EXPIRY = 60 * 60 * 24 * 7  # 7 days
 BATCH_SIZE = 1000
 
 QUERY = parse_select("""
@@ -247,7 +247,7 @@ def cache_all_team_sdk_versions_job():
 
 cache_all_team_sdk_versions_schedule = dagster.ScheduleDefinition(
     job=cache_all_team_sdk_versions_job,
-    cron_schedule="0 */6 * * *",  # Every 6 hours
+    cron_schedule="0 0 * * *",  # Every day at midnight
     execution_timezone="UTC",
     name="cache_all_team_sdk_versions_schedule",
 )
