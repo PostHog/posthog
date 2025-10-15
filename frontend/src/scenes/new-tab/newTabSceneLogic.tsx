@@ -606,12 +606,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .split(' ')
                     .map((s) => s.trim())
                     .filter((s) => s)
-                return filtered.filter(
-                    (item) =>
-                        lowerSearchChunks.filter(
-                            (lowerSearch) => !`${item.category} ${item.name}`.toLowerCase().includes(lowerSearch)
-                        ).length === 0
-                )
+                return filtered.filter((item) => {
+                    const searchableParts: string[] = [item.name]
+
+                    if (typeof item.record?.path === 'string') {
+                        searchableParts.push(item.record.path)
+                    }
+
+                    if (Array.isArray(item.record?.breadcrumbs)) {
+                        searchableParts.push(
+                            ...item.record.breadcrumbs.filter((crumb): crumb is string => typeof crumb === 'string')
+                        )
+                    }
+
+                    const searchableText = searchableParts.map((part) => part.toLowerCase()).join(' ')
+
+                    return lowerSearchChunks.every((lowerSearch) => searchableText.includes(lowerSearch))
+                })
             },
         ],
         groupedFilteredItems: [

@@ -131,7 +131,10 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     }
 
     const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
-        if (event.key === '/' || (event.key === 'Backspace' && !search)) {
+        const input = event.currentTarget
+        const selectionAtStart = (input.selectionStart ?? 0) === 0 && (input.selectionEnd ?? 0) === 0
+
+        if ((event.key === '/' && selectionAtStart) || (event.key === 'Backspace' && !search)) {
             event.preventDefault()
             focusCategoryPicker()
         } else if (

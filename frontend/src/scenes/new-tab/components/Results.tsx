@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { IconArrowRight, IconEllipsis, IconInfo } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
@@ -28,6 +29,8 @@ import { SidePanelTab } from '~/types'
 
 import { convertToTreeDataItem, getCategoryDisplayName } from '../NewTabScene'
 
+const MAX_VISIBLE_ITEMS = 5
+
 function Category({
     items,
     category,
@@ -39,6 +42,9 @@ function Category({
     isLoading,
     showPersonsFooter,
     personResultsCount = 0,
+    isExpanded,
+    onToggle,
+    maxVisibleItems,
 }: {
     items: NewTabTreeDataItem[]
     category: string
@@ -50,11 +56,16 @@ function Category({
     isLoading: boolean
     showPersonsFooter?: boolean
     personResultsCount?: number
+    isExpanded: boolean
+    onToggle: () => void
+    maxVisibleItems: number
 }): JSX.Element {
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
     const displayName = meta?.label || getCategoryDisplayName(category)
     const description = meta?.description
+    const visibleItems = isExpanded ? typedItems : typedItems.slice(0, maxVisibleItems)
+    const hasMoreItems = typedItems.length > maxVisibleItems
 
     return (
         <div className={cn('mb-8', { 'mb-2': isFlagged })}>
@@ -87,7 +98,7 @@ function Category({
                             )}
                         </div>
                     ) : (
-                        typedItems.map((item, index) => (
+                        visibleItems.map((item, index) => (
                             <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
                                 <ContextMenu>
                                     <ContextMenuTrigger asChild>
@@ -157,6 +168,13 @@ function Category({
                             </ButtonGroupPrimitive>
                         ))
                     )}
+                    {hasMoreItems && (
+                        <div className="mt-2">
+                            <ButtonPrimitive size="sm" type="button" onClick={onToggle}>
+                                {isExpanded ? 'Show less' : 'Show more...'}
+                            </ButtonPrimitive>
+                        </div>
+                    )}
                     {isFlagged && category === 'persons://' && showPersonsFooter && (
                         <ListBox.Item asChild>
                             <Link
@@ -198,6 +216,17 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
 
+    const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
+
+    useEffect(() => {
+        setExpandedCategories({})
+    }, [search])
+
+    const isCategoryExpanded = (category: string): boolean => !!expandedCategories[category]
+    const toggleCategoryExpansion = (category: string): void => {
+        setExpandedCategories((current) => ({ ...current, [category]: !current[category] }))
+    }
+
     const flaggedLoadingByCategory: Record<string, boolean> = {
         'project://': recentsLoading,
         'persons://': personSearchResultsLoading,
@@ -208,6 +237,9 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
     if (!newTabSceneData && selectedCategory !== 'all') {
         const items = groupedFilteredItems[selectedCategory] || []
         const typedItems = items as NewTabTreeDataItem[]
+        const isExpanded = isCategoryExpanded(selectedCategory)
+        const visibleItems = isExpanded ? typedItems : typedItems.slice(0, MAX_VISIBLE_ITEMS)
+        const hasMoreItems = typedItems.length > MAX_VISIBLE_ITEMS
 
         return (
             <div className="col-span-4 mb-8" key={selectedCategory}>
@@ -234,7 +266,7 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
                             {isSearching ? 'Searching...' : 'No results found'}
                         </div>
                     ) : (
-                        typedItems.map((item, index) => (
+                        visibleItems.map((item, index) => (
                             // If we have filtered results set virtual focus to first item
                             <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
                                 <ContextMenu>
@@ -305,6 +337,17 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
                             </ButtonGroupPrimitive>
                         ))
                     )}
+                    {hasMoreItems && (
+                        <div className="mt-2">
+                            <ButtonPrimitive
+                                size="sm"
+                                type="button"
+                                onClick={() => toggleCategoryExpansion(selectedCategory)}
+                            >
+                                {isExpanded ? 'Show less' : 'Show more...'}
+                            </ButtonPrimitive>
+                        </div>
+                    )}
                 </div>
             </div>
         )
@@ -357,6 +400,9 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
                     }
                     showPersonsFooter={!!newTabSceneData && category === 'persons://' && personResultsCount > 0}
                     personResultsCount={personResultsCount}
+                    isExpanded={isCategoryExpanded(category)}
+                    onToggle={() => toggleCategoryExpansion(category)}
+                    maxVisibleItems={MAX_VISIBLE_ITEMS}
                 />
             ))}
         </>

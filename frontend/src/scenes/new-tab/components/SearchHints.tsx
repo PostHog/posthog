@@ -74,11 +74,11 @@ export function SearchHints({
                     <span className="text-tertiary">Keep Auto selected to search everything.</span>
                     <span className="text-tertiary">Examples:</span>
                     <code className="font-mono text-primary border border-border px-1 rounded bg-transparent">
-                        /a dashboards
+                        /a&lt;enter&gt;dashboards
                     </code>
                     <span className="text-tertiary">or</span>
                     <code className="font-mono text-primary border border-border px-1 rounded bg-transparent">
-                        /p unfiled/insights
+                        /p&lt;enter&gt;unfiled/insights
                     </code>
                 </span>
             ) : (
