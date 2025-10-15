@@ -104,10 +104,7 @@ class TestBehavioralCohortsCoordinatorWorkflow:
 
             # Run the actual coordinator logic
             coordinator = BehavioralCohortsCoordinatorWorkflow()
-            result = await coordinator.run(inputs)
-
-            # Verify behavior: should exit early
-            assert result is None
+            await coordinator.run(inputs)
 
             # Verify API calls: only check for running workflows, nothing else
             mock_execute_activity.assert_called_once_with(
@@ -137,10 +134,7 @@ class TestBehavioralCohortsCoordinatorWorkflow:
 
             # Run the actual coordinator
             coordinator = BehavioralCohortsCoordinatorWorkflow()
-            result = await coordinator.run(inputs)
-
-            # Verify result
-            assert result is None
+            await coordinator.run(inputs)
 
             # Verify activity calls
             assert mock_execute_activity.call_count == 2
@@ -198,9 +192,8 @@ class TestBehavioralCohortsCoordinatorWorkflow:
 
             # Run coordinator
             coordinator = BehavioralCohortsCoordinatorWorkflow()
-            result = await coordinator.run(inputs)
+            await coordinator.run(inputs)
 
             # Verify behavior
-            assert result is None
             assert mock_execute_activity.call_count == 2  # Both activities called
             mock_start_child.assert_not_called()  # No child workflows created
