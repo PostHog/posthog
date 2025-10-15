@@ -38,7 +38,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics2]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_app_metrics2
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -572,7 +572,7 @@
 # name: test_create_table_query[app_metrics2]
   '''
   
-  CREATE TABLE IF NOT EXISTS app_metrics2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS app_metrics2
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -603,8 +603,8 @@
 # name: test_create_table_query[app_metrics2_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv ON CLUSTER 'posthog'
-  TO posthog_test.sharded_app_metrics2
+  CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics2_mv
+  TO writable_app_metrics2
   AS SELECT
   team_id,
   timestamp,
@@ -613,8 +613,11 @@
   instance_id,
   metric_kind,
   metric_name,
-  count
-  FROM posthog_test.kafka_app_metrics2
+  count,
+  _timestamp,
+  _offset,
+  _partition
+  FROM kafka_app_metrics2
   
   '''
 # ---
@@ -648,7 +651,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv ON CLUSTER 'posthog'
-  TO posthog_test.sharded_app_metrics
+  TO writable_app_metrics
   AS SELECT
   team_id,
   timestamp,
@@ -660,8 +663,11 @@
   failures,
   error_uuid,
   error_type,
-  error_details
-  FROM posthog_test.kafka_app_metrics
+  error_details,
+  _timestamp,
+  _offset,
+  _partition
+  FROM kafka_app_metrics
   
   '''
 # ---
@@ -854,7 +860,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS error_tracking_issue_fingerprint_overrides_mv ON CLUSTER 'posthog'
-  TO posthog_test.error_tracking_issue_fingerprint_overrides
+  TO writable_error_tracking_issue_fingerprint_overrides
   AS SELECT
   team_id,
   fingerprint,
@@ -959,7 +965,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv ON CLUSTER 'posthog'
-  TO posthog_test.events_dead_letter_queue
+  TO posthog_test.writable_events_dead_letter_queue
   AS SELECT
   id,
   event_uuid,
@@ -1232,7 +1238,7 @@
   '''
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv ON CLUSTER 'posthog'
-  TO posthog_test.ingestion_warnings
+  TO posthog_test.writable_ingestion_warnings
   AS SELECT
   team_id,
   source,
@@ -1249,7 +1255,7 @@
 # name: test_create_table_query[kafka_app_metrics2]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_app_metrics2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_app_metrics2
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -3375,7 +3381,7 @@
 # name: test_create_table_query[sharded_app_metrics2]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_app_metrics2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_app_metrics2
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -4488,6 +4494,63 @@
       
   '''
 # ---
+# name: test_create_table_query[writable_app_metrics2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_app_metrics2
+  (
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      -- The name of the service or product that generated the metrics.
+      -- Examples: plugins, hog
+      app_source LowCardinality(String),
+      -- An id for the app source.
+      -- Set app_source to avoid collision with ids from other app sources if the id generation is not safe.
+      -- Examples: A plugin id, a hog application id
+      app_source_id String,
+      -- A secondary id e.g. for the instance of app_source that generated this metric.
+      -- This may be ommitted if app_source is a singleton.
+      -- Examples: A plugin config id, a hog application config id
+      instance_id String,
+      metric_kind LowCardinality(String),
+      metric_name LowCardinality(String),
+      count SimpleAggregateFunction(sum, Int64)
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics2', rand())
+  
+  '''
+# ---
+# name: test_create_table_query[writable_app_metrics]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_app_metrics ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      plugin_config_id Int64,
+      category LowCardinality(String),
+      job_id String,
+      successes SimpleAggregateFunction(sum, Int64),
+      successes_on_retry SimpleAggregateFunction(sum, Int64),
+      failures SimpleAggregateFunction(sum, Int64),
+      error_uuid UUID,
+      error_type String,
+      error_details String CODEC(ZSTD(3))
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics', rand())
+  
+  '''
+# ---
 # name: test_create_table_query[writable_behavioral_cohorts_matches]
   '''
   
@@ -4501,6 +4564,25 @@
       matches SimpleAggregateFunction(sum, UInt64),
       latest_event_is_match AggregateFunction(argMax, UInt8, DateTime64(6))
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_behavioral_cohorts_matches', sipHash64(person_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_error_tracking_issue_fingerprint_overrides]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_error_tracking_issue_fingerprint_overrides 
+  (
+      team_id Int64,
+      fingerprint VARCHAR,
+      issue_id UUID,
+      is_deleted Int8,
+      version Int64
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'error_tracking_issue_fingerprint_overrides')
   
   '''
 # ---
@@ -4538,6 +4620,37 @@
   , consumer_breadcrumbs Array(String)
       
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_events_dead_letter_queue]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_events_dead_letter_queue ON CLUSTER 'posthog'
+  (
+      id UUID,
+      event_uuid UUID,
+      event VARCHAR,
+      properties VARCHAR,
+      distinct_id VARCHAR,
+      team_id Int64,
+      elements_chain VARCHAR,
+      created_at DateTime64(6, 'UTC'),
+      ip VARCHAR,
+      site_url VARCHAR,
+      now DateTime64(6, 'UTC'),
+      raw_payload VARCHAR,
+      error_timestamp DateTime64(6, 'UTC'),
+      error_location VARCHAR,
+      error VARCHAR,
+      tags Array(VARCHAR)
+      
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+      
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'events_dead_letter_queue')
   
   '''
 # ---
@@ -4584,6 +4697,25 @@
       _offset UInt64,
       _partition UInt64
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_ingestion_warnings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_ingestion_warnings ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      source LowCardinality(VARCHAR),
+      type VARCHAR,
+      details VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC')
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_ingestion_warnings', rand())
   
   '''
 # ---
@@ -5672,7 +5804,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics2]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_app_metrics2 ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_app_metrics2
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),

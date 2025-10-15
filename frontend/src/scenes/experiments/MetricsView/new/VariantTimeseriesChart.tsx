@@ -132,7 +132,7 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
                 chartRef.current = null
             }
         }
-    }, [data])
+    }, [data, colors.EXPOSURES_AXIS_LINES])
 
     return (
         <div className="relative h-[224px]">

@@ -1529,6 +1529,9 @@
                 "type": {
                     "const": "ai",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -1539,6 +1542,13 @@
             "properties": {
                 "form": {
                     "$ref": "#/definitions/AssistantForm"
+                },
+                "thinking": {
+                    "items": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "type": "array"
                 }
             },
             "type": "object"
@@ -1547,6 +1557,7 @@
             "enum": [
                 "human",
                 "tool",
+                "context",
                 "ai",
                 "ai/reasoning",
                 "ai/viz",
@@ -2248,6 +2259,9 @@
             "properties": {
                 "id": {
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -4257,7 +4271,12 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {},
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/LogMessage"
+                    },
+                    "type": "array"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -7223,6 +7242,26 @@
             "required": ["id", "templateId", "columnName", "bytecode", "input", "color"],
             "type": "object"
         },
+        "ContextMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "context",
+                    "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["type", "content"],
+            "type": "object"
+        },
         "ConversionGoalFilter": {
             "anyOf": [
                 {
@@ -9315,6 +9354,9 @@
                         }
                     ],
                     "description": "Source of the events"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -12745,7 +12787,8 @@
                 "DoIt",
                 "LinkedinAds",
                 "RedditAds",
-                "TikTokAds"
+                "TikTokAds",
+                "Shopify"
             ],
             "type": "string"
         },
@@ -12782,6 +12825,9 @@
                 "type": {
                     "const": "ai/failure",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type"],
@@ -12925,6 +12971,7 @@
         },
         "FileSystemIconType": {
             "enum": [
+                "default_icon_type",
                 "dashboard",
                 "llm_analytics",
                 "product_analytics",
@@ -12956,7 +13003,8 @@
                 "event_definition",
                 "property_definition",
                 "ingestion_warning",
-                "person",
+                "persons",
+                "user",
                 "cohort",
                 "group",
                 "insight/funnels",
@@ -12967,7 +13015,9 @@
                 "insight/stickiness",
                 "insight/hog",
                 "team_activity",
-                "home"
+                "home",
+                "apps",
+                "live"
             ],
             "type": "string"
         },
@@ -14700,6 +14750,9 @@
                 },
                 "ui_context": {
                     "$ref": "#/definitions/MaxUIContext"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -15942,9 +15995,7 @@
                     "format": "date-time",
                     "type": "string"
                 },
-                "resource": {
-                    "type": "string"
-                },
+                "resource_attributes": {},
                 "severity_number": {
                     "type": "number"
                 },
@@ -15976,7 +16027,7 @@
                 "severity_text",
                 "severity_number",
                 "level",
-                "resource",
+                "resource_attributes",
                 "instrumentation_scope",
                 "event_name"
             ],
@@ -16103,7 +16154,12 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {},
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/LogMessage"
+                    },
+                    "type": "array"
+                },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -17106,6 +17162,9 @@
                     "const": "ai/multi_viz",
                     "type": "string"
                 },
+                "visible": {
+                    "type": "boolean"
+                },
                 "visualizations": {
                     "items": {
                         "$ref": "#/definitions/VisualizationItem"
@@ -17274,6 +17333,9 @@
                 "type": {
                     "const": "ai/notebook",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "notebook_id", "content"],
@@ -17744,6 +17806,9 @@
                 "type": {
                     "const": "ai/planning",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "steps"],
@@ -21346,7 +21411,12 @@
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
                             "description": "The date range used for the query"
                         },
-                        "results": {},
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/LogMessage"
+                            },
+                            "type": "array"
+                        },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -22007,6 +22077,9 @@
                 "type": {
                     "const": "ai/reasoning",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "content"],
@@ -22046,7 +22119,8 @@
                 "click_count",
                 "keypress_count",
                 "mouse_activity_count",
-                "activity_score"
+                "activity_score",
+                "recording_ttl"
             ],
             "type": "string"
         },
@@ -22383,6 +22457,11 @@
                 },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
+                },
+                "timeWindowMode": {
+                    "description": "The time window mode to use for retention calculations",
+                    "enum": ["strict_calendar_dates", "24_hour_windows"],
+                    "type": "string"
                 },
                 "totalIntervals": {
                     "$ref": "#/definitions/integer",
@@ -24130,6 +24209,10 @@
                     "description": "When the recording ends in ISO format.",
                     "type": "string"
                 },
+                "expiry_time": {
+                    "description": "When the recording expires, in ISO format.",
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -24159,6 +24242,10 @@
                 },
                 "recording_duration": {
                     "description": "Length of recording in seconds.",
+                    "type": "number"
+                },
+                "recording_ttl": {
+                    "description": "Number of whole days left until the recording expires.",
                     "type": "number"
                 },
                 "retention_period_days": {
@@ -25343,6 +25430,9 @@
                 "type": {
                     "const": "ai/task_execution",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["type", "tasks"],
@@ -26268,6 +26358,9 @@
         "UsageMetric": {
             "additionalProperties": false,
             "properties": {
+                "change_from_previous_pct": {
+                    "type": ["number", "null"]
+                },
                 "display": {
                     "$ref": "#/definitions/UsageMetricDisplay"
                 },
@@ -26283,11 +26376,23 @@
                 "name": {
                     "type": "string"
                 },
+                "previous": {
+                    "type": "number"
+                },
                 "value": {
                     "type": "number"
                 }
             },
-            "required": ["id", "name", "value", "format", "display", "interval"],
+            "required": [
+                "id",
+                "name",
+                "value",
+                "previous",
+                "change_from_previous_pct",
+                "format",
+                "display",
+                "interval"
+            ],
             "type": "object"
         },
         "UsageMetricDisplay": {
@@ -26556,6 +26661,9 @@
                 "type": {
                     "const": "ai/viz",
                     "type": "string"
+                },
+                "visible": {
+                    "type": "boolean"
                 }
             },
             "required": ["answer", "query", "type"],

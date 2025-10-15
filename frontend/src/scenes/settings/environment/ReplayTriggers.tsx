@@ -493,7 +493,7 @@ function EventTriggerOptions(): JSX.Element | null {
             </div>
             <p>Start recording when a PostHog event is queued.</p>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
                 {eventTriggerConfig?.map((trigger) => (
                     <AccessControlAction
                         key={trigger}

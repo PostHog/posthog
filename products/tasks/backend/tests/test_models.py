@@ -1137,3 +1137,10 @@ class TestSandboxSnapshot(TestCase):
         self.integration.delete()
 
         self.assertEqual(SandboxSnapshot.objects.filter(integration__isnull=True).count(), 2)
+
+    def test_delete_without_external_id_succeeds(self):
+        snapshot = SandboxSnapshot.objects.create(integration=self.integration)
+
+        snapshot.delete()
+
+        self.assertEqual(SandboxSnapshot.objects.filter(id=snapshot.id).count(), 0)

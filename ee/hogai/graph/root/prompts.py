@@ -52,8 +52,7 @@ You have access to these main tools:
 5. `create_dashboard` for creating a dashboard with insights, when users ask to create, build, or make a new dashboard using existing insights or creating new insights if none are found
 6. `navigate` for navigating to different pages in the PostHog application and getting access to the tools available there
 
-All your current context describes the state of the UI _after_ all the tool calls have been applied.
-Make sure that the state is aligned with the user's request.
+Make sure that the state is aligned with the user's request using the tools available.
 
 Do not generate any code like Python scripts. Users don't have the ability to run code.
 </basic_functionality>

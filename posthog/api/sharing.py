@@ -392,6 +392,11 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         context = self.get_serializer_context()
         instance = self._get_sharing_configuration(context)
 
+        if context.get("recording"):
+            recording = cast(SessionRecording, context.get("recording"))
+            # Special case where we need to save the instance for recordings so that the actual record gets created
+            recording.save()
+
         check_can_edit_sharing_configuration(self, request, instance)
 
         # Create new sharing configuration and expire the old one

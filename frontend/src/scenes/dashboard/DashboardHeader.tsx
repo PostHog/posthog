@@ -28,6 +28,8 @@ import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -343,7 +345,7 @@ export function DashboardHeader(): JSX.Element | null {
                 name={dashboard?.name}
                 description={dashboard?.description}
                 resourceType={{
-                    type: 'dashboard',
+                    type: sceneConfigurations[Scene.Dashboard].iconType || 'default_icon_type',
                 }}
                 onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
                 onDescriptionChange={(value) =>
