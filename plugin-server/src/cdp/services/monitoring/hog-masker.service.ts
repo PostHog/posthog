@@ -44,12 +44,7 @@ function extractMaskingConfig(invocation: CyclotronJobInvocation): HogFunctionMa
     }
 
     if (isHogFlowInvocation(invocation)) {
-        const triggerMasking = invocation.hogFlow.trigger_masking
-
-        // Ensure bytecode exists before returning (required by HogFunctionMasking type)
-        if (triggerMasking && triggerMasking.bytecode) {
-            return triggerMasking as HogFunctionMasking
-        }
+        return invocation.hogFlow.trigger_masking || null
     }
 
     throw new Error('Unable to extract masking config from unknown invocation type')
