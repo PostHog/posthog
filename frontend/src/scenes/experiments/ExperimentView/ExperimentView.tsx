@@ -338,9 +338,7 @@ export function ExperimentView(): JSX.Element {
                                     )
 
                                     setExperiment({
-                                        [context.type === 'secondary'
-                                            ? 'secondary_metrics_ordered_uuids'
-                                            : 'primary_metrics_ordered_uuids']: newOrderingArray,
+                                        [context.orderingField]: newOrderingArray,
                                     })
 
                                     removeSharedMetricFromExperiment(metric.id)
