@@ -14,9 +14,9 @@ from posthog.models.integration import GitHubIntegration, Integration
 logger = structlog.get_logger(__name__)
 
 
-def get_github_file_url(code_sample: str, token: str, owner: str, repository: str) -> str | None:
+def get_github_file_url(code_sample: str, token: str, owner: str, repository: str, file_name: str) -> str | None:
     """Search GitHub code using the Code Search API. Returns URL to first match or None."""
-    search_query = f"{code_sample} repo:{owner}/{repository}"
+    search_query = f"{code_sample} repo:{owner}/{repository} filename:{file_name}"
     encoded_query = urllib.parse.quote(search_query)
     url = f"https://api.github.com/search/code?q={encoded_query}"
 
@@ -51,16 +51,21 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         owner = request.GET.get("owner")
         repository = request.GET.get("repository")
         code_sample = request.GET.get("code_sample")
+        file_name = request.GET.get("file_name")
 
-        if not owner or not repository or not code_sample:
-            return Response({"found": False, "error": "owner, repository, and code_sample are required"})
+        if not owner or not repository or not code_sample or not file_name:
+            return Response({"found": False, "error": "owner, repository, code_sample, and file_name are required"})
 
         url = None
 
         # Try with posthogs token first (public repos)
         if settings.GITHUB_TOKEN:
             url = get_github_file_url(
-                code_sample=code_sample, token=settings.GITHUB_TOKEN, owner=owner, repository=repository
+                code_sample=code_sample,
+                token=settings.GITHUB_TOKEN,
+                owner=owner,
+                repository=repository,
+                file_name=file_name,
             )
             if url:
                 return Response({"found": True, "url": url})
@@ -76,7 +81,9 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             token = github.integration.sensitive_config.get("access_token")
             if token:
-                url = get_github_file_url(code_sample=code_sample, token=token, owner=owner, repository=repository)
+                url = get_github_file_url(
+                    code_sample=code_sample, token=token, owner=owner, repository=repository, file_name=file_name
+                )
                 if url:
                     return Response({"found": True, "url": url})
 

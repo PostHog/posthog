@@ -108,7 +108,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <ButtonPrimitive
                         size="lg"
                         onClick={() => {
-                            resolveGitHubFileLink('ablaszkiewicz', 'python-scripts', 'python-scripts')
+                            resolveGitHubFileLink('ablaszkiewicz', 'python-scripts', 'python-scripts', 'asdf')
                         }}
                         disabled={gitHubFileLinkResultLoading}
                     >

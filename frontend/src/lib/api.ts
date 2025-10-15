@@ -2985,12 +2985,13 @@ const api = {
         async resolveGithub(
             owner: string,
             repository: string,
-            codeSample: string
+            codeSample: string,
+            fileName: string
         ): Promise<{ found: boolean; url?: string }> {
             return await new ApiRequest()
                 .gitProviderFileLinkResolver()
                 .withAction('resolve_github')
-                .withQueryString({ owner, repository, code_sample: codeSample })
+                .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
                 .get()
         },
     },

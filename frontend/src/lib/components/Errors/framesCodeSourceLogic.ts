@@ -48,8 +48,13 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                 const codeSample = record.context?.line.line
                 const remoteUrl = record.release?.metadata?.git?.remote_url
 
-                if (!codeSample || !remoteUrl) {
-                    actions.setSourceUrl(rawId, null)
+                if (!record.contents.source) {
+                    return
+                }
+
+                const fileName = record.contents.source.split('/').pop()
+
+                if (!codeSample || !remoteUrl || !fileName) {
                     return
                 }
 
@@ -59,11 +64,10 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                     const result = await api.gitProviderFileLinkResolver.resolveGithub(
                         parsed.owner,
                         parsed.repository,
-                        codeSample
+                        codeSample,
+                        fileName
                     )
                     actions.setSourceUrl(rawId, result.found && result.url ? result.url : null)
-                } else {
-                    actions.setSourceUrl(rawId, null)
                 }
             })
 
