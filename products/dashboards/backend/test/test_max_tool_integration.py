@@ -93,10 +93,9 @@ async def dashboard_setup():
 @pytest.mark.django_db
 async def test_dashboard_metadata_update(dashboard_setup):
     dashboard, conversation, _ = dashboard_setup
-    tool = EditCurrentDashboardTool(
-        team=dashboard.team,
-        user=conversation.user,
-        config=RunnableConfig(
+    tool = EditCurrentDashboardTool(team=dashboard.team, user=conversation.user)
+    tool._init_run(
+        RunnableConfig(
             configurable={
                 "thread_id": conversation.id,
                 "team": dashboard.team,
@@ -129,10 +128,9 @@ async def dashboard_setup_no_perms():
 @pytest.mark.django_db
 async def test_dashboard_metadata_update_no_permissions(dashboard_setup_no_perms):
     dashboard, conversation, _ = dashboard_setup_no_perms
-    tool = EditCurrentDashboardTool(
-        team=dashboard.team,
-        user=conversation.user,
-        config=RunnableConfig(
+    tool = EditCurrentDashboardTool(team=dashboard.team, user=conversation.user)
+    tool._init_run(
+        RunnableConfig(
             configurable={
                 "thread_id": conversation.id,
                 "team": dashboard.team,
@@ -150,10 +148,9 @@ async def test_dashboard_metadata_update_no_permissions(dashboard_setup_no_perms
 @pytest.mark.django_db
 async def test_dashboard_add_insights(dashboard_setup):
     dashboard, conversation, _ = dashboard_setup
-    tool = EditCurrentDashboardTool(
-        team=dashboard.team,
-        user=conversation.user,
-        config=RunnableConfig(
+    tool = EditCurrentDashboardTool(team=dashboard.team, user=conversation.user)
+    tool._init_run(
+        RunnableConfig(
             configurable={
                 "thread_id": conversation.id,
                 "team": dashboard.team,
