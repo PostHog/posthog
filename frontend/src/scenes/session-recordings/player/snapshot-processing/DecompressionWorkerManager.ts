@@ -1,7 +1,7 @@
 import snappyInit, { decompress_raw } from 'snappy-wasm'
 
 export class DecompressionWorkerManager {
-    private readonly readyPromise: Promise<void>
+    private readyPromise: Promise<void>
     private snappyInitialized = false
 
     constructor() {
@@ -12,8 +12,13 @@ export class DecompressionWorkerManager {
         if (this.snappyInitialized) {
             return
         }
-        await snappyInit()
-        this.snappyInitialized = true
+        // Prevent multiple concurrent initializations
+        if (!this.readyPromise) {
+            this.readyPromise = snappyInit().then(() => {
+                this.snappyInitialized = true
+            })
+        }
+        await this.readyPromise
     }
 
     async decompress(compressedData: Uint8Array): Promise<Uint8Array> {
