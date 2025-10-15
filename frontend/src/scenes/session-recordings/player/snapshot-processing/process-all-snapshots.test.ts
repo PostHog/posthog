@@ -273,42 +273,7 @@ describe('process all snapshots', () => {
         })
     })
 
-    describe('mobile recording synthetic full snapshot', () => {
-        // Mock the EE module for these tests
-        beforeEach(() => {
-            jest.doMock('@posthog/ee/exports', () => ({
-                __esModule: true,
-                default: jest.fn().mockResolvedValue({
-                    enabled: true,
-                    mobileReplay: {
-                        transformEventToWeb: jest.fn((event) => {
-                            // Mock transformation - for synthetic full snapshots, return a web-compatible full snapshot
-                            if (event.type === 2 && event.data?.wireframes !== undefined) {
-                                return {
-                                    ...event,
-                                    data: {
-                                        node: {
-                                            type: 0,
-                                            childNodes: [],
-                                            id: 1,
-                                            tagName: 'html',
-                                        },
-                                        initialOffset: { top: 0, left: 0 },
-                                    },
-                                }
-                            }
-                            // For other events, return as-is
-                            return event
-                        }),
-                    },
-                }),
-            }))
-        })
-
-        afterEach(() => {
-            jest.resetModules()
-        })
-
+    describe('mobile recording detection', () => {
         it('detects mobile recordings with wireframes in incremental updates', () => {
             const mobileIncrementalSnapshot = {
                 type: 3,
@@ -367,6 +332,43 @@ describe('process all snapshots', () => {
             }
 
             expect(hasAnyWireframes([webIncrementalSnapshot])).toBe(false)
+        })
+    })
+
+    describe('synthetic full snapshot creation', () => {
+        // Mock the EE module for these tests
+        beforeEach(() => {
+            jest.doMock('@posthog/ee/exports', () => ({
+                __esModule: true,
+                default: jest.fn().mockResolvedValue({
+                    enabled: true,
+                    mobileReplay: {
+                        transformEventToWeb: jest.fn((event) => {
+                            // Mock transformation - for synthetic full snapshots, return a web-compatible full snapshot
+                            if (event.type === 2 && event.data?.wireframes !== undefined) {
+                                return {
+                                    ...event,
+                                    data: {
+                                        node: {
+                                            type: 0,
+                                            childNodes: [],
+                                            id: 1,
+                                            tagName: 'html',
+                                        },
+                                        initialOffset: { top: 0, left: 0 },
+                                    },
+                                }
+                            }
+                            // For other events, return as-is
+                            return event
+                        }),
+                    },
+                }),
+            }))
+        })
+
+        afterEach(() => {
+            jest.resetModules()
         })
 
         it('creates synthetic full snapshot when mobile recording starts with incremental snapshot', async () => {
