@@ -22,16 +22,14 @@ class TestEditCurrentDashboardTool:
         """Helper to create an EditCurrentDashboardTool instance with context"""
         mock_team = team or Mock()
         mock_user = user or Mock()
-
-        tool = EditCurrentDashboardTool(
-            team=mock_team,
-            user=mock_user,
-            config={"configurable": {"team": mock_team, "user": mock_user}},
-            state=Mock(),
-        )
+        tool = EditCurrentDashboardTool(team=mock_team, user=mock_user)
+        tool._config = {"configurable": {"team": mock_team, "user": mock_user}}
+        tool._state = Mock()
 
         if context is not None:
-            tool._config["configurable"] = {"contextual_tools": {"edit_current_dashboard": context}}
+            tool._context = context
+        else:
+            tool._context = {}
 
         return tool
 
