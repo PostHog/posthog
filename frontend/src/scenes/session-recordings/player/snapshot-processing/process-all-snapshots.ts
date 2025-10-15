@@ -252,7 +252,9 @@ function coerceToEventWithTime(
         }
 
         // Transform it using the existing makeFullEvent transformer
-        const syntheticFullSnapshot = postHogEEModule.mobileReplay.transformEventToWeb(syntheticMobileFullSnapshot)
+        const syntheticFullSnapshot = postHogEEModule.mobileReplay.transformEventToWeb(
+            syntheticMobileFullSnapshot
+        ) as eventWithTime
 
         return [syntheticFullSnapshot, transformedEvent]
     }
