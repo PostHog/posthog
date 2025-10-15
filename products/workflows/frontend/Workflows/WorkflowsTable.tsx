@@ -16,6 +16,19 @@ import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { workflowsLogic } from './workflowsLogic'
 
+function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
+    const hasMessagingAction = useMemo(() => {
+        return workflow.actions.some((action) => {
+            return ['function_email', 'function_sms', 'function_slack'].includes(action.type)
+        })
+    }, [workflow.actions])
+
+    if (hasMessagingAction) {
+        return <LemonTag type="completion">Messaging</LemonTag>
+    }
+    return <LemonTag type="default">Automation</LemonTag>
+}
+
 function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Element {
     const actionsByType = useMemo(() => {
         return workflow.actions.reduce(
@@ -44,7 +57,7 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
     }, [workflow.actions])
 
     return (
-        <Link to={urls.messagingWorkflow(workflow.id, 'workflow')}>
+        <Link to={urls.workflow(workflow.id, 'workflow')}>
             <div className="flex flex-row gap-2 items-center">
                 {Object.entries(actionsByType).map(([type, { count, icon, color }]) => (
                     <div
@@ -74,13 +87,15 @@ export function WorkflowsTable(): JSX.Element {
             key: 'name',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: (_, item) => {
-                return (
-                    <LemonTableLink
-                        to={urls.messagingWorkflow(item.id)}
-                        title={item.name}
-                        description={item.description}
-                    />
-                )
+                return <LemonTableLink to={urls.workflow(item.id)} title={item.name} description={item.description} />
+            },
+        },
+
+        {
+            title: 'Type',
+            width: 0,
+            render: (_, item) => {
+                return <WorkflowTypeTag workflow={item} />
             },
         },
 
@@ -89,7 +104,7 @@ export function WorkflowsTable(): JSX.Element {
             width: 0,
             render: (_, item) => {
                 return (
-                    <Link to={urls.messagingWorkflow(item.id, 'workflow') + '?node=trigger_node'}>
+                    <Link to={urls.workflow(item.id, 'workflow') + '?node=trigger_node'}>
                         <LemonTag type="default">{capitalizeFirstLetter(item.trigger?.type ?? 'unknown')}</LemonTag>
                     </Link>
                 )
@@ -111,7 +126,7 @@ export function WorkflowsTable(): JSX.Element {
             width: 0,
             render: (_, { id }) => {
                 return (
-                    <Link to={urls.messagingWorkflow(id, 'metrics')}>
+                    <Link to={urls.workflow(id, 'metrics')}>
                         <AppMetricsSparkline
                             logicKey={id}
                             forceParams={{

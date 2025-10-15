@@ -52,7 +52,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             <div className="flex gap-2">
                                 {!categoriesLoading && !categories.length && (
                                     <LemonButton
-                                        to={urls.messaging('opt-outs')}
+                                        to={urls.workflows('opt-outs')}
                                         targetBlank
                                         type="secondary"
                                         icon={<IconExternal />}

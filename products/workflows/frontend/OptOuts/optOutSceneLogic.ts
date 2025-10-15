@@ -9,7 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import type { optOutSceneLogicType } from './optOutSceneLogicType'
 
 export const optOutSceneLogic = kea<optOutSceneLogicType>([
-    path(['products', 'messaging', 'frontend', 'OptOuts', 'optOutSceneLogic']),
+    path(['products', 'workflows', 'frontend', 'OptOuts', 'optOutSceneLogic']),
     connect(() => ({
         values: [userLogic, ['user']],
     })),
@@ -26,15 +26,15 @@ export const optOutSceneLogic = kea<optOutSceneLogicType>([
                 }
 
                 try {
-                    const newPreferencesUrl = await api.messaging.generateWorkflowsPreferencesLink(recipient)
+                    const newPreferencesUrl = await api.workflows.generateWorkflowsPreferencesLink(recipient)
                     if (!newPreferencesUrl) {
-                        lemonToast.error('Failed to generate messaging preferences link')
+                        lemonToast.error('Failed to generate workflows preferences link')
                         return null
                     }
                     window.open(newPreferencesUrl, '_blank')
                     return newPreferencesUrl
                 } catch {
-                    lemonToast.error('Failed to generate messaging preferences link')
+                    lemonToast.error('Failed to generate workflows preferences link')
                     return null
                 }
             },

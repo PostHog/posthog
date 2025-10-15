@@ -21,7 +21,7 @@ export interface MessageTemplateLogicProps {
 }
 
 export const messageTemplateLogic = kea<messageTemplateLogicType>([
-    path(['products', 'messaging', 'frontend', 'messageTemplateLogic']),
+    path(['products', 'workflows', 'frontend', 'messageTemplateLogic']),
     key(({ id }) => id ?? 'unknown'),
     props({} as MessageTemplateLogicProps),
     actions({
@@ -36,24 +36,24 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     {
                         key: [Scene.Workflows, 'library'],
                         name: 'Library',
-                        path: urls.messaging('library'),
-                        iconType: 'messaging',
+                        path: urls.workflows('library'),
+                        iconType: 'workflows',
                     },
                     ...(id === 'new'
                         ? [
                               {
                                   key: 'new-template',
                                   name: 'New template',
-                                  path: urls.messagingLibraryTemplateNew(),
-                                  iconType: 'messaging' as FileSystemIconType,
+                                  path: urls.workflowsLibraryTemplateNew(),
+                                  iconType: 'workflows' as FileSystemIconType,
                               },
                           ]
                         : [
                               {
                                   key: 'edit-template',
                                   name: 'Manage template',
-                                  path: urls.messagingLibraryTemplate(id),
-                                  iconType: 'messaging' as FileSystemIconType,
+                                  path: urls.workflowsLibraryTemplate(id),
+                                  iconType: 'workflows' as FileSystemIconType,
                               },
                           ]),
                 ]
@@ -104,13 +104,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     } as MessageTemplate
                 }
 
-                return await api.messaging.getTemplate(props.id)
+                return await api.workflows.getTemplate(props.id)
             },
             saveTemplate: (template) => {
                 if (template.id === 'new') {
-                    return api.messaging.createTemplate(template)
+                    return api.workflows.createTemplate(template)
                 }
-                return api.messaging.updateTemplate(template.id, template)
+                return api.workflows.updateTemplate(template.id, template)
             },
         },
         message: {
@@ -125,7 +125,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
     listeners(({ actions }) => ({
         saveTemplateSuccess: async ({ template }) => {
             lemonToast.success('Template saved')
-            template.id && router.actions.replace(urls.messagingLibraryTemplate(template.id))
+            template.id && router.actions.replace(urls.workflowsLibraryTemplate(template.id))
             actions.resetTemplate(template)
             actions.setOriginalTemplate(template)
         },

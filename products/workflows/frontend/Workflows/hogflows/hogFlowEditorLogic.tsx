@@ -605,7 +605,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         }
 
         return {
-            [urls.messagingWorkflow(':id', ':tab')]: reactToTabChange,
+            [urls.workflow(':id', ':tab')]: reactToTabChange,
         }
     }),
 ])

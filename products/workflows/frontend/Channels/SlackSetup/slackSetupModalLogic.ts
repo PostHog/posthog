@@ -21,7 +21,7 @@ export interface SlackFormType {
 }
 
 export const slackSetupModalLogic = kea<slackSetupModalLogicType>([
-    path(['products', 'messaging', 'frontend', 'SlackSetup', 'slackSetupModalLogic']),
+    path(['products', 'workflows', 'frontend', 'SlackSetup', 'slackSetupModalLogic']),
     props({} as SlackSetupModalLogicProps),
     connect(() => ({
         values: [integrationsLogic, ['integrations', 'integrationsLoading', 'slackAvailable'], userLogic, ['user']],

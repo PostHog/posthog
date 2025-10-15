@@ -17,11 +17,7 @@ export function HogFlowEditorPanelLogs(): JSX.Element | null {
     return (
         <>
             <div className="border-b">
-                <LemonButton
-                    to={urls.messagingWorkflow(workflow.id, 'logs')}
-                    size="xsmall"
-                    sideIcon={<IconOpenInApp />}
-                >
+                <LemonButton to={urls.workflow(workflow.id, 'logs')} size="xsmall" sideIcon={<IconOpenInApp />}>
                     Click here to open in full log viewer
                 </LemonButton>
             </div>

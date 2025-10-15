@@ -12,9 +12,9 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 
+import { Workflow } from './Workflow'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
-import { WorkflowWorkflow } from './WorkflowWorkflow'
 import { renderWorkflowLogMessage } from './logs/log-utils'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
@@ -43,7 +43,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         {
             label: 'Workflow',
             key: 'workflow',
-            content: <WorkflowWorkflow {...props} />,
+            content: <Workflow {...props} />,
         },
 
         {
@@ -79,11 +79,11 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
             <SceneDivider />
             {/* Only show Logs and Metrics tabs if the workflow has already been created */}
             {!props.id || props.id === 'new' ? (
-                <WorkflowWorkflow {...props} />
+                <Workflow {...props} />
             ) : (
                 <LemonTabs
                     activeKey={currentTab}
-                    onChange={(tab) => router.actions.push(urls.messagingWorkflow(props.id ?? 'new', tab))}
+                    onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
                     tabs={tabs}
                     sceneInset
                 />

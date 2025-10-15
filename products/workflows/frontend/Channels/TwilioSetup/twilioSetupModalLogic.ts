@@ -20,7 +20,7 @@ export interface TwilioFormType {
 }
 
 export const twilioSetupModalLogic = kea<twilioSetupModalLogicType>([
-    path(['products', 'messaging', 'frontend', 'TwilioSetup', 'twilioSetupModalLogic']),
+    path(['products', 'workflows', 'frontend', 'TwilioSetup', 'twilioSetupModalLogic']),
     props({} as TwilioSetupModalLogicProps),
     connect(() => ({
         values: [integrationsLogic, ['integrations', 'integrationsLoading']],

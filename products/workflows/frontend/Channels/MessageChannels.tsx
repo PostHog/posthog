@@ -17,10 +17,10 @@ export function MessageChannels(): JSX.Element {
         useValues(integrationsLogic)
     const { openSetupModal, closeSetupModal } = useActions(integrationsLogic)
 
-    const allWorkflowsIntegrations =
+    const allWorkflowIntegrations =
         integrations?.filter((integration) => MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType)) ?? []
 
-    const showProductIntroduction = !integrationsLoading && !allWorkflowsIntegrations.length
+    const showProductIntroduction = !integrationsLoading && !allWorkflowIntegrations.length
 
     return (
         <>
@@ -44,7 +44,7 @@ export function MessageChannels(): JSX.Element {
                         productName="Workflows channel"
                         thingName="channel integration"
                         description="Configure channels to send messages from."
-                        docsURL="https://posthog.com/docs/messaging"
+                        docsURL="https://posthog.com/docs/workflows"
                         action={() => openSetupModal(undefined, 'twilio')}
                         isEmpty
                     />

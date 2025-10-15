@@ -42,18 +42,18 @@ class TestMessagePreferencesViews(BaseTest):
         )
         self.client = Client()
         self._token_patch = patch.object(
-            plugin_server_api, "generate_messaging_preferences_token", return_value="dummy-token"
+            plugin_server_api, "generate_workflows_preferences_token", return_value="dummy-token"
         )
         self._token_patch.start()
-        self.token = plugin_server_api.generate_messaging_preferences_token(self.team.id, self.recipient.identifier)
+        self.token = plugin_server_api.generate_workflows_preferences_token(self.team.id, self.recipient.identifier)
 
     def tearDown(self):
         self._token_patch.stop()
         super().tearDown()
 
-    @patch("posthog.views.validate_messaging_preferences_token")
-    def test_preferences_page_valid_token(self, mock_validate_messaging_preferences_token):
-        mock_validate_messaging_preferences_token.return_value = mock_response(
+    @patch("posthog.views.validate_workflows_preferences_token")
+    def test_preferences_page_valid_token(self, mock_validate_workflows_preferences_token):
+        mock_validate_workflows_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
         response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
@@ -71,17 +71,17 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(categories[0]["name"], "Newsletter Updates")
         self.assertEqual(categories[1]["name"], "Product Updates")
 
-    @patch("posthog.views.validate_messaging_preferences_token")
-    def test_preferences_page_invalid_token(self, mock_validate_messaging_preferences_token):
-        mock_validate_messaging_preferences_token.return_value = mock_response(400, {"error": "Invalid token"})
+    @patch("posthog.views.validate_workflows_preferences_token")
+    def test_preferences_page_invalid_token(self, mock_validate_workflows_preferences_token):
+        mock_validate_workflows_preferences_token.return_value = mock_response(400, {"error": "Invalid token"})
         response = self.client.get(reverse("message_preferences", kwargs={"token": "invalid-token"}))
         self.assertEqual(response.status_code, 400)
         self.assertTemplateUsed(response, "message_preferences/error.html")
 
-    @patch("posthog.views.validate_messaging_preferences_token")
-    def test_update_preferences_valid(self, mock_validate_messaging_preferences_token):
+    @patch("posthog.views.validate_workflows_preferences_token")
+    def test_update_preferences_valid(self, mock_validate_workflows_preferences_token):
         data = {"token": self.token, "preferences[]": [f"{self.category.id}:true", f"{self.category2.id}:false"]}
-        mock_validate_messaging_preferences_token.return_value = mock_response(
+        mock_validate_workflows_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
         response = self.client.post(reverse("message_preferences_update"), data)
@@ -102,18 +102,18 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.content), {"error": "Missing token"})
 
-    @patch("posthog.views.validate_messaging_preferences_token")
-    def test_update_preferences_invalid_token(self, mock_validate_messaging_preferences_token):
+    @patch("posthog.views.validate_workflows_preferences_token")
+    def test_update_preferences_invalid_token(self, mock_validate_workflows_preferences_token):
         data = {"token": "invalid-token", "preferences[]": [f"{self.category.id}:true"]}
-        mock_validate_messaging_preferences_token.return_value = mock_response(400, {"error": "Invalid token"})
+        mock_validate_workflows_preferences_token.return_value = mock_response(400, {"error": "Invalid token"})
         response = self.client.post(reverse("message_preferences_update"), data)
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", json.loads(response.content))
 
-    @patch("posthog.views.validate_messaging_preferences_token")
-    def test_update_preferences_invalid_preference_format(self, mock_validate_messaging_preferences_token):
+    @patch("posthog.views.validate_workflows_preferences_token")
+    def test_update_preferences_invalid_preference_format(self, mock_validate_workflows_preferences_token):
         data = {"token": self.token, "preferences[]": ["invalid:format"]}
-        mock_validate_messaging_preferences_token.return_value = mock_response(
+        mock_validate_workflows_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
         response = self.client.post(reverse("message_preferences_update"), data)
@@ -133,7 +133,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
 
     def test_opt_outs_no_category_no_opt_outs(self):
         """Test opt_outs endpoint with no category and no recipients opted out"""
-        response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
+        response = self.client.get(f"/api/environments/{self.team.id}/workflows_preferences/opt_outs/")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data), 0)
@@ -158,7 +158,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             preferences={str(self.category.id): PreferenceStatus.OPTED_OUT.value},
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
+        response = self.client.get(f"/api/environments/{self.team.id}/workflows_preferences/opt_outs/")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data), 2)
@@ -190,7 +190,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         )
 
         response = self.client.get(
-            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/", {"category_key": self.category.key}
+            f"/api/environments/{self.team.id}/workflows_preferences/opt_outs/", {"category_key": self.category.key}
         )
         self.assertEqual(response.status_code, 200)
         data = response.json()
@@ -205,7 +205,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
     def test_opt_outs_with_nonexistent_category(self):
         """Test opt_outs endpoint with a category that doesn't exist"""
         response = self.client.get(
-            f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/",
+            f"/api/environments/{self.team.id}/workflows_preferences/opt_outs/",
             {"category_key": "nonexistent_category"},
         )
         self.assertEqual(response.status_code, 404)
@@ -220,7 +220,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
+        response = self.client.get(f"/api/environments/{self.team.id}/workflows_preferences/opt_outs/")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data), 1)
@@ -254,7 +254,7 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/messaging_preferences/opt_outs/")
+        response = self.client.get(f"/api/environments/{self.team.id}/workflows_preferences/opt_outs/")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(len(data), 1)

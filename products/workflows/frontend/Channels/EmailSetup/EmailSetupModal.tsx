@@ -21,7 +21,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
         modalContent = (
             <Form logic={emailSetupModalLogic} formKey="emailSender">
                 <div className="space-y-4">
-                    <FlaggedFeature flag="messaging-ses">
+                    <FlaggedFeature flag="workflows-ses">
                         {/* NOTE: We probably dont want to actually give the options - this is just for our own testing */}
                         <LemonField name="provider" label="Provider">
                             <LemonSelect

@@ -26,7 +26,7 @@ export type OptOutListLogicProps = {
 
 export const optOutListLogic = kea<optOutListLogicType>([
     key((props) => props.category?.id || '$all'),
-    path(['products', 'messaging', 'frontend', 'OptOuts', 'optOutListLogic']),
+    path(['products', 'workflows', 'frontend', 'OptOuts', 'optOutListLogic']),
     props({} as OptOutListLogicProps),
     connect(() => ({
         values: [optOutSceneLogic, ['preferencesUrlLoading']],
@@ -75,7 +75,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
             __default: [] as OptOutEntry[],
             loadOptOutPersons: async (): Promise<OptOutEntry[]> => {
                 try {
-                    return await api.messaging.getMessageOptOuts(props.category?.key)
+                    return await api.workflows.getMessageOptOuts(props.category?.key)
                 } catch {
                     lemonToast.error('Failed to load opt-out persons')
                     return []

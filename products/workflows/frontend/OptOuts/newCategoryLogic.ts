@@ -29,7 +29,7 @@ const NEW_CATEGORY: CategoryForm = {
 }
 
 export const newCategoryLogic = kea<newCategoryLogicType>([
-    path(['products', 'messaging', 'frontend', 'OptOuts', 'newCategoryLogic']),
+    path(['products', 'workflows', 'frontend', 'OptOuts', 'newCategoryLogic']),
     props({} as CategoryLogicProps),
     key((props: CategoryLogicProps) => props.category?.id || 'new'),
 
@@ -63,11 +63,11 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
             submit: async (formValues: CategoryForm) => {
                 if (props.category) {
                     // Update existing category
-                    await api.messaging.updateCategory(props.category.id, formValues)
+                    await api.workflows.updateCategory(props.category.id, formValues)
                     lemonToast.success('Category updated successfully')
                 } else {
                     // Create new category
-                    await api.messaging.createCategory(formValues)
+                    await api.workflows.createCategory(formValues)
                     lemonToast.success('Category created successfully')
                 }
                 // Reload categories in the parent logic

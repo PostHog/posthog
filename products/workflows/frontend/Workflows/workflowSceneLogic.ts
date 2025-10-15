@@ -17,7 +17,7 @@ export interface WorkflowSceneLogicProps {
 }
 
 export const workflowSceneLogic = kea<workflowSceneLogicType>([
-    path(['products', 'messaging', 'frontend', 'workflowSceneLogic']),
+    path(['products', 'workflows', 'frontend', 'workflowSceneLogic']),
     props({ id: 'new' } as WorkflowSceneLogicProps),
     actions({
         setCurrentTab: (tab: WorkflowTab) => ({ tab }),
@@ -38,13 +38,13 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
                     {
                         key: [Scene.Workflows, 'workflows'],
                         name: 'Workflows',
-                        path: urls.messaging('workflows'),
-                        iconType: 'messaging',
+                        path: urls.workflows('workflows'),
+                        iconType: 'workflows',
                     },
                     {
                         key: Scene.Workflow,
                         name: id == 'new' ? 'New workflow' : 'Manage workflow',
-                        iconType: 'messaging',
+                        iconType: 'workflows',
                     },
                 ]
             },
@@ -53,14 +53,14 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
     actionToUrl(({ props, values }) => ({
         setCurrentTab: () => {
             return [
-                urls.messagingWorkflow(props.id || 'new', values.currentTab),
+                urls.workflow(props.id || 'new', values.currentTab),
                 router.values.searchParams,
                 router.values.hashParams,
             ]
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/messaging/workflows/:id/:tab': ({ tab }) => {
+        '/workflows/workflows/:id/:tab': ({ tab }) => {
             if (tab !== values.currentTab) {
                 actions.setCurrentTab(tab as WorkflowTab)
             }

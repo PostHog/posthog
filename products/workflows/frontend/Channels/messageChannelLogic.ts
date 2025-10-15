@@ -9,7 +9,7 @@ export interface MessageChannelLogicProps {
 }
 
 export const messageChannelLogic = kea<messageChannelLogicType>([
-    path(['products', 'messaging', 'frontend', 'messageChannelLogic']),
+    path(['products', 'workflows', 'frontend', 'messageChannelLogic']),
     props({} as MessageChannelLogicProps),
     key(({ integration }) => `${integration?.kind}-${integration?.id}`),
     selectors(() => ({

@@ -19,7 +19,7 @@ export interface HogFunctionStepLogicProps {
 }
 
 export const hogFunctionStepLogic = kea<hogFunctionStepLogicType>([
-    path(['products', 'messaging', 'frontend', 'Workflows', 'hogflows', 'steps']),
+    path(['products', 'workflows', 'frontend', 'Workflows', 'hogflows', 'steps']),
     props({} as HogFunctionStepLogicProps),
     key(({ node }: HogFunctionStepLogicProps) => `${node?.id}_${node?.data.config.template_id}`),
     forms(({ props }) => ({

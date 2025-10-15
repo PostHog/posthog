@@ -323,7 +323,7 @@ function ConversionGoalSection(): JSX.Element {
                             size="small"
                             icon={<IconPlusSmall />}
                             onClick={() => {
-                                posthog.capture('messaging workflow event conversion clicked')
+                                posthog.capture('workflows workflow event conversion clicked')
                                 lemonToast.info('Event targeting coming soon!')
                             }}
                         >

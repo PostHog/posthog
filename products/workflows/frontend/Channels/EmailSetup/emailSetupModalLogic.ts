@@ -32,9 +32,9 @@ export interface EmailSenderFormType {
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i
 
 export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
-    path(['products', 'messaging', 'frontend', 'EmailSetup', 'emailSetupModalLogic']),
+    path(['products', 'workflows', 'frontend', 'EmailSetup', 'emailSetupModalLogic']),
     props({} as EmailSetupModalLogicProps),
-    key(({ integration }) => (integration ? `messaging-sender-setup-${integration.id}` : 'messaging-sender-setup-new')),
+    key(({ integration }) => (integration ? `workflows-sender-setup-${integration.id}` : 'workflows-sender-setup-new')),
     connect(() => ({
         values: [integrationsLogic, ['integrations', 'integrationsLoading']],
         actions: [integrationsLogic, ['loadIntegrations']],

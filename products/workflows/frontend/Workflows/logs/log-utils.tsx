@@ -33,7 +33,7 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
                 elements.push(
                     <Link
                         className="rounded p-1 -m-1 bg-border text-bg-primary"
-                        to={urls.messagingWorkflow(workflow.id, 'workflow') + `?node=${actionId}&mode=logs`}
+                        to={urls.workflow(workflow.id, 'workflow') + `?node=${actionId}&mode=logs`}
                     >
                         {step?.icon && <span className="mr-1">{step.icon}</span>}
                         {stepName}

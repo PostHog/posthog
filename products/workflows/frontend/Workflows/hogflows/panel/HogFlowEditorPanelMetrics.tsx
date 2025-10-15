@@ -71,11 +71,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
     return (
         <>
             <div className="border-b">
-                <LemonButton
-                    to={urls.messagingWorkflow(workflow.id, 'metrics')}
-                    size="xsmall"
-                    sideIcon={<IconOpenInApp />}
-                >
+                <LemonButton to={urls.workflow(workflow.id, 'metrics')} size="xsmall" sideIcon={<IconOpenInApp />}>
                     Click here to open in full metrics viewer
                 </LemonButton>
             </div>

@@ -32,7 +32,7 @@ export interface HogflowTestInvocation {
 }
 
 export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
-    path((key) => ['products', 'messaging', 'frontend', 'Workflows', 'hogflows', 'actions', 'workflowTestLogic', key]),
+    path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'hogflows', 'actions', 'workflowTestLogic', key]),
     props({} as WorkflowLogicProps),
     key((props) => `${props.id}`),
     connect((props: WorkflowLogicProps) => ({
@@ -185,7 +185,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 return !!(triggerAction && triggerAction.config.type === 'event')
             },
         ],
-        // TODO(messaging): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic
+        // TODO(workflows): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic
         matchingFilters: [
             (s) => [s.triggerAction],
             (triggerAction): PropertyGroupFilter => {

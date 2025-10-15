@@ -68,10 +68,10 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         identifier = request.data.get("recipient", user.email)
 
-        token = plugin_server_api.generate_messaging_preferences_token(self.team_id, identifier)
+        token = plugin_server_api.generate_workflows_preferences_token(self.team_id, identifier)
 
         # Build the full URL
-        preferences_url = f"{request.build_absolute_uri('/')[:-1]}/messaging-preferences/{token}/"
+        preferences_url = f"{request.build_absolute_uri('/')[:-1]}/workflows-preferences/{token}/"
 
         return Response(
             {

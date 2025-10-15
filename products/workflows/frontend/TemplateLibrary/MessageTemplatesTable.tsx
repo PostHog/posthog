@@ -21,7 +21,7 @@ export function MessageTemplatesTable(): JSX.Element {
             render: (_, item) => {
                 return (
                     <LemonTableLink
-                        to={urls.messagingLibraryTemplate(item.id)}
+                        to={urls.workflowsLibraryTemplate(item.id)}
                         title={item.name}
                         description={item.description}
                     />

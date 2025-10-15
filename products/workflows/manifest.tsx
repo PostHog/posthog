@@ -25,49 +25,49 @@ export const manifest: ProductManifest = {
     },
     routes: {
         // URL: [Scene, SceneKey]
-        '/messaging/:tab': ['Workflows', 'messagingWorkflows'],
-        '/messaging/workflows/:id/:tab': ['Workflow', 'messagingWorkflowTab'],
-        '/messaging/library/templates/:id': ['WorkflowsLibraryTemplate', 'messagingLibraryTemplate'],
-        '/messaging/library/templates/new': ['WorkflowsLibraryTemplate', 'messagingLibraryTemplate'],
-        '/messaging/library/templates/new?messageId=:messageId': [
+        '/workflows/:tab': ['Workflows', 'workflows'],
+        '/workflows/workflows/:id/:tab': ['Workflow', 'workflowTab'],
+        '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
+        '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
+        '/workflows/library/templates/new?messageId=:messageId': [
             'WorkflowsLibraryTemplate',
-            'messagingLibraryTemplateFromMessage',
+            'workflowsLibraryTemplateFromMessage',
         ],
     },
     redirects: {
-        '/messaging': '/messaging/workflows',
-        '/messaging/workflows/new': '/messaging/workflows/new/workflow',
+        '/workflows': '/workflows/workflows',
+        '/workflows/workflows/new': '/workflows/workflows/new/workflow',
     },
     urls: {
-        messaging: (tab?: WorkflowsSceneTab): string => `/messaging/${tab || 'workflows'}`,
-        messagingWorkflow: (id: string, tab?: string): string => `/messaging/workflows/${id}/${tab || 'workflow'}`,
-        messagingWorkflowNew: (): string => '/messaging/workflows/new/workflow',
-        messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
-        messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
-        messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
-        messagingLibraryTemplateFromMessage: (id?: string): string =>
-            `/messaging/library/templates/new?messageId=${id}`,
+        workflows: (tab?: WorkflowsSceneTab): string => `/workflows/${tab || 'workflows'}`,
+        workflow: (id: string, tab?: string): string => `/workflows/workflows/${id}/${tab || 'workflow'}`,
+        workflowNew: (): string => '/workflows/workflows/new/workflow',
+        workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
+        workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
+        workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
+        workflowsLibraryTemplateFromMessage: (id?: string): string =>
+            `/workflows/library/templates/new?messageId=${id}`,
     },
     fileSystemTypes: {
-        messaging: {
+        workflows: {
             name: 'Workflow',
-            iconType: 'messaging',
-            iconColor: ['var(--color-product-messaging-light)'] as FileSystemIconColor,
-            href: (ref: string) => urls.messagingWorkflow(ref),
-            filterKey: 'messaging',
+            iconType: 'workflows',
+            iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+            href: (ref: string) => urls.workflow(ref),
+            filterKey: 'workflows',
         },
     },
     treeItemsProducts: [
         {
             path: 'Workflows',
-            href: urls.messaging(),
-            type: 'messaging',
-            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+            href: urls.workflows(),
+            type: 'workflows',
+            visualOrder: PRODUCT_VISUAL_ORDER.workflows,
             category: 'Unreleased',
             tags: ['alpha'],
-            flag: FEATURE_FLAGS.MESSAGING,
-            iconType: 'messaging',
-            iconColor: ['var(--color-product-messaging-light)'] as FileSystemIconColor,
+            flag: FEATURE_FLAGS.WORKFLOWS,
+            iconType: 'workflows',
+            iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         },
     ],
 }

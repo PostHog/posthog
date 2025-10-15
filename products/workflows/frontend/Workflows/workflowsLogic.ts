@@ -7,7 +7,7 @@ import type { HogFlow } from './hogflows/types'
 import type { workflowsLogicType } from './workflowsLogicType'
 
 export const workflowsLogic = kea<workflowsLogicType>([
-    path(['products', 'messaging', 'frontend', 'workflowsLogic']),
+    path(['products', 'workflows', 'frontend', 'workflowsLogic']),
     actions({
         toggleWorkflowStatus: (workflow: HogFlow) => ({ workflow }),
         duplicateWorkflow: (workflow: HogFlow) => ({ workflow }),

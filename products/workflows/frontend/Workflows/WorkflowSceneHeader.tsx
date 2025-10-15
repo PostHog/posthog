@@ -19,7 +19,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
             <SceneTitleSection
                 name={workflow?.name}
                 description={workflow?.description}
-                resourceType={{ type: 'messaging' }}
+                resourceType={{ type: 'workflows' }}
                 canEdit
                 onNameChange={(name) => setWorkflowValue('name', name)}
                 onDescriptionChange={(description) => setWorkflowValue('description', description)}

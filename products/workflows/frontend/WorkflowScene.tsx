@@ -34,7 +34,7 @@ export type WorkflowsSceneProps = {
 
 export const workflowSceneLogic = kea<workflowSceneLogicType>([
     props({} as WorkflowsSceneProps),
-    path(() => ['scenes', 'messaging', 'workflowSceneLogic']),
+    path(() => ['scenes', 'workflows', 'workflowSceneLogic']),
     actions({
         setCurrentTab: (tab: WorkflowsSceneTab) => ({ tab }),
     }),
@@ -55,7 +55,7 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
                     {
                         key: [Scene.Workflows, tab],
                         name: capitalizeFirstLetter(tab.replaceAll('_', ' ')),
-                        iconType: 'messaging',
+                        iconType: 'workflows',
                     },
                 ]
             },
@@ -63,12 +63,12 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
     }),
     listeners({
         setCurrentTab: ({ tab }) => {
-            router.actions.push(urls.messaging(tab))
+            router.actions.push(urls.workflows(tab))
         },
     }),
     urlToAction(({ actions, values }) => {
         return {
-            [urls.messaging(':tab' as WorkflowsSceneTab)]: ({ tab }) => {
+            [urls.workflows(':tab' as WorkflowsSceneTab)]: ({ tab }) => {
                 let possibleTab: WorkflowsSceneTab = (tab as WorkflowsSceneTab) ?? 'workflows'
                 possibleTab = WORKFLOW_SCENE_TABS.includes(possibleTab) ? possibleTab : 'workflows'
 
@@ -99,7 +99,7 @@ export function WorkflowsScene(): JSX.Element {
             <div className="flex flex-col justify-center items-center h-full">
                 <h1 className="text-2xl font-bold">Coming soon!</h1>
                 <p className="text-sm text-muted-foreground">
-                    We're working on bringing messaging to PostHog. Stay tuned for updates!
+                    We're working on bringing workflows to PostHog. Stay tuned for updates!
                 </p>
             </div>
         )
@@ -124,7 +124,7 @@ export function WorkflowsScene(): JSX.Element {
             disableClientSideRouting: true,
             to: api.integrations.authorizeUrl({
                 kind: 'slack',
-                next: urls.messaging('channels'),
+                next: urls.workflows('channels'),
             }),
         },
         {
@@ -143,7 +143,7 @@ export function WorkflowsScene(): JSX.Element {
             key: 'workflows',
             content: (
                 <>
-                    <p>Create automated messaging workflows triggered by events</p>
+                    <p>Create automated workflows workflows triggered by events</p>
                     <WorkflowsTable />
                 </>
             ),
@@ -171,26 +171,21 @@ export function WorkflowsScene(): JSX.Element {
     ]
 
     return (
-        <SceneContent className="messaging">
+        <SceneContent className="workflows">
             <SceneTitleSection
                 name="Workflows"
-                resourceType={{ type: 'messaging' }}
+                resourceType={{ type: 'workflows' }}
                 actions={
                     <>
                         {currentTab === 'workflows' && (
-                            <LemonButton
-                                data-attr="new-workflow"
-                                to={urls.messagingWorkflowNew()}
-                                type="primary"
-                                size="small"
-                            >
+                            <LemonButton data-attr="new-workflow" to={urls.workflowNew()} type="primary" size="small">
                                 New workflow
                             </LemonButton>
                         )}
                         {currentTab === 'library' && (
                             <LemonButton
                                 data-attr="new-message-button"
-                                to={urls.messagingLibraryTemplateNew()}
+                                to={urls.workflowsLibraryTemplateNew()}
                                 type="primary"
                                 size="small"
                             >

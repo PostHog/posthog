@@ -24,18 +24,18 @@ export interface MessageTemplate {
 }
 
 export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
-    path(['products', 'messaging', 'frontend', 'library', 'messageTemplatesLogic']),
+    path(['products', 'workflows', 'frontend', 'library', 'messageTemplatesLogic']),
     loaders(({ values, actions }) => ({
         templates: [
             [] as MessageTemplate[],
             {
                 loadTemplates: async () => {
-                    const response = await api.messaging.getTemplates()
+                    const response = await api.workflows.getTemplates()
                     return response.results
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
                     await deleteWithUndo({
-                        endpoint: `environments/@current/messaging_templates`,
+                        endpoint: `environments/@current/workflows_templates`,
                         object: {
                             id: template.id,
                             name: template.name,
@@ -50,7 +50,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 createTemplate: async ({ template }: { template: Partial<MessageTemplate> }) => {
                     try {
-                        const newTemplate = await api.messaging.createTemplate(template)
+                        const newTemplate = await api.workflows.createTemplate(template)
                         lemonToast.success('Template created successfully')
                         return [...values.templates, newTemplate]
                     } catch {
@@ -66,7 +66,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                     template: Partial<MessageTemplate>
                 }) => {
                     try {
-                        const updatedTemplate = await api.messaging.updateTemplate(templateId, template)
+                        const updatedTemplate = await api.workflows.updateTemplate(templateId, template)
                         lemonToast.success('Template updated successfully')
                         return values.templates.map((t: MessageTemplate) => (t.id === templateId ? updatedTemplate : t))
                     } catch {

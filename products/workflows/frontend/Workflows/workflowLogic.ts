@@ -104,7 +104,7 @@ export function sanitizeWorkflow(
 }
 
 export const workflowLogic = kea<workflowLogicType>([
-    path(['products', 'messaging', 'frontend', 'Workflows', 'workflowLogic']),
+    path(['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic']),
     props({ id: 'new' } as WorkflowLogicProps),
     key((props) => props.id || 'new'),
     actions({
@@ -323,7 +323,7 @@ export const workflowLogic = kea<workflowLogicType>([
             lemonToast.success('Workflow saved')
             if (props.id === 'new' && originalWorkflow.id) {
                 router.actions.replace(
-                    urls.messagingWorkflow(originalWorkflow.id, workflowSceneLogic.findMounted()?.values.currentTab)
+                    urls.workflow(originalWorkflow.id, workflowSceneLogic.findMounted()?.values.currentTab)
                 )
             }
 
