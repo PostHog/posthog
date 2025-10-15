@@ -233,112 +233,184 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         self, current_period_filter: ast.Expr, previous_period_filter: ast.Expr
     ) -> ast.SelectQuery:
         """
-        Query that follows the standard pattern from stats_table.py to_main_query().
-        Uses inner query grouped by session+breakdown, then aggregates with period comparison tuples.
+        Hybrid approach: pre-aggregated tables for visitors, raw events for conversions.
+        Much simpler than querying everything from raw events.
         """
-        # Build the inner query following _main_inner_query pattern
-        inner_query = self._conversion_inner_query()
+        # Build stats subquery from pre-aggregated table for visitor counts
+        stats_subquery = self._build_stats_subquery(current_period_filter, previous_period_filter)
 
-        # Build outer query with period comparison tuples like to_main_query
-        selects = [
-            ast.Alias(alias="context.columns.breakdown_value", expr=ast.Field(chain=["breakdown_value"])),
-            self._conversion_period_tuple("filtered_person_id", "context.columns.visitors", "uniq"),
-            self._conversion_period_tuple("conversion_count", "context.columns.total_conversions", "sum"),
-            self._conversion_period_tuple("conversion_person_id", "context.columns.unique_conversions", "uniq"),
-            ast.Alias(
-                alias="context.columns.conversion_rate",
-                expr=ast.Tuple(
-                    exprs=[
-                        parse_expr(
-                            "if(`context.columns.visitors`.1 = 0, NULL, `context.columns.unique_conversions`.1 / `context.columns.visitors`.1)"
-                        ),
-                        parse_expr(
-                            "if(`context.columns.visitors`.2 = 0, NULL, `context.columns.unique_conversions`.2 / `context.columns.visitors`.2)"
-                        ),
-                    ]
-                ),
+        # Build conversion subquery from raw events
+        conversion_subquery = self._build_conversion_subquery()
+
+        # Combine both queries
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+            SELECT
+                stats.breakdown_value as `context.columns.breakdown_value`,
+                tuple(stats.visitors_current, stats.visitors_previous) AS `context.columns.visitors`,
+                tuple(
+                    coalesce(conversions.total_conversions_current, 0),
+                    coalesce(conversions.total_conversions_previous, 0)
+                ) as `context.columns.total_conversions`,
+                tuple(
+                    coalesce(conversions.unique_conversions_current, 0),
+                    coalesce(conversions.unique_conversions_previous, 0)
+                ) as `context.columns.unique_conversions`,
+                tuple(
+                    if(stats.visitors_current = 0, NULL, conversions.unique_conversions_current / stats.visitors_current),
+                    if(stats.visitors_previous = 0, NULL, conversions.unique_conversions_previous / stats.visitors_previous)
+                ) as `context.columns.conversion_rate`
+            FROM {stats_subquery} as stats
+            LEFT JOIN {conversion_subquery} as conversions
+                ON stats.breakdown_value = conversions.breakdown_value
+            """,
+                placeholders={
+                    "stats_subquery": stats_subquery,
+                    "conversion_subquery": conversion_subquery,
+                },
             ),
-        ]
-
-        query = ast.SelectQuery(
-            select=selects,
-            select_from=ast.JoinExpr(table=inner_query),
-            group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
         )
 
         return query
 
-    def _conversion_inner_query(self) -> ast.SelectQuery:
-        """Build inner query that mirrors _main_inner_query from stats_table.py"""
+    def _build_stats_subquery(
+        self, current_period_filter: ast.Expr, previous_period_filter: ast.Expr
+    ) -> ast.SelectQuery:
+        """
+        Query pre-aggregated table for visitor counts per breakdown.
+        Uses the same breakdown expression as raw events to ensure JOIN matches.
+        """
+        # Use runner's breakdown logic to ensure consistency with conversion subquery
+        breakdown_expr = self._get_breakdown_field()
+
+        stats_select_columns = [
+            ast.Alias(alias="breakdown_value", expr=breakdown_expr),
+            ast.Alias(
+                alias="visitors_current",
+                expr=ast.Call(
+                    name="uniqMergeIf",
+                    args=[ast.Field(chain=["persons_uniq_state"]), current_period_filter],
+                ),
+            ),
+            ast.Alias(
+                alias="visitors_previous",
+                expr=ast.Call(
+                    name="uniqMergeIf",
+                    args=[ast.Field(chain=["persons_uniq_state"]), previous_period_filter],
+                )
+                if self.runner.query_compare_to_date_range
+                else ast.Constant(value=0),
+            ),
+        ]
+
+        stats_query = ast.SelectQuery(
+            select=stats_select_columns,
+            select_from=ast.JoinExpr(table=ast.Field(chain=[self.stats_table])),
+            where=self._get_filters(table_name=self.stats_table),
+            group_by=[breakdown_expr],
+        )
+
+        return stats_query
+
+    def _build_conversion_subquery(self) -> ast.SelectQuery:
+        """Build subquery that gets conversion counts from raw events, grouped by breakdown"""
         # Get breakdown value using the runner's existing method
         breakdown = self.runner._counts_breakdown_value()
 
-        query = parse_select(
+        # Inner query: group by session and breakdown, count conversions per session
+        inner_query = parse_select(
             """
             SELECT
-                any(person_id) AS filtered_person_id,
                 {breakdown_value} AS breakdown_value,
                 session.session_id AS session_id,
-                min(session.$start_timestamp) as start_timestamp
+                min(session.$start_timestamp) as start_timestamp,
+                {conversion_count} as conversion_count,
+                {conversion_person_id} as conversion_person_id
             FROM events
-            WHERE and({inside_periods}, {event_where}, {all_properties}, {where_breakdown})
+            WHERE and(
+                {events_session_id} IS NOT NULL,
+                {event_type_expr},
+                {inside_timestamp_period},
+                {all_properties},
+                {where_breakdown}
+            )
             GROUP BY session_id, breakdown_value
             """,
             placeholders={
                 "breakdown_value": breakdown,
-                "event_where": self.runner.event_type_expr,
+                "conversion_count": self.runner.conversion_count_expr or ast.Constant(value=0),
+                "conversion_person_id": self.runner.conversion_person_id_expr or ast.Constant(value=None),
+                "events_session_id": self.runner.events_session_property,
+                "event_type_expr": self.runner.event_type_expr,
+                "inside_timestamp_period": self.runner._periods_expression("timestamp"),
                 "all_properties": property_to_expr(
                     self.runner.query.properties + self.runner._test_account_filters, team=self.runner.team
                 ),
                 "where_breakdown": self.runner.where_breakdown(),
-                "inside_periods": self.runner._periods_expression("timestamp"),
             },
         )
 
-        assert isinstance(query, ast.SelectQuery)
+        assert isinstance(inner_query, ast.SelectQuery)
 
-        # Add conversion fields just like _main_inner_query does
-        if self.runner.conversion_count_expr and self.runner.conversion_person_id_expr:
-            query.select.append(ast.Alias(alias="conversion_count", expr=self.runner.conversion_count_expr))
-            query.select.append(ast.Alias(alias="conversion_person_id", expr=self.runner.conversion_person_id_expr))
-
-        return query
-
-    def _conversion_period_tuple(self, column: str, alias: str, function_name: str) -> ast.Alias:
-        """Create period comparison tuple for conversion queries"""
-        return ast.Alias(
-            alias=alias,
-            expr=ast.Tuple(
-                exprs=[
-                    self._conversion_current_period_agg(function_name, column),
-                    self._conversion_previous_period_agg(function_name, column),
-                ]
+        # Outer query: aggregate conversions per breakdown with period filtering
+        conversion_select_columns = [
+            ast.Alias(alias="breakdown_value", expr=ast.Field(chain=["breakdown_value"])),
+            ast.Alias(
+                alias="total_conversions_current",
+                expr=ast.Call(
+                    name="sumIf",
+                    args=[
+                        ast.Field(chain=["conversion_count"]),
+                        self.runner._current_period_expression("start_timestamp"),
+                    ],
+                ),
             ),
+            ast.Alias(
+                alias="total_conversions_previous",
+                expr=ast.Call(
+                    name="sumIf",
+                    args=[
+                        ast.Field(chain=["conversion_count"]),
+                        self.runner._previous_period_expression("start_timestamp"),
+                    ],
+                )
+                if self.runner.query_compare_to_date_range
+                else ast.Constant(value=0),
+            ),
+            ast.Alias(
+                alias="unique_conversions_current",
+                expr=ast.Call(
+                    name="uniqIf",
+                    args=[
+                        ast.Field(chain=["conversion_person_id"]),
+                        self.runner._current_period_expression("start_timestamp"),
+                    ],
+                ),
+            ),
+            ast.Alias(
+                alias="unique_conversions_previous",
+                expr=ast.Call(
+                    name="uniqIf",
+                    args=[
+                        ast.Field(chain=["conversion_person_id"]),
+                        self.runner._previous_period_expression("start_timestamp"),
+                    ],
+                )
+                if self.runner.query_compare_to_date_range
+                else ast.Constant(value=0),
+            ),
+        ]
+
+        outer_query = ast.SelectQuery(
+            select=conversion_select_columns,
+            select_from=ast.JoinExpr(table=inner_query),
+            where=self.runner._periods_expression("start_timestamp"),
+            group_by=[ast.Field(chain=["breakdown_value"])],
         )
 
-    def _conversion_current_period_agg(self, function_name: str, column_name: str) -> ast.Call:
-        if not self.runner.query_compare_to_date_range:
-            return ast.Call(name=function_name, args=[ast.Field(chain=[column_name])])
-
-        return ast.Call(
-            name=f"{function_name}If",
-            args=[
-                ast.Field(chain=[column_name]),
-                self.runner._current_period_expression("start_timestamp"),
-            ],
-        )
-
-    def _conversion_previous_period_agg(self, function_name: str, column_name: str) -> ast.Expr:
-        if not self.runner.query_compare_to_date_range:
-            return ast.Constant(value=None)
-
-        return ast.Call(
-            name=f"{function_name}If",
-            args=[
-                ast.Field(chain=[column_name]),
-                self.runner._previous_period_expression("start_timestamp"),
-            ],
-        )
+        return outer_query
 
     def get_query(self) -> ast.SelectQuery:
         # For conversion goals, use the default breakdown query which supports conversions
@@ -437,6 +509,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
     @_nullif_empty_decorator
     def _get_breakdown_field(self):
         match self.runner.query.breakdownBy:
+            case WebStatsBreakdown.PAGE:
+                return self._apply_path_cleaning(ast.Field(chain=["pathname"]))
+            case WebStatsBreakdown.INITIAL_PAGE:
+                return self._apply_path_cleaning(ast.Field(chain=["entry_pathname"]))
             case WebStatsBreakdown.DEVICE_TYPE:
                 return ast.Field(chain=["device_type"])
             case WebStatsBreakdown.BROWSER:
