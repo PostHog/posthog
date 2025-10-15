@@ -1,8 +1,4 @@
 import type { DecompressionResponse } from './decompressionWorker'
-// Vite handles the ?worker&url import syntax at build time
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-expect-error - Vite special import syntax
-import DecompressionWorkerUrl from './decompressionWorker?worker&url'
 
 export class DecompressionWorkerManager {
     private worker: Worker | null = null
@@ -17,9 +13,13 @@ export class DecompressionWorkerManager {
     private async initWorker(): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
-                // Use Vite's worker URL import to get the correct URL for both dev and production
-                // In production, this will be a hashed .js file; in dev, it will be the .ts file
-                const js = `import ${JSON.stringify(DecompressionWorkerUrl)}`
+                // Detect file extension based on current module
+                // In dev: DecompressionWorkerManager.ts -> decompressionWorker.ts
+                // In prod: DecompressionWorkerManager-[hash].js -> decompressionWorker-[hash].js
+                const currentUrl = import.meta.url
+                const extension = currentUrl.includes('.ts') ? 'ts' : 'js'
+                const workerUrl = new URL(`./decompressionWorker.${extension}?worker_file&type=module`, import.meta.url)
+                const js = `import ${JSON.stringify(workerUrl.href)}`
                 // Use blob workaround for cross-origin worker loading in development
                 // See: https://github.com/vitejs/vite/issues/13680
                 const blob = new Blob([js], { type: 'application/javascript' })
