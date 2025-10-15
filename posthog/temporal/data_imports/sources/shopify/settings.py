@@ -1,12 +1,12 @@
 from posthog.temporal.data_imports.sources.shopify.constants import (
-    ABANDONED_CHECKOUTS_RESOURCE_NAME,
-    ARTICLES_RESOURCE_NAME,
-    SHOPIFY_PAYMENTS_BALANCE_TRANSACTIONS_RESOURCE_NAME,
+    ABANDONED_CHECKOUTS,
+    ARTICLES,
+    SHOPIFY_PAYMENTS_BALANCE_TRANSACTIONS,
 )
 from posthog.warehouse.types import IncrementalField
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    ABANDONED_CHECKOUTS_RESOURCE_NAME: [
+    ABANDONED_CHECKOUTS: [
         # {
         #     "label": "created_at",
         #     "type": IncrementalFieldType.DateTime,
@@ -14,6 +14,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         #     "field_type": IncrementalFieldType.Integer,
         # }
     ],
-    ARTICLES_RESOURCE_NAME: [],
-    SHOPIFY_PAYMENTS_BALANCE_TRANSACTIONS_RESOURCE_NAME: [],
+    ARTICLES: [],
+    SHOPIFY_PAYMENTS_BALANCE_TRANSACTIONS: [],
 }
