@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
-import { ChannelSetupModal } from 'products/messaging/frontend/Channels/ChannelSetupModal'
+import { ChannelSetupModal } from 'products/workflows/frontend/Channels/ChannelSetupModal'
 
 export type IntegrationConfigureProps = {
     value?: number
