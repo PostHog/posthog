@@ -290,7 +290,6 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'

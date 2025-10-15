@@ -38,12 +38,18 @@ impl RawJavaFrame {
 
 impl From<&RawJavaFrame> for Frame {
     fn from(raw: &RawJavaFrame) -> Self {
+        let source = raw
+            .filename
+            .as_ref()
+            .map(|s| format!("{}:{}", raw.module, s))
+            .unwrap_or_else(|| raw.module.clone());
+
         let mut f = Frame {
             raw_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno,
             column: None,
-            source: raw.filename.clone(),
+            source: Some(source),
             in_app: raw.meta.in_app,
             resolved_name: Some(raw.function.clone()),
             lang: "java".to_string(),

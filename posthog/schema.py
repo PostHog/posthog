@@ -198,6 +198,7 @@ class AssistantHogQLQuery(BaseModel):
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
     TOOL = "tool"
+    CONTEXT = "context"
     AI = "ai"
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
@@ -451,6 +452,7 @@ class BaseAssistantMessage(BaseModel):
         extra="forbid",
     )
     id: Optional[str] = None
+    visible: Optional[bool] = None
 
 
 class BaseMathType(StrEnum):
@@ -615,6 +617,16 @@ class ConditionalFormattingRule(BaseModel):
     id: str
     input: str
     templateId: str
+
+
+class ContextMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: Optional[str] = None
+    type: Literal["context"] = "context"
+    visible: Optional[bool] = None
 
 
 class CountPerActorMathType(StrEnum):
@@ -1288,6 +1300,7 @@ class ExternalDataSourceType(StrEnum):
     LINKEDIN_ADS = "LinkedinAds"
     REDDIT_ADS = "RedditAds"
     TIK_TOK_ADS = "TikTokAds"
+    SHOPIFY = "Shopify"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1307,6 +1320,7 @@ class FailureMessage(BaseModel):
     content: Optional[str] = None
     id: Optional[str] = None
     type: Literal["ai/failure"] = "ai/failure"
+    visible: Optional[bool] = None
 
 
 class FileSystemCount(BaseModel):
@@ -1345,6 +1359,7 @@ class FileSystemEntry(BaseModel):
 
 
 class FileSystemIconType(StrEnum):
+    DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
     LLM_ANALYTICS = "llm_analytics"
     PRODUCT_ANALYTICS = "product_analytics"
@@ -1376,7 +1391,8 @@ class FileSystemIconType(StrEnum):
     EVENT_DEFINITION = "event_definition"
     PROPERTY_DEFINITION = "property_definition"
     INGESTION_WARNING = "ingestion_warning"
-    PERSON = "person"
+    PERSONS = "persons"
+    USER = "user"
     COHORT = "cohort"
     GROUP = "group"
     INSIGHT_FUNNELS = "insight/funnels"
@@ -1388,6 +1404,8 @@ class FileSystemIconType(StrEnum):
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
     HOME = "home"
+    APPS = "apps"
+    LIVE = "live"
 
 
 class FileSystemImport(BaseModel):
@@ -2242,6 +2260,7 @@ class ReasoningMessage(BaseModel):
     id: Optional[str] = None
     substeps: Optional[list[str]] = None
     type: Literal["ai/reasoning"] = "ai/reasoning"
+    visible: Optional[bool] = None
 
 
 class RecordingDurationFilter(BaseModel):
@@ -2266,6 +2285,7 @@ class RecordingOrder(StrEnum):
     KEYPRESS_COUNT = "keypress_count"
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
+    RECORDING_TTL = "recording_ttl"
 
 
 class RecordingOrderDirection(StrEnum):
@@ -2342,6 +2362,11 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
+
+
+class TimeWindowMode(StrEnum):
+    STRICT_CALENDAR_DATES = "strict_calendar_dates"
+    FIELD_24_HOUR_WINDOWS = "24_hour_windows"
 
 
 class RetentionPeriod(StrEnum):
@@ -3385,6 +3410,7 @@ class AssistantMessageMetadata(BaseModel):
         extra="forbid",
     )
     form: Optional[AssistantForm] = None
+    thinking: Optional[list[dict[str, Any]]] = None
 
 
 class AssistantNumericValuePropertyFilter(BaseModel):
@@ -4184,7 +4210,7 @@ class LogMessage(BaseModel):
     instrumentation_scope: str
     level: LogSeverityLevel
     observed_timestamp: datetime
-    resource: str
+    resource_attributes: Any
     severity_number: float
     severity_text: LogSeverityLevel
     span_id: str
@@ -4263,6 +4289,7 @@ class NotebookUpdateMessage(BaseModel):
     notebook_type: Literal["deep_research"] = "deep_research"
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai/notebook"] = "ai/notebook"
+    visible: Optional[bool] = None
 
 
 class PathsFilter(BaseModel):
@@ -4803,6 +4830,7 @@ class SessionRecordingType(BaseModel):
     distinct_id: Optional[str] = None
     email: Optional[str] = None
     end_time: str = Field(..., description="When the recording ends in ISO format.")
+    expiry_time: Optional[str] = Field(default=None, description="When the recording expires, in ISO format.")
     id: str
     inactive_seconds: Optional[float] = None
     keypress_count: Optional[float] = None
@@ -4819,6 +4847,9 @@ class SessionRecordingType(BaseModel):
     )
     person: Optional[PersonType] = None
     recording_duration: float = Field(..., description="Length of recording in seconds.")
+    recording_ttl: Optional[float] = Field(
+        default=None, description="Number of whole days left until the recording expires."
+    )
     retention_period_days: Optional[float] = Field(default=None, description="retention period for this recording")
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
@@ -5046,6 +5077,7 @@ class TaskExecutionMessage(BaseModel):
     id: Optional[str] = None
     tasks: list[TaskExecutionItem]
     type: Literal["ai/task_execution"] = "ai/task_execution"
+    visible: Optional[bool] = None
 
 
 class TeamTaxonomyItem(BaseModel):
@@ -5782,6 +5814,7 @@ class AssistantMessage(BaseModel):
     meta: Optional[AssistantMessageMetadata] = None
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai"] = "ai"
+    visible: Optional[bool] = None
 
 
 class AssistantRetentionFilter(BaseModel):
@@ -6427,7 +6460,7 @@ class CachedLogsQueryResponse(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: Any
+    results: list[LogMessage]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -9246,7 +9279,7 @@ class LogsQueryResponse(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: Any
+    results: list[LogMessage]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -9447,6 +9480,7 @@ class PlanningMessage(BaseModel):
     id: Optional[str] = None
     steps: list[PlanningStep]
     type: Literal["ai/planning"] = "ai/planning"
+    visible: Optional[bool] = None
 
 
 class PropertyGroupFilterValue(BaseModel):
@@ -10693,7 +10727,7 @@ class QueryResponseAlternative65(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: Any
+    results: list[LogMessage]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -10910,6 +10944,9 @@ class RetentionFilter(BaseModel):
     returningEntity: Optional[RetentionEntity] = None
     showTrendLines: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
+    timeWindowMode: Optional[TimeWindowMode] = Field(
+        default=None, description="The time window mode to use for retention calculations"
+    )
     totalIntervals: Optional[int] = 8
 
 
@@ -14231,6 +14268,7 @@ class VisualizationMessage(BaseModel):
     query: Optional[str] = ""
     short_id: Optional[str] = None
     type: Literal["ai/viz"] = "ai/viz"
+    visible: Optional[bool] = None
 
 
 class DatabaseSchemaQueryResponse(BaseModel):
@@ -14319,6 +14357,7 @@ class MultiVisualizationMessage(BaseModel):
     commentary: Optional[str] = None
     id: Optional[str] = None
     type: Literal["ai/multi_viz"] = "ai/multi_viz"
+    visible: Optional[bool] = None
     visualizations: list[VisualizationItem]
 
 
@@ -14773,6 +14812,7 @@ class DataTableNode(BaseModel):
         TracesQuery,
         TraceQuery,
     ] = Field(..., description="Source of the events")
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -14923,6 +14963,7 @@ class HumanMessage(BaseModel):
     id: Optional[str] = None
     type: Literal["human"] = "human"
     ui_context: Optional[MaxUIContext] = None
+    visible: Optional[bool] = None
 
 
 class MaxDashboardContext(BaseModel):

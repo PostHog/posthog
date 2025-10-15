@@ -112,6 +112,8 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
 
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
+    const appNamespace = properties.$app_namespace
+    const appVersion = properties.$app_version
 
     return {
         type,
@@ -129,6 +131,8 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         handled,
         level,
         ingestionErrors,
+        appNamespace,
+        appVersion,
     }
 }
 

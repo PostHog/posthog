@@ -9,6 +9,7 @@ import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItemIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -57,22 +58,28 @@ function ShowDropDownMenu(): JSX.Element {
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-                <DropdownMenuCheckboxItem
-                    checked={showAdditionalProperties}
-                    onCheckedChange={setShowAdditionalProperties}
-                    asChild
-                >
-                    <ButtonPrimitive menuItem size="sm">
-                        <DropdownMenuItemIndicator intent="checkbox" />
-                        Additional properties
-                    </ButtonPrimitive>
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem checked={showJSONProperties} onCheckedChange={setShowJSONProperties} asChild>
-                    <ButtonPrimitive menuItem size="sm">
-                        <DropdownMenuItemIndicator intent="checkbox" />
-                        As JSON
-                    </ButtonPrimitive>
-                </DropdownMenuCheckboxItem>
+                <DropdownMenuGroup>
+                    <DropdownMenuCheckboxItem
+                        checked={showAdditionalProperties}
+                        onCheckedChange={setShowAdditionalProperties}
+                        asChild
+                    >
+                        <ButtonPrimitive menuItem size="sm">
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            Additional properties
+                        </ButtonPrimitive>
+                    </DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem
+                        checked={showJSONProperties}
+                        onCheckedChange={setShowJSONProperties}
+                        asChild
+                    >
+                        <ButtonPrimitive menuItem size="sm">
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            As JSON
+                        </ButtonPrimitive>
+                    </DropdownMenuCheckboxItem>
+                </DropdownMenuGroup>
             </DropdownMenuContent>
         </DropdownMenu>
     )
