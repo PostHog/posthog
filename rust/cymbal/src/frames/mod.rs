@@ -133,7 +133,9 @@ pub struct Frame {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub column: Option<u32>, // Column the function is defined on, if known
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>, // Generally, the file or module the function is defined in. Not always a path!.
+    pub source: Option<String>, // Generally, the file name or source file path the function is defined in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module: Option<String>, // The module the function is defined in, if known. Can include things like class names, namespaces, etc.
     pub in_app: bool, // We hard-require clients to tell us this?
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved_name: Option<String>, // The name of the function, after symbolification
