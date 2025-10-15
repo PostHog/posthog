@@ -353,3 +353,94 @@ class TestSCIMAPI(APILicensedTest):
         # User should now be member of both orgs
         assert OrganizationMembership.objects.filter(user=existing_user, organization=self.organization).exists()
         assert OrganizationMembership.objects.filter(user=existing_user, organization=other_org).exists()
+
+    def test_repeated_post_does_not_create_duplicate_user(self):
+        # In case the IdP failed to match user by id, it can send POST request to create a new user.
+        # The user should be merged with existing one by email, not create a duplicate.
+        user_data_first = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "repeat@example.com",
+            "name": {"givenName": "First", "familyName": "Time"},
+            "emails": [{"value": "repeat@example.com", "primary": True}],
+            "active": True,
+        }
+
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data_first, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        first_user = User.objects.get(email="repeat@example.com")
+
+        # IdP sends POST request again with same email
+        user_data_second = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "repeat@example.com",
+            "name": {"givenName": "Second", "familyName": "Time"},
+            "emails": [{"value": "repeat@example.com", "primary": True}],
+            "active": True,
+        }
+
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data_second, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # Should NOT create duplicate user
+        assert User.objects.filter(email="repeat@example.com").count() == 1
+
+        # User should be updated with new data from second POST
+        first_user.refresh_from_db()
+        assert first_user.first_name == "Second"
+        assert first_user.last_name == "Time"
+
+        # User should have only one membership
+        assert OrganizationMembership.objects.filter(user=first_user, organization=self.organization).count() == 1
+
+    def test_repeated_post_does_not_create_duplicate_group(self):
+        from ee.models.rbac.role import Role, RoleMembership
+
+        # In case the IdP failed to match group by id, it can send POST request to create a new group.
+        # The group should be merged with existing one by name, not create a duplicate.
+
+        user = User.objects.create_user(
+            email="groupmember@example.com", password=None, first_name="Member", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        # IdP sends POST request to create group (first time)
+        group_data_first = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+            "displayName": "Developers",
+            "members": [{"value": str(user.id)}],
+        }
+
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Groups", data=group_data_first, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        first_role = Role.objects.get(name="Developers", organization=self.organization)
+        assert RoleMembership.objects.filter(role=first_role, user=user).exists()
+
+        # IdP sends POST request again with same displayName (second time)
+        group_data_second = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+            "displayName": "Developers",
+            "members": [],
+        }
+
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Groups", data=group_data_second, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # Should NOT create duplicate group
+        assert Role.objects.filter(name="Developers", organization=self.organization).count() == 1
+
+        # Members should be updated (removed in second POST)
+        assert not RoleMembership.objects.filter(role=first_role, user=user).exists()
