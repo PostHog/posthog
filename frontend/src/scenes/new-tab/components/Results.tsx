@@ -80,7 +80,7 @@ function Category({
                         )
                     })()}
                 </div>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-0.25">
                     {(category === 'recents' || newTabSceneData) && typedItems.length === 0 ? (
                         // Special handling for empty project items and persons
                         <div className="flex flex-col gap-2 text-tertiary text-balance">
@@ -254,7 +254,7 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
                         )
                     })()}
                 </div>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-0.25">
                     {selectedCategory === 'recents' && typedItems.length === 0 ? (
                         // Special handling for empty project items and persons
                         <div className="flex flex-col gap-2 text-tertiary text-balance">
@@ -365,9 +365,17 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
 
     return (
         <>
-            {allCategories.map(([category, items], columnIndex) => (
-                <Category tabId={tabId} items={items} category={category} columnIndex={columnIndex} key={category} />
-            ))}
+            {allCategories
+                .filter(([_, items]) => items.length > 0)
+                .map(([category, items], columnIndex) => (
+                    <Category
+                        tabId={tabId}
+                        items={items}
+                        category={category}
+                        columnIndex={columnIndex}
+                        key={category}
+                    />
+                ))}
         </>
     )
 }
