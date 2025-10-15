@@ -1548,6 +1548,8 @@ export interface EventType {
     elements: ElementType[]
     elements_chain?: string | null
     uuid?: string
+    person_id?: string
+    person_mode?: string
 }
 
 export interface LiveEvent {
