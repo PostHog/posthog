@@ -14,6 +14,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
@@ -161,26 +162,28 @@ const IssueStatusSelect = ({
                 </DropdownMenuTrigger>
 
                 <DropdownMenuContent loop matchTriggerWidth>
-                    {status === 'active' ? (
-                        <>
+                    <DropdownMenuGroup>
+                        {status === 'active' ? (
+                            <>
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive menuItem onClick={() => onChange('resolved')}>
+                                        <StatusIndicator status="resolved" intent />
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive menuItem onClick={() => onChange('suppressed')}>
+                                        <StatusIndicator status="suppressed" intent />
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            </>
+                        ) : (
                             <DropdownMenuItem asChild>
-                                <ButtonPrimitive menuItem onClick={() => onChange('resolved')}>
-                                    <StatusIndicator status="resolved" intent />
+                                <ButtonPrimitive menuItem onClick={() => onChange('active')}>
+                                    <StatusIndicator status="active" intent />
                                 </ButtonPrimitive>
                             </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                                <ButtonPrimitive menuItem onClick={() => onChange('suppressed')}>
-                                    <StatusIndicator status="suppressed" intent />
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
-                        </>
-                    ) : (
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive menuItem onClick={() => onChange('active')}>
-                                <StatusIndicator status="active" intent />
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    )}
+                        )}
+                    </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
         </ScenePanelLabel>

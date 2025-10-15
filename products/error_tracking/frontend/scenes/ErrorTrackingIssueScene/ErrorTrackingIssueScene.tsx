@@ -11,6 +11,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -76,17 +77,19 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                             </DropdownMenuTrigger>
 
                             <DropdownMenuContent loop align="end">
-                                <DropdownMenuItem asChild>
-                                    <ButtonPrimitive
-                                        size="base"
-                                        menuItem
-                                        onClick={() =>
-                                            router.actions.push(urls.errorTrackingIssueFingerprints(issueId))
-                                        }
-                                    >
-                                        Split issue
-                                    </ButtonPrimitive>
-                                </DropdownMenuItem>
+                                <DropdownMenuGroup>
+                                    <DropdownMenuItem asChild>
+                                        <ButtonPrimitive
+                                            size="base"
+                                            menuItem
+                                            onClick={() =>
+                                                router.actions.push(urls.errorTrackingIssueFingerprints(issueId))
+                                            }
+                                        >
+                                            Split issue
+                                        </ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                </DropdownMenuGroup>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     )}
