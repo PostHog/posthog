@@ -173,7 +173,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     mode="multiple"
                                     options={categoryOptions}
                                     value={selectedDestinations}
-                                    placeholder="Auto"
+                                    placeholder="Everything"
                                     onChange={handleDestinationChange}
                                     onBlur={() => {
                                         if (pendingCategoryReturn) {
