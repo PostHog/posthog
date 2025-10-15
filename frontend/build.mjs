@@ -81,6 +81,7 @@ await buildInParallel(
                             'lib/hog',
                             'scenes/activity/explore/EventDetails',
                             'scenes/web-analytics/WebAnalyticsDashboard',
+                            'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts',
                         ]
 
                         // Patterns to match for denying imports
@@ -122,8 +123,8 @@ await buildInParallel(
                                                 args.path
                                             )});
                                         }
-                                        return function() { 
-                                            return {} 
+                                        return function() {
+                                            return {}
                                         }
                                     }
                                 });
