@@ -54,7 +54,7 @@ pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
                     s.chunk_id
                 );
             }
-            s.data.len() < MAX_FILE_SIZE
+            s.data.len() <= MAX_FILE_SIZE
         })
         .collect();
 
