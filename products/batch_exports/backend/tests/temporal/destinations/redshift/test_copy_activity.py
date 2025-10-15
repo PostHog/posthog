@@ -14,9 +14,9 @@ from posthog.temporal.tests.utils.persons import (
 )
 
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
+    AWSCredentials,
     ConnectionParameters,
     CopyParameters,
-    Credentials,
     RedshiftCopyActivityInputs,
     S3StageBucketParameters,
     TableParameters,
@@ -67,7 +67,7 @@ async def _run_activity(
     bucket_name: str,
     bucket_region: str,
     key_prefix: str,
-    credentials: Credentials,
+    credentials: AWSCredentials,
     properties_data_type: str,
     batch_export_model: BatchExportModel | None = None,
     batch_export_schema: BatchExportSchema | None = None,

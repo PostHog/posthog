@@ -8,7 +8,7 @@ from django.conf import settings
 import psycopg
 import aioboto3
 
-from products.batch_exports.backend.temporal.destinations.redshift_batch_export import Credentials
+from products.batch_exports.backend.temporal.destinations.redshift_batch_export import AWSCredentials
 from products.batch_exports.backend.tests.temporal.destinations.redshift.utils import MISSING_REQUIRED_ENV_VARS
 
 
@@ -102,14 +102,14 @@ def bucket_region() -> str | None:
 
 
 @pytest.fixture
-def aws_credentials() -> Credentials | None:
+def aws_credentials() -> AWSCredentials | None:
     """AWS credentials to test Redshift copy activity with an S3 bucket."""
     aws_access_key_id, aws_secret_access_key = os.getenv("AWS_ACCESS_KEY_ID"), os.getenv("AWS_SECRET_ACCESS_KEY")
 
     if not aws_access_key_id or not aws_secret_access_key:
         return None
 
-    return Credentials(aws_access_key_id, aws_secret_access_key)
+    return AWSCredentials(aws_access_key_id, aws_secret_access_key)
 
 
 @pytest.fixture
