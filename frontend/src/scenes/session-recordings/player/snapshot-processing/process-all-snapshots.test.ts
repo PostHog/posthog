@@ -240,6 +240,8 @@ describe('process all snapshots', () => {
 
             const result = await parseEncodedSnapshots([snapshotJson], sessionId)
 
+            // Add debugging to see what we actually got
+
             // Should detect as mobile and create synthetic full snapshot
             expect(result.length).toBeGreaterThan(0)
             expect(result[0].windowId).toBe('1')
