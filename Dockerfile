@@ -10,7 +10,8 @@
 #
 # - frontend-build: build the frontend (static assets)
 # - plugin-server-build: build plugin-server (Node.js app) & fetch its runtime dependencies
-# - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
+# - posthog-build: fetch PostHog (Django app) dependencies
+# - collectstatic-build: build Django collectstatic (depends on posthog-build + frontend-build)
 # - fetch-geoip-db: fetch the GeoIP database
 #
 # In the last stage, we import the artifacts from the previous
@@ -130,7 +131,9 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # We install those dependencies on a custom folder that we will
 # then copy to the last image.
 COPY pyproject.toml uv.lock ./
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     "build-essential" \
     "git" \
@@ -139,14 +142,20 @@ RUN apt-get update && \
     "libxmlsec1-dev" \
     "libffi-dev" \
     "zlib1g-dev" \
-    "pkg-config" \
-    && \
-    rm -rf /var/lib/apt/lists/* && \
+    "pkg-config"
+
+RUN --mount=type=cache,target=/root/.cache/uv \
     pip install uv~=0.7.0 --no-cache-dir && \
-    UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
+    UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
+
+
+#
+# ---------------------------------------------------------
+#
+FROM posthog-build AS collectstatic-build
 
 # Add in Django deps and generate Django's static files.
 COPY manage.py manage.py
@@ -156,7 +165,7 @@ COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
-RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput --parallel
 
 
 
@@ -191,8 +200,10 @@ ENV PYTHONUNBUFFERED 1
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
-# Add Confluent's client repository for librdkafka runtime
-RUN apt-get update && \
+# Add Confluent's client repository for librdkafka runtime and install all packages in one operation
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     "wget" \
     "gnupg" \
@@ -200,6 +211,8 @@ RUN apt-get update && \
     mkdir -p /etc/apt/keyrings && \
     wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
+    curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc && \
+    curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
     "chromium" \
@@ -215,19 +228,13 @@ RUN apt-get update && \
     "libssl-dev=3.0.17-1~deb12u2" \
     "libssl3=3.0.17-1~deb12u2" \
     && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install MS SQL dependencies
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc && \
-    curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list && \
-    apt-get update && \
-    ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
-    rm -rf /var/lib/apt/lists/*
+    ACCEPT_EULA=Y apt-get install -y msodbcsql18
 
 # Install Node.js 22.17.1 with architecture detection and verification
 ENV NODE_VERSION 22.17.1
 
-RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
+RUN --mount=type=cache,target=/tmp/node-cache \
+  ARCH= && dpkgArch="$(dpkg --print-architecture)" \
   && case "${dpkgArch##*-}" in \
     amd64) ARCH='x64';; \
     ppc64el) ARCH='ppc64le';; \
@@ -263,8 +270,7 @@ RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
   && rm "node-v$NODE_VERSION-linux-$ARCH.tar.xz" SHASUMS256.txt.asc SHASUMS256.txt \
   && ln -s /usr/local/bin/node /usr/local/bin/nodejs \
   && node --version \
-  && npm --version \
-  && rm -rf /tmp/*
+  && npm --version
 
 # Install and use a non-root user.
 RUN groupadd -g 1000 posthog && \
@@ -291,15 +297,17 @@ COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/assets /code/plugin-server/assets
 
-# Copy the Python dependencies and Django staticfiles from the posthog-build stage.
-COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
+# Copy the Python dependencies and Django staticfiles from the collectstatic-build stage.
+COPY --from=collectstatic-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
 COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
-# Install Playwright Chromium browser for video export (as root for system deps)
+# Install Playwright Chromium browser for video export
+# Chromium is already installed via apt (line 217), so only install browser binaries
 USER root
-RUN /python-runtime/bin/python -m playwright install --with-deps chromium
+RUN --mount=type=cache,target=/root/.cache/ms-playwright \
+    /python-runtime/bin/python -m playwright install chromium
 USER posthog
 
 # Validate video export dependencies
