@@ -58,6 +58,13 @@
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
             "label": "Person ID"
         },
+        "person_mode": {
+            "description": "Person processing mode for the event (full, propertyless, or force_upgrade)",
+            "examples": ["full", "propertyless", "force_upgrade"],
+            "ignored_in_assistant": true,
+            "label": "Person mode",
+            "system": true
+        },
         "timestamp": {
             "description": "Time the event happened.",
             "examples": ["2023-05-20T15:30:00Z"],
@@ -1792,7 +1799,7 @@
             "label": "AI embedding (LLM)"
         },
         "$ai_evaluation": {
-            "description": "An automated evaluation of an AI event. Contains the verdict, target event, and evaluation metadata.",
+            "description": "An evaluation of an AI event. Contains the result of the evaluation, the target event, and the evaluation metadata.",
             "label": "AI evaluation (LLM)"
         },
         "$ai_feedback": {
@@ -1991,6 +1998,13 @@
             "description": "The ID of the person, depending on the person properties mode.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
             "label": "Person ID"
+        },
+        "person_mode": {
+            "description": "Person processing mode for the event (full, propertyless, or force_upgrade)",
+            "examples": ["full", "propertyless", "force_upgrade"],
+            "ignored_in_assistant": true,
+            "label": "Person mode",
+            "system": true
         },
         "timestamp": {
             "description": "Time the event happened.",

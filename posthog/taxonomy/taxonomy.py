@@ -321,6 +321,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The ID of the person, depending on the person properties mode.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"],
         },
+        "person_mode": {
+            "label": "Person mode",
+            "description": "The person mode determined during ingestion: full (identified user with properties), propertyless (anonymous user), or force_upgrade (anonymous event linked to an already identified user). Used in usage reports.",
+            "examples": ["full", "propertyless", "force_upgrade"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
     },
     "event_properties": {
         "$session_recording_masking": {
@@ -2362,7 +2369,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["distinct_id"] = CORE_FILTE
 
 # copy meta properties to event_metadata
 CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"] = {}
-for key in ["distinct_id", "timestamp", "event", "person_id"]:
+for key in ["distinct_id", "timestamp", "event", "person_id", "person_mode"]:
     CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"][key] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][key]
 
 
