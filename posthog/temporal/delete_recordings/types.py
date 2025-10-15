@@ -22,9 +22,20 @@ class RecordingsWithPersonInput:
     batch_size: int = 100
 
 
+@dataclass(frozen=True)
+class RecordingBlockGroup:
+    recording: Recording
+    block_url: str
+    ranges: list[tuple[int, int]]
+
+
 class DeleteRecordingError(Exception):
     pass
 
 
 class LoadRecordingError(Exception):
+    pass
+
+
+class GroupRecordingError(Exception):
     pass

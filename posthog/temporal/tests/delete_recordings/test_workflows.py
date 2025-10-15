@@ -11,7 +11,7 @@ from temporalio.worker import Worker
 
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.temporal.delete_recordings.activities import group_recording_blocks
-from posthog.temporal.delete_recordings.types import Recording, RecordingsWithPersonInput, RecordingWithBlocks
+from posthog.temporal.delete_recordings.types import Recording, RecordingBlockGroup, RecordingsWithPersonInput
 from posthog.temporal.delete_recordings.workflows import DeleteRecordingsWithPersonWorkflow, DeleteRecordingWorkflow
 
 
@@ -39,9 +39,9 @@ async def test_delete_recording_workflow():
         ],
     }
 
-    EXPECTED_GROUPS = [
-        [TEST_SESSIONS[TEST_SESSION_ID][0]],
-        [TEST_SESSIONS[TEST_SESSION_ID][1], TEST_SESSIONS[TEST_SESSION_ID][2]],
+    EXPECTED_GROUPED_RANGES = [
+        [(12269307, 12294780)],
+        [(81788204, 81793010), (2790658, 2800843)],
     ]
 
     @activity.defn(name="load-recording-blocks")
@@ -51,10 +51,10 @@ async def test_delete_recording_workflow():
         return TEST_SESSIONS[TEST_SESSION_ID]
 
     @activity.defn(name="delete-recording-blocks")
-    async def delete_recording_blocks_mocked(input: RecordingWithBlocks) -> None:
+    async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
         assert input.recording.session_id == TEST_SESSION_ID
         assert input.recording.team_id == TEST_TEAM_ID
-        assert input.blocks in EXPECTED_GROUPS
+        assert input.ranges in EXPECTED_GROUPED_RANGES
         TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
 
     task_queue_name = str(uuid.uuid4())
@@ -125,23 +125,20 @@ async def test_delete_recording_with_person_workflow():
         ],
     }
 
-    EXPECTED_GROUPS = {
+    EXPECTED_GROUPED_RANGES = {
         "1c6c32da-0518-4a83-a513-eb2595c33b66": [
-            [TEST_SESSIONS["1c6c32da-0518-4a83-a513-eb2595c33b66"][0]],
-            [
-                TEST_SESSIONS["1c6c32da-0518-4a83-a513-eb2595c33b66"][1],
-                TEST_SESSIONS["1c6c32da-0518-4a83-a513-eb2595c33b66"][2],
-            ],
+            [(12269307, 12294780)],
+            [(81788204, 81793010), (2790658, 2800843)],
         ],
         "791244f2-2569-4ed9-a448-d5a6e35471cd": [
             [
-                TEST_SESSIONS["791244f2-2569-4ed9-a448-d5a6e35471cd"][0],
-                TEST_SESSIONS["791244f2-2569-4ed9-a448-d5a6e35471cd"][1],
+                (12269307, 12294780),
+                (81788204, 81793010),
             ],
         ],
         "3d2b505b-3a0e-48fd-89ab-6eb65a08e915": [
-            [TEST_SESSIONS["3d2b505b-3a0e-48fd-89ab-6eb65a08e915"][0]],
-            [TEST_SESSIONS["3d2b505b-3a0e-48fd-89ab-6eb65a08e915"][1]],
+            [(81788204, 81793010)],
+            [(2790658, 2800843)],
         ],
     }
 
@@ -158,10 +155,10 @@ async def test_delete_recording_with_person_workflow():
         return TEST_SESSIONS[input.session_id]
 
     @activity.defn(name="delete-recording-blocks")
-    async def delete_recording_blocks_mocked(input: RecordingWithBlocks) -> None:
+    async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
         assert input.recording.session_id in TEST_SESSIONS
         assert input.recording.team_id == TEST_TEAM_ID
-        assert input.blocks in EXPECTED_GROUPS[input.recording.session_id]
+        assert input.ranges in EXPECTED_GROUPED_RANGES[input.recording.session_id]
         TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
 
     task_queue_name = str(uuid.uuid4())
