@@ -7,6 +7,7 @@ use common_types::RawEvent;
 use rocksdb::{ColumnFamilyDescriptor, Options, SliceTransform};
 use tracing::info;
 
+use crate::metrics::MetricsHelper;
 use crate::rocksdb::dedup_metadata::EventSimilarity;
 use crate::rocksdb::store::{block_based_table_factory, RocksDbStore};
 
@@ -115,7 +116,7 @@ impl DeduplicationStore {
 
     pub fn new(config: DeduplicationStoreConfig, topic: String, partition: i32) -> Result<Self> {
         // Create metrics helper for the RocksDB store
-        let metrics = crate::metrics::MetricsHelper::with_partition(&topic, partition)
+        let metrics = MetricsHelper::with_partition(&topic, partition)
             .with_label("service", "kafka-deduplicator");
 
         let cf_descriptors = Self::get_cf_descriptors();
@@ -478,7 +479,7 @@ impl DeduplicationStore {
     pub fn create_checkpoint_with_metadata<P: AsRef<std::path::Path>>(
         &self,
         checkpoint_path: P,
-    ) -> Result<CheckpointMetadata> {
+    ) -> Result<LocalCheckpointInfo> {
         // Step 1: Flush WAL to ensure durability
         self.store.flush_wal(true)?;
 
@@ -494,16 +495,16 @@ impl DeduplicationStore {
         // Step 5: Create the checkpoint (RocksDB internally handles file deletion safety)
         self.store.create_checkpoint(checkpoint_path)?;
 
-        Ok(CheckpointMetadata {
+        Ok(LocalCheckpointInfo {
             sst_files,
             sequence,
         })
     }
 }
 
-/// Metadata about a checkpoint
+/// Information about a local RocksDB checkpoint
 #[derive(Debug, Clone)]
-pub struct CheckpointMetadata {
+pub struct LocalCheckpointInfo {
     /// SST files included in the checkpoint
     pub sst_files: Vec<String>,
     /// RocksDB sequence number at checkpoint time
