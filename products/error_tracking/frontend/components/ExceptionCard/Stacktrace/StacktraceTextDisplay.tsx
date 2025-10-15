@@ -89,10 +89,12 @@ function StackframeTextDisplay({ frame }: { frame: ErrorTrackingStackFrame }): J
     useEffect(() => {
         loadFromRawIds([frame.raw_id])
     }, [loadFromRawIds, frame.raw_id])
+    const resolvedName = formatResolvedName(frame)
     return (
         <>
             <p className="font-mono indent-[1rem] whitespace-no-wrap mb-0 line-clamp-1">
-                File "{frame.source}", line: {frame.line}, in: {formatResolvedName(frame)}
+                File "{frame.source || 'Unknown Source'}"{frame.line ? `, line: ${frame.line}` : ''}
+                {resolvedName ? `, in: ${resolvedName}` : ''}
             </p>
             {stackFrameRecords[frame.raw_id] && stackFrameRecords[frame.raw_id].context?.line.line && (
                 <p className="font-mono indent-[2rem] whitespace-no-wrap mb-0 text-tertiary line-clamp-1">
