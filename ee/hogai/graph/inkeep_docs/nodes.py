@@ -1,5 +1,4 @@
-from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Literal
 from uuid import uuid4
 
 from django.conf import settings
@@ -9,8 +8,6 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
     SystemMessage as LangchainSystemMessage,
-    convert_to_messages,
-    convert_to_openai_messages,
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
@@ -20,7 +17,7 @@ from posthog.schema import AssistantMessage, AssistantToolCallMessage
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.state import PartialAssistantState
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName
+from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..root.nodes import RootNode
@@ -34,13 +31,11 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.INKEEP_DOCS
 
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
-        prompt = ChatPromptTemplate(
-            self._construct_messages(state.messages, state.root_conversation_start_id, state.root_tool_calls_count)
-        )
+        prompt = ChatPromptTemplate(self._construct_messages(state))
         chain = prompt | self._get_model()
-        message: LangchainAIMessage = await chain.ainvoke({}, config)
+        message: LangchainAIMessage = chain.invoke({}, config)
         return PartialAssistantState(
             messages=[
                 AssistantToolCallMessage(
@@ -51,33 +46,23 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
             root_tool_call_id=None,
         )
 
-    def _construct_messages(
-        self,
-        messages: Sequence[AssistantMessageUnion],
-        window_start_id: str | None = None,
-        tool_calls_count: int | None = None,
-    ) -> list[BaseMessage]:
+    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         system_prompt = LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT)
-        # Original node has Anthropic messages, but Inkeep expects OpenAI messages
-        langchain_messages = convert_to_messages(
-            convert_to_openai_messages(super()._construct_messages(messages, window_start_id, tool_calls_count))
-        )
+        messages: list[BaseMessage] = []
+        for message in super()._construct_messages(state):
+            if message.content:
+                messages.append(message)
 
         # Only keep the messages up to the last human or system message,
         # as Inkeep doesn't like the last message being an AI one
         last_human_message_index = next(
-            (
-                i
-                for i in range(len(langchain_messages) - 1, -1, -1)
-                if isinstance(langchain_messages[i], LangchainHumanMessage)
-            ),
-            None,
+            (i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], LangchainHumanMessage)), None
         )
         if last_human_message_index is not None:
-            langchain_messages = langchain_messages[: last_human_message_index + 1]
-        return [system_prompt] + langchain_messages[-28:]
+            messages = messages[: last_human_message_index + 1]
+        return [system_prompt] + messages[-29:]
 
-    def _get_model(self, *args, **kwargs):
+    def _get_model(self):  # type: ignore
         return MaxChatOpenAI(
             model="inkeep-qa-expert",
             base_url="https://api.inkeep.com/v1/",
@@ -87,10 +72,6 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
             user=self._user,
             team=self._team,
         )
-
-    async def _has_reached_token_limit(self, model: Any, window: list[BaseMessage]) -> bool:
-        # The root node on this step will always have the correct window.
-        return False
 
     def router(self, state: AssistantState) -> Literal["end", "root"]:
         last_message = state.messages[-1]

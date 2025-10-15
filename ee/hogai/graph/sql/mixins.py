@@ -17,7 +17,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
 
-from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.mixins import AssistantContextMixin
@@ -35,8 +34,7 @@ from .prompts import (
 SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
 
 
-class HogQLDatabaseMixin:
-    _team: Team
+class HogQLGeneratorMixin(AssistantContextMixin):
     _database_instance: Database | None = None
 
     def _get_database(self):
@@ -45,23 +43,16 @@ class HogQLDatabaseMixin:
         self._database_instance = create_hogql_database(team=self._team)
         return self._database_instance
 
-    @database_sync_to_async
-    def _aget_database(self):
-        return self._get_database()
-
     def _get_default_hogql_context(self, database: Database):
         hogql_context = HogQLContext(team=self._team, database=database, enable_select_queries=True)
         return hogql_context
 
-    async def _serialize_database_schema(self):
-        database = await self._aget_database()
-        return await serialize_database_schema(database, self._get_default_hogql_context(database))
-
-
-class HogQLGeneratorMixin(AssistantContextMixin, HogQLDatabaseMixin):
     async def _construct_system_prompt(self) -> ChatPromptTemplate:
+        database = await database_sync_to_async(self._get_database)()
+        hogql_context = self._get_default_hogql_context(database)
+
         schema_description, core_memory = await asyncio.gather(
-            self._serialize_database_schema(),
+            serialize_database_schema(database, hogql_context),
             self._aget_core_memory_text(),
         )
 

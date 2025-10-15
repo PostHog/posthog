@@ -2205,3 +2205,12 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
         return null
     }
 }
+
+export const formatPercentage = (x: number, options?: { precise?: boolean }): string => {
+    if (options?.precise) {
+        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
+    } else if (x >= 1000) {
+        return humanFriendlyLargeNumber(x) + '%'
+    }
+    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
+}
