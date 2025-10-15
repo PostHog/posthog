@@ -296,12 +296,13 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                 setSuggestions(newSuggestions)
                                 setCurrentHint(newHint)
                             }}
+                            align="start"
                             className="primitive-menu-content min-w-[var(--radix-popover-trigger-width)] max-w-none max-h-[calc(var(--radix-popover-content-available-height)-var(--radix-popover-trigger-height))]"
                         >
                             <ScrollableShadows
                                 direction="vertical"
                                 styledScrollbars
-                                innerClassName="primitive-menu-content-inner"
+                                innerClassName="primitive-menu-content-inner p-1"
                             >
                                 <ListBox.Item asChild key={value} aria-disabled="true">
                                     <ButtonPrimitive

@@ -807,10 +807,6 @@
                 "search_insights",
                 "session_summarization",
                 "create_dashboard",
-                "read_taxonomy",
-                "search",
-                "read_data",
-                "todo_write",
                 "filter_revenue_analytics"
             ],
             "type": "string"
@@ -9359,6 +9355,9 @@
                     ],
                     "description": "Source of the events"
                 },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -15996,9 +15995,7 @@
                     "format": "date-time",
                     "type": "string"
                 },
-                "resource": {
-                    "type": "string"
-                },
+                "resource_attributes": {},
                 "severity_number": {
                     "type": "number"
                 },
@@ -16030,7 +16027,7 @@
                 "severity_text",
                 "severity_number",
                 "level",
-                "resource",
+                "resource_attributes",
                 "instrumentation_scope",
                 "event_name"
             ],
@@ -26361,6 +26358,9 @@
         "UsageMetric": {
             "additionalProperties": false,
             "properties": {
+                "change_from_previous_pct": {
+                    "type": ["number", "null"]
+                },
                 "display": {
                     "$ref": "#/definitions/UsageMetricDisplay"
                 },
@@ -26376,11 +26376,23 @@
                 "name": {
                     "type": "string"
                 },
+                "previous": {
+                    "type": "number"
+                },
                 "value": {
                     "type": "number"
                 }
             },
-            "required": ["id", "name", "value", "format", "display", "interval"],
+            "required": [
+                "id",
+                "name",
+                "value",
+                "previous",
+                "change_from_previous_pct",
+                "format",
+                "display",
+                "interval"
+            ],
             "type": "object"
         },
         "UsageMetricDisplay": {

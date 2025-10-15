@@ -853,6 +853,7 @@ export interface DataTableNode
     hiddenColumns?: HogQLExpression[]
     /** Columns that are sticky when scrolling horizontally */
     pinnedColumns?: HogQLExpression[]
+    tags?: QueryLogTags
 }
 
 export interface GoalLine {
@@ -2322,7 +2323,7 @@ export interface LogMessage {
     severity_text: LogSeverityLevel
     severity_number: number
     level: LogSeverityLevel
-    resource: string
+    resource_attributes: any
     instrumentation_scope: string
     event_name: string
 }
@@ -4112,6 +4113,8 @@ export interface UsageMetric {
     id: string
     name: string
     value: number
+    previous: number
+    change_from_previous_pct: number | null
     format: UsageMetricFormat
     display: UsageMetricDisplay
     interval: integer
