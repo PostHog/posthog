@@ -1034,7 +1034,7 @@ export class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
-    public gitProviderFileLinkResolver(teamId?: TeamType['id']): ApiRequest {
+    public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('error_tracking')
             .addPathComponent('git-provider-file-links')
@@ -2981,7 +2981,7 @@ const api = {
         },
     },
 
-    gitProviderFileLinkResolver: {
+    gitProviderFileLinks: {
         async resolveGithub(
             owner: string,
             repository: string,
@@ -2989,7 +2989,7 @@ const api = {
             fileName: string
         ): Promise<{ found: boolean; url?: string }> {
             return await new ApiRequest()
-                .gitProviderFileLinkResolver()
+                .gitProviderFileLinks()
                 .withAction('resolve_github')
                 .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
                 .get()
