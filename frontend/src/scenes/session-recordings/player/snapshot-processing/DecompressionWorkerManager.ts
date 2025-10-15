@@ -13,8 +13,6 @@ export class DecompressionWorkerManager {
     private async initWorker(): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
-                // Use .js extension - Vite will resolve to .ts in dev, esbuild will resolve to hashed .js in prod
-                // The bundler resolves this at build time to the correct file with hash
                 const workerUrl = new URL('./decompressionWorker?worker_file&type=module', import.meta.url)
 
                 // Use blob workaround for cross-origin worker loading in development
