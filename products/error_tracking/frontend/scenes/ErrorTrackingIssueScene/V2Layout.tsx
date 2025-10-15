@@ -2,10 +2,9 @@ import './ErrorTrackingIssueScene.scss'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useState } from 'react'
 
 import { IconShare } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconComment } from 'lib/lemon-ui/icons'
@@ -18,14 +17,7 @@ import {
     SelectPrimitiveLabel,
     SelectPrimitiveSeparator,
     SelectPrimitiveTrigger,
-    SelectPrimitiveValue,
 } from 'lib/ui/SelectPrimitive/SelectPrimitive'
-import {
-    TabsPrimitive,
-    TabsPrimitiveContent,
-    TabsPrimitiveList,
-    TabsPrimitiveTrigger,
-} from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -33,17 +25,21 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SidePanelTab } from '~/types'
 
-import { EventsTable, EventsTableV2, EventsV2Table } from '../../components/EventsTable/EventsTable'
+import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
 import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
-import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
+import { isLastSeenException, useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import {
+    ErrorTrackingIssueSceneCategory,
+    ErrorTrackingIssueSceneExceptionsCategory,
+    errorTrackingIssueSceneLogic,
+} from './errorTrackingIssueSceneLogic'
 
 export function V2Layout(): JSX.Element {
-    const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const { openSidePanel } = useActions(sidePanelLogic)
 
@@ -97,89 +93,180 @@ export function V2Layout(): JSX.Element {
                         </div>
                     </div>
                     <LemonDivider className="my-0" />
-                    <div className="p-2">
+                    <div className="p-2 space-y-2">
                         <ErrorTrackingIssueScenePanel showActions={false} />
+                        <div className="bg-accent-3000 h-[100px] flex justify-center items-center">Breakdowns</div>
                     </div>
                 </div>
-                <div className="col-span-7">
-                    <PanelTabs />
+                <div className="flex col-span-7 gap-y-2 flex-col">
+                    <Breadcrumbs />
+                    <CategoryContent />
                 </div>
             </div>
         </ErrorTrackingSetupPrompt>
     )
 }
 
-const PanelTabs = (): JSX.Element => {
-    const { issue, issueLoading, initialEventLoading, initialEvent, selectedEvent, eventsQuery, eventsQueryKey } =
-        useValues(errorTrackingIssueSceneLogic)
-    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
+const CategoryContent = (): JSX.Element => {
+    const {
+        category,
+        exceptionsCategory,
+        issue,
+        issueLoading,
+        selectedEvent,
+        initialEventLoading,
+        eventsQuery,
+        eventsQueryKey,
+    } = useValues(errorTrackingIssueSceneLogic)
+    const { selectEvent, setExceptionsCategory } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
 
-    const [mode, setMode] = useState<string>('last_seen')
+    return category === 'breakdowns' ? (
+        <div className="bg-accent-3000 h-[500px] flex justify-center items-center">Breakdowns go here</div>
+    ) : exceptionsCategory === 'exception' ? (
+        <ExceptionCard
+            issue={issue ?? undefined}
+            issueLoading={issueLoading}
+            event={selectedEvent ?? undefined}
+            eventLoading={initialEventLoading}
+            label={tagRenderer(selectedEvent)}
+        />
+    ) : (
+        <>
+            <ErrorFilters.Root>
+                <div className="flex gap-2 justify-between">
+                    <ErrorFilters.DateRange />
+                    <ErrorFilters.InternalAccounts />
+                </div>
+                <ErrorFilters.FilterGroup />
+            </ErrorFilters.Root>
+            <Metadata>
+                <EventsTable
+                    query={eventsQuery}
+                    queryKey={eventsQueryKey}
+                    selectedEvent={null}
+                    onEventSelect={(selectedEvent) => {
+                        if (selectedEvent) {
+                            selectEvent(selectedEvent)
+                            setExceptionsCategory('exception')
+                        }
+                    }}
+                />
+            </Metadata>
+        </>
+    )
+}
+
+const Breadcrumbs = (): JSX.Element => {
+    const { category } = useValues(errorTrackingIssueSceneLogic)
 
     return (
-        <TabsPrimitive value="exceptions" className="space-y-2">
-            <TabsPrimitiveList className="flex justify-between items-center border-b">
-                <TabsPrimitiveTrigger value="exceptions">
-                    <SelectPrimitive value={mode} onValueChange={(value) => setMode(value)}>
-                        <SelectPrimitiveTrigger className="text-primary-3000 my-1">
-                            {mode === 'last_seen'
-                                ? 'Last seen'
-                                : mode === 'all'
-                                  ? 'All exceptions'
-                                  : (selectedEvent?.uuid ?? 'Exception')}
-                        </SelectPrimitiveTrigger>
-                        <SelectPrimitiveContent matchTriggerWidth>
+        <div className="flex items-center gap-x-2 border bg-surface-tertiary py-1 px-2 rounded">
+            <div>Issue</div>
+            <div>/</div>
+            <CategorySelect />
+            {category === 'exceptions' && (
+                <>
+                    <div>/</div>
+                    <ExceptionsCategorySelect />
+                </>
+            )}
+        </div>
+    )
+}
+
+const CategorySelect = (): JSX.Element => {
+    const { category, exceptionsCategory, initialEvent } = useValues(errorTrackingIssueSceneLogic)
+    const { setCategory, setExceptionsCategory, selectEvent } = useActions(errorTrackingIssueSceneLogic)
+
+    const exceptions = category === 'exceptions'
+    const exceptionsButNotAll = exceptions && exceptionsCategory != 'all'
+
+    return (
+        <div className="flex items-center">
+            {exceptionsButNotAll && (
+                <ButtonPrimitive
+                    size="xs"
+                    onClick={() => {
+                        setCategory('exceptions')
+                        setExceptionsCategory('all')
+                    }}
+                >
+                    Exceptions
+                </ButtonPrimitive>
+            )}
+            <SelectPrimitive
+                value={category}
+                onValueChange={(value) => {
+                    if (['all', 'exception'].includes(value)) {
+                        setCategory('exceptions')
+                        setExceptionsCategory(value as ErrorTrackingIssueSceneExceptionsCategory)
+
+                        if (initialEvent) {
+                            selectEvent(initialEvent)
+                        }
+
+                        return
+                    }
+                    setCategory(value as ErrorTrackingIssueSceneCategory)
+                }}
+            >
+                <SelectPrimitiveTrigger buttonProps={{ size: 'xs' }}>
+                    {exceptionsButNotAll ? <></> : <span className="capitalize">{category}</span>}
+                </SelectPrimitiveTrigger>
+                <SelectPrimitiveContent matchTriggerWidth>
+                    {!exceptions && (
+                        <>
                             <SelectPrimitiveGroup>
-                                <SelectPrimitiveItem value="last_seen">Last seen</SelectPrimitiveItem>
-                                {selectedEvent?.uuid != initialEvent?.uuid && (
-                                    <SelectPrimitiveItem value="current_exception" className="flex-nowrap">
-                                        {selectedEvent?.uuid ?? 'Current exception'}
-                                    </SelectPrimitiveItem>
-                                )}
-                                <SelectPrimitiveSeparator />
-                                <SelectPrimitiveItem value="all">All exceptions</SelectPrimitiveItem>
+                                <SelectPrimitiveLabel>Exceptions</SelectPrimitiveLabel>
+                                <SelectPrimitiveItem value="all">All</SelectPrimitiveItem>
+                                <SelectPrimitiveItem value="exception">Last seen</SelectPrimitiveItem>
                             </SelectPrimitiveGroup>
-                        </SelectPrimitiveContent>
-                    </SelectPrimitive>
-                </TabsPrimitiveTrigger>
-            </TabsPrimitiveList>
-            <TabsPrimitiveContent value="exceptions">
-                {mode === 'all' ? (
-                    <div className="space-y-2">
-                        <ErrorFilters.Root>
-                            <div className="flex flex-wrap justify-between gap-2">
-                                <ErrorFilters.DateRange />
-                                <ErrorFilters.InternalAccounts />
-                            </div>
-                            <ErrorFilters.FilterGroup />
-                        </ErrorFilters.Root>
-                        <Metadata className="flex flex-col h-full min-h-0">
-                            <div className="flex-1 min-h-0 overflow-auto">
-                                <EventsTableV2
-                                    query={eventsQuery}
-                                    queryKey={eventsQueryKey}
-                                    selectedEvent={selectedEvent}
-                                    onEventSelect={(selectedEvent) => {
-                                        if (selectedEvent) {
-                                            selectEvent(selectedEvent)
-                                            setMode('current_exception')
-                                        }
-                                    }}
-                                />
-                            </div>
-                        </Metadata>
-                    </div>
-                ) : (
-                    <ExceptionCard
-                        issue={issue ?? undefined}
-                        issueLoading={issueLoading}
-                        event={selectedEvent ?? undefined}
-                        eventLoading={initialEventLoading}
-                        label={tagRenderer(selectedEvent)}
-                    />
-                )}
-            </TabsPrimitiveContent>
-        </TabsPrimitive>
+                            <SelectPrimitiveSeparator />
+                        </>
+                    )}
+                    <SelectPrimitiveGroup>
+                        <SelectPrimitiveItem value="breakdowns">Breakdowns</SelectPrimitiveItem>
+                    </SelectPrimitiveGroup>
+                </SelectPrimitiveContent>
+            </SelectPrimitive>
+        </div>
+    )
+}
+
+const ExceptionsCategorySelect = (): JSX.Element => {
+    const { exceptionsCategory, initialEvent, lastSeen, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
+    const { setExceptionsCategory, selectEvent } = useActions(errorTrackingIssueSceneLogic)
+
+    const isLastSeenExceptionSelected = selectedEvent && isLastSeenException(lastSeen, selectedEvent)
+
+    const label: string = {
+        all: 'All',
+        exception: isLastSeenExceptionSelected ? 'Last seen' : (selectedEvent?.uuid ?? 'Exception'),
+    }[exceptionsCategory]
+
+    return isLastSeenExceptionSelected ? (
+        <div>{label}</div>
+    ) : (
+        <SelectPrimitive
+            value={exceptionsCategory}
+            onValueChange={(value) => {
+                if (initialEvent) {
+                    setExceptionsCategory(value === 'all' ? 'all' : 'exception')
+                    selectEvent(initialEvent)
+                }
+            }}
+        >
+            <SelectPrimitiveTrigger buttonProps={{ size: 'xs' }}>
+                <div>{label}</div>
+            </SelectPrimitiveTrigger>
+            <SelectPrimitiveContent matchTriggerWidth>
+                {!isLastSeenExceptionSelected && selectedEvent ? (
+                    <SelectPrimitiveItem value={selectedEvent.uuid}>{selectedEvent.uuid}</SelectPrimitiveItem>
+                ) : null}
+                {initialEvent && <SelectPrimitiveItem value={initialEvent.uuid}>Last seen</SelectPrimitiveItem>}
+                <SelectPrimitiveItem value="all">All</SelectPrimitiveItem>
+            </SelectPrimitiveContent>
+        </SelectPrimitive>
     )
 }
