@@ -486,8 +486,13 @@ def property_to_expr(
             chain = ["session"]
         elif property.type == "session" and scope == "session":
             chain = ["sessions"]
-        elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
+        elif property.type in ["recording", "data_warehouse", "log_entry"]:
             chain = []
+        elif property.type == "event_metadata":
+            if GROUP_KEY_PATTERN.match(property.key) is not None:
+                chain = ["properties"]
+            else:
+                chain = []
         elif property.type == "log":
             chain = ["attributes"]
         elif property.type == "revenue_analytics":
