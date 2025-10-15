@@ -35,7 +35,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
 
     const hasAccess = userHasAccess(AccessControlResourceType.ExternalDataSource, AccessControlLevel.Viewer)
 
-    if (availableSourcesLoading) {
+    if (availableSourcesLoading || !availableSources) {
         return <LemonSkeleton />
     }
 
