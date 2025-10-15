@@ -13,9 +13,10 @@ export class DecompressionWorkerManager {
     private async initWorker(): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
+                const workerUrl = new URL('./decompressionWorker?worker_file&type=module', import.meta.url)
+
                 // Use blob workaround for cross-origin worker loading in development
                 // See: https://github.com/vitejs/vite/issues/13680
-                const workerUrl = new URL('./decompressionWorker.ts?worker_file&type=module', import.meta.url)
                 const js = `import ${JSON.stringify(workerUrl.href)}`
                 const blob = new Blob([js], { type: 'application/javascript' })
                 const objURL = URL.createObjectURL(blob)
