@@ -1068,17 +1068,17 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         test_filter = filter.copy()
 
         cohort = None
-        if name == "cohort_static":
+        if "cohort_static" in name:
             cohort = Cohort.objects.create(
                 team=self.team,
-                name=f"cohort_static_{use_new_query_builder}",
+                name=f"cohort_static_{name}",
                 is_static=True,
             )
             test_filter["value"] = cohort.pk
-        elif name == "cohort_dynamic":
+        elif "cohort_dynamic" in name:
             cohort = Cohort.objects.create(
                 team=self.team,
-                name=f"cohort_dynamic_{use_new_query_builder}",
+                name=f"cohort_dynamic_{name}",
                 groups=[
                     {
                         "properties": [
@@ -1088,7 +1088,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 ],
             )
             test_filter["value"] = cohort.pk
-        elif name == "group":
+        elif "group" in name:
             create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
             )
@@ -1175,20 +1175,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        if name == "cohort_static" and cohort:
+        if "cohort_static" in name and cohort:
             cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
             self.assertEqual(cohort.people.count(), 3)
             cohort.calculate_people_ch(pending_version=0)
-        elif name == "cohort_dynamic" and cohort:
+        elif "cohort_dynamic" in name and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
-        # Only pass use_new_query_builder if True to match original behavior
-        if use_new_query_builder:
-            query_runner = ExperimentQueryRunner(
-                query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-            )
-        else:
-            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+        )
 
         # Handle cases where filters result in no exposures
         if expected_results["control_absolute_exposure"] == 0 and expected_results["test_absolute_exposure"] == 0:
@@ -1227,13 +1223,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        # Only pass use_new_query_builder if True to match original behavior
-        if use_new_query_builder:
-            query_runner = ExperimentQueryRunner(
-                query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-            )
-        else:
-            query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+        )
         result = query_runner.calculate()
         assert result.variant_results is not None
         control_result = result.baseline
