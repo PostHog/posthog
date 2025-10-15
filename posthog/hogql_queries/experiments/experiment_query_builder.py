@@ -159,6 +159,104 @@ class ExperimentQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
         return query
 
+    def _build_funnel_query(self) -> ast.SelectQuery:
+        """
+        Builds query for funnel metrics.
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+
+        num_steps = len(self.metric.series)
+
+        query = parse_select(
+            f"""
+            WITH exposures AS (
+                {{exposures_select_query}}
+            ),
+
+            metric_events AS (
+                SELECT
+                    {{entity_key}} AS entity_id,
+                    timestamp,
+                    uuid,
+                    properties.$session_id AS session_id
+                FROM events
+                WHERE {{funnel_steps_filter}}
+            ),
+
+            entity_metrics AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    any(exposures.exposure_event_uuid) AS exposure_event_uuid,
+                    any(exposures.exposure_session_id) AS exposure_session_id,
+                    {{funnel_aggregation}} AS value,
+                    {{uuid_to_session_map}} AS uuid_to_session
+                FROM exposures
+                LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
+                    AND {{conversion_window_predicate}}
+                GROUP BY exposures.entity_id, exposures.variant
+            )
+
+            SELECT
+                entity_metrics.variant AS variant,
+                count(entity_metrics.entity_id) AS num_users,
+                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
+                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
+            FROM entity_metrics
+            GROUP BY entity_metrics.variant
+            """,
+            placeholders={
+                "exposures_select_query": self._build_exposure_select_query(),
+                "entity_key": parse_expr(self.entity_key),
+                "funnel_steps_filter": self._build_funnel_steps_filter(),
+                "funnel_aggregation": self._build_funnel_aggregation_expr(),
+                "num_steps_minus_1": ast.Constant(value=num_steps - 1),
+                "conversion_window_predicate": self._build_conversion_window_predicate(),
+                "uuid_to_session_map": self._build_uuid_to_session_map(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+
+        # TODO: Rewrite this to be inline for better readability
+
+        # Now manually inject step columns into the metric_events CTE
+        # Find the metric_events CTE in the query
+        if query.ctes and "metric_events" in query.ctes:
+            metric_events_cte = query.ctes["metric_events"]
+            if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
+                # Add step columns to the SELECT
+                step_columns = self._build_funnel_step_columns()
+                metric_events_cte.expr.select.extend(step_columns)
+
+        # Inject the additional selects we do for getting the data we need to render the funnel chart
+        # Add step counts - how many users reached each step
+        step_count_exprs = []
+        for i in range(num_steps):
+            step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
+        step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
+
+        # For each step in the funnel, get at least 100 pairs of person_id, session_id and event uuid, that have
+        # that step as their last step in the funnel.
+        # For the users that have 0 matching steps in the funnel (-1), we return the event uuid for the exposure event.
+        event_uuids_exprs = []
+        for i in range(num_steps + 1):
+            event_uuids_expr = f"""
+                groupArraySampleIf(100)(
+                    if(
+                        entity_metrics.value.2 != '',
+                        tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2),
+                        tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid))),
+                    entity_metrics.value.1 = {i} - 1
+                )
+            """
+            event_uuids_exprs.append(event_uuids_expr)
+        event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
+
+        query.select.extend([parse_expr(step_counts_expr), parse_expr(event_uuids_exprs_sql)])
+
+        return query
+
     def _build_test_accounts_filter(self) -> ast.Expr:
         if (
             self.filter_test_accounts
@@ -345,120 +443,6 @@ class ExperimentQueryBuilder:
         )
         assert isinstance(exposure_query, ast.SelectQuery)
         return exposure_query
-
-    def _build_funnel_query(self) -> ast.SelectQuery:
-        """
-        Builds query for funnel metrics.
-        """
-        assert isinstance(self.metric, ExperimentFunnelMetric)
-
-        num_steps = len(self.metric.series)
-
-        # Calculate conversion window in seconds
-        conversion_window_seconds = 0
-        if self.metric.conversion_window and self.metric.conversion_window_unit:
-            conversion_window_seconds = conversion_window_to_seconds(
-                self.metric.conversion_window,
-                self.metric.conversion_window_unit,
-            )
-
-        # Build conversion window constraint for the join
-        if conversion_window_seconds > 0:
-            join_time_constraint = """AND metric_events.timestamp >= exposures.first_exposure_time
-                    AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})"""
-        else:
-            join_time_constraint = "AND metric_events.timestamp >= exposures.first_exposure_time"
-
-        # Build the base query using parse_select
-        query = parse_select(
-            f"""
-            WITH exposures AS (
-                {{exposures_select_query}}
-            ),
-
-            metric_events AS (
-                SELECT
-                    {{entity_key}} AS entity_id,
-                    timestamp,
-                    uuid,
-                    properties.$session_id AS session_id
-                FROM events
-                WHERE {{funnel_steps_filter}}
-            ),
-
-            entity_metrics AS (
-                SELECT
-                    exposures.entity_id AS entity_id,
-                    exposures.variant AS variant,
-                    any(exposures.exposure_event_uuid) AS exposure_event_uuid,
-                    any(exposures.exposure_session_id) AS exposure_session_id,
-                    {{funnel_aggregation}} AS value,
-                    {{uuid_to_session_map}} AS uuid_to_session
-                FROM exposures
-                LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
-                    {join_time_constraint}
-                GROUP BY exposures.entity_id, exposures.variant
-            )
-
-            SELECT
-                entity_metrics.variant AS variant,
-                count(entity_metrics.entity_id) AS num_users,
-                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
-                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
-            FROM entity_metrics
-            GROUP BY entity_metrics.variant
-            """,
-            placeholders={
-                "exposures_select_query": self._build_exposure_select_query(),
-                "entity_key": parse_expr(self.entity_key),
-                "funnel_steps_filter": self._build_funnel_steps_filter(),
-                "funnel_aggregation": self._build_funnel_aggregation_expr(),
-                "num_steps_minus_1": ast.Constant(value=num_steps - 1),
-                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
-                "uuid_to_session_map": self._build_uuid_to_session_map(),
-            },
-        )
-
-        assert isinstance(query, ast.SelectQuery)
-
-        # TODO: Rewrite this to be inline for better readability
-
-        # Now manually inject step columns into the metric_events CTE
-        # Find the metric_events CTE in the query
-        if query.ctes and "metric_events" in query.ctes:
-            metric_events_cte = query.ctes["metric_events"]
-            if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
-                # Add step columns to the SELECT
-                step_columns = self._build_funnel_step_columns()
-                metric_events_cte.expr.select.extend(step_columns)
-
-        # Inject the additional selects we do for getting the data we need to render the funnel chart
-        # Add step counts - how many users reached each step
-        step_count_exprs = []
-        for i in range(num_steps):
-            step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
-        step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
-
-        # For each step in the funnel, get at least 100 pairs of person_id, session_id and event uuid, that have
-        # that step as their last step in the funnel.
-        # For the users that have 0 matching steps in the funnel (-1), we return the event uuid for the exposure event.
-        event_uuids_exprs = []
-        for i in range(num_steps + 1):
-            event_uuids_expr = f"""
-                groupArraySampleIf(100)(
-                    if(
-                        entity_metrics.value.2 != '',
-                        tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2),
-                        tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid))),
-                    entity_metrics.value.1 = {i} - 1
-                )
-            """
-            event_uuids_exprs.append(event_uuids_expr)
-        event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
-
-        query.select.extend([parse_expr(step_counts_expr), parse_expr(event_uuids_exprs_sql)])
-
-        return query
 
     def _build_funnel_step_columns(self) -> list[ast.Alias]:
         """
