@@ -1043,6 +1043,14 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
     Can be used to test migrations where atomic=False.
     """
 
+    @classmethod
+    def tearDownClass(cls):
+        # Skip forward migration for NonAtomicTestMigrations
+        # These tests require --create-db for proper isolation
+        # Forward migration in teardown causes issues when later migrations drop tables
+        # that earlier migration tests need to reverse
+        super(BaseTestMigrations, cls).tearDownClass()  # type: ignore
+
 
 def flush_persons_and_events():
     person_mapping = {}
