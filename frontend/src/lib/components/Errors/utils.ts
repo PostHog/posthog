@@ -211,5 +211,5 @@ export function formatResolvedName(frame: Pick<ErrorTrackingStackFrame, 'module'
 }
 
 export function formatType(exception: Pick<ErrorTrackingException, 'module' | 'type'>): string {
-    return `${exception.module}.${exception.type}`
+    return exception.module ? `${exception.module}.${exception.type}` : exception.type
 }

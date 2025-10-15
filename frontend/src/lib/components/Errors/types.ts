@@ -2,7 +2,7 @@ import { EventType, PersonType } from '~/types'
 
 export interface ErrorTrackingException {
     stacktrace?: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace
-    module: string
+    module?: string
     id: string
     type: string
     value: string
