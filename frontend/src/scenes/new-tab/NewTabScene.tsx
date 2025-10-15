@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import type { KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconInfo, IconPerson, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { IconInfo, IconSearch } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -36,6 +37,15 @@ export const getCategoryDisplayName = (category: string): string => {
         'data-management': 'Data management',
         recents: 'Recents',
         persons: 'Persons',
+        'project://': 'Project',
+        'apps://': 'Apps',
+        'data://': 'Data',
+        'persons://': 'Persons',
+        'events://': 'Events',
+        'properties://': 'Properties',
+        'shortcuts://': 'Shortcuts',
+        'new://': 'Create new',
+        'ask://': 'Ask Max',
     }
     return displayNames[category] || category
 }
@@ -48,6 +58,7 @@ export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
             ...item.record,
             href: item.href,
             path: item.name, // Use name as path for menu compatibility
+            protocol: item.protocol ?? item.record?.protocol,
         },
     }
 }
@@ -62,17 +73,66 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         categories,
         selectedCategory,
         specialSearchMode,
-        newTabSceneDataIncludePersons,
         isSearching,
+        selectedDestinations,
+        destinationOptions,
     } = useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
     const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic)
-    const { setSearch, setSelectedCategory, setNewTabSceneDataIncludePersons } = useActions(newTabSceneLogic({ tabId }))
+    const { setSearch, setSelectedCategory, setSelectedDestinations } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
+    const [categoryFocusKey, setCategoryFocusKey] = useState(0)
+    const [categorySearchActive, setCategorySearchActive] = useState(false)
+    const [pendingCategoryReturn, setPendingCategoryReturn] = useState(false)
+
+    const categoryOptions = useMemo(
+        () =>
+            destinationOptions.map((option) => ({
+                key: option.value,
+                value: option.value,
+                label: option.label,
+                labelComponent: option.description ? (
+                    <div className="flex flex-col">
+                        <span>{option.label}</span>
+                        <span className="text-xs text-tertiary">{option.description}</span>
+                    </div>
+                ) : (
+                    option.label
+                ),
+            })),
+        [destinationOptions]
+    )
+
+    const focusCategoryPicker = (): void => {
+        setPendingCategoryReturn(true)
+        setCategorySearchActive(true)
+        setCategoryFocusKey((key) => key + 1)
+    }
+
+    const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+        if (event.key === '/' || (event.key === 'Backspace' && !search)) {
+            event.preventDefault()
+            focusCategoryPicker()
+        }
+    }
+
+    const handleDestinationChange = (values: string[]): void => {
+        const sanitizedValues = values.filter((value) => value !== 'ask://')
+        if (values.includes('ask://')) {
+            openSidePanel(SidePanelTab.Max)
+            setQuestion(search)
+            focusMaxInput()
+        }
+        setSelectedDestinations(sanitizedValues)
+        if (pendingCategoryReturn) {
+            setPendingCategoryReturn(false)
+            window.requestAnimationFrame(() => inputRef.current?.focus())
+        }
+    }
 
     // scroll it to view
     useEffect(() => {
@@ -91,18 +151,70 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         >
             <div className="flex flex-col gap-2">
                 <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
-                    <ListBox.Item asChild virtualFocusIgnore>
-                        <LemonInput
-                            inputRef={inputRef}
-                            value={search}
-                            onChange={(value) => setSearch(value)}
-                            prefix={<IconSearch />}
-                            className="w-full"
-                            placeholder="Search..."
-                            autoFocus
-                            allowClear
-                        />
-                    </ListBox.Item>
+                    {newTabSceneData ? (
+                        <div className="flex flex-col gap-2 @lg/main-content:flex-row @lg/main-content:items-center @lg/main-content:gap-3">
+                            <div className="flex flex-col gap-2 @lg/main-content:flex-row @lg/main-content:items-center flex-1">
+                                <LemonInputSelect
+                                    key={`new-tab-destination-picker-${categoryFocusKey}`}
+                                    mode="multiple"
+                                    options={categoryOptions}
+                                    value={selectedDestinations}
+                                    placeholder="Auto"
+                                    onChange={handleDestinationChange}
+                                    onBlur={() => {
+                                        if (pendingCategoryReturn) {
+                                            setPendingCategoryReturn(false)
+                                            window.requestAnimationFrame(() => inputRef.current?.focus())
+                                        }
+                                        setCategorySearchActive(false)
+                                    }}
+                                    autoFocus={categorySearchActive}
+                                    className="@lg/main-content:max-w-[280px]"
+                                    data-attr="new-tab-destination-picker"
+                                    // fullWidth
+                                />
+                                <ListBox.Item asChild virtualFocusIgnore>
+                                    <LemonInput
+                                        inputRef={inputRef}
+                                        value={search}
+                                        onChange={(value) => setSearch(value)}
+                                        prefix={<IconSearch />}
+                                        className="w-full"
+                                        placeholder="Search..."
+                                        autoFocus
+                                        allowClear
+                                        onKeyDown={handleSearchKeyDown}
+                                    />
+                                </ListBox.Item>
+                            </div>
+                            {source === 'homepage' ? (
+                                <div className="flex flex-col gap-2 @lg/main-content:flex-row @lg/main-content:items-center @lg/main-content:gap-2">
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="small"
+                                        data-attr="project-home-customize-homepage"
+                                        onClick={showSceneDashboardChoiceModal}
+                                    >
+                                        Customize homepage
+                                    </LemonButton>
+                                    <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : (
+                        <ListBox.Item asChild virtualFocusIgnore>
+                            <LemonInput
+                                inputRef={inputRef}
+                                value={search}
+                                onChange={(value) => setSearch(value)}
+                                prefix={<IconSearch />}
+                                className="w-full"
+                                placeholder="Search..."
+                                autoFocus
+                                allowClear
+                            />
+                        </ListBox.Item>
+                    )}
                     <div className="mx-1.5">
                         <SearchHints
                             specialSearchMode={specialSearchMode}
@@ -113,6 +225,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                             focusMaxInput={focusMaxInput}
                             focusSearchInput={() => inputRef.current?.focus()}
                             openSidePanel={openSidePanel}
+                            newTabSceneData={!!newTabSceneData}
                         />
                     </div>
                 </div>
@@ -158,23 +271,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                         </TabsPrimitiveList>
                     </TabsPrimitive>
                 ) : (
-                    <div className="border-b">
-                        <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-2">
-                            <div className="flex items-center gap-3">
-                                <span className="text-sm text-tertiary">Include:</span>
-                                <ListBox.Item asChild>
-                                    <ButtonPrimitive
-                                        size="sm"
-                                        active={newTabSceneDataIncludePersons}
-                                        onClick={() => setNewTabSceneDataIncludePersons(!newTabSceneDataIncludePersons)}
-                                    >
-                                        <IconPerson className="size-4" /> Persons
-                                        {newTabSceneDataIncludePersons && <IconCheck className="size-3 text-success" />}
-                                    </ButtonPrimitive>
-                                </ListBox.Item>
-                            </div>
-                        </div>
-                    </div>
+                    <div className="border-b" />
                 )}
             </div>
 

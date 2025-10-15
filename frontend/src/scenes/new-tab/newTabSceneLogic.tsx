@@ -20,6 +20,7 @@ import {
     getDefaultTreeProducts,
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
@@ -34,6 +35,7 @@ export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
     href?: string
     flag?: string
+    protocol?: string | null
 }
 
 export interface NewTabCategoryItem {
@@ -42,9 +44,93 @@ export interface NewTabCategoryItem {
     description?: string
 }
 
+export interface NewTabDestinationOption {
+    value: string
+    label: string
+    description?: string
+}
+
 export type SpecialSearchMode = 'persons' | null
 
 const PAGINATION_LIMIT = 20
+
+const DESTINATION_ALIAS_MAP: Record<string, string> = {
+    'products://': 'apps://',
+}
+
+const CATEGORY_TO_PROTOCOL_MAP: Record<string, string> = {
+    'create-new': 'new://',
+    apps: 'apps://',
+    'data-management': 'data://',
+    recents: 'project://',
+    persons: 'persons://',
+}
+
+const BASE_DESTINATION_LABELS: Record<string, { label: string; description?: string }> = {
+    'project://': { label: 'Project' },
+    'apps://': { label: 'Apps' },
+    'data://': { label: 'Data' },
+    'events://': { label: 'Events' },
+    'properties://': { label: 'Properties' },
+    'persons://': { label: 'Persons' },
+    'shortcuts://': { label: 'Shortcuts' },
+    'new://': { label: 'Create new' },
+    'ask://': { label: 'Ask Max', description: 'Send your query to Max' },
+}
+
+const ALWAYS_INCLUDED_DESTINATIONS = new Set(['events://', 'properties://'])
+
+const DEFAULT_DESTINATION_ORDER = [
+    'project://',
+    'apps://',
+    'data://',
+    'events://',
+    'properties://',
+    'persons://',
+    'shortcuts://',
+    'new://',
+]
+
+const normalizeDestination = (value?: string | null): string | null => {
+    if (!value) {
+        return null
+    }
+    const normalized = value.toLowerCase()
+    return DESTINATION_ALIAS_MAP[normalized] ?? normalized
+}
+
+const protocolFromCategory = (category?: string | null): string | null => {
+    if (!category) {
+        return null
+    }
+    if (category.includes('://')) {
+        return normalizeDestination(category)
+    }
+    const mapped = CATEGORY_TO_PROTOCOL_MAP[category]
+    if (mapped) {
+        return mapped
+    }
+    return null
+}
+
+const formatDestinationLabel = (value: string): string => {
+    const meta = BASE_DESTINATION_LABELS[value]
+    if (meta) {
+        return meta.label
+    }
+    const cleaned = value.replace('://', '')
+    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
+}
+
+const getProtocolForDataItem = (fs: FileSystemImport): string => {
+    if (fs.iconType === 'event_definition') {
+        return 'events://'
+    }
+    if (fs.iconType === 'property_definition') {
+        return 'properties://'
+    }
+    return 'data://'
+}
 
 function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     // If the item has a direct icon property, use it with color wrapper
@@ -64,7 +150,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
     props({} as { tabId?: string }),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], projectTreeDataLogic, ['getStaticTreeItems']],
     })),
     key((props) => props.tabId || 'default'),
     actions({
@@ -73,6 +159,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         selectPrevious: true,
         onSubmit: true,
         setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
+        setSelectedDestinations: (destinations: string[]) => ({ destinations }),
         loadRecents: true,
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
         setPersonSearchPagination: (pagination: { count: number; hasMore: boolean; limit: number }) => ({ pagination }),
@@ -190,6 +277,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 setSelectedCategory: (_, { category }) => category,
             },
         ],
+        selectedDestinations: [
+            [] as string[],
+            {
+                setSelectedDestinations: (_, { destinations }) => destinations,
+            },
+        ],
         personSearchPagination: [
             { count: 0, hasMore: false, limit: 20 } as { count: number; hasMore: boolean; limit: number },
             {
@@ -239,12 +332,17 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         specialSearchMode: [
-            (s) => [s.search, s.selectedCategory, s.featureFlags],
-            (search, selectedCategory, featureFlags): SpecialSearchMode => {
-                if (
-                    featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] &&
-                    (search.startsWith('/person') || selectedCategory === 'persons')
-                ) {
+            (s) => [s.search, s.selectedCategory, s.featureFlags, s.selectedDestinations],
+            (search, selectedCategory, featureFlags, selectedDestinations): SpecialSearchMode => {
+                const newTabSceneDataEnabled = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+                if (newTabSceneDataEnabled) {
+                    if (selectedDestinations.includes('persons://')) {
+                        return 'persons'
+                    }
+                    if (search.startsWith('/person')) {
+                        return 'persons'
+                    }
+                } else if (search.startsWith('/person') || selectedCategory === 'persons') {
                     return 'persons'
                 }
                 return null
@@ -260,17 +358,24 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (recents): NewTabTreeDataItem[] => {
                 return recents.results.map((item) => {
                     const name = splitPath(item.path).pop()
+                    const protocol = 'project://'
                     return {
                         id: item.path,
                         name: name || item.path,
                         category: 'recents',
+                        protocol,
                         href: item.href || '#',
                         icon: getIconForFileSystemItem({
                             type: item.type,
                             iconType: item.type as any,
                             path: item.path,
                         }),
-                        record: item,
+                        record: {
+                            ...item,
+                            protocol,
+                            path: item.path,
+                            href: item.href || '#',
+                        },
                     }
                 })
             },
@@ -281,16 +386,19 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const items = personSearchResults.map((person) => {
                     const personId = person.distinct_ids?.[0] || person.uuid || 'unknown'
                     const displayName = person.properties?.email || personId
+                    const protocol = 'persons://'
                     const item = {
                         id: `person-${person.uuid}`,
                         name: `${displayName}`,
                         category: 'persons' as NEW_TAB_CATEGORY_ITEMS,
                         href: urls.personByUUID(person.uuid || ''),
+                        protocol,
                         icon: <IconPerson />,
                         record: {
                             type: 'person',
                             path: `Person: ${displayName}`,
                             href: urls.personByUUID(person.uuid || ''),
+                            protocol,
                         },
                     }
 
@@ -301,95 +409,134 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         itemsGrid: [
-            (s) => [s.featureFlags, s.projectTreeSearchItems, s.personSearchItems, s.specialSearchMode],
-            (featureFlags, projectTreeSearchItems, personSearchItems, specialSearchMode): NewTabTreeDataItem[] => {
+            (s) => [
+                s.featureFlags,
+                s.projectTreeSearchItems,
+                s.personSearchItems,
+                s.specialSearchMode,
+                s.selectedDestinations,
+            ],
+            (
+                featureFlags,
+                projectTreeSearchItems,
+                personSearchItems,
+                specialSearchMode,
+                selectedDestinations
+            ): NewTabTreeDataItem[] => {
+                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+                const normalizedSelections = selectedDestinations
+                    .map((destination) => normalizeDestination(destination))
+                    .filter((value): value is string => !!value)
+
+                const includePersons =
+                    newTabSceneData && (normalizedSelections.includes('persons://') || specialSearchMode === 'persons')
+
                 const newInsightItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Insight/'))
-                    .map((fs, index) => ({
-                        id: `new-insight-${index}`,
-                        name: 'New ' + fs.path.substring(8),
-                        category: 'create-new' as NEW_TAB_CATEGORY_ITEMS,
-                        href: fs.href,
-                        flag: fs.flag,
-                        icon: getIconForFileSystemItem(fs),
-                        record: fs,
-                    }))
+                    .map((fs, index) => {
+                        const protocol = 'new://'
+                        return {
+                            id: `new-insight-${index}`,
+                            name: 'New ' + fs.path.substring(8),
+                            category: 'create-new' as NEW_TAB_CATEGORY_ITEMS,
+                            href: fs.href,
+                            flag: fs.flag,
+                            protocol,
+                            icon: getIconForFileSystemItem(fs),
+                            record: { ...fs, protocol },
+                        }
+                    })
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
                 const newDataItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Data/'))
-                    .map((fs, index) => ({
-                        id: `new-data-${index}`,
-                        name: 'Data ' + fs.path.substring(5).toLowerCase(),
-                        category: 'data-management' as NEW_TAB_CATEGORY_ITEMS,
-                        href: fs.href,
-                        flag: fs.flag,
-                        icon: getIconForFileSystemItem(fs),
-                        record: fs,
-                    }))
+                    .map((fs, index) => {
+                        const protocol = 'data://'
+                        return {
+                            id: `new-data-${index}`,
+                            name: 'Data ' + fs.path.substring(5).toLowerCase(),
+                            category: 'data-management' as NEW_TAB_CATEGORY_ITEMS,
+                            href: fs.href,
+                            flag: fs.flag,
+                            protocol,
+                            icon: getIconForFileSystemItem(fs),
+                            record: { ...fs, protocol },
+                        }
+                    })
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
                 const newOtherItems = getDefaultTreeNew()
                     .filter(({ path }) => !path.startsWith('Insight/') && !path.startsWith('Data/'))
-                    .map((fs, index) => ({
-                        id: `new-other-${index}`,
-                        name: 'New ' + fs.path,
-                        category: 'create-new' as NEW_TAB_CATEGORY_ITEMS,
-                        href: fs.href,
-                        flag: fs.flag,
-                        icon: getIconForFileSystemItem(fs),
-                        record: fs,
-                    }))
+                    .map((fs, index) => {
+                        const protocol = 'new://'
+                        return {
+                            id: `new-other-${index}`,
+                            name: 'New ' + fs.path,
+                            category: 'create-new' as NEW_TAB_CATEGORY_ITEMS,
+                            href: fs.href,
+                            flag: fs.flag,
+                            protocol,
+                            icon: getIconForFileSystemItem(fs),
+                            record: { ...fs, protocol },
+                        }
+                    })
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
                 const products = [...getDefaultTreeProducts(), ...getDefaultTreePersons()]
-                    .map((fs, index) => ({
-                        id: `product-${index}`,
-                        name: fs.path,
-                        category: 'apps' as NEW_TAB_CATEGORY_ITEMS,
-                        href: fs.href,
-                        flag: fs.flag,
-                        icon: getIconForFileSystemItem(fs),
-                        record: fs,
-                    }))
+                    .map((fs, index) => {
+                        const protocol = 'apps://'
+                        return {
+                            id: `product-${index}`,
+                            name: fs.path,
+                            category: 'apps' as NEW_TAB_CATEGORY_ITEMS,
+                            href: fs.href,
+                            flag: fs.flag,
+                            protocol,
+                            icon: getIconForFileSystemItem(fs),
+                            record: { ...fs, protocol },
+                        }
+                    })
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
                     .toSorted((a, b) => a.name.localeCompare(b.name))
 
                 const data = getDefaultTreeData()
-                    .map((fs, index) => ({
-                        id: `data-${index}`,
-                        name: fs.path,
-                        category: 'data-management' as NEW_TAB_CATEGORY_ITEMS,
-                        href: fs.href,
-                        flag: fs.flag,
-                        icon: getIconForFileSystemItem(fs),
-                        record: fs,
-                    }))
+                    .map((fs, index) => {
+                        const protocol = getProtocolForDataItem(fs)
+                        return {
+                            id: `data-${index}`,
+                            name: fs.path,
+                            category: 'data-management' as NEW_TAB_CATEGORY_ITEMS,
+                            href: fs.href,
+                            flag: fs.flag,
+                            protocol,
+                            icon: getIconForFileSystemItem(fs),
+                            record: { ...fs, protocol },
+                        }
+                    })
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
-
-                // If in person search mode, return persons items (can be empty array)
                 if (newTabSceneData && specialSearchMode === 'persons') {
                     return personSearchItems
                 }
 
-                const allItems: NewTabTreeDataItem[] = [
+                const baseItems: NewTabTreeDataItem[] = [
                     {
                         id: 'new-sql-query',
                         name: 'New SQL query',
                         category: 'create-new',
+                        protocol: 'new://',
                         icon: <IconDatabase />,
                         href: '/sql',
-                        record: { type: 'query', path: 'New SQL query' },
+                        record: { type: 'query', path: 'New SQL query', protocol: 'new://', href: '/sql' },
                     },
                     {
                         id: 'new-hog-program',
                         name: 'New Hog program',
                         category: 'create-new',
+                        protocol: 'new://',
                         icon: <IconHogQL />,
                         href: '/debug/hog',
-                        record: { type: 'hog', path: 'New Hog program' },
+                        record: { type: 'hog', path: 'New Hog program', protocol: 'new://', href: '/debug/hog' },
                     },
                     ...newInsightItems,
                     ...newOtherItems,
@@ -398,30 +545,59 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     ...newDataItems,
                     ...projectTreeSearchItems,
                 ]
-                return allItems
+
+                if (includePersons && specialSearchMode !== 'persons') {
+                    baseItems.push(...personSearchItems)
+                }
+
+                return baseItems
             },
         ],
         filteredItemsGrid: [
-            (s) => [s.itemsGrid, s.search, s.selectedCategory, s.specialSearchMode],
+            (s) => [
+                s.itemsGrid,
+                s.search,
+                s.selectedCategory,
+                s.specialSearchMode,
+                s.featureFlags,
+                s.selectedDestinations,
+            ],
             (
                 itemsGrid: NewTabTreeDataItem[],
                 search: string,
                 selectedCategory: NEW_TAB_CATEGORY_ITEMS,
-                specialSearchMode: SpecialSearchMode
+                specialSearchMode: SpecialSearchMode,
+                featureFlags,
+                selectedDestinations: string[]
             ): NewTabTreeDataItem[] => {
                 let filtered = itemsGrid
 
-                // Filter by selected category
-                if (selectedCategory !== 'all') {
+                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+
+                if (!newTabSceneData && selectedCategory !== 'all') {
                     filtered = filtered.filter((item) => item.category === selectedCategory)
                 }
 
-                // For special search modes (like person search), skip the normal search filtering
+                if (newTabSceneData) {
+                    const normalizedSelections = selectedDestinations
+                        .map((destination) => normalizeDestination(destination))
+                        .filter((value): value is string => !!value && value !== 'ask://')
+
+                    if (normalizedSelections.length > 0) {
+                        filtered = filtered.filter((item) => {
+                            const protocol =
+                                normalizeDestination(item.protocol) ||
+                                protocolFromCategory(item.category) ||
+                                'project://'
+                            return normalizedSelections.includes(protocol)
+                        })
+                    }
+                }
+
                 if (specialSearchMode === 'persons') {
                     return filtered
                 }
 
-                // Filter by search
                 if (!String(search).trim()) {
                     return filtered
                 }
@@ -454,49 +630,139 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         newTabSceneDataGroupedItems: [
-            (s) => [s.itemsGrid, s.search, s.newTabSceneDataIncludePersons, s.personSearchItems, s.featureFlags],
-            (
-                itemsGrid: NewTabTreeDataItem[],
-                search: string,
-                includePersons: boolean,
-                personSearchItems: NewTabTreeDataItem[],
-                featureFlags
-            ): Record<string, NewTabTreeDataItem[]> => {
-                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
-                if (!newTabSceneData) {
+            (s) => [s.itemsGrid, s.featureFlags],
+            (itemsGrid: NewTabTreeDataItem[], featureFlags): Record<string, NewTabTreeDataItem[]> => {
+                if (!featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
                     return {}
                 }
 
-                // Filter all items by search term
-                const searchLower = search.toLowerCase().trim()
-                const filterBySearch = (items: NewTabTreeDataItem[]): NewTabTreeDataItem[] => {
-                    if (!searchLower) {
-                        return items
+                return itemsGrid.reduce(
+                    (acc: Record<string, NewTabTreeDataItem[]>, item: NewTabTreeDataItem) => {
+                        const protocol =
+                            normalizeDestination(item.protocol) || protocolFromCategory(item.category) || 'project://'
+                        if (!acc[protocol]) {
+                            acc[protocol] = []
+                        }
+                        acc[protocol].push(item)
+                        return acc
+                    },
+                    {} as Record<string, NewTabTreeDataItem[]>
+                )
+            },
+        ],
+        destinationOptions: [
+            (s) => [s.featureFlags, s.getStaticTreeItems],
+            (featureFlags, getStaticTreeItems): NewTabDestinationOption[] => {
+                if (!featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
+                    return []
+                }
+
+                const destinations = new Set<string>()
+
+                if (getStaticTreeItems) {
+                    try {
+                        const staticItems = getStaticTreeItems('', false)
+                        for (const item of staticItems) {
+                            const protocol = normalizeDestination(
+                                (item.record?.protocol as string | undefined) ||
+                                    (typeof item.id === 'string' ? item.id : undefined)
+                            )
+                            if (protocol) {
+                                destinations.add(protocol)
+                            }
+                        }
+                    } catch {
+                        // ignore errors from fetching static items
                     }
-                    const searchChunks = searchLower.split(' ').filter((s) => s)
-                    return items.filter((item) =>
-                        searchChunks.every(
-                            (chunk) =>
-                                item.name.toLowerCase().includes(chunk) || item.category.toLowerCase().includes(chunk)
-                        )
-                    )
                 }
 
-                // Group items by category and filter
-                const grouped: Record<string, NewTabTreeDataItem[]> = {
-                    'create-new': filterBySearch(itemsGrid.filter((item) => item.category === 'create-new')),
-                    apps: filterBySearch(itemsGrid.filter((item) => item.category === 'apps')),
-                    'data-management': filterBySearch(itemsGrid.filter((item) => item.category === 'data-management')),
-                    recents: filterBySearch(itemsGrid.filter((item) => item.category === 'recents')),
+                destinations.add('project://')
+
+                const options: NewTabDestinationOption[] = []
+
+                for (const value of DEFAULT_DESTINATION_ORDER) {
+                    if (destinations.has(value) || ALWAYS_INCLUDED_DESTINATIONS.has(value)) {
+                        const meta = BASE_DESTINATION_LABELS[value]
+                        options.push({
+                            value,
+                            label: meta ? meta.label : formatDestinationLabel(value),
+                            description: meta?.description,
+                        })
+                    }
                 }
 
-                // Add persons section if filter is enabled
-                if (includePersons) {
-                    // Only show person results if there's a search term, otherwise empty array
-                    grouped['persons'] = search.trim() ? personSearchItems : []
+                if (!options.some((option) => option.value === 'ask://')) {
+                    const askMeta = BASE_DESTINATION_LABELS['ask://']
+                    options.push({
+                        value: 'ask://',
+                        label: askMeta?.label ?? formatDestinationLabel('ask://'),
+                        description: askMeta?.description,
+                    })
                 }
 
-                return grouped
+                return options
+            },
+        ],
+        destinationOptionMap: [
+            (s) => [s.destinationOptions],
+            (destinationOptions): Record<string, NewTabDestinationOption> =>
+                destinationOptions.reduce(
+                    (acc, option) => {
+                        acc[option.value] = option
+                        return acc
+                    },
+                    {} as Record<string, NewTabDestinationOption>
+                ),
+        ],
+        destinationSections: [
+            (s) => [s.newTabSceneDataGroupedItems, s.destinationOptions, s.selectedDestinations, s.featureFlags],
+            (
+                groupedItems: Record<string, NewTabTreeDataItem[]>,
+                destinationOptions: NewTabDestinationOption[],
+                selectedDestinations: string[],
+                featureFlags
+            ): [string, NewTabTreeDataItem[]][] => {
+                if (!featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
+                    return []
+                }
+
+                const normalizedSelection = selectedDestinations
+                    .map((value) => normalizeDestination(value))
+                    .filter((value): value is string => !!value && value !== 'ask://')
+
+                const sections: [string, NewTabTreeDataItem[]][] = []
+                const seen = new Set<string>()
+
+                const orderedValues =
+                    normalizedSelection.length > 0
+                        ? normalizedSelection
+                        : destinationOptions
+                              .map((option) => normalizeDestination(option.value))
+                              .filter((value): value is string => !!value && value !== 'ask://')
+
+                for (const value of orderedValues) {
+                    if (!value || seen.has(value)) {
+                        continue
+                    }
+                    const items = groupedItems[value] || []
+                    if (items.length > 0 || normalizedSelection.includes(value)) {
+                        sections.push([value, items])
+                        seen.add(value)
+                    }
+                }
+
+                Object.entries(groupedItems).forEach(([key, items]) => {
+                    const value = normalizeDestination(key)
+                    if (!value || value === 'ask://') {
+                        return
+                    }
+                    if (!seen.has(value) && items.length > 0) {
+                        sections.push([value, items])
+                        seen.add(value)
+                    }
+                })
+
+                return sections
             },
         ],
         selectedIndex: [
@@ -549,6 +815,16 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             } else if (newTabSceneData && !includePersons) {
                 // If disabling persons filter, clear person search results
                 actions.loadPersonSearchResultsSuccess([])
+            }
+        },
+        setSelectedDestinations: ({ destinations }) => {
+            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+
+            if (newTabSceneData) {
+                const includePersons = destinations.includes('persons://')
+                if (includePersons !== values.newTabSceneDataIncludePersons) {
+                    actions.setNewTabSceneDataIncludePersons(includePersons)
+                }
             }
         },
         debouncedPersonSearch: async ({ searchTerm }, breakpoint) => {

@@ -29,62 +29,56 @@ import { SidePanelTab } from '~/types'
 import { convertToTreeDataItem, getCategoryDisplayName } from '../NewTabScene'
 
 function Category({
-    tabId,
     items,
     category,
     columnIndex,
+    meta,
+    isFlagged,
+    filteredItemsGridLength,
+    search,
+    isLoading,
+    showPersonsFooter,
+    personResultsCount = 0,
 }: {
-    tabId: string
     items: NewTabTreeDataItem[]
     category: string
     columnIndex: number
+    meta?: { label: string; description?: string }
+    isFlagged: boolean
+    filteredItemsGridLength: number
+    search: string
+    isLoading: boolean
+    showPersonsFooter?: boolean
+    personResultsCount?: number
 }): JSX.Element {
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
-    const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
-    const { filteredItemsGrid, search, categories, isSearching, personSearchResults } = useValues(
-        newTabSceneLogic({ tabId })
-    )
+    const displayName = meta?.label || getCategoryDisplayName(category)
+    const description = meta?.description
 
     return (
         <>
-            <div className={cn('mb-8', { 'mb-2': newTabSceneData })} key={category}>
+            <div className={cn('mb-8', { 'mb-2': isFlagged })} key={category}>
                 <div className="mb-4">
                     <div className="flex items-baseline gap-2">
-                        {newTabSceneData ? (
+                        {isFlagged ? (
                             <Label intent="menu" className="px-2">
-                                {getCategoryDisplayName(category)}
+                                {displayName}
                             </Label>
                         ) : (
-                            <>
-                                <h3 className="mb-0 text-lg font-medium text-secondary">
-                                    {getCategoryDisplayName(category)}
-                                </h3>
-                                {newTabSceneData && category === 'persons' && personSearchResults.length > 0 && (
-                                    <span className="text-xs text-tertiary">
-                                        Showing first {personSearchResults.length} entries
-                                    </span>
-                                )}
-                            </>
+                            <h3 className="mb-0 text-lg font-medium text-secondary">{displayName}</h3>
                         )}
-                        {(category === 'recents' || (newTabSceneData && category === 'persons')) && isSearching && (
-                            <Spinner size="small" />
+                        {isFlagged && category === 'persons://' && personResultsCount > 0 && (
+                            <span className="text-xs text-tertiary">Showing first {personResultsCount} entries</span>
                         )}
+                        {isLoading && <Spinner size="small" />}
                     </div>
-                    {(() => {
-                        const categoryInfo = categories.find((c) => c.key === category)
-                        return (
-                            categoryInfo?.description && (
-                                <p className="text-xs text-tertiary mt-1 mb-0 min-h-8">{categoryInfo.description}</p>
-                            )
-                        )
-                    })()}
+                    {description ? <p className="text-xs text-tertiary mt-1 mb-0 min-h-8">{description}</p> : null}
                 </div>
                 <div className="flex flex-col gap-0.25">
-                    {(category === 'recents' || newTabSceneData) && typedItems.length === 0 ? (
-                        // Special handling for empty project items and persons
+                    {(category === 'recents' || isFlagged) && typedItems.length === 0 ? (
                         <div className="flex flex-col gap-2 text-tertiary text-balance">
-                            {isSearching ? (
+                            {isLoading ? (
                                 <WrappingLoadingSkeleton>
                                     <ButtonPrimitive>Loading items...</ButtonPrimitive>
                                 </WrappingLoadingSkeleton>
@@ -94,13 +88,12 @@ function Category({
                         </div>
                     ) : (
                         typedItems.map((item, index) => (
-                            // If we have filtered results set virtual focus to first item
                             <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
                                 <ContextMenu>
                                     <ContextMenuTrigger asChild>
                                         <ListBox.Item
                                             asChild
-                                            focusFirst={filteredItemsGrid.length > 0 && isFirstCategory && index === 0}
+                                            focusFirst={filteredItemsGridLength > 0 && isFirstCategory && index === 0}
                                             row={index}
                                             column={columnIndex}
                                         >
@@ -164,7 +157,7 @@ function Category({
                             </ButtonGroupPrimitive>
                         ))
                     )}
-                    {newTabSceneData && category === 'persons' && (
+                    {isFlagged && category === 'persons://' && showPersonsFooter && (
                         <ListBox.Item asChild>
                             <Link
                                 to={urls.persons()}
@@ -178,7 +171,7 @@ function Category({
                     )}
                 </div>
             </div>
-            {newTabSceneData && (
+            {isFlagged && (
                 <div className="px-4">
                     <SceneDivider />
                 </div>
@@ -191,46 +184,26 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
     const {
         filteredItemsGrid,
         groupedFilteredItems,
-        newTabSceneDataGroupedItems,
         search,
         categories,
         selectedCategory,
         isSearching,
-        newTabSceneDataIncludePersons,
+        destinationSections,
+        destinationOptionMap,
+        personSearchResults,
+        recentsLoading,
+        personSearchResultsLoading,
     } = useValues(newTabSceneLogic({ tabId }))
     const { setSearch } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
 
-    // For newTabSceneData, use the new grouped items with section ordering
-    const allCategories = newTabSceneData
-        ? (() => {
-              const orderedSections: string[] = []
+    const flaggedLoadingByCategory: Record<string, boolean> = {
+        'project://': recentsLoading,
+        'persons://': personSearchResultsLoading,
+    }
 
-              // Add sections in order: persons (if enabled), new, apps, data-management, recents
-              if (newTabSceneDataIncludePersons) {
-                  orderedSections.push('persons')
-              }
-
-              const mainSections = ['create-new', 'apps', 'data-management', 'recents']
-              mainSections.forEach((section) => {
-                  orderedSections.push(section)
-              })
-
-              const result = orderedSections
-                  .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
-                  .filter(([section]) => {
-                      // Always show persons section if filter is enabled (even when empty)
-                      if (section === 'persons' && newTabSceneDataIncludePersons) {
-                          return true
-                      }
-                      // Show all other sections (including when empty to display "no results found")
-                      return true
-                  })
-
-              return result
-          })()
-        : Object.entries(groupedFilteredItems)
+    const allCategories = newTabSceneData ? destinationSections : Object.entries(groupedFilteredItems)
 
     if (!newTabSceneData && selectedCategory !== 'all') {
         const items = groupedFilteredItems[selectedCategory] || []
@@ -363,19 +336,29 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
         )
     }
 
+    const personResultsCount = personSearchResults.length
+
     return (
         <>
-            {allCategories
-                .filter(([_, items]) => items.length > 0)
-                .map(([category, items], columnIndex) => (
-                    <Category
-                        tabId={tabId}
-                        items={items}
-                        category={category}
-                        columnIndex={columnIndex}
-                        key={category}
-                    />
-                ))}
+            {allCategories.map(([category, items], columnIndex) => (
+                <Category
+                    items={items as NewTabTreeDataItem[]}
+                    category={category}
+                    columnIndex={columnIndex}
+                    key={category}
+                    meta={newTabSceneData ? destinationOptionMap[category] : categories.find((c) => c.key === category)}
+                    isFlagged={!!newTabSceneData}
+                    filteredItemsGridLength={filteredItemsGrid.length}
+                    search={search}
+                    isLoading={
+                        newTabSceneData
+                            ? (flaggedLoadingByCategory[category] ?? false)
+                            : category === 'recents' && isSearching
+                    }
+                    showPersonsFooter={!!newTabSceneData && category === 'persons://' && personResultsCount > 0}
+                    personResultsCount={personResultsCount}
+                />
+            ))}
         </>
     )
 }

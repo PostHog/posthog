@@ -16,6 +16,7 @@ interface SearchHintsProps {
     focusMaxInput: () => void
     focusSearchInput: () => void
     openSidePanel: (tab: SidePanelTab) => void
+    newTabSceneData: boolean
 }
 
 export function SearchHints({
@@ -27,6 +28,7 @@ export function SearchHints({
     focusMaxInput,
     focusSearchInput,
     openSidePanel,
+    newTabSceneData,
 }: SearchHintsProps): JSX.Element {
     return (
         <div className="flex justify-between items-center relative text-xs font-medium overflow-hidden py-1 px-1.5 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]">
@@ -58,6 +60,26 @@ export function SearchHints({
                             ID
                         </ButtonPrimitive>
                     </ListBox.Item>
+                </span>
+            ) : newTabSceneData ? (
+                <span className="flex flex-wrap items-center gap-1">
+                    <span className="text-tertiary">Tip:</span>
+                    <span className="text-tertiary">
+                        Press{' '}
+                        <code className="font-mono text-primary border border-border px-1 rounded bg-transparent">
+                            /
+                        </code>{' '}
+                        or Backspace in the search bar to open the category picker.
+                    </span>
+                    <span className="text-tertiary">Keep Auto selected to search everything.</span>
+                    <span className="text-tertiary">Examples:</span>
+                    <code className="font-mono text-primary border border-border px-1 rounded bg-transparent">
+                        /a dashboards
+                    </code>
+                    <span className="text-tertiary">or</span>
+                    <code className="font-mono text-primary border border-border px-1 rounded bg-transparent">
+                        /p unfiled/insights
+                    </code>
                 </span>
             ) : (
                 <span>
