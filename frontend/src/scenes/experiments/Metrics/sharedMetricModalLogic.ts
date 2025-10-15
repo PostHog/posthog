@@ -6,26 +6,8 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from '../SharedMetrics/sharedMetricsLogic'
-import type { MetricContext } from './experimentMetricModalLogic'
+import { METRIC_CONTEXTS, type MetricContext } from './experimentMetricModalLogic'
 import type { sharedMetricModalLogicType } from './sharedMetricModalLogicType'
-
-export const SHARED_METRIC_CONTEXTS = {
-    primary: {
-        type: 'primary' as const,
-        field: 'shared_metrics' as const,
-        orderingField: 'primary_metrics_ordered_uuids' as const,
-    },
-    secondary: {
-        type: 'secondary' as const,
-        field: 'shared_metrics_secondary' as const,
-        orderingField: 'secondary_metrics_ordered_uuids' as const,
-    },
-} as const
-
-export type SharedMetricContext = (typeof SHARED_METRIC_CONTEXTS)[keyof typeof SHARED_METRIC_CONTEXTS]
-
-export const isSharedMetricContext = (context: MetricContext | SharedMetricContext): context is SharedMetricContext =>
-    context.field === 'shared_metrics' || context.field === 'shared_metrics_secondary'
 
 export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
     path(['scenes', 'experiments', 'Metrics', 'sharedMetricModalLogic']),
@@ -36,7 +18,7 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
     })),
 
     actions({
-        openSharedMetricModal: (context: SharedMetricContext, sharedMetricId?: SharedMetric['id'] | null) => ({
+        openSharedMetricModal: (context: MetricContext, sharedMetricId?: SharedMetric['id'] | null) => ({
             context,
             sharedMetricId,
         }),
@@ -66,10 +48,10 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
             },
         ],
         context: [
-            SHARED_METRIC_CONTEXTS.primary as SharedMetricContext,
+            METRIC_CONTEXTS.primary as MetricContext,
             {
                 openSharedMetricModal: (_, { context }) => context,
-                closeSharedMetricModal: () => SHARED_METRIC_CONTEXTS.primary,
+                closeSharedMetricModal: () => METRIC_CONTEXTS.primary,
             },
         ],
         isEditMode: [

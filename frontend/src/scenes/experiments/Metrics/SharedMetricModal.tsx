@@ -14,7 +14,8 @@ import { AvailableFeature, Experiment } from '~/types'
 
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
-import { SharedMetricContext, sharedMetricModalLogic } from './sharedMetricModalLogic'
+import { MetricContext } from './experimentMetricModalLogic'
+import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
 export function SharedMetricModal({
     experiment,
@@ -22,8 +23,8 @@ export function SharedMetricModal({
     onDelete,
 }: {
     experiment: Experiment
-    onSave: (metrics: SharedMetric[], context: SharedMetricContext) => void
-    onDelete: (metric: SharedMetric, context: SharedMetricContext) => void
+    onSave: (metrics: SharedMetric[], context: MetricContext) => void
+    onDelete: (metric: SharedMetric, context: MetricContext) => void
 }): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
     const { isModalOpen, context, compatibleSharedMetrics, sharedMetricId, isCreateMode, isEditMode } =
