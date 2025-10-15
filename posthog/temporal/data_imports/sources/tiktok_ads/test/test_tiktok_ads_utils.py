@@ -427,9 +427,8 @@ class TestStreamTransformations:
         """Test stream transformations for unknown endpoint type."""
         reports = [{"data": "test"}]
 
-        result = TikTokReportResource.apply_stream_transformations("unknown", reports)
-
-        assert result == reports  # Should return unchanged
+        with pytest.raises(ValueError, match="Endpoint type: unknown is not implemented"):
+            TikTokReportResource.apply_stream_transformations("unknown", reports)
 
 
 class TestDateRangeFunctions:
