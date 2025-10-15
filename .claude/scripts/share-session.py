@@ -81,10 +81,11 @@ def generate_markdown(messages, session_date, description):
             lines.append(msg["content"] + "\n")
 
         elif msg["type"] == "tool_use":
-            lines.append(f"\n### Tool: `{msg['name']}`\n\n")
+            lines.append(f"\n<details>\n<summary>Tool: <code>{msg['name']}</code></summary>\n\n")
             lines.append("```json\n")
             lines.append(json.dumps(msg["input"], indent=2) + "\n")
-            lines.append("```\n")
+            lines.append("```\n\n")
+            lines.append("</details>\n")
 
     return "".join(lines)
 
