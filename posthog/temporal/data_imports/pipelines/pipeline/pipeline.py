@@ -342,7 +342,6 @@ class PipelineNonDLT:
         try:
             self._delta_table_helper.compact_table()
         except Exception as e:
-            from posthog.exceptions_capture import capture_exception
             capture_exception(e)
             self._logger.exception(f"Compaction failed: {e}", exc_info=e)
 
