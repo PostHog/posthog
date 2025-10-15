@@ -1,150 +1,220 @@
-import math
-from dataclasses import dataclass
+import pytest
+from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
-
-from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import CoordinatorWorkflowInputs
-
-
-@dataclass
-class ParallelismTestCase:
-    """Test case for parallelism distribution testing."""
-
-    name: str
-    total_conditions: int
-    parallelism: int
-    expected_workflows: int
-    expected_conditions_per_workflow: list[tuple[int, int]]  # List of (offset, limit) pairs
-
-
-# Test cases for parallelism distribution
-PARALLELISM_TEST_CASES = [
-    ParallelismTestCase(
-        name="even_distribution_100_conditions_10_workers",
-        total_conditions=100,
-        parallelism=10,
-        expected_workflows=10,
-        expected_conditions_per_workflow=[
-            (0, 10),
-            (10, 10),
-            (20, 10),
-            (30, 10),
-            (40, 10),
-            (50, 10),
-            (60, 10),
-            (70, 10),
-            (80, 10),
-            (90, 10),
-        ],
-    ),
-    ParallelismTestCase(
-        name="uneven_distribution_with_remainder",
-        total_conditions=100,
-        parallelism=3,
-        expected_workflows=3,
-        expected_conditions_per_workflow=[(0, 34), (34, 34), (68, 32)],  # 100/3 = 33.33, ceil = 34
-    ),
-    ParallelismTestCase(
-        name="all_workflows_needed_50_conditions_10_workers",
-        total_conditions=50,
-        parallelism=10,
-        expected_workflows=10,
-        expected_conditions_per_workflow=[
-            (0, 5),
-            (5, 5),
-            (10, 5),
-            (15, 5),
-            (20, 5),
-            (25, 5),
-            (30, 5),
-            (35, 5),
-            (40, 5),
-            (45, 5),
-        ],
-    ),
-    ParallelismTestCase(
-        name="large_dataset_even_split",
-        total_conditions=1000,
-        parallelism=4,
-        expected_workflows=4,
-        expected_conditions_per_workflow=[(0, 250), (250, 250), (500, 250), (750, 250)],
-    ),
-    ParallelismTestCase(
-        name="no_conditions_no_workflows",
-        total_conditions=0,
-        parallelism=10,
-        expected_workflows=0,
-        expected_conditions_per_workflow=[],
-    ),
-    ParallelismTestCase(
-        name="single_workflow_all_conditions",
-        total_conditions=10,
-        parallelism=1,
-        expected_workflows=1,
-        expected_conditions_per_workflow=[(0, 10)],
-    ),
-    ParallelismTestCase(
-        name="uneven_small_distribution",
-        total_conditions=7,
-        parallelism=3,
-        expected_workflows=3,
-        expected_conditions_per_workflow=[(0, 3), (3, 3), (6, 1)],
-    ),
-]
+from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import (
+    CoordinatorWorkflowInputs,
+    RunningWorkflowsResult,
+    check_running_workflows_activity,
+)
 
 
 class TestBehavioralCohortsCoordinatorWorkflow:
-    @parameterized.expand([(case.name, case) for case in PARALLELISM_TEST_CASES])
-    def test_parallelism_distribution_calculation(self, test_name: str, test_case: ParallelismTestCase):
-        """Test that the coordinator correctly calculates work distribution across child workflows based on parallelism."""
-        inputs = CoordinatorWorkflowInputs(parallelism=test_case.parallelism)
+    class MockAsyncIterator:
+        """Reusable async iterator mock for tests."""
 
-        # Calculate distribution using the same logic as the coordinator
-        actual_workflows: list[tuple[int, int]] = []
-        if test_case.total_conditions == 0:
-            pass  # actual_workflows remains empty
+        def __init__(self, items):
+            self.items = iter(items)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self.items)
+            except StopIteration:
+                raise StopAsyncIteration
+
+    def _setup_workflow_check_test(self, workflows=None, exception=None):
+        """Setup common test infrastructure for workflow checking tests."""
+        inputs = CoordinatorWorkflowInputs()
+        mock_client = MagicMock()
+
+        if exception:
+            mock_client.list_workflows.side_effect = exception
         else:
-            conditions_per_workflow = math.ceil(test_case.total_conditions / inputs.parallelism)
+            mock_workflow_iter = self.MockAsyncIterator(workflows or [])
+            mock_client.list_workflows.return_value = mock_workflow_iter
 
-            for i in range(inputs.parallelism):
-                offset = i * conditions_per_workflow
-                limit = min(conditions_per_workflow, test_case.total_conditions - offset)
+        return inputs, mock_client
 
-                if limit <= 0:
-                    break
+    @pytest.mark.asyncio
+    async def test_check_running_workflows_activity_with_running_workflows(self):
+        """Test that check_running_workflows_activity correctly detects running workflows."""
+        mock_workflow = MagicMock()
+        mock_workflow.id = "test-workflow-1"
 
-                actual_workflows.append((offset, limit))
+        inputs, mock_client = self._setup_workflow_check_test(workflows=[mock_workflow])
 
-        # Verify the correct number of workflows
-        assert (
-            len(actual_workflows) == test_case.expected_workflows
-        ), f"Test '{test_case.name}': Expected {test_case.expected_workflows} workflows, got {len(actual_workflows)}"
+        with patch(
+            "posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator.async_connect"
+        ) as mock_async_connect:
+            mock_async_connect.return_value = mock_client
+            result = await check_running_workflows_activity(inputs)
 
-        # Verify each workflow gets the correct offset and limit
-        for i, expected_workflow in enumerate(test_case.expected_conditions_per_workflow):
-            expected_offset, expected_limit = expected_workflow
-            actual_offset, actual_limit = actual_workflows[i]
+        assert isinstance(result, RunningWorkflowsResult)
+        assert result.has_running_workflows is True
+        mock_client.list_workflows.assert_called_once_with(
+            query="WorkflowType = 'behavioral-cohorts-analysis' AND ExecutionStatus = 'Running'"
+        )
 
-            assert (
-                actual_offset == expected_offset
-            ), f"Test '{test_case.name}' workflow {i}: expected offset {expected_offset}, got {actual_offset}"
-            assert (
-                actual_limit == expected_limit
-            ), f"Test '{test_case.name}' workflow {i}: expected limit {expected_limit}, got {actual_limit}"
+    @pytest.mark.asyncio
+    async def test_check_running_workflows_activity_with_no_running_workflows(self):
+        """Test that check_running_workflows_activity correctly detects when no workflows are running."""
+        inputs, mock_client = self._setup_workflow_check_test(workflows=[])
 
-        # Verify no gaps or overlaps in coverage
-        if actual_workflows:
-            total_covered = sum(workflow[1] for workflow in actual_workflows)
-            assert (
-                total_covered == test_case.total_conditions
-            ), f"Test '{test_case.name}': Total conditions covered ({total_covered}) doesn't match total conditions ({test_case.total_conditions})"
+        with patch(
+            "posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator.async_connect"
+        ) as mock_async_connect:
+            mock_async_connect.return_value = mock_client
+            result = await check_running_workflows_activity(inputs)
 
-            # Verify no gaps between workflows
-            for i in range(1, len(actual_workflows)):
-                prev_offset, prev_limit = actual_workflows[i - 1]
-                current_offset, _ = actual_workflows[i]
-                prev_end = prev_offset + prev_limit
+        assert isinstance(result, RunningWorkflowsResult)
+        assert result.has_running_workflows is False
+        mock_client.list_workflows.assert_called_once_with(
+            query="WorkflowType = 'behavioral-cohorts-analysis' AND ExecutionStatus = 'Running'"
+        )
 
-                assert (
-                    prev_end == current_offset
-                ), f"Test '{test_case.name}': Gap found between workflow {i-1} (ends at {prev_end}) and workflow {i} (starts at {current_offset})"
+    @pytest.mark.asyncio
+    async def test_check_running_workflows_activity_handles_exceptions(self):
+        """Test that check_running_workflows_activity properly handles exceptions."""
+        inputs, mock_client = self._setup_workflow_check_test(exception=Exception("Connection error"))
+
+        with patch(
+            "posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator.async_connect"
+        ) as mock_async_connect:
+            mock_async_connect.return_value = mock_client
+            with pytest.raises(Exception, match="Connection error"):
+                await check_running_workflows_activity(inputs)
+
+    @pytest.mark.asyncio
+    async def test_coordinator_behavior_exits_early_when_workflows_running(self):
+        """Test coordinator calls the right APIs and exits early when workflows are running."""
+        from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import (
+            BehavioralCohortsCoordinatorWorkflow,
+            check_running_workflows_activity,
+        )
+
+        inputs = CoordinatorWorkflowInputs(parallelism=3, team_id=123)
+
+        # Mock Temporal APIs
+        with (
+            patch("temporalio.workflow.execute_activity") as mock_execute_activity,
+            patch("temporalio.workflow.logger"),
+        ):
+            # Setup: running workflows found
+            mock_execute_activity.return_value = RunningWorkflowsResult(has_running_workflows=True)
+
+            # Run the actual coordinator logic
+            coordinator = BehavioralCohortsCoordinatorWorkflow()
+            result = await coordinator.run(inputs)
+
+            # Verify behavior: should exit early
+            assert result is None
+
+            # Verify API calls: only check for running workflows, nothing else
+            mock_execute_activity.assert_called_once_with(
+                check_running_workflows_activity,
+                inputs,
+                start_to_close_timeout=mock_execute_activity.call_args[1]["start_to_close_timeout"],
+                retry_policy=mock_execute_activity.call_args[1]["retry_policy"],
+            )
+
+    @pytest.mark.asyncio
+    async def test_coordinator_behavior_full_flow_creates_correct_child_workflows(self):
+        """Test coordinator calls correct APIs and creates child workflows with right parameters."""
+        from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import (
+            BehavioralCohortsCoordinatorWorkflow,
+            ConditionsCountResult,
+            check_running_workflows_activity,
+            get_conditions_count_activity,
+        )
+
+        inputs = CoordinatorWorkflowInputs(parallelism=3, team_id=123, min_matches=5)
+
+        with (
+            patch("temporalio.workflow.execute_activity") as mock_execute_activity,
+            patch("temporalio.workflow.start_child_workflow") as mock_start_child,
+            patch("temporalio.workflow.logger"),
+            patch("temporalio.workflow.info") as mock_info,
+        ):
+            # Setup responses
+            mock_execute_activity.side_effect = [
+                RunningWorkflowsResult(has_running_workflows=False),  # No running workflows
+                ConditionsCountResult(count=100),  # 100 conditions found
+            ]
+            mock_info.return_value = MagicMock(workflow_id="coordinator-123")
+
+            # Run the actual coordinator
+            coordinator = BehavioralCohortsCoordinatorWorkflow()
+            result = await coordinator.run(inputs)
+
+            # Verify result
+            assert result is None
+
+            # Verify activity calls
+            assert mock_execute_activity.call_count == 2
+            mock_execute_activity.assert_any_call(
+                check_running_workflows_activity,
+                inputs,
+                start_to_close_timeout=mock_execute_activity.call_args_list[0][1]["start_to_close_timeout"],
+                retry_policy=mock_execute_activity.call_args_list[0][1]["retry_policy"],
+            )
+            mock_execute_activity.assert_any_call(
+                get_conditions_count_activity,
+                inputs,
+                start_to_close_timeout=mock_execute_activity.call_args_list[1][1]["start_to_close_timeout"],
+                retry_policy=mock_execute_activity.call_args_list[1][1]["retry_policy"],
+            )
+
+            # Verify child workflow calls - this tests the ACTUAL parallelism logic
+            assert mock_start_child.call_count == 3  # parallelism=3
+
+            # Verify the actual distribution logic by checking what the coordinator calculated
+            child_calls = mock_start_child.call_args_list
+
+            # Child 0: offset=0, limit=34 (100/3 = 33.33, ceil = 34)
+            child_0_inputs = child_calls[0][0][1]  # Second argument is inputs
+            assert child_0_inputs.team_id == 123
+            assert child_0_inputs.min_matches == 5
+            assert child_0_inputs.offset == 0
+            assert child_0_inputs.limit == 34
+
+            # Child 1: offset=34, limit=34
+            child_1_inputs = child_calls[1][0][1]
+            assert child_1_inputs.offset == 34
+            assert child_1_inputs.limit == 34
+
+            # Child 2: offset=68, limit=32 (remaining)
+            child_2_inputs = child_calls[2][0][1]
+            assert child_2_inputs.offset == 68
+            assert child_2_inputs.limit == 32
+
+    @pytest.mark.asyncio
+    async def test_coordinator_behavior_no_conditions_skips_child_workflows(self):
+        """Test coordinator handles zero conditions correctly."""
+        from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import (
+            BehavioralCohortsCoordinatorWorkflow,
+            ConditionsCountResult,
+        )
+
+        inputs = CoordinatorWorkflowInputs(parallelism=5)
+
+        with (
+            patch("temporalio.workflow.execute_activity") as mock_execute_activity,
+            patch("temporalio.workflow.start_child_workflow") as mock_start_child,
+            patch("temporalio.workflow.logger"),
+        ):
+            # Setup: no running workflows, but zero conditions
+            mock_execute_activity.side_effect = [
+                RunningWorkflowsResult(has_running_workflows=False),
+                ConditionsCountResult(count=0),
+            ]
+
+            # Run coordinator
+            coordinator = BehavioralCohortsCoordinatorWorkflow()
+            result = await coordinator.run(inputs)
+
+            # Verify behavior
+            assert result is None
+            assert mock_execute_activity.call_count == 2  # Both activities called
+            mock_start_child.assert_not_called()  # No child workflows created
