@@ -5832,6 +5832,31 @@ export interface DataWarehouseDashboardDataSource {
     url: string
 }
 
+export interface DataWarehouseJobStats {
+    days: number
+    cutoff_time: string
+    total_jobs: number
+    successful_jobs: number
+    failed_jobs: number
+    external_data_jobs: {
+        total: number
+        successful: number
+        failed: number
+    }
+    modeling_jobs: {
+        total: number
+        successful: number
+        failed: number
+    }
+    breakdown: Record<
+        string,
+        {
+            successful: number
+            failed: number
+        }
+    >
+}
+
 export enum OnboardingStepKey {
     INSTALL = 'install',
     LINK_DATA = 'link_data',

@@ -71,6 +71,7 @@ import {
     DataColorThemeModel,
     DataModelingJob,
     DataWarehouseActivityRecord,
+    DataWarehouseJobStats,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSourceRowCount,
@@ -3663,30 +3664,7 @@ const api = {
                 .get(options)
         },
 
-        async jobStats(options?: ApiMethodOptions & { days?: 1 | 7 | 30 }): Promise<{
-            days: number
-            cutoff_time: string
-            total_jobs: number
-            successful_jobs: number
-            failed_jobs: number
-            external_data_jobs: {
-                total: number
-                successful: number
-                failed: number
-            }
-            modeling_jobs: {
-                total: number
-                successful: number
-                failed: number
-            }
-            breakdown: Record<
-                string,
-                {
-                    successful: number
-                    failed: number
-                }
-            >
-        }> {
+        async jobStats(options?: ApiMethodOptions & { days?: 1 | 7 | 30 }): Promise<DataWarehouseJobStats> {
             return await new ApiRequest()
                 .dataWarehouse()
                 .withAction('job_stats')

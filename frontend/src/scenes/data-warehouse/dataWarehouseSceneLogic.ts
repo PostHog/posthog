@@ -14,6 +14,7 @@ import {
     BillingPeriod,
     DataWarehouseActivityRecord,
     DataWarehouseDashboardDataSource,
+    DataWarehouseJobStats,
     DataWarehouseSourceRowCount,
     ExternalDataSource,
 } from '~/types'
@@ -73,30 +74,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             },
         ],
         jobStats: [
-            null as {
-                days: number
-                cutoff_time: string
-                total_jobs: number
-                successful_jobs: number
-                failed_jobs: number
-                external_data_jobs: {
-                    total: number
-                    successful: number
-                    failed: number
-                }
-                modeling_jobs: {
-                    total: number
-                    successful: number
-                    failed: number
-                }
-                breakdown: Record<
-                    string,
-                    {
-                        successful: number
-                        failed: number
-                    }
-                >
-            } | null,
+            null as DataWarehouseJobStats | null,
             {
                 loadJobStats: async ({ days }: { days: 1 | 7 | 30 }) => {
                     return await api.dataWarehouse.jobStats({ days })
