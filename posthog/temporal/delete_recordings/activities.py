@@ -146,6 +146,7 @@ async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
             block_length = end_byte - start_byte + 1
             key = path.lstrip("/")
 
+            tmpfile = None
             try:
                 _, tmpfile = mkstemp()
 
@@ -170,7 +171,8 @@ async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
                 logger.warning(f"Failed to upload block at {block.url}, skipping...")
                 block_deleted_error_counter += 1
             finally:
-                os.remove(tmpfile)
+                if tmpfile is not None:
+                    os.remove(tmpfile)
 
     get_block_deleted_counter().add(block_deleted_counter)
     get_block_deleted_error_counter().add(block_deleted_error_counter)

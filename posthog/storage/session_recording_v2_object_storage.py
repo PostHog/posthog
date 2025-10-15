@@ -363,7 +363,11 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
 
     def download_file(self, key: str, filename: str) -> None:
         try:
-            self.aws_client.download_file(self.bucket, filename, key)
+            self.aws_client.download_file(
+                Bucket=self.bucket,
+                Key=key,
+                Filename=filename,
+            )
         except Exception as e:
             logger.exception(
                 "session_recording_v2_object_storage.download_file_failed",
@@ -375,7 +379,11 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
 
     def upload_file(self, key: str, filename: str) -> None:
         try:
-            self.aws_client.upload_file(filename, self.bucket, key)
+            self.aws_client.upload_file(
+                Bucket=self.bucket,
+                Key=key,
+                Filename=filename,
+            )
         except Exception as e:
             logger.exception(
                 "session_recording_v2_object_storage.upload_file_failed",
