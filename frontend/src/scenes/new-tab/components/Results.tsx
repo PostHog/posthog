@@ -44,6 +44,8 @@ function Category({
     onToggle,
     maxVisibleItems,
     onAskMax,
+    showSearchPersonsButton = false,
+    onSearchPersons,
 }: {
     items: NewTabTreeDataItem[]
     category: string
@@ -59,6 +61,8 @@ function Category({
     onToggle: () => void
     maxVisibleItems: number
     onAskMax: (question: string) => void
+    showSearchPersonsButton?: boolean
+    onSearchPersons?: () => void
 }): JSX.Element {
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
@@ -66,6 +70,7 @@ function Category({
     const description = meta?.description
     const visibleItems = isExpanded ? typedItems : typedItems.slice(0, maxVisibleItems)
     const hasMoreItems = typedItems.length > maxVisibleItems
+    const trimmedSearch = search.trim()
 
     return (
         <div className={cn('mb-8', { 'mb-2': isFlagged })}>
@@ -213,6 +218,18 @@ function Category({
                             </ButtonPrimitive>
                         </div>
                     )}
+                    {showSearchPersonsButton && typedItems.length === 0 && (
+                        <div className="mt-2">
+                            <ButtonPrimitive
+                                size="sm"
+                                type="button"
+                                onClick={onSearchPersons}
+                                disabled={!trimmedSearch || !onSearchPersons}
+                            >
+                                Search persons{trimmedSearch ? ` for "${trimmedSearch}"` : ''}
+                            </ButtonPrimitive>
+                        </div>
+                    )}
                     {isFlagged && category === 'persons://' && showPersonsFooter && (
                         <ListBox.Item asChild>
                             <Link
@@ -249,8 +266,12 @@ export function Results({ tabId, onAskMax }: { tabId: string; onAskMax: (questio
         personSearchResults,
         recentsLoading,
         personSearchResultsLoading,
+        eventDefinitionResultsLoading,
+        propertyDefinitionResultsLoading,
+        newTabSceneDataIncludePersons,
+        isEmailSearch,
     } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch } = useActions(newTabSceneLogic({ tabId }))
+    const { setSearch, setNewTabSceneDataIncludePersons } = useActions(newTabSceneLogic({ tabId }))
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
 
     const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
@@ -267,6 +288,8 @@ export function Results({ tabId, onAskMax }: { tabId: string; onAskMax: (questio
     const flaggedLoadingByCategory: Record<string, boolean> = {
         'project://': recentsLoading,
         'persons://': personSearchResultsLoading,
+        'events://': eventDefinitionResultsLoading,
+        'properties://': propertyDefinitionResultsLoading,
     }
 
     const allCategories = newTabSceneData ? destinationSections : Object.entries(groupedFilteredItems)
@@ -475,6 +498,13 @@ export function Results({ tabId, onAskMax }: { tabId: string; onAskMax: (questio
                     onToggle={() => toggleCategoryExpansion(category)}
                     maxVisibleItems={MAX_VISIBLE_ITEMS}
                     onAskMax={onAskMax}
+                    showSearchPersonsButton={
+                        !!newTabSceneData &&
+                        category === 'persons://' &&
+                        !newTabSceneDataIncludePersons &&
+                        !isEmailSearch
+                    }
+                    onSearchPersons={() => setNewTabSceneDataIncludePersons(true)}
                 />
             ))}
         </>

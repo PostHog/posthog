@@ -25,7 +25,7 @@ import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogi
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { PersonType } from '~/types'
+import { EventDefinition, PersonType, PropertyDefinition } from '~/types'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
@@ -270,6 +270,36 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 },
             },
         ],
+        eventDefinitionResults: [
+            [] as EventDefinition[],
+            {
+                loadEventDefinitionResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+                    await breakpoint(200)
+                    const response = await api.eventDefinitions.list({
+                        search: trimmed || undefined,
+                        limit: PAGINATION_LIMIT,
+                    })
+                    breakpoint()
+                    return response.results ?? []
+                },
+            },
+        ],
+        propertyDefinitionResults: [
+            [] as PropertyDefinition[],
+            {
+                loadPropertyDefinitionResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+                    await breakpoint(200)
+                    const response = await api.propertyDefinitions.list({
+                        search: trimmed || undefined,
+                        limit: PAGINATION_LIMIT,
+                    })
+                    breakpoint()
+                    return response.results ?? []
+                },
+            },
+        ],
     })),
     reducers({
         search: [
@@ -415,22 +445,86 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 return items
             },
         ],
+        eventDefinitionItems: [
+            (s) => [s.eventDefinitionResults],
+            (eventDefinitionResults): NewTabTreeDataItem[] =>
+                eventDefinitionResults.map((definition) => {
+                    const protocol = 'events://'
+                    const name = definition.name || (definition.id != null ? String(definition.id) : 'Unnamed event')
+                    const definitionId = definition.id ?? definition.name ?? ''
+                    return {
+                        id: `event-definition-${definition.id}`,
+                        name,
+                        displayName: name,
+                        category: 'data-management',
+                        href: urls.eventDefinition(definitionId),
+                        protocol,
+                        icon: iconForType('event_definition'),
+                        record: {
+                            type: 'event_definition',
+                            path: name,
+                            href: urls.eventDefinition(definitionId),
+                            protocol,
+                        },
+                    }
+                }),
+        ],
+        propertyDefinitionItems: [
+            (s) => [s.propertyDefinitionResults],
+            (propertyDefinitionResults): NewTabTreeDataItem[] =>
+                propertyDefinitionResults.map((definition) => {
+                    const protocol = 'properties://'
+                    const name = definition.name || (definition.id != null ? String(definition.id) : 'Unnamed property')
+                    const definitionId = definition.id ?? definition.name ?? ''
+                    return {
+                        id: `property-definition-${definition.id}`,
+                        name,
+                        displayName: name,
+                        category: 'data-management',
+                        href: urls.propertyDefinition(definitionId),
+                        protocol,
+                        icon: iconForType('property_definition'),
+                        record: {
+                            type: 'property_definition',
+                            path: name,
+                            href: urls.propertyDefinition(definitionId),
+                            protocol,
+                        },
+                    }
+                }),
+        ],
+        isEmailSearch: [
+            (s) => [s.search],
+            (search): boolean => {
+                const trimmed = search.trim()
+                if (!trimmed) {
+                    return false
+                }
+                return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)
+            },
+        ],
         itemsGrid: [
             (s) => [
                 s.featureFlags,
                 s.projectTreeSearchItems,
                 s.personSearchItems,
+                s.eventDefinitionItems,
+                s.propertyDefinitionItems,
                 s.specialSearchMode,
                 s.selectedDestinations,
                 s.search,
+                s.newTabSceneDataIncludePersons,
             ],
             (
                 featureFlags,
                 projectTreeSearchItems,
                 personSearchItems,
+                eventDefinitionItems,
+                propertyDefinitionItems,
                 specialSearchMode,
                 selectedDestinations,
-                search
+                search,
+                newTabSceneDataIncludePersons
             ): NewTabTreeDataItem[] => {
                 const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
                 const normalizedSelections = selectedDestinations
@@ -438,7 +532,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter((value): value is string => !!value)
 
                 const includePersons =
-                    newTabSceneData && (normalizedSelections.includes('persons://') || specialSearchMode === 'persons')
+                    newTabSceneData &&
+                    (normalizedSelections.includes('persons://') ||
+                        specialSearchMode === 'persons' ||
+                        newTabSceneDataIncludePersons)
 
                 const trimmedSearch = search.trim()
                 const askMaxItem: NewTabTreeDataItem = {
@@ -525,6 +622,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .toSorted((a, b) => a.name.localeCompare(b.name))
 
                 const data = getDefaultTreeData()
+                    .filter((fs) => {
+                        if (!newTabSceneData) {
+                            return true
+                        }
+                        const protocol = getProtocolForDataItem(fs)
+                        return protocol !== 'events://' && protocol !== 'properties://'
+                    })
                     .map((fs, index) => {
                         const protocol = getProtocolForDataItem(fs)
                         return {
@@ -567,6 +671,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     ...newOtherItems,
                     ...products,
                     ...data,
+                    ...(newTabSceneData ? [...eventDefinitionItems, ...propertyDefinitionItems] : []),
                     ...newDataItems,
                     ...projectTreeSearchItems,
                     askMaxItem,
@@ -752,12 +857,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 ),
         ],
         destinationSections: [
-            (s) => [s.newTabSceneDataGroupedItems, s.destinationOptions, s.selectedDestinations, s.featureFlags],
+            (s) => [
+                s.newTabSceneDataGroupedItems,
+                s.destinationOptions,
+                s.selectedDestinations,
+                s.featureFlags,
+                s.isEmailSearch,
+                s.newTabSceneDataIncludePersons,
+            ],
             (
                 groupedItems: Record<string, NewTabTreeDataItem[]>,
                 destinationOptions: NewTabDestinationOption[],
                 selectedDestinations: string[],
-                featureFlags
+                featureFlags,
+                isEmailSearch,
+                newTabSceneDataIncludePersons
             ): [string, NewTabTreeDataItem[]][] => {
                 if (!featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
                     return []
@@ -769,20 +883,34 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 const sections: [string, NewTabTreeDataItem[]][] = []
                 const seen = new Set<string>()
+                const shouldPrioritizePersons = isEmailSearch && newTabSceneDataIncludePersons
 
-                const orderedValues =
+                let orderedValues =
                     normalizedSelection.length > 0
                         ? normalizedSelection
                         : destinationOptions
                               .map((option) => normalizeDestination(option.value))
                               .filter((value): value is string => !!value)
 
+                if (shouldPrioritizePersons) {
+                    const withoutPersons = orderedValues.filter((value) => value !== 'persons://')
+                    orderedValues = ['persons://', ...withoutPersons]
+                }
+
+                if (shouldPrioritizePersons && !orderedValues.includes('persons://')) {
+                    orderedValues = ['persons://', ...orderedValues]
+                }
+
                 for (const value of orderedValues) {
                     if (!value || seen.has(value)) {
                         continue
                     }
                     const items = groupedItems[value] || []
-                    if (items.length > 0 || normalizedSelection.includes(value)) {
+                    if (
+                        items.length > 0 ||
+                        normalizedSelection.includes(value) ||
+                        (shouldPrioritizePersons && value === 'persons://')
+                    ) {
                         sections.push([value, items])
                         seen.add(value)
                     }
@@ -830,18 +958,28 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 router.actions.push(values.selectedItem.href)
             }
         },
-        setSearch: () => {
+        setSearch: ({ search }) => {
             const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+            const trimmedSearch = search.trim()
 
             actions.loadRecents()
 
-            // For newTabSceneData mode, trigger person search if includePersons is enabled and there's a search term
-            if (newTabSceneData && values.newTabSceneDataIncludePersons) {
-                if (values.search.trim()) {
-                    actions.debouncedPersonSearch(values.search.trim())
-                } else {
-                    // Clear results when search is empty
-                    actions.loadPersonSearchResultsSuccess([])
+            if (newTabSceneData) {
+                actions.loadEventDefinitionResults({ searchTerm: trimmedSearch })
+                actions.loadPropertyDefinitionResults({ searchTerm: trimmedSearch })
+
+                const shouldAutoIncludePersons = !!trimmedSearch && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedSearch)
+                if (shouldAutoIncludePersons && !values.newTabSceneDataIncludePersons) {
+                    actions.setNewTabSceneDataIncludePersons(true)
+                }
+
+                if (values.newTabSceneDataIncludePersons) {
+                    if (trimmedSearch) {
+                        actions.debouncedPersonSearch(trimmedSearch)
+                    } else {
+                        // Clear results when search is empty
+                        actions.loadPersonSearchResultsSuccess([])
+                    }
                 }
             }
         },
@@ -905,7 +1043,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         actions.loadRecents()
+        if (values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]) {
+            actions.loadEventDefinitionResults({ searchTerm: '' })
+            actions.loadPropertyDefinitionResults({ searchTerm: '' })
+        }
     }),
 ])

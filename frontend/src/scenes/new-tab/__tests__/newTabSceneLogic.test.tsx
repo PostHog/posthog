@@ -34,6 +34,34 @@ jest.mock('lib/api', () => ({
         persons: {
             determineListUrl: jest.fn(() => '/api/persons/'),
         },
+        eventDefinitions: {
+            list: jest.fn(() =>
+                Promise.resolve({
+                    count: 1,
+                    next: null,
+                    results: [
+                        {
+                            id: 1,
+                            name: 'pageview',
+                        },
+                    ],
+                })
+            ),
+        },
+        propertyDefinitions: {
+            list: jest.fn(() =>
+                Promise.resolve({
+                    count: 1,
+                    next: null,
+                    results: [
+                        {
+                            id: 2,
+                            name: 'email',
+                        },
+                    ],
+                })
+            ),
+        },
         get: jest.fn(() => Promise.resolve({ count: 0, next: null, results: [] })),
     },
 }))
@@ -213,5 +241,17 @@ describe('newTabSceneLogic', () => {
                 specialSearchMode: null,
             })
             .toFinishAllListeners()
+    })
+
+    it('prioritizes persons when searching by email address', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('user@example.com')
+        })
+            .toMatchValues({
+                newTabSceneDataIncludePersons: true,
+            })
+            .toFinishAllListeners()
+
+        expect(logic.values.destinationSections[0]?.[0]).toEqual('persons://')
     })
 })
