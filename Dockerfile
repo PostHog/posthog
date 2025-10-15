@@ -52,7 +52,9 @@ FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.17.1 AS plug
 
 # Compile and install system dependencies
 # Add Confluent's client repository for librdkafka 2.10.1
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     "wget" \
     "gnupg" \
@@ -71,9 +73,7 @@ RUN apt-get update && \
     "librdkafka-dev=2.10.1-1.cflt~deb12" \
     "libssl-dev=3.0.17-1~deb12u2" \
     "libssl3=3.0.17-1~deb12u2" \
-    "zlib1g-dev" \
-    && \
-    rm -rf /var/lib/apt/lists/*
+    "zlib1g-dev"
 
 WORKDIR /code
 COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
@@ -130,7 +130,11 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # We install those dependencies on a custom folder that we will
 # then copy to the last image.
 COPY pyproject.toml uv.lock ./
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/root/.cache/uv \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     "build-essential" \
     "git" \
@@ -141,9 +145,8 @@ RUN apt-get update && \
     "zlib1g-dev" \
     "pkg-config" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
-    pip install uv~=0.7.0 --no-cache-dir && \
-    UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
+    pip install uv~=0.7.0 && \
+    UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
@@ -168,13 +171,14 @@ WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Fetch the GeoLite2-City database that will be used for IP geolocation within Django.
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     "ca-certificates" \
     "curl" \
     "brotli" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
     mkdir share && \
     ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
     chmod -R 755 ./share/GeoLite2-City.mmdb
@@ -192,7 +196,9 @@ ENV PYTHONUNBUFFERED 1
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
 # Add Confluent's client repository for librdkafka runtime
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     "wget" \
     "gnupg" \
@@ -213,21 +219,21 @@ RUN apt-get update && \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl-dev=3.0.17-1~deb12u2" \
-    "libssl3=3.0.17-1~deb12u2" \
-    && \
-    rm -rf /var/lib/apt/lists/*
+    "libssl3=3.0.17-1~deb12u2"
 
 # Install MS SQL dependencies
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc && \
     curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list && \
     apt-get update && \
-    ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
-    rm -rf /var/lib/apt/lists/*
+    ACCEPT_EULA=Y apt-get install -y msodbcsql18
 
 # Install Node.js 22.17.1 with architecture detection and verification
 ENV NODE_VERSION 22.17.1
 
-RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
+RUN --mount=type=cache,target=/tmp/node-cache \
+  ARCH= && dpkgArch="$(dpkg --print-architecture)" \
   && case "${dpkgArch##*-}" in \
     amd64) ARCH='x64';; \
     ppc64el) ARCH='ppc64le';; \
@@ -253,6 +259,7 @@ RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
       { gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$key" && gpg --batch --fingerprint "$key"; } || \
       { gpg --batch --keyserver keyserver.ubuntu.com --recv-keys "$key" && gpg --batch --fingerprint "$key"; } ; \
   done \
+  && cd /tmp/node-cache \
   && curl -fsSLO --compressed "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$ARCH.tar.xz" \
   && curl -fsSLO --compressed "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt.asc" \
   && gpg --batch --decrypt --output SHASUMS256.txt SHASUMS256.txt.asc \
@@ -260,11 +267,9 @@ RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
   && rm -rf "$GNUPGHOME" \
   && grep " node-v$NODE_VERSION-linux-$ARCH.tar.xz\$" SHASUMS256.txt | sha256sum -c - \
   && tar -xJf "node-v$NODE_VERSION-linux-$ARCH.tar.xz" -C /usr/local --strip-components=1 --no-same-owner \
-  && rm "node-v$NODE_VERSION-linux-$ARCH.tar.xz" SHASUMS256.txt.asc SHASUMS256.txt \
   && ln -s /usr/local/bin/node /usr/local/bin/nodejs \
   && node --version \
-  && npm --version \
-  && rm -rf /tmp/*
+  && npm --version
 
 # Install and use a non-root user.
 RUN groupadd -g 1000 posthog && \
@@ -299,7 +304,8 @@ ENV PATH=/python-runtime/bin:$PATH \
 
 # Install Playwright Chromium browser for video export (as root for system deps)
 USER root
-RUN /python-runtime/bin/python -m playwright install --with-deps chromium
+RUN --mount=type=cache,target=/root/.cache/ms-playwright \
+    /python-runtime/bin/python -m playwright install chromium
 USER posthog
 
 # Validate video export dependencies
