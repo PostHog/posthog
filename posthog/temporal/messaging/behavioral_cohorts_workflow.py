@@ -280,8 +280,8 @@ def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> Coh
                         payload = {
                             "team_id": row[0],
                             "cohort_id": row[1],
-                            "person_id": row[2],
-                            "last_updated": row[3],
+                            "person_id": str(row[2]),
+                            "last_updated": str(row[3]),
                             "status": row[4],
                         }
                         KafkaProducer().produce(
