@@ -89,6 +89,11 @@ class ExperimentQueryBuilder:
                 raise NotImplementedError(f"Only mean and funnel metrics are supported. Got {type(self.metric)}")
 
     def _build_conversion_window_predicate(self) -> ast.Expr:
+        """
+        Build the predicate for limiting metric events to the conversion window for the user.
+        """
+        expr = "metric_events.timestamp >= exposures.first_exposure_time"
+
         conversion_window_seconds = 0
         if self.metric.conversion_window and self.metric.conversion_window_unit:
             conversion_window_seconds = conversion_window_to_seconds(
@@ -96,11 +101,8 @@ class ExperimentQueryBuilder:
                 self.metric.conversion_window_unit,
             )
 
-        if conversion_window_seconds > 0:
-            expr = """metric_events.timestamp >= exposures.first_exposure_time
-                    AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})"""
-        else:
-            expr = "metric_events.timestamp >= exposures.first_exposure_time"
+            if conversion_window_seconds > 0:
+                expr += f""" AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})"""
 
         return parse_expr(expr)
 
