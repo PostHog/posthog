@@ -2175,54 +2175,6 @@ importers:
         specifier: ^3.24.6
         version: 3.24.6(zod@3.25.76)
 
-  products/workflows:
-    dependencies:
-      '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      '@types/react':
-        specifier: '*'
-        version: 17.0.52
-      '@xyflow/react':
-        specifier: '*'
-        version: 12.6.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      clsx:
-        specifier: '*'
-        version: 1.2.1
-      elkjs:
-        specifier: '*'
-        version: 0.10.0
-      fast-deep-equal:
-        specifier: '*'
-        version: 3.1.3
-      fuse.js:
-        specifier: '*'
-        version: 6.6.2
-      kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
-      kea-forms:
-        specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.7(react@18.2.0))
-      kea-loaders:
-        specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
-      kea-router:
-        specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
-      kea-subscriptions:
-        specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.7(react@18.2.0))
-      posthog-js:
-        specifier: 1.275.3
-        version: 1.275.3(@rrweb/types@2.0.0-alpha.17)
-      react:
-        specifier: '*'
-        version: 18.2.0
-      zod:
-        specifier: '*'
-        version: 3.24.1
-
   products/notebooks:
     dependencies:
       '@posthog/icons':
