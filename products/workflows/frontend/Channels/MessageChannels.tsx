@@ -17,10 +17,10 @@ export function MessageChannels(): JSX.Element {
         useValues(integrationsLogic)
     const { openSetupModal, closeSetupModal } = useActions(integrationsLogic)
 
-    const allMessagingIntegrations =
+    const allWorkflowsIntegrations =
         integrations?.filter((integration) => MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType)) ?? []
 
-    const showProductIntroduction = !integrationsLoading && !allMessagingIntegrations.length
+    const showProductIntroduction = !integrationsLoading && !allWorkflowsIntegrations.length
 
     return (
         <>
@@ -41,7 +41,7 @@ export function MessageChannels(): JSX.Element {
                 )}
                 {showProductIntroduction && (
                     <ProductIntroduction
-                        productName="Messaging channel"
+                        productName="Workflows channel"
                         thingName="channel integration"
                         description="Configure channels to send messages from."
                         docsURL="https://posthog.com/docs/messaging"

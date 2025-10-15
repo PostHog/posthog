@@ -36,13 +36,13 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
             (id): Breadcrumb[] => {
                 return [
                     {
-                        key: [Scene.Messaging, 'workflows'],
+                        key: [Scene.Workflows, 'workflows'],
                         name: 'Workflows',
                         path: urls.messaging('workflows'),
                         iconType: 'messaging',
                     },
                     {
-                        key: Scene.MessagingWorkflow,
+                        key: Scene.Workflow,
                         name: id == 'new' ? 'New workflow' : 'Manage workflow',
                         iconType: 'messaging',
                     },

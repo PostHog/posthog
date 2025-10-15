@@ -5,32 +5,32 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import type { WorkflowsSceneTab } from './frontend/WorkflowScene'
 
 export const manifest: ProductManifest = {
-    name: 'Messaging',
+    name: 'Workflows',
     scenes: {
-        Messaging: {
+        Workflows: {
             import: () => import('./frontend/WorkflowScene'),
-            name: 'Messaging',
+            name: 'Workflows',
             projectBased: true,
         },
-        MessagingWorkflow: {
+        Workflow: {
             import: () => import('./frontend/Workflows/WorkflowScene'),
-            name: 'Messaging',
+            name: 'Workflows',
             projectBased: true,
         },
-        MessagingLibraryTemplate: {
+        WorkflowsLibraryTemplate: {
             import: () => import('./frontend/TemplateLibrary/MessageTemplate'),
-            name: 'Messaging',
+            name: 'Workflows',
             projectBased: true,
         },
     },
     routes: {
         // URL: [Scene, SceneKey]
-        '/messaging/:tab': ['Messaging', 'messagingWorkflows'],
-        '/messaging/workflows/:id/:tab': ['MessagingWorkflow', 'messagingWorkflowTab'],
-        '/messaging/library/templates/:id': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
-        '/messaging/library/templates/new': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+        '/messaging/:tab': ['Workflows', 'messagingWorkflows'],
+        '/messaging/workflows/:id/:tab': ['Workflow', 'messagingWorkflowTab'],
+        '/messaging/library/templates/:id': ['WorkflowsLibraryTemplate', 'messagingLibraryTemplate'],
+        '/messaging/library/templates/new': ['WorkflowsLibraryTemplate', 'messagingLibraryTemplate'],
         '/messaging/library/templates/new?messageId=:messageId': [
-            'MessagingLibraryTemplate',
+            'WorkflowsLibraryTemplate',
             'messagingLibraryTemplateFromMessage',
         ],
     },
@@ -59,7 +59,7 @@ export const manifest: ProductManifest = {
     },
     treeItemsProducts: [
         {
-            path: 'Messaging',
+            path: 'Workflows',
             href: urls.messaging(),
             type: 'messaging',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,

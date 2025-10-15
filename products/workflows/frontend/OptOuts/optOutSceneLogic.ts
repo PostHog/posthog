@@ -26,7 +26,7 @@ export const optOutSceneLogic = kea<optOutSceneLogicType>([
                 }
 
                 try {
-                    const newPreferencesUrl = await api.messaging.generateMessagingPreferencesLink(recipient)
+                    const newPreferencesUrl = await api.messaging.generateWorkflowsPreferencesLink(recipient)
                     if (!newPreferencesUrl) {
                         lemonToast.error('Failed to generate messaging preferences link')
                         return null

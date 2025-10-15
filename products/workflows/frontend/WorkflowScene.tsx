@@ -53,7 +53,7 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
             (tab): Breadcrumb[] => {
                 return [
                     {
-                        key: [Scene.Messaging, tab],
+                        key: [Scene.Workflows, tab],
                         name: capitalizeFirstLetter(tab.replaceAll('_', ' ')),
                         iconType: 'messaging',
                     },
@@ -92,9 +92,9 @@ export function WorkflowsScene(): JSX.Element {
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
 
-    const hasMessagingFeatureFlag = useFeatureFlag('MESSAGING')
+    const hasWorkflowsFeatureFlag = useFeatureFlag('MESSAGING')
 
-    if (!hasMessagingFeatureFlag) {
+    if (!hasWorkflowsFeatureFlag) {
         return (
             <div className="flex flex-col justify-center items-center h-full">
                 <h1 className="text-2xl font-bold">Coming soon!</h1>
@@ -173,7 +173,7 @@ export function WorkflowsScene(): JSX.Element {
     return (
         <SceneContent className="messaging">
             <SceneTitleSection
-                name="Messaging"
+                name="Workflows"
                 resourceType={{ type: 'messaging' }}
                 actions={
                     <>
