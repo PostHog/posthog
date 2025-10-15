@@ -25,7 +25,13 @@ from posthog.hogql_queries.experiments.experiment_metric_fingerprint import comp
 from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.cohort import Cohort
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult, ExperimentSavedMetric
+from posthog.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentMetricResult,
+    ExperimentSavedMetric,
+    ExperimentTimeseriesRecalculation,
+)
 from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
@@ -960,6 +966,48 @@ class EnterpriseExperimentsViewSet(
         }
 
         return Response(response_data)
+
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Create a recalculation request for experiment timeseries data.
+
+        Request body:
+        - metric (required): The full metric object to recalculate
+        - fingerprint (required): The fingerprint of the metric configuration
+        """
+        experiment = self.get_object()
+
+        metric = request.data.get("metric")
+        fingerprint = request.data.get("fingerprint")
+
+        if not metric:
+            raise ValidationError("metric is required")
+        if not fingerprint:
+            raise ValidationError("fingerprint is required")
+
+        if not experiment.start_date:
+            raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
+
+        recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
+            team=experiment.team,
+            experiment=experiment,
+            metric=metric,
+            fingerprint=fingerprint,
+            status=ExperimentTimeseriesRecalculation.Status.PENDING,
+        )
+
+        return Response(
+            {
+                "id": recalculation_request.id,
+                "experiment_id": experiment.id,
+                "metric_uuid": metric.get("uuid"),
+                "fingerprint": fingerprint,
+                "status": recalculation_request.status,
+                "created_at": recalculation_request.created_at.isoformat(),
+            },
+            status=201,
+        )
 
 
 @receiver(model_activity_signal, sender=Experiment)

@@ -193,3 +193,30 @@ class ExperimentMetricResult(models.Model):
 
     def __str__(self):
         return f"ExperimentMetricResult({self.experiment_id}, {self.metric_uuid}, {self.query_from}, {self.status})"
+
+
+class ExperimentTimeseriesRecalculation(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        IN_PROGRESS = "in_progress", "In Progress"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
+    metric = models.JSONField()
+    fingerprint = models.CharField(max_length=64)  # SHA256 hash
+
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    last_successful_date = models.DateField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["status"]),
+        ]
+
+    def __str__(self):
+        metric_uuid = self.metric.get("uuid", "unknown")
+        return f"ExperimentTimeseriesRecalculation(exp={self.experiment_id}, metric={metric_uuid}, fingerprint={self.fingerprint}, status={self.status})"
