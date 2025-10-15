@@ -14,7 +14,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 logger = structlog.get_logger(__name__)
 
 
-def get_github_file_url_by_code_sample(code_sample: str, token: str, owner: str, repository: str) -> str | None:
+def get_github_file_url(code_sample: str, token: str, owner: str, repository: str) -> str | None:
     """Search GitHub code using the Code Search API. Returns URL to first match or None."""
     search_query = f"{code_sample} repo:{owner}/{repository}"
     encoded_query = urllib.parse.quote(search_query)
@@ -59,7 +59,7 @@ class GitHubSearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         # Try with posthogs token first (public repos)
         if settings.GITHUB_TOKEN:
-            url = get_github_file_url_by_code_sample(
+            url = get_github_file_url(
                 code_sample=code_sample, token=settings.GITHUB_TOKEN, owner=owner, repository=repository
             )
             if url:
@@ -76,9 +76,7 @@ class GitHubSearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             token = github.integration.sensitive_config.get("access_token")
             if token:
-                url = get_github_file_url_by_code_sample(
-                    code_sample=code_sample, token=token, owner=owner, repository=repository
-                )
+                url = get_github_file_url(code_sample=code_sample, token=token, owner=owner, repository=repository)
                 if url:
                     return Response({"found": True, "url": url})
 
