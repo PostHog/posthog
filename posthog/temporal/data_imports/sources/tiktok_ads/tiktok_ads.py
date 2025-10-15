@@ -3,7 +3,7 @@ from typing import Any, Optional, cast
 from posthog.temporal.common.utils import make_sync_retryable_with_exponential_backoff
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
-from posthog.temporal.data_imports.sources.tiktok_ads.settings import BASE_URL, TIKTOK_ADS_CONFIG
+from posthog.temporal.data_imports.sources.tiktok_ads.settings import BASE_URL, TIKTOK_ADS_CONFIG, EndpointType
 from posthog.temporal.data_imports.sources.tiktok_ads.utils import (
     TikTokAdsAPIError,
     TikTokAdsAuth,
@@ -71,10 +71,14 @@ def tiktok_ads_source(
     """TikTok Ads source using rest_api_resources with date chunking support."""
 
     endpoint_config = TIKTOK_ADS_CONFIG[endpoint]
-    is_report = endpoint_config.is_report_endpoint
+    endpoint_type = endpoint_config.endpoint_type
+
+    if endpoint_type is None:
+        raise ValueError(f"Endpoint type is not set for {endpoint}")
+
     base_resource = get_tiktok_resource(endpoint, advertiser_id, should_use_incremental_field)
 
-    if is_report:
+    if endpoint_type == EndpointType.REPORT:
         resources = TikTokReportResource.setup_report_resources(
             base_resource, advertiser_id, should_use_incremental_field, db_incremental_field_last_value
         )
@@ -88,7 +92,7 @@ def tiktok_ads_source(
             "auth": TikTokAdsAuth(access_token),
         },
         "resource_defaults": {
-            "primary_key": "id" if not is_report else None,
+            "primary_key": "id" if endpoint_type == EndpointType.ENTITY else None,
             "write_disposition": "replace",
         },
         "resources": cast(list, resources),
@@ -116,14 +120,14 @@ def tiktok_ads_source(
         is_exception_retryable=TikTokErrorHandler.is_retryable,
     )()
 
-    if is_report:
+    if endpoint_type == EndpointType.REPORT:
         items = TikTokReportResource.process_resources(dlt_resources)
     else:
-        assert len(dlt_resources) == 1, f"Expected 1 resource for non-report endpoint, got {len(dlt_resources)}"
+        assert len(dlt_resources) == 1, f"Expected 1 resource for {endpoint_type} endpoint, got {len(dlt_resources)}"
         items = dlt_resources[0]
 
     # Apply appropriate transformations based on endpoint type
-    items = TikTokReportResource.pre_transform(endpoint, items)
+    items = TikTokReportResource.apply_stream_transformations(endpoint_type, items)
 
     return SourceResponse(
         name=endpoint,

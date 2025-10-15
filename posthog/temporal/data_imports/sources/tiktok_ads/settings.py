@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
@@ -10,67 +11,70 @@ MAX_TIKTOK_DAYS_TO_QUERY = 29
 BASE_URL = "https://business-api.tiktok.com/open_api/v1.3"
 MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS = 365
 
-# Comprehensive metrics fields based on Singer implementation
-# Reference: https://github.com/singer-io/tap-tiktok-ads/blob/master/tap_tiktok_ads/streams.py
-
-AUCTION_FIELDS = [
+METRICS_FIELDS = [
+    "app_promotion_type",
+    "average_video_play_per_user",
+    "average_video_play",
+    "billing_event",
+    "campaign_budget",
+    "campaign_dedicate_type",
     "campaign_name",
-    "spend",
+    "clicks_on_music_disc",
+    "clicks",
+    "comments",
+    "conversion_rate_v2",
+    "conversion_rate",
+    "conversion",
+    "cost_per_1000_reached",
+    "cost_per_conversion",
+    "cost_per_result",
+    "cost_per_secondary_goal_result",
     "cpc",
     "cpm",
-    "impressions",
-    "currency",
-    "clicks",
     "ctr",
+    "currency",
+    "follows",
+    "frequency",
+    "gross_impressions",
+    "impressions",
+    "likes",
+    "profile_visits_rate",
+    "profile_visits",
     "reach",
-    "cost_per_1000_reached",
-    "conversion",
-    "cost_per_conversion",
-    "conversion_rate",
+    "real_time_conversion_rate_v2",
+    "real_time_conversion_rate",
     "real_time_conversion",
     "real_time_cost_per_conversion",
-    "real_time_conversion_rate",
-    "result",
-    "cost_per_result",
-    "result_rate",
-    "real_time_result",
     "real_time_cost_per_result",
     "real_time_result_rate",
-    "secondary_goal_result",
-    "cost_per_secondary_goal_result",
+    "real_time_result",
+    "result_rate",
+    "result",
     "secondary_goal_result_rate",
-    "frequency",
+    "secondary_goal_result",
+    "shares",
+    "spend",
+    "split_test",
     "video_play_actions",
-    "video_watched_2s",
-    "video_watched_6s",
-    "average_video_play",
-    "average_video_play_per_user",
+    "video_views_p100",
     "video_views_p25",
     "video_views_p50",
     "video_views_p75",
-    "video_views_p100",
-    "profile_visits",
-    "profile_visits_rate",
-    "likes",
-    "comments",
-    "shares",
-    "follows",
-    "clicks_on_music_disc",
-    "gross_impressions",
-    "conversion_rate_v2",
-    "real_time_conversion_rate_v2",
-    "app_promotion_type",
-    "split_test",
-    "campaign_budget",
-    "campaign_dedicate_type",
-    "billing_event",
+    "video_watched_2s",
+    "video_watched_6s",
 ]
 
-TIKTOK_REPORT_METRICS = json.dumps(AUCTION_FIELDS)
+TIKTOK_REPORT_METRICS = json.dumps(METRICS_FIELDS)
 
 ENDPOINT_ADVERTISERS = ["advertisers"]
 ENDPOINT_AD_MANAGEMENT = ["campaigns", "adgroups", "ads"]
 ENDPOINT_INSIGHTS = ["campaign_report", "ad_group_report", "ad_report"]
+
+
+class EndpointType(str, Enum):
+    ACCOUNT = "account"
+    ENTITY = "entity"
+    REPORT = "report"
 
 
 @dataclass
@@ -81,7 +85,7 @@ class EndpointConfig:
     incremental_fields: Optional[list[IncrementalField]] = None
     partition_format: Optional[PartitionFormat] = None
     partition_size: int = 1
-    is_report_endpoint: bool = False
+    endpoint_type: Optional[EndpointType] = None
 
 
 TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
@@ -108,6 +112,7 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_mode="datetime",
         partition_format="month",
         partition_size=1,
+        endpoint_type=EndpointType.ENTITY,
     ),
     "ad_groups": EndpointConfig(
         # Docs: https://business-api.tiktok.com/portal/docs?id=1739314558673922
@@ -132,6 +137,7 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_mode="datetime",
         partition_format="month",
         partition_size=1,
+        endpoint_type=EndpointType.ENTITY,
     ),
     "ads": EndpointConfig(
         # Docs: https://business-api.tiktok.com/portal/docs?id=1735735588640770
@@ -156,6 +162,7 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_mode="datetime",
         partition_format="month",
         partition_size=1,
+        endpoint_type=EndpointType.ENTITY,
     ),
     "campaign_report": EndpointConfig(
         resource={
@@ -198,7 +205,7 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_mode="datetime",
         partition_format="month",
         partition_size=1,
-        is_report_endpoint=True,
+        endpoint_type=EndpointType.REPORT,
     ),
     "ad_group_report": EndpointConfig(
         # Docs: https://business-api.tiktok.com/portal/docs?id=1740302848100353
@@ -241,7 +248,7 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_mode="datetime",
         partition_format="month",
         partition_size=1,
-        is_report_endpoint=True,
+        endpoint_type=EndpointType.REPORT,
     ),
     "ad_report": EndpointConfig(
         # Docs: https://business-api.tiktok.com/portal/docs?id=1740302848100353
@@ -284,6 +291,6 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_mode="datetime",
         partition_format="month",
         partition_size=1,
-        is_report_endpoint=True,
+        endpoint_type=EndpointType.REPORT,
     ),
 }

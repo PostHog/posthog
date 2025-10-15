@@ -19,7 +19,7 @@ class TestTikTokAdsHelpers:
             "metrics": {"clicks": "947", "impressions": "23241", "spend": "125.50"},
         }
 
-        result = TikTokReportResource.transform_insights_records([nested_record])[0]
+        result = TikTokReportResource.transform_analytics_reports([nested_record])[0]
 
         expected = {
             "campaign_id": "123456",
@@ -35,8 +35,11 @@ class TestTikTokAdsHelpers:
         """Test flattening already flat record (entity endpoints)."""
         flat_record = {"campaign_id": "123456", "campaign_name": "Test Campaign", "status": "ENABLE"}
 
-        result = TikTokReportResource.transform_management_records([flat_record])[0]
-        assert result == flat_record
+        result = TikTokReportResource.transform_entity_reports([flat_record])[0]
+        # The transform_entity_reports method adds current_status when status field exists
+        expected = flat_record.copy()
+        expected["current_status"] = "ACTIVE"
+        assert result == expected
 
     def test_flatten_tiktok_reports(self):
         """Test batch flattening of TikTok reports."""
@@ -45,7 +48,7 @@ class TestTikTokAdsHelpers:
             {"dimensions": {"campaign_id": "456"}, "metrics": {"clicks": "200"}},
         ]
 
-        result = TikTokReportResource.transform_insights_records(reports)
+        result = TikTokReportResource.transform_analytics_reports(reports)
 
         expected = [{"campaign_id": "123", "clicks": "100"}, {"campaign_id": "456", "clicks": "200"}]
 

@@ -12,11 +12,9 @@ from requests import PreparedRequest
 from requests.exceptions import HTTPError, RequestException, Timeout
 
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import (
-    ENDPOINT_AD_MANAGEMENT,
-    ENDPOINT_ADVERTISERS,
-    ENDPOINT_INSIGHTS,
     MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS,
     MAX_TIKTOK_DAYS_TO_QUERY,
+    EndpointType,
 )
 
 logger = structlog.get_logger(__name__)
@@ -120,92 +118,121 @@ class TikTokReportResource:
     """Handles report-specific operations like flattening and date chunking."""
 
     @staticmethod
-    def transform_insights_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """
-        Transform TikTok insights records.
+    def _normalize_secondary_goal_fields(report: dict[str, Any]) -> None:
+        """Convert TikTok's '-' placeholder values to None for secondary goal metrics."""
+        secondary_goal_fields = [
+            "secondary_goal_result",
+            "cost_per_secondary_goal_result",
+            "secondary_goal_result_rate",
+        ]
 
-        Reference: https://github.com/singer-io/tap-tiktok-ads/blob/master/tap_tiktok_ads/streams.py
-        """
-        transformed_records = []
-        for record in records:
-            if "metrics" in record and "dimensions" in record:
-                # Merging of 2 dicts by not using '|' for older python version compatibility
-                transformed_record = {**record["metrics"], **record["dimensions"]}
-
-                # Handle TikTok's '-' values for specific fields
-                if "secondary_goal_result" in transformed_record and transformed_record["secondary_goal_result"] == "-":
-                    transformed_record["secondary_goal_result"] = None
-                if (
-                    "cost_per_secondary_goal_result" in transformed_record
-                    and transformed_record["cost_per_secondary_goal_result"] == "-"
-                ):
-                    transformed_record["cost_per_secondary_goal_result"] = None
-                if (
-                    "secondary_goal_result_rate" in transformed_record
-                    and transformed_record["secondary_goal_result_rate"] == "-"
-                ):
-                    transformed_record["secondary_goal_result_rate"] = None
-
-                transformed_records.append(transformed_record)
-        return transformed_records
+        for field in secondary_goal_fields:
+            if field in report and report[field] == "-":
+                report[field] = None
 
     @staticmethod
-    def transform_management_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def transform_analytics_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
-        Transform TikTok management records.
+        Standardize analytics reports for consistent data structure.
 
-        Reference: https://github.com/singer-io/tap-tiktok-ads/blob/master/tap_tiktok_ads/streams.py
+        Applies analytics-specific transformations:
+        - Merges metrics and dimensions into flat structure
+        - Normalizes placeholder values for secondary goal metrics
+        - Handles both structured reports (with dimensions/metrics) and flat reports
         """
-        transformed_records = []
-        for record in records:
-            # Setting the custom 'current_status' as 'ACTIVE', TikTok does not differentiate between ACTIVE/DELETE records in response.
-            if "current_status" not in record:
-                record["current_status"] = "ACTIVE"
+        processed_reports = []
+        for report in reports:
+            if "metrics" in report and "dimensions" in report:
+                merged_report = {**report["metrics"], **report["dimensions"]}
+                TikTokReportResource._normalize_secondary_goal_fields(merged_report)
+                processed_reports.append(merged_report)
+            else:
+                processed_reports.append(report)
 
-            # Handle missing modify_time - use create_time as fallback
-            if "modify_time" not in record and "create_time" in record:
-                record["modify_time"] = record["create_time"]
-
-            # In case of an adgroup request, transform 'is_comment_disabled' type from integer to boolean
-            if "is_comment_disable" in record:
-                record["is_comment_disable"] = bool(record["is_comment_disable"] == 0)
-
-            transformed_records.append(record)
-        return transformed_records
+        return processed_reports
 
     @staticmethod
-    def transform_advertisers_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """
-        Transform TikTok advertisers records.
+    def _normalize_entity_status(report: dict[str, Any]) -> None:
+        """Set default status for entities that don't have explicit status differentiation."""
+        if "current_status" not in report:
+            report["current_status"] = "ACTIVE"
 
-        Reference: https://github.com/singer-io/tap-tiktok-ads/blob/master/tap_tiktok_ads/streams.py
-        """
-        transformed_records = []
-        for record in records:
-            # Convert timestamp to datetime with timezone
-            if "create_time" in record and isinstance(record["create_time"], int | float):
-                record["create_time"] = datetime.fromtimestamp(record["create_time"], tz=UTC)
+    @staticmethod
+    def _normalize_timestamps(report: dict[str, Any]) -> None:
+        """Ensure modify_time exists by using create_time as fallback."""
+        if "modify_time" not in report and "create_time" in report:
+            report["modify_time"] = report["create_time"]
 
-            transformed_records.append(record)
-        return transformed_records
+    @staticmethod
+    def _convert_comment_settings(report: dict[str, Any]) -> None:
+        """Convert comment disable flag from integer to boolean representation."""
+        if "is_comment_disable" in report:
+            report["is_comment_disable"] = report["is_comment_disable"] == 0
+
+    @staticmethod
+    def transform_entity_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        Standardize entity reports (campaigns, ad groups, ads) for consistent data structure.
+
+        Applies common transformations:
+        - Sets default entity status
+        - Normalizes timestamp fields
+        - Converts boolean flags
+        """
+        processed_reports = []
+        for report in reports:
+            normalized_report = report.copy()
+
+            TikTokReportResource._normalize_entity_status(normalized_report)
+            TikTokReportResource._normalize_timestamps(normalized_report)
+            TikTokReportResource._convert_comment_settings(normalized_report)
+
+            processed_reports.append(normalized_report)
+
+        return processed_reports
+
+    @staticmethod
+    def _convert_timestamp_to_datetime(report: dict[str, Any]) -> None:
+        """Convert Unix timestamp to timezone-aware datetime object."""
+        if "create_time" in report and isinstance(report["create_time"], int | float):
+            report["create_time"] = datetime.fromtimestamp(report["create_time"], tz=UTC)
+
+    @staticmethod
+    def transform_account_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        Standardize advertiser account reports for consistent data structure.
+
+        Applies account-specific transformations:
+        - Converts Unix timestamps to datetime objects
+        """
+        processed_reports = []
+        for report in reports:
+            normalized_report = report.copy()
+
+            TikTokReportResource._convert_timestamp_to_datetime(normalized_report)
+
+            processed_reports.append(normalized_report)
+
+        return processed_reports
 
     @classmethod
-    def pre_transform(cls, stream_name: str, records: Iterable[Any]) -> list[dict[str, Any]]:
+    def apply_stream_transformations(cls, endpoint_type: EndpointType, reports: Iterable[Any]) -> list[dict[str, Any]]:
         """
-        Transform records for every stream before writing to output as per stream category.
+        Apply appropriate transformations based on the endpoint type.
 
-        Reference: https://github.com/singer-io/tap-tiktok-ads/blob/master/tap_tiktok_ads/streams.py
+        Routes reports to the correct transformation method based on endpoint category.
         """
-        records_list = list(records)
+        reports_list = list(reports)
 
-        if stream_name in ENDPOINT_INSIGHTS:
-            return cls.transform_insights_records(records_list)
-        elif stream_name in ENDPOINT_AD_MANAGEMENT:
-            return cls.transform_management_records(records_list)
-        elif stream_name in ENDPOINT_ADVERTISERS:
-            return cls.transform_advertisers_records(records_list)
-        else:
-            return records_list
+        match endpoint_type:
+            case EndpointType.REPORT:
+                return cls.transform_analytics_reports(reports_list)
+            case EndpointType.ENTITY:
+                return cls.transform_entity_reports(reports_list)
+            case EndpointType.ACCOUNT:
+                return cls.transform_account_reports(reports_list)
+            case _:
+                raise ValueError(f"Endpoint type: {endpoint_type} is not implemented")
 
     @classmethod
     def create_chunked_resources(
