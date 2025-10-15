@@ -466,12 +466,12 @@ class ExperimentQueryBuilder:
         Builds list of step column AST expressions: step_0, step_1, etc.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
-        exposure_and_funnel_steps = [self.exposure_config, *self.metric.series]
-        step_columns = []
-        for i, funnel_step in enumerate(exposure_and_funnel_steps):
+        exposure_criteria = ast.Alias(alias="step_0", expr=self._build_exposure_predicate())
+        step_columns = [exposure_criteria]
+        for i, funnel_step in enumerate(self.metric.series):
             step_filter = event_or_action_to_filter(self.team, funnel_step)
             step_column = ast.Alias(
-                alias=f"step_{i}",
+                alias=f"step_{i + 1}",
                 expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
             )
             step_columns.append(step_column)
@@ -484,8 +484,7 @@ class ExperimentQueryBuilder:
         NB: Includes the exposure criteria as the first step!
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
-        exposure_and_funnel_steps = [self.exposure_config, *self.metric.series]
-        return funnel_steps_to_filter(self.team, exposure_and_funnel_steps)
+        return funnel_steps_to_filter(self.team, self.metric.series)
 
     def _build_funnel_aggregation_expr(self) -> ast.Expr:
         """

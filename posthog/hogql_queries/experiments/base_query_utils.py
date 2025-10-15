@@ -722,9 +722,7 @@ def get_winsorized_metric_values_query(
 # Funnel utility functions (moved from funnel_query_utils.py to avoid circular imports)
 
 
-def funnel_steps_to_filter(
-    team: Team, funnel_steps: list[EventsNode | ActionsNode | ExperimentEventExposureConfig]
-) -> ast.Expr:
+def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNode]) -> ast.Expr:
     """
     Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
     """
