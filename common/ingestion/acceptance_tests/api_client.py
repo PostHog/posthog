@@ -8,7 +8,8 @@ from typing import Any, Optional
 
 import requests
 from posthoganalytics import Posthog
-from utils import get_service_url
+
+from .utils import get_service_url
 
 logger = logging.getLogger(__name__)
 
