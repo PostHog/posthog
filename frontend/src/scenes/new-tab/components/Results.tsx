@@ -62,7 +62,7 @@ function Category({
                             )}
                             {newTabSceneData && category === 'persons' && (
                                 <div className="flex items-center gap-1">
-                                    {isSearching || (isSearching && personSearchResults.length === 0) ? (
+                                    {isSearching ? (
                                         <WrappingLoadingSkeleton className="h-[18px]">
                                             <LemonTag className="text-xs text-tertiary" size="small">
                                                 Showing {personSearchResults.length} results

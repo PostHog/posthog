@@ -202,6 +202,16 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 setNewTabSceneDataIncludePersons: (_, { includePersons }) => includePersons,
             },
         ],
+        personSearchPending: [
+            false,
+            {
+                debouncedPersonSearch: () => true,
+                loadPersonSearchResults: () => false,
+                loadPersonSearchResultsSuccess: () => false,
+                loadPersonSearchResultsFailure: () => false,
+                setNewTabSceneDataIncludePersons: (_, { includePersons }) => includePersons,
+            },
+        ],
         rawSelectedIndex: [
             0,
             {
@@ -251,9 +261,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         isSearching: [
-            (s) => [s.recentsLoading, s.personSearchResultsLoading],
-            (recentsLoading: boolean, personSearchResultsLoading: boolean): boolean =>
-                recentsLoading || personSearchResultsLoading,
+            (s) => [s.recentsLoading, s.personSearchResultsLoading, s.personSearchPending],
+            (recentsLoading: boolean, personSearchResultsLoading: boolean, personSearchPending: boolean): boolean =>
+                recentsLoading || personSearchResultsLoading || personSearchPending,
         ],
         projectTreeSearchItems: [
             (s) => [s.recents],
