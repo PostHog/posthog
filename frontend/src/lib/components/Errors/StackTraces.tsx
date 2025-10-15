@@ -5,16 +5,16 @@ import { useActions, useValues } from 'kea'
 import { MouseEvent, useEffect } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { IconBox, IconExternal } from '@posthog/icons'
+import { IconBox } from '@posthog/icons'
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import { cancelEvent } from '@posthog/products-error-tracking/frontend/utils'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Link } from 'lib/lemon-ui/Link'
 
 import { CodeLine, Language, getLanguage } from '../CodeSnippet/CodeSnippet'
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { FingerprintRecordPartDisplay } from './FingerprintRecordPartDisplay'
+import { GitProviderFileLink } from './GitProviderFileLink'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { framesCodeSourceLogic } from './framesCodeSourceLogic'
 import { stackFrameLogic } from './stackFrameLogic'
@@ -184,11 +184,7 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
                 </div>
             </div>
             <div className="flex gap-x-1 items-center justify-end">
-                {in_app && sourceUrl && (
-                    <Link to={sourceUrl} target="_blank">
-                        <IconExternal className="text-primary" />
-                    </Link>
-                )}
+                {in_app && sourceUrl && <GitProviderFileLink url={sourceUrl} />}
                 {resolved && source && (
                     <span onClick={cancelEvent} className="text-secondary">
                         <CopyToClipboardInline
