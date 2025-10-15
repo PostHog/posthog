@@ -249,8 +249,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 count: 1,
             })
 
-            const hogFunctionInvocation = item as CyclotronJobInvocationHogFunction
-            if (hogFunctionInvocation.hogFunction.type === 'destination') {
+            if (item.hogFunction.type === 'destination') {
                 triggeredInvocationsMetrics.push({
                     team_id: item.teamId,
                     app_source_id: item.functionId,

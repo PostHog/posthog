@@ -5,7 +5,6 @@ import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
-    HogFunctionInvocationGlobals,
     HogFunctionMasking,
 } from '../../types'
 import { execHog } from '../../utils/hog-exec'
@@ -30,18 +29,22 @@ type GenericHogInvocationWithMasker = CyclotronJobInvocation & {
     masker?: MaskContext
 }
 
+function isHogFunctionInvocation(invocation: CyclotronJobInvocation): invocation is CyclotronJobInvocationHogFunction {
+    return (invocation as CyclotronJobInvocationHogFunction).hogFunction !== undefined
+}
+
+function isHogFlowInvocation(invocation: CyclotronJobInvocation): invocation is CyclotronJobInvocationHogFlow {
+    return (invocation as CyclotronJobInvocationHogFlow).hogFlow !== undefined
+}
+
 // Helper to extract masking config from different types
 function extractMaskingConfig(invocation: CyclotronJobInvocation): HogFunctionMasking | null {
-    // Check if it's a hog function invocation
-    if ('hogFunction' in invocation) {
-        const hogFunctionInvocation = invocation as CyclotronJobInvocationHogFunction
-        return hogFunctionInvocation.hogFunction?.masking || null
+    if (isHogFunctionInvocation(invocation)) {
+        return invocation.hogFunction.masking || null
     }
 
-    // Check if it's a hog flow invocation
-    if ('hogFlow' in invocation) {
-        const hogFlowInvocation = invocation as CyclotronJobInvocationHogFlow
-        const triggerMasking = hogFlowInvocation.hogFlow?.trigger_masking
+    if (isHogFlowInvocation(invocation)) {
+        const triggerMasking = invocation.hogFlow.trigger_masking
 
         // Ensure bytecode exists before returning (required by HogFunctionMasking type)
         if (triggerMasking && triggerMasking.bytecode) {
@@ -49,36 +52,31 @@ function extractMaskingConfig(invocation: CyclotronJobInvocation): HogFunctionMa
         }
     }
 
-    return null
+    throw new Error('Unable to extract masking config from unknown invocation type')
 }
 
-function extractGlobals(
-    invocation: CyclotronJobInvocation
-): Pick<HogFunctionInvocationGlobals, 'event' | 'person'> | null {
-    if ('hogFunction' in invocation) {
-        const hogFunctionInvocation = invocation as CyclotronJobInvocationHogFunction
-        return hogFunctionInvocation.state.globals
+function extractGlobals(invocation: CyclotronJobInvocation): Record<string, any> {
+    if (isHogFunctionInvocation(invocation)) {
+        return invocation.state.globals
     }
-    if ('hogFlow' in invocation) {
-        const hogFlowInvocation = invocation as CyclotronJobInvocationHogFlow
+    if (isHogFlowInvocation(invocation)) {
         // For hog flows, we need to construct globals from the filter globals and event
         return {
-            event: hogFlowInvocation.state?.event,
-            person: hogFlowInvocation.person,
+            event: invocation.state?.event,
+            person: invocation.person,
         }
     }
-    return null
+
+    throw new Error('Unable to extract globals from unknown invocation type')
 }
 
 // Helper to get entity ID for masking
 function getEntityId(invocation: CyclotronJobInvocation): string {
-    if ('hogFunction' in invocation) {
-        const hogFunctionInvocation = invocation as CyclotronJobInvocationHogFunction
-        return hogFunctionInvocation.hogFunction.id
+    if (isHogFunctionInvocation(invocation)) {
+        return invocation.hogFunction.id
     }
-    if ('hogFlow' in invocation) {
-        const hogFlowInvocation = invocation as CyclotronJobInvocationHogFlow
-        return hogFlowInvocation.hogFlow.id
+    if (isHogFlowInvocation(invocation)) {
+        return invocation.hogFlow.id
     }
     return invocation.functionId
 }
@@ -93,9 +91,11 @@ function getEntityId(invocation: CyclotronJobInvocation): string {
 export class HogMaskerService {
     constructor(private redis: CdpRedis) {}
 
-    public async filterByMasking(invocations: CyclotronJobInvocation[]): Promise<{
-        masked: CyclotronJobInvocation[]
-        notMasked: CyclotronJobInvocation[]
+    public async filterByMasking<T extends CyclotronJobInvocation>(
+        invocations: T[]
+    ): Promise<{
+        masked: T[]
+        notMasked: T[]
     }> {
         const invocationsWithMasker: GenericHogInvocationWithMasker[] = [...invocations]
         const masks: Record<string, MaskContext> = {}
@@ -108,7 +108,7 @@ export class HogMaskerService {
 
                 // TODO: Catch errors
                 const execHogResult = await execHog(maskingConfig.bytecode, {
-                    globals: globals as Record<string, any>,
+                    globals,
                     timeout: 50,
                 })
 
@@ -176,18 +176,18 @@ export class HogMaskerService {
                 if (item.masker) {
                     if (item.masker.allowedExecutions > 0) {
                         item.masker.allowedExecutions--
-                        acc.notMasked.push(item)
+                        acc.notMasked.push(item as T)
                     } else {
-                        acc.masked.push(item)
+                        acc.masked.push(item as T)
                     }
                 } else {
-                    acc.notMasked.push(item)
+                    acc.notMasked.push(item as T)
                 }
                 return acc
             },
             { masked: [], notMasked: [] } as {
-                masked: CyclotronJobInvocation[]
-                notMasked: CyclotronJobInvocation[]
+                masked: T[]
+                notMasked: T[]
             }
         )
     }
