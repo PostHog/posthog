@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { Form, capitalizeFirstLetter } from 'kea-forms'
+import { Form } from 'kea-forms'
 
-import { IconEllipsis, IconPlus } from '@posthog/icons'
+import { IconEllipsis, IconPlusSmall } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -17,14 +17,12 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter, EntityTypes, FilterType } from '~/types'
 
-import { UsageMetric, crmUsageMetricsConfigLogic } from './crmUsageMetricsConfigLogic'
+import { UsageMetric, usageMetricsConfigLogic } from './usageMetricsConfigLogic'
 
 function sanitizeFilters(filters?: FilterType): FilterType {
     if (!filters) {
@@ -45,9 +43,9 @@ function sanitizeFilters(filters?: FilterType): FilterType {
     return sanitized
 }
 
-function CRMUsageMetricsTable(): JSX.Element {
-    const { usageMetrics, usageMetricsLoading } = useValues(crmUsageMetricsConfigLogic)
-    const { removeUsageMetric } = useActions(crmUsageMetricsConfigLogic)
+function UsageMetricsTable(): JSX.Element {
+    const { usageMetrics, usageMetricsLoading } = useValues(usageMetricsConfigLogic)
+    const { removeUsageMetric } = useActions(usageMetricsConfigLogic)
 
     const columns: LemonTableColumns<UsageMetric> = [
         {
@@ -85,19 +83,19 @@ function CRMUsageMetricsTable(): JSX.Element {
                                         title: 'Edit usage metric',
                                         description: (
                                             <div>
-                                                <CRMUsageMetricsForm metric={metric} />
+                                                <UsageMetricsForm metric={metric} />
                                             </div>
                                         ),
                                         primaryButton: {
                                             htmlType: 'submit',
                                             children: 'Save',
-                                            'data-attr': 'update-crm-usage-metric',
+                                            'data-attr': 'update-usage-metric',
                                             form: 'usageMetric',
                                         },
                                         secondaryButton: {
                                             htmlType: 'button',
                                             children: 'Cancel',
-                                            'data-attr': 'cancel-update-crm-usage-metric',
+                                            'data-attr': 'cancel-update-usage-metric',
                                         },
                                     })
                                 },
@@ -132,12 +130,12 @@ function CRMUsageMetricsTable(): JSX.Element {
     return <LemonTable columns={columns} dataSource={usageMetrics} loading={usageMetricsLoading} />
 }
 
-interface CRMUsageMetricsFormProps {
+interface UsageMetricsFormProps {
     metric?: UsageMetric
 }
 
-function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element {
-    const { resetUsageMetric, setIsEditing, setUsageMetricValues } = useActions(crmUsageMetricsConfigLogic)
+function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
+    const { resetUsageMetric, setIsEditing, setUsageMetricValues } = useActions(usageMetricsConfigLogic)
 
     if (metric) {
         setUsageMetricValues(metric)
@@ -155,7 +153,7 @@ function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element 
     ]
 
     return (
-        <Form id="usageMetric" logic={crmUsageMetricsConfigLogic} formKey="usageMetric" enableFormOnSubmit>
+        <Form id="usageMetric" logic={usageMetricsConfigLogic} formKey="usageMetric" enableFormOnSubmit>
             <div className="flex flex-col gap-2">
                 <div className="grid grid-cols-2 gap-2">
                     <LemonField name="name" label="Name" help="This will be the title of the column in group list">
@@ -238,7 +236,7 @@ function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element 
                                             }
                                             onChange(newValue)
                                         }}
-                                        pageKey="CRMUsageMetricsConfig"
+                                        pageKey="UsageMetricsConfig"
                                     />
                                     <TestAccountFilterSwitch
                                         checked={currentFilters?.filter_test_accounts ?? false}
@@ -258,17 +256,13 @@ function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element 
                         <div className="flex gap-2 mt-2">
                             <LemonButton
                                 type="primary"
-                                data-attr="save-crm-usage-metric"
+                                data-attr="save-usage-metric"
                                 htmlType="submit"
                                 form="usageMetric"
                             >
                                 Save
                             </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                data-attr="cancel-crm-usage-metric"
-                                onClick={handleCancelForm}
-                            >
+                            <LemonButton type="secondary" data-attr="cancel-usage-metric" onClick={handleCancelForm}>
                                 Cancel
                             </LemonButton>
                         </div>
@@ -279,44 +273,29 @@ function CRMUsageMetricsForm({ metric }: CRMUsageMetricsFormProps): JSX.Element 
     )
 }
 
-export function CRMUsageMetricsConfig(): JSX.Element {
-    const { isEditing, currentGroupTypeIndex, availableGroupTypes } = useValues(crmUsageMetricsConfigLogic)
-    const { setIsEditing, resetUsageMetric, setCurrentGroupTypeIndex } = useActions(crmUsageMetricsConfigLogic)
-    const { aggregationLabel } = useValues(groupsModel)
+export function UsageMetricsConfig(): JSX.Element {
+    const { isEditing } = useValues(usageMetricsConfigLogic)
+    const { setIsEditing, resetUsageMetric } = useActions(usageMetricsConfigLogic)
 
     const handleAddMetric = (): void => {
         resetUsageMetric()
         setIsEditing(true)
     }
 
-    const tabs = availableGroupTypes.map((groupType) => ({
-        key: groupType.group_type_index.toString(),
-        label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-        content: (
-            <div className="flex flex-col gap-2">
+    return (
+        <>
+            <p>
+                Choose which events matter for each metric: API calls, feature adoption, session frequency, error rates
+                to identify expansion opportunities and churn risk based on real customer behavior.
+            </p>
+            <div className="flex flex-col gap-2 items-start">
                 {!isEditing && (
-                    <LemonButton onClick={handleAddMetric} icon={<IconPlus />}>
+                    <LemonButton onClick={handleAddMetric} icon={<IconPlusSmall />}>
                         Add metric
                     </LemonButton>
                 )}
-                {isEditing ? <CRMUsageMetricsForm /> : <CRMUsageMetricsTable />}
+                {isEditing ? <UsageMetricsForm /> : <UsageMetricsTable />}
             </div>
-        ),
-    }))
-
-    if (availableGroupTypes.length === 0) {
-        return <div>No group types available</div>
-    }
-
-    return (
-        <>
-            Choose which events matter for each metric: API calls, feature adoption, session frequency, error rates to
-            identify expansion opportunities and churn risk based on real customer behavior.
-            <LemonTabs
-                activeKey={currentGroupTypeIndex.toString()}
-                onChange={(key) => setCurrentGroupTypeIndex(parseInt(key, 10))}
-                tabs={tabs}
-            />
         </>
     )
 }
