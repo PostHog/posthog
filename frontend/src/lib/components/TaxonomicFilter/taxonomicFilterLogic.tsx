@@ -266,8 +266,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         options: [{ name: 'All events', value: null }].filter(
                             (o) => !excludedProperties[TaxonomicFilterGroupType.Events]?.includes(o.value)
                         ),
-                        // the default ordering for the API is "both"
-                        // so we don't need to add an ordering param in that case
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                             exclude_hidden: true,
@@ -277,7 +275,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
                         getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
                         getValue: (eventDefinition: Record<string, any>) =>
-                            // Use the property's "name" when available, or "value" if a local option
+                            'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
+                        ...eventTaxonomicGroupProps,
+                    },
+                    {
+                        name: 'Internal Events',
+                        searchPlaceholder: 'internal events',
+                        type: TaxonomicFilterGroupType.InternalEvents,
+                        options: [{ name: 'All internal events', value: null }].filter(
+                            (o) => !excludedProperties[TaxonomicFilterGroupType.InternalEvents]?.includes(o.value)
+                        ),
+                        endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
+                            event_type: EventDefinitionType.EventInternal,
+                            exclude_hidden: true,
+                            ordering: eventOrdering ?? undefined,
+                        }).url,
+                        excludedProperties:
+                            excludedProperties?.[TaxonomicFilterGroupType.InternalEvents]?.filter(isString) ?? [],
+                        getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
+                        getValue: (eventDefinition: Record<string, any>) =>
                             'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
                         ...eventTaxonomicGroupProps,
                     },

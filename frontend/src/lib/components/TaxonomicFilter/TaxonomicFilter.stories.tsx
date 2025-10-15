@@ -12,6 +12,37 @@ import { AvailableFeature } from '~/types'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { infiniteListLogic } from './infiniteListLogic'
 
+export const InternalEvents: StoryFn<typeof TaxonomicFilter> = (args) => {
+    useMountedLogic(actionsModel)
+
+    const { setIndex } = useActions(
+        infiniteListLogic({
+            ...args,
+            taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
+            listGroupType: TaxonomicFilterGroupType.InternalEvents,
+        })
+    )
+
+    useDelayedOnMountEffect(() => setIndex(1))
+
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+InternalEvents.args = {
+    taxonomicFilterLogicKey: 'internal-events',
+    taxonomicGroupTypes: [TaxonomicFilterGroupType.InternalEvents, TaxonomicFilterGroupType.Actions],
+}
+InternalEvents.parameters = {
+    docs: {
+        description: {
+            story: 'TaxonomicFilter with InternalEvents and Actions tabs.',
+        },
+    },
+}
+
 const meta: Meta<typeof TaxonomicFilter> = {
     title: 'Filters/Taxonomic Filter',
     component: TaxonomicFilter,

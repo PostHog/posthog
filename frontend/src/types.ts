@@ -862,6 +862,7 @@ export enum PropertyFilterType {
     Meta = 'meta',
     /** Event properties */
     Event = 'event',
+    InternalEvent = 'internal_event',
     EventMetadata = 'event_metadata',
     /** Person properties */
     Person = 'person',

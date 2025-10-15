@@ -326,6 +326,7 @@ export function filterMatchesItem(
 const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterGroupType>> = {
     [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
     [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
+    [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.InternalEvents,
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
     [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
