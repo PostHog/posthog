@@ -1,3 +1,5 @@
+import uuid
+
 from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, User
@@ -5,6 +7,7 @@ from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
 from ee.api.test.base import APILicensedTest
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestSCIMAPI(APILicensedTest):
@@ -62,6 +65,79 @@ class TestSCIMAPI(APILicensedTest):
         # Verify organization membership
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         assert membership.level == OrganizationMembership.Level.MEMBER
+
+    def test_existing_user_is_added_to_org(self):
+        # Create user in different org
+        other_org = Organization.objects.create(name="Other Org")
+        existing_user = User.objects.create_user(
+            email="existing@example.com", password=None, first_name="Existing", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=existing_user, organization=other_org, level=OrganizationMembership.Level.MEMBER
+        )
+
+        # Try to provision same user via SCIM
+        user_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "existing@example.com",
+            "name": {"givenName": "Existing", "familyName": "User"},
+            "emails": [{"value": "existing@example.com", "primary": True}],
+            "active": True,
+        }
+
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # User should now be member of both orgs
+        assert OrganizationMembership.objects.filter(user=existing_user, organization=self.organization).exists()
+        assert OrganizationMembership.objects.filter(user=existing_user, organization=other_org).exists()
+
+    def test_repeated_post_does_not_create_duplicate_user(self):
+        # In case the IdP failed to match user by id, it can send POST request to create a new user.
+        # The user should be merged with existing one by email, not create a duplicate.
+        user_data_first = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "repeat@example.com",
+            "name": {"givenName": "First", "familyName": "Time"},
+            "emails": [{"value": "repeat@example.com", "primary": True}],
+            "active": True,
+        }
+
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data_first, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        first_user = User.objects.get(email="repeat@example.com")
+
+        # IdP sends POST request again with same email
+        user_data_second = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "repeat@example.com",
+            "name": {"givenName": "Second", "familyName": "Time"},
+            "emails": [{"value": "repeat@example.com", "primary": True}],
+            "active": True,
+        }
+
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data_second, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # Should NOT create duplicate user
+        assert User.objects.filter(email="repeat@example.com").count() == 1
+
+        # User should be updated with new data from second POST
+        first_user.refresh_from_db()
+        assert first_user.first_name == "Second"
+        assert first_user.last_name == "Time"
+
+        # User should have only one membership
+        assert OrganizationMembership.objects.filter(user=first_user, organization=self.organization).count() == 1
 
     def test_get_user(self):
         user = User.objects.create_user(
@@ -225,182 +301,10 @@ class TestSCIMAPI(APILicensedTest):
         assert data["displayName"] == "Engineering"
 
         # Verify role was created
-        from ee.models.rbac.role import Role
-
         role = Role.objects.get(name="Engineering", organization=self.organization)
         assert role is not None
 
-    def test_add_user_to_group(self):
-        from ee.models.rbac.role import Role
-
-        user = User.objects.create_user(
-            email="member@example.com", password=None, first_name="Member", is_email_verified=True
-        )
-        OrganizationMembership.objects.create(
-            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
-        )
-
-        role = Role.objects.create(name="Developers", organization=self.organization)
-
-        patch_data = {
-            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-            "Operations": [{"op": "replace", "value": {"members": [{"value": str(user.id)}]}}],
-        }
-
-        response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-
-        # Verify role membership
-        from ee.models.rbac.role import RoleMembership
-
-        assert RoleMembership.objects.filter(role=role, user=user).exists()
-
-    def test_put_group(self):
-        from ee.models.rbac.role import Role, RoleMembership
-
-        user = User.objects.create_user(
-            email="groupmember@example.com", password=None, first_name="Member", is_email_verified=True
-        )
-        OrganizationMembership.objects.create(
-            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
-        )
-
-        role = Role.objects.create(name="OldName", organization=self.organization)
-
-        put_data = {
-            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
-            "displayName": "NewName",
-            "members": [{"value": str(user.id)}],
-        }
-
-        response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, format="json", **self.scim_headers
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        role.refresh_from_db()
-        assert role.name == "NewName"
-        assert RoleMembership.objects.filter(role=role, user=user).exists()
-
-    def test_put_group_not_found(self):
-        import uuid
-
-        from ee.models.rbac.role import Role
-
-        put_data = {
-            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
-            "displayName": "ShouldFail",
-            "members": [],
-        }
-
-        fake_group_id = str(uuid.uuid4())
-        response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Groups/{fake_group_id}", data=put_data, format="json", **self.scim_headers
-        )
-
-        assert (
-            response.status_code == status.HTTP_404_NOT_FOUND
-        ), f"Expected 404, got {response.status_code}: {response.content}"
-        assert not Role.objects.filter(name="ShouldFail", organization=self.organization).exists()
-
-    def test_invalid_token(self):
-        invalid_headers = {"HTTP_AUTHORIZATION": "Bearer invalid_token"}
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", **invalid_headers)
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
-    def test_no_token(self):
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
-    def test_service_provider_config(self):
-        response = self.client.get(f"/scim/v2/{self.domain.id}/ServiceProviderConfig", **self.scim_headers)
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["patch"]["supported"] is True
-        assert "authenticationSchemes" in data
-
-    def test_existing_user_added_to_org(self):
-        # Create user in different org
-        other_org = Organization.objects.create(name="Other Org")
-        existing_user = User.objects.create_user(
-            email="existing@example.com", password=None, first_name="Existing", is_email_verified=True
-        )
-        OrganizationMembership.objects.create(
-            user=existing_user, organization=other_org, level=OrganizationMembership.Level.MEMBER
-        )
-
-        # Try to provision same user via SCIM
-        user_data = {
-            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
-            "userName": "existing@example.com",
-            "name": {"givenName": "Existing", "familyName": "User"},
-            "emails": [{"value": "existing@example.com", "primary": True}],
-            "active": True,
-        }
-
-        response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users", data=user_data, format="json", **self.scim_headers
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-
-        # User should now be member of both orgs
-        assert OrganizationMembership.objects.filter(user=existing_user, organization=self.organization).exists()
-        assert OrganizationMembership.objects.filter(user=existing_user, organization=other_org).exists()
-
-    def test_repeated_post_does_not_create_duplicate_user(self):
-        # In case the IdP failed to match user by id, it can send POST request to create a new user.
-        # The user should be merged with existing one by email, not create a duplicate.
-        user_data_first = {
-            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
-            "userName": "repeat@example.com",
-            "name": {"givenName": "First", "familyName": "Time"},
-            "emails": [{"value": "repeat@example.com", "primary": True}],
-            "active": True,
-        }
-
-        response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users", data=user_data_first, format="json", **self.scim_headers
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        first_user = User.objects.get(email="repeat@example.com")
-
-        # IdP sends POST request again with same email
-        user_data_second = {
-            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
-            "userName": "repeat@example.com",
-            "name": {"givenName": "Second", "familyName": "Time"},
-            "emails": [{"value": "repeat@example.com", "primary": True}],
-            "active": True,
-        }
-
-        response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Users", data=user_data_second, format="json", **self.scim_headers
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-
-        # Should NOT create duplicate user
-        assert User.objects.filter(email="repeat@example.com").count() == 1
-
-        # User should be updated with new data from second POST
-        first_user.refresh_from_db()
-        assert first_user.first_name == "Second"
-        assert first_user.last_name == "Time"
-
-        # User should have only one membership
-        assert OrganizationMembership.objects.filter(user=first_user, organization=self.organization).count() == 1
-
     def test_repeated_post_does_not_create_duplicate_group(self):
-        from ee.models.rbac.role import Role, RoleMembership
-
         # In case the IdP failed to match group by id, it can send POST request to create a new group.
         # The group should be merged with existing one by name, not create a duplicate.
 
@@ -444,3 +348,88 @@ class TestSCIMAPI(APILicensedTest):
 
         # Members should be updated (removed in second POST)
         assert not RoleMembership.objects.filter(role=first_role, user=user).exists()
+
+    def test_add_user_to_group(self):
+        user = User.objects.create_user(
+            email="member@example.com", password=None, first_name="Member", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="Developers", organization=self.organization)
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "value": {"members": [{"value": str(user.id)}]}}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        # Verify role membership
+        assert RoleMembership.objects.filter(role=role, user=user).exists()
+
+    def test_put_group(self):
+        user = User.objects.create_user(
+            email="groupmember@example.com", password=None, first_name="Member", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="OldName", organization=self.organization)
+
+        put_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+            "displayName": "NewName",
+            "members": [{"value": str(user.id)}],
+        }
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        role.refresh_from_db()
+        assert role.name == "NewName"
+        assert RoleMembership.objects.filter(role=role, user=user).exists()
+
+    def test_put_group_not_found(self):
+        put_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+            "displayName": "ShouldFail",
+            "members": [],
+        }
+
+        fake_group_id = str(uuid.uuid4())
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Groups/{fake_group_id}", data=put_data, format="json", **self.scim_headers
+        )
+
+        assert (
+            response.status_code == status.HTTP_404_NOT_FOUND
+        ), f"Expected 404, got {response.status_code}: {response.content}"
+        assert not Role.objects.filter(name="ShouldFail", organization=self.organization).exists()
+
+    def test_invalid_token(self):
+        invalid_headers = {"HTTP_AUTHORIZATION": "Bearer invalid_token"}
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", **invalid_headers)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_no_token(self):
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_service_provider_config(self):
+        response = self.client.get(f"/scim/v2/{self.domain.id}/ServiceProviderConfig", **self.scim_headers)
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["patch"]["supported"] is True
+        assert "authenticationSchemes" in data
