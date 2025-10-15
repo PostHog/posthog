@@ -583,10 +583,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
         with transaction.atomic():
             if destination_data:
                 batch_export.destination.type = destination_data.get("type", batch_export.destination.type)
-                batch_export.destination.config = {
-                    **batch_export.destination.config,
-                    **destination_data.get("config", {}),
-                }
+                batch_export.destination.config = recursive_dict_merge(
+                    batch_export.destination.config,
+                    destination_data.get("config", {}),
+                )
                 integration = destination_data.get("integration", batch_export.destination.integration)
                 batch_export.destination.integration = integration
 
@@ -600,6 +600,22 @@ class BatchExportSerializer(serializers.ModelSerializer):
             sync_batch_export(batch_export, created=False)
 
         return batch_export
+
+
+def recursive_dict_merge(
+    old: dict[str, typing.Any],
+    new: dict[str, typing.Any],
+) -> dict[str, typing.Any]:
+    """Merge two dictionaries, and recursively merge any dictionaries in them."""
+    merged = {**old, **new}
+
+    for key, value in merged.items():
+        if not isinstance(value, dict):
+            continue
+
+        merged[key] = recursive_dict_merge(old.get(key, {}), new.get(key, {}))
+
+    return merged
 
 
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
