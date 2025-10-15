@@ -5,6 +5,9 @@ from typing import Any, Literal, Optional
 
 import dagster
 import structlog
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -18,7 +21,7 @@ from dags.sdk_doctor.github_sdk_versions import SDK_TYPES
 
 default_logger = structlog.get_logger(__name__)
 
-CACHE_EXPIRY = 60 * 60 * 24 * 3  # 3 days
+CACHE_EXPIRY = 60 * 60 * 24 * 7  # 7 days
 BATCH_SIZE = 1000
 
 QUERY = parse_select("""
@@ -40,6 +43,15 @@ QUERY = parse_select("""
 """)
 
 
+# Avoid flakiness with ClickHouse by retrying this 2 more times if it fails
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=10))
+def run_query(team: Team) -> HogQLQueryResponse:
+    query_type = "sdk_versions_for_team"
+    with tags_context(product=Product.SDK_DOCTOR, team_id=team.pk, org_id=team.organization_id, query_type=query_type):
+        response = execute_hogql_query(QUERY, team, query_type=query_type)
+    return response
+
+
 def get_sdk_versions_for_team(
     team_id: int,
     *,
@@ -51,11 +63,7 @@ def get_sdk_versions_for_team(
     """
     try:
         team = Team.objects.get(id=team_id)
-        query_type = "sdk_versions_for_team"
-        with tags_context(
-            product=Product.SDK_DOCTOR, team_id=team.pk, org_id=team.organization_id, query_type=query_type
-        ):
-            response = execute_hogql_query(QUERY, team, query_type=query_type)
+        response = run_query(team)
 
         output = defaultdict(list)
         for lib, lib_version, max_timestamp, event_count in response.results:
@@ -74,7 +82,7 @@ def get_sdk_versions_for_team(
         return {}  # Safe to return empty dict, this is not an error
     except Exception as e:
         logger.exception(f"[SDK Doctor] Error querying events for team {team_id}")
-        capture_exception(e)
+        capture_exception(e, {"team_id": team_id})
         return None
 
 
@@ -126,7 +134,8 @@ def get_all_team_ids_op(context: dagster.OpExecutionContext):
         team_ids = override_team_ids
         context.log.info(f"Processing {len(team_ids)} configured teams: {team_ids}")
     else:
-        team_ids = list(Team.objects.values_list("id", flat=True))
+        # We have a team with id 0, but HogQL doesn't support it, so let's just skip it
+        team_ids = list(Team.objects.exclude(id=0).values_list("id", flat=True))
         context.log.info(f"Processing all {len(team_ids)} teams")
 
     for i in range(0, len(team_ids), BATCH_SIZE):
@@ -240,7 +249,7 @@ def cache_all_team_sdk_versions_job():
 
 cache_all_team_sdk_versions_schedule = dagster.ScheduleDefinition(
     job=cache_all_team_sdk_versions_job,
-    cron_schedule="0 */12 * * *",  # Every 12 hours
+    cron_schedule="0 0 * * *",  # Every day at midnight
     execution_timezone="UTC",
     name="cache_all_team_sdk_versions_schedule",
 )
