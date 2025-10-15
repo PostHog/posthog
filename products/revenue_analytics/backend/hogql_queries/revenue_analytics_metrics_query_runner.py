@@ -39,8 +39,8 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
     cached_response: CachedRevenueAnalyticsMetricsQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subscription_subqueries = self.revenue_subqueries(RevenueAnalyticsSubscriptionView)
-        revenue_item_subqueries = self.revenue_subqueries(RevenueAnalyticsRevenueItemView)
+        subscription_subqueries = list(self.revenue_subqueries(RevenueAnalyticsSubscriptionView))
+        revenue_item_subqueries = list(self.revenue_subqueries(RevenueAnalyticsRevenueItemView))
         if not subscription_subqueries:
             return ast.SelectQuery.empty(
                 columns=[
@@ -334,7 +334,10 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                         distinct=True,
                         args=[
                             ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
-                            self._period_eq_expr(ast.Field(chain=["ended_at"]), ast.Field(chain=["period_start"])),
+                            self._period_eq_expr(
+                                ast.Field(chain=["ended_at"]),
+                                self._add_period_expr(ast.Field(chain=["period_start"]), -1),
+                            ),
                         ],
                     ),
                 ),
@@ -368,7 +371,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                             ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["churned_subscription_count"]),
-                                right=ast.Field(chain=["subscription_count"]),
+                                right=ast.Field(chain=["prev_subscription_count"]),
                             ),
                         ]
                     ),
@@ -470,6 +473,10 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                     "id": self._format_breakdown(breakdown, kind),
                     "name": self._format_breakdown(breakdown, kind),
                 },
+                "breakdown": {
+                    "property": breakdown,
+                    "kind": kind,
+                },
                 "data": [grouped_results.get((self._format_breakdown(breakdown, kind), day), 0) for day in days],
                 "days": days,
                 "label": self._format_breakdown(breakdown, kind),
@@ -488,7 +495,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
 
         with self.timings.measure("execute_hogql_query"):
             response = execute_hogql_query(
-                query_type="revenue_analytics_customer_count_query",
+                query_type="revenue_analytics_metrics_query",
                 query=query,
                 team=self.team,
                 timings=self.timings,

@@ -120,6 +120,8 @@ export interface ExceptionAttributes {
     level?: string
     url?: string
     handled?: boolean
+    appNamespace?: string
+    appVersion?: string
 }
 
 export interface ErrorTrackingRelease {

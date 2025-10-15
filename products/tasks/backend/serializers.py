@@ -1,11 +1,12 @@
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from rest_framework import serializers
 
 from posthog.models.integration import Integration
 
 from .agents import get_agent_dict_by_id
-from .models import Task, TaskWorkflow, WorkflowStage
+from .models import Task, TaskProgress, TaskWorkflow, WorkflowStage
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -17,6 +18,8 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = [
             "id",
+            "task_number",
+            "slug",
             "title",
             "description",
             "origin_product",
@@ -38,6 +41,8 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "task_number",
+            "slug",
             "created_at",
             "updated_at",
             "github_branch",
@@ -80,6 +85,9 @@ class TaskSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
+
+        if "request" in self.context and hasattr(self.context["request"], "user"):
+            validated_data["created_by"] = self.context["request"].user
 
         # Set default GitHub integration if not provided
         if not validated_data.get("github_integration"):
@@ -330,6 +338,75 @@ class TaskProgressUpdateSerializer(serializers.Serializer):
 class TaskProgressStreamResponseSerializer(serializers.Serializer):
     progress_updates = TaskProgressUpdateSerializer(many=True, help_text="Array of recent progress updates")
     server_time = serializers.DateTimeField(help_text="Current server time in ISO format")
+
+
+class TaskSetBranchRequestSerializer(serializers.Serializer):
+    branch = serializers.CharField(help_text="Git branch name to associate with the task")
+
+
+class TaskAttachPullRequestRequestSerializer(serializers.Serializer):
+    pr_url = serializers.URLField(help_text="Pull request URL")
+    branch = serializers.CharField(required=False, allow_blank=True, help_text="Optional branch name")
+
+
+class TaskProgressTaskRequestSerializer(serializers.Serializer):
+    next_stage_id = serializers.UUIDField(required=False, help_text="UUID of the next workflow stage")
+    auto = serializers.BooleanField(required=False, default=False, help_text="Automatically progress to next stage")
+
+
+class TaskProgressDetailSerializer(serializers.ModelSerializer):
+    progress_percentage = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = TaskProgress
+        fields = [
+            "id",
+            "task",
+            "status",
+            "current_step",
+            "completed_steps",
+            "total_steps",
+            "progress_percentage",
+            "output_log",
+            "error_message",
+            "workflow_id",
+            "workflow_run_id",
+            "activity_id",
+            "created_at",
+            "updated_at",
+            "completed_at",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "progress_percentage",
+            "completed_at",
+        ]
+
+    def get_progress_percentage(self, obj):
+        return obj.progress_percentage
+
+    def validate_task(self, value):
+        team = self.context.get("team")
+        if team and value.team_id != team.id:
+            raise serializers.ValidationError("Task must belong to the same team")
+        return value
+
+    def create(self, validated_data):
+        validated_data["team"] = self.context["team"]
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        # Never allow task reassignment through updates
+        validated_data.pop("task", None)
+
+        status = validated_data.get("status")
+        if status in [TaskProgress.Status.COMPLETED, TaskProgress.Status.FAILED] and not validated_data.get(
+            "completed_at"
+        ):
+            validated_data["completed_at"] = timezone.now()
+        return super().update(instance, validated_data)
 
 
 class WorkflowStageArchiveResponseSerializer(serializers.Serializer):

@@ -7,9 +7,9 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
 
@@ -68,6 +68,7 @@ export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId, mode }) => `${shortId}-${mode}`),
+
     connect((props: NotebookLogicProps) => ({
         values: [
             notebooksModel,
@@ -470,7 +471,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 (shouldBeEditable &&
                     !previewContent &&
                     !!notebook?.user_access_level &&
-                    accessLevelSatisfied(AccessControlResourceType.Notebook, notebook.user_access_level, 'editor')),
+                    accessLevelSatisfied(
+                        AccessControlResourceType.Notebook,
+                        notebook.user_access_level,
+                        AccessControlLevel.Editor
+                    )),
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -517,7 +522,11 @@ export const notebookLogic = kea<notebookLogicType>([
             if (
                 values.mode !== 'canvas' &&
                 !!values.notebook?.user_access_level &&
-                !accessLevelSatisfied(AccessControlResourceType.Notebook, values.notebook.user_access_level, 'editor')
+                !accessLevelSatisfied(
+                    AccessControlResourceType.Notebook,
+                    values.notebook.user_access_level,
+                    AccessControlLevel.Editor
+                )
             ) {
                 actions.clearLocalContent()
                 return
@@ -579,7 +588,14 @@ export const notebookLogic = kea<notebookLogicType>([
             const jsonContent = values.editor.getJSON()
 
             actions.setLocalContent(jsonContent)
-            actions.onUpdateEditor()
+            // Throttle onUpdateEditor to avoid performance issues with many notebook nodes
+            if (cache.throttledOnUpdateEditorTimeout) {
+                clearTimeout(cache.throttledOnUpdateEditorTimeout)
+            }
+            cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
+                actions.onUpdateEditor()
+                cache.throttledOnUpdateEditorTimeout = null
+            }, 16) // ~60fps throttling
         },
         setEditor: () => {
             values.editor?.setContent(values.content)
@@ -603,7 +619,14 @@ export const notebookLogic = kea<notebookLogicType>([
 
         onEditorSelectionUpdate: () => {
             if (values.editor) {
-                actions.onUpdateEditor()
+                // Throttle this too to avoid excessive calls
+                if (cache.throttledOnUpdateEditorTimeout) {
+                    clearTimeout(cache.throttledOnUpdateEditorTimeout)
+                }
+                cache.throttledOnUpdateEditorTimeout = setTimeout(() => {
+                    actions.onUpdateEditor()
+                    cache.throttledOnUpdateEditorTimeout = null
+                }, 16) // ~60fps throttling
             }
         },
         scrollToSelection: () => {
@@ -625,10 +648,16 @@ export const notebookLogic = kea<notebookLogicType>([
             if (values.mode !== 'notebook') {
                 return
             }
-            clearTimeout(cache.refreshTimeout)
-            cache.refreshTimeout = setTimeout(() => {
-                actions.loadNotebook()
-            }, NOTEBOOK_REFRESH_MS)
+            // Remove any existing refresh timeout
+            cache.disposables.dispose('refreshTimeout')
+
+            // Add new refresh timeout
+            cache.disposables.add(() => {
+                const refreshTimeout = setTimeout(() => {
+                    actions.loadNotebook()
+                }, NOTEBOOK_REFRESH_MS)
+                return () => clearTimeout(refreshTimeout)
+            }, 'refreshTimeout')
         },
 
         // Comments
@@ -695,8 +724,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
 
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.refreshTimeout)
+    beforeUnmount(() => {
         const hashParams = router.values.currentLocation.hashParams
         delete hashParams['🦔']
         router.actions.replace(

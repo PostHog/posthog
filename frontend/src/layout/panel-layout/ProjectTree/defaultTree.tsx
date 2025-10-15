@@ -6,6 +6,7 @@ import {
     IconApps,
     IconBook,
     IconBug,
+    IconCircleDashed,
     IconCode2,
     IconCursor,
     IconDashboard,
@@ -33,6 +34,7 @@ import {
     IconStickiness,
     IconToggle,
     IconTrends,
+    IconUser,
     IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
@@ -51,6 +53,9 @@ import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-ge
 import { FileSystemIconColor } from '~/types'
 
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
+    default_icon_type: {
+        icon: <IconCircleDashed />,
+    },
     dashboard: {
         icon: <IconDashboard />,
         iconColor: ['var(--color-product-dashboards-light)'],
@@ -77,9 +82,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconPieChart />,
         iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
     },
-    embedded_analytics: {
+    endpoints: {
         icon: <IconCode2 />,
-        iconColor: ['var(--color-product-embedded-analytics-light', 'var(--color-product-embedded-analytics-dark'],
+        iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
     },
     sql_editor: {
         icon: <IconServer />,
@@ -170,8 +175,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     ingestion_warning: {
         icon: <IconWarning />,
     },
-    person: {
+    persons: {
         icon: <IconPeople />,
+    },
+    user: {
+        icon: <IconUser />,
     },
     cohort: {
         icon: <IconPeople />,
@@ -211,6 +219,12 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconNotification />,
         iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
+    apps: {
+        icon: <IconApps />,
+    },
+    live: {
+        icon: <IconLive />,
+    },
 }
 
 const getIconColor = (type?: string, colorOverride?: FileSystemIconColor): FileSystemIconColor => {
@@ -236,7 +250,7 @@ type ProductIconWrapperProps = {
 }
 
 export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIconWrapperProps): JSX.Element => {
-    const [lightColor, darkColor] = getIconColor(type, colorOverride)
+    const [light, dark] = getIconColor(type, colorOverride)
 
     // By default icons will not be colorful, to add color, wrap the icon with the class: "group/colorful-product-icons colorful-product-icons-true"
     return (
@@ -244,12 +258,10 @@ export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIco
             className="flex items-center group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-light)] dark:group-[.colorful-product-icons-true]/colorful-product-icons:text-[var(--product-icon-color-dark)]"
             // eslint-disable-next-line react/forbid-dom-props
             style={
-                (colorOverride
-                    ? { '--product-icon-color-light': colorOverride[0], '--product-icon-color-dark': colorOverride[1] }
-                    : {
-                          '--product-icon-color-light': lightColor,
-                          '--product-icon-color-dark': darkColor,
-                      }) as CSSProperties
+                {
+                    '--product-icon-color-light': light,
+                    '--product-icon-color-dark': dark,
+                } as CSSProperties
             }
         >
             {children}
@@ -426,15 +438,14 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
         } as FileSystemImport,
         {
             path: 'Heatmaps',
-            category: 'Unreleased',
+            category: 'Behavior',
             iconType: 'heatmap' as FileSystemIconType,
             iconColor: [
                 'var(--color-product-heatmaps-light)',
                 'var(--color-product-heatmaps-dark)',
             ] as FileSystemIconColor,
             href: urls.heatmaps(),
-            flag: FEATURE_FLAGS.HEATMAPS_UI,
-            tags: ['alpha'],
+            tags: ['beta'],
         } as FileSystemImport,
     ].sort((a, b) => {
         if (a.visualOrder === -1) {
@@ -453,14 +464,14 @@ export const getDefaultTreePersons = (): FileSystemImport[] => [
     {
         path: 'Persons',
         category: 'People',
-        iconType: 'person' as FileSystemIconType,
+        iconType: 'persons',
         href: urls.persons(),
         visualOrder: 10,
     },
     {
         path: 'Cohorts',
         category: 'People',
-        type: 'cohort' as FileSystemIconType,
+        type: 'cohort',
         href: urls.cohorts(),
         visualOrder: 20,
     },

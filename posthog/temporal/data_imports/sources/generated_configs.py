@@ -187,6 +187,12 @@ class SalesforceSourceConfig(config.Config):
 
 
 @config.config
+class ShopifySourceConfig(config.Config):
+    shopify_store_id: str
+    shopify_access_token: str
+
+
+@config.config
 class SnowflakeSourceConfig(config.Config):
     account_id: str
     database: str
@@ -211,6 +217,11 @@ class TemporalIOSourceConfig(config.Config):
     client_certificate: str
     client_private_key: str
     encryption_key: str | None = None
+
+
+@config.config
+class TikTokAdsSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -249,9 +260,11 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
+        ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
+        ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
     }[source]

@@ -133,6 +133,7 @@ export enum NodeKind {
 
     // Marketing analytics queries
     MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
+    MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -154,6 +155,9 @@ export enum NodeKind {
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
+
+    // Customer analytics
+    UsageMetricsQuery = 'UsageMetricsQuery',
 }
 
 export type AnyDataNode =
@@ -176,6 +180,7 @@ export type AnyDataNode =
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsTopCustomersQuery
     | MarketingAnalyticsTableQuery
+    | MarketingAnalyticsAggregatedQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -198,6 +203,7 @@ export type AnyDataNode =
     | TracesQuery
     | TraceQuery
     | VectorSearchQuery
+    | UsageMetricsQuery
 
 /**
  * @discriminator kind
@@ -248,6 +254,7 @@ export type QuerySchema =
 
     // Marketing analytics
     | MarketingAnalyticsTableQuery
+    | MarketingAnalyticsAggregatedQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -276,6 +283,9 @@ export type QuerySchema =
     | TracesQuery
     | TraceQuery
     | VectorSearchQuery
+
+    // Customer analytics
+    | UsageMetricsQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -446,6 +456,7 @@ export type RecordingOrder =
     | 'keypress_count'
     | 'mouse_activity_count'
     | 'activity_score'
+    | 'recording_ttl'
 
 export type RecordingOrderDirection = 'ASC' | 'DESC'
 
@@ -795,6 +806,7 @@ export interface DataTableNode
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
                     | MarketingAnalyticsTableQuery
+                    | MarketingAnalyticsAggregatedQuery
                     | ErrorTrackingQuery
                     | ErrorTrackingIssueCorrelationQuery
                     | ExperimentFunnelsQuery
@@ -828,6 +840,7 @@ export interface DataTableNode
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
         | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsAggregatedQuery
         | ErrorTrackingQuery
         | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
@@ -840,6 +853,7 @@ export interface DataTableNode
     hiddenColumns?: HogQLExpression[]
     /** Columns that are sticky when scrolling horizontally */
     pinnedColumns?: HogQLExpression[]
+    tags?: QueryLogTags
 }
 
 export interface GoalLine {
@@ -1332,6 +1346,8 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     cumulative?: RetentionFilterLegacy['cumulative']
+    /** @description The time window mode to use for retention calculations */
+    timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
 
     //frontend only
     meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
@@ -1520,14 +1536,14 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
-export interface NamedQueryRequest {
+export interface EndpointRequest {
     name?: string
     description?: string
     query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
 }
 
-export interface NamedQueryRunRequest {
+export interface EndpointRunRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
 
@@ -1550,7 +1566,7 @@ export interface NamedQueryRunRequest {
     query_override?: Record<string, any>
 }
 
-export interface NamedQueryLastExecutionTimesRequest {
+export interface EndpointLastExecutionTimesRequest {
     names: string[]
 }
 
@@ -2171,8 +2187,10 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
-    orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    orderBy: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions' | 'revenue'
     orderDirection?: 'ASC' | 'DESC'
+    revenuePeriod?: 'all_time' | 'last_30_days'
+    revenueEntity?: 'person' | 'group_0' | 'group_1' | 'group_2' | 'group_3' | 'group_4'
     dateRange: DateRange
     status?: ErrorTrackingIssue['status'] | 'all'
     assignee?: ErrorTrackingIssueAssignee | null
@@ -2185,6 +2203,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     withLastEvent?: boolean
     limit?: integer
     offset?: integer
+    personId?: string
 }
 
 export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
@@ -2261,6 +2280,7 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
         timestamp: string
         properties: string
     }
+    revenue?: number
     aggregations?: ErrorTrackingIssueAggregations
     library: string | null
 }
@@ -2290,6 +2310,24 @@ export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTracking
 
 export type LogSeverityLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
+export interface LogMessage {
+    uuid: string
+    trace_id: string
+    span_id: string
+    body: string
+    attributes: Record<string, any>
+    /**  @format date-time */
+    timestamp: string
+    /**  @format date-time */
+    observed_timestamp: string
+    severity_text: LogSeverityLevel
+    severity_number: number
+    level: LogSeverityLevel
+    resource_attributes: any
+    instrumentation_scope: string
+    event_name: string
+}
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
@@ -2303,7 +2341,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
-    results: unknown
+    results: LogMessage[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2353,24 +2391,6 @@ export type CachedSessionBatchEventsQueryResponse = CachedEventsQueryResponse & 
 }
 export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
-export interface LogMessage {
-    uuid: string
-    trace_id: string
-    span_id: string
-    body: string
-    attributes: Record<string, any>
-    /**  @format date-time */
-    timestamp: string
-    /**  @format date-time */
-    observed_timestamp: string
-    severity_text: LogSeverityLevel
-    severity_number: number
-    level: LogSeverityLevel
-    resource: string
-    instrumentation_scope: string
-    event_name: string
-}
-
 export interface FileSystemCount {
     count: number
 }
@@ -2401,13 +2421,14 @@ export interface FileSystemEntry {
 }
 
 export type FileSystemIconType =
+    | 'default_icon_type'
     | 'dashboard'
     | 'llm_analytics'
     | 'product_analytics'
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
-    | 'embedded_analytics'
+    | 'endpoints'
     | 'sql_editor'
     | 'web_analytics'
     | 'error_tracking'
@@ -2432,7 +2453,8 @@ export type FileSystemIconType =
     | 'event_definition'
     | 'property_definition'
     | 'ingestion_warning'
-    | 'person'
+    | 'persons'
+    | 'user'
     | 'cohort'
     | 'group'
     | 'insight/funnels'
@@ -2444,6 +2466,8 @@ export type FileSystemIconType =
     | 'insight/hog'
     | 'team_activity'
     | 'home'
+    | 'apps'
+    | 'live'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2535,6 +2559,7 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
+    fingerprint?: string
 }
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
@@ -2546,11 +2571,14 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
+    fingerprint?: string
 }
+
+export type ExperimentExposureConfig = ExperimentEventExposureConfig | ActionsNode
 
 export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
-    exposure_config?: ExperimentEventExposureConfig
+    exposure_config?: ExperimentExposureConfig
     multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
@@ -2817,8 +2845,6 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     /** Index of the step for which we want to get the timestamp for, per person.
      * Positive for converted persons, negative for dropped of persons. */
     funnelStep?: integer
-    /** Custom step numbers to get persons for. This overrides `funnelStep`. Primarily for correlation use. */
-    funnelCustomSteps?: integer[]
     /** The breakdown value for which to get persons for. This is an array for
      * person and event properties, a string for groups and an integer for cohorts. */
     funnelStepBreakdown?: BreakdownKeyType
@@ -3379,6 +3405,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     showColumnConfigurator?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /** Person who performed the event */
+    personId?: string
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -3758,6 +3786,24 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
 
+export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQueryResponseBase {
+    results: Record<string, MarketingAnalyticsItem>
+    hogql?: string
+    samplingRate?: SamplingRate
+}
+
+export type CachedMarketingAnalyticsAggregatedQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsAggregatedQueryResponse>
+
+export interface MarketingAnalyticsAggregatedQuery
+    extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsAggregatedQueryResponse>, 'orderBy' | 'limit' | 'offset'> {
+    kind: NodeKind.MarketingAnalyticsAggregatedQuery
+    /** Return a limited set of data. Will use default columns if empty. */
+    select?: HogQLExpression[]
+    /** Draft conversion goal that can be set in the UI without saving */
+    draftConversionGoal?: ConversionGoalFilter
+}
+
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string
     date_to: string
@@ -3878,9 +3924,16 @@ export type ConversionGoalFilter = (EventsNode | ActionsNode | DataWarehouseNode
     schema_map: SchemaMap
 }
 
+export enum AttributionMode {
+    FirstTouch = 'first_touch',
+    LastTouch = 'last_touch',
+}
+
 export interface MarketingAnalyticsConfig {
     sources_map?: Record<string, SourceMap>
     conversion_goals?: ConversionGoalFilter[]
+    attribution_window_days?: number
+    attribution_mode?: AttributionMode
 }
 
 export enum MarketingAnalyticsBaseColumns {
@@ -4014,6 +4067,8 @@ export const externalDataSources = [
     'DoIt',
     'LinkedinAds',
     'RedditAds',
+    'TikTokAds',
+    'Shopify',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -4048,4 +4103,33 @@ export interface PlaywrightWorkspaceSetupResult {
     user_id: string
     user_email: string
     personal_api_key: string
+}
+
+export type UsageMetricFormat = 'numeric' | 'currency'
+
+export type UsageMetricDisplay = 'number' | 'sparkline'
+
+export interface UsageMetric {
+    id: string
+    name: string
+    value: number
+    format: UsageMetricFormat
+    display: UsageMetricDisplay
+    interval: integer
+}
+
+export interface UsageMetricsQueryResponse extends AnalyticsQueryResponseBase {
+    results: UsageMetric[]
+}
+
+export type CachedUsageMetricsQueryResponse = CachedQueryResponse<UsageMetricsQueryResponse>
+
+export interface UsageMetricsQuery extends DataNode<UsageMetricsQueryResponse> {
+    kind: NodeKind.UsageMetricsQuery
+    /** Person ID to fetch metrics for. Mutually exclusive with group parameters. */
+    person_id?: string
+    /** Group type index. Required with group_key for group queries. */
+    group_type_index?: integer
+    /** Group key. Required with group_type_index for group queries. */
+    group_key?: string
 }

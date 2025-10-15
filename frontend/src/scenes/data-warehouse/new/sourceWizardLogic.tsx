@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ProductIntentContext } from 'lib/utils/product-intents'
@@ -24,6 +24,7 @@ import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
+    IncrementalField,
     ManualLinkSourceType,
     ProductKey,
     manualLinkSources,
@@ -169,6 +170,43 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     azure: 'Azure',
 }
 
+const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
+    // check for timestamp field matching "updated_at" or "updatedAt" case insensitive
+    const updatedAt = fields.find((field) => {
+        const regex = /^updated/i
+        return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
+    })
+    if (updatedAt) {
+        return updatedAt
+    }
+    // fallback to timestamp field matching "created_at" or "createdAt" case insensitive
+    const createdAt = fields.find((field) => {
+        const regex = /^created/i
+        return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
+    })
+    if (createdAt) {
+        return createdAt
+    }
+    // fallback to any timestamp or datetime field
+    const timestamp = fields.find((field) => {
+        return field.field_type === 'timestamp' || field.type === 'datetime'
+    })
+    if (timestamp) {
+        return timestamp
+    }
+    // fallback to numeric fields matching "id" or "uuid" case insensitive
+    const id = fields.find((field) => {
+        const idRegex = /^id/i
+        const uuidRegex = /^uuid/i
+        return (idRegex.test(field.field) || uuidRegex.test(field.field)) && field.field_type === 'integer'
+    })
+    if (id) {
+        return id
+    }
+    // leave unset and require user configuration
+    return undefined
+}
+
 export interface SourceWizardLogicProps {
     onComplete?: () => void
     availableSources: Record<string, SourceConfig>
@@ -216,6 +254,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             syncTimeOfDay,
         }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
+        toggleAllTables: (selectAll: boolean) => ({ selectAll }),
     }),
     connect(() => ({
         values: [
@@ -236,6 +275,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     })),
     reducers({
+        tablesAllToggledOn: [
+            true as boolean,
+            {
+                toggleAllTables: (_, { selectAll }) => selectAll,
+            },
+        ],
         manualLinkingProvider: [
             null as ManualLinkSourceType | null,
             {
@@ -514,21 +559,85 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
-                actions.updateSource({
-                    payload: {
-                        schemas: values.databaseSchema.map((schema) => ({
-                            name: schema.table,
-                            should_sync: schema.should_sync,
-                            sync_type: schema.sync_type,
-                            incremental_field: schema.incremental_field,
-                            incremental_field_type: schema.incremental_field_type,
-                            sync_time_of_day: schema.sync_time_of_day,
-                        })),
+                const unconfiguredTables = values.databaseSchema.filter((schema) => schema.sync_type === null)
+                const fullRefreshTables = values.databaseSchema.filter((schema) => schema.sync_type === 'full_refresh')
+                let confirmMessage: JSX.Element
+                if (unconfiguredTables.length > 0 || fullRefreshTables.length > 0) {
+                    confirmMessage = (
+                        <>
+                            {unconfiguredTables.length > 0 && (
+                                <>
+                                    <h4 className="mt-2">Unconfigured tables</h4>
+                                    <div>You have no sync method setup for the following tables:</div>
+                                    <ul className="px-4 space-y-1 my-4">
+                                        {unconfiguredTables.map((table) => (
+                                            <li
+                                                key={table.table}
+                                                className="font-mono px-2 rounded bg-surface-secondary w-min"
+                                            >
+                                                {table.table}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </>
+                            )}
+                            {fullRefreshTables.length > 0 && (
+                                <>
+                                    <h4 className="mt-2">Full refresh tables</h4>
+                                    <div>
+                                        Full refresh syncs can dramatically increase your spend if you aren't mindful of
+                                        them. You have the following tables setup for full refresh syncs:
+                                    </div>
+                                    <ul className="px-4 space-y-1 my-4">
+                                        {fullRefreshTables.map((table) => (
+                                            <li
+                                                key={table.table}
+                                                className="font-mono px-2 rounded bg-surface-secondary w-min"
+                                            >
+                                                {table.table}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </>
+                            )}
+                        </>
+                    )
+                } else {
+                    confirmMessage = <>Everything looks good to us if it looks good to you!</>
+                }
+                LemonDialog.open({
+                    title: 'Confirm your table configurations',
+                    description: confirmMessage,
+                    primaryButton: {
+                        children: 'Confirm',
+                        type: 'primary',
+                        onClick: () => {
+                            actions.updateSource({
+                                payload: {
+                                    schemas: values.databaseSchema.map((schema) => ({
+                                        name: schema.table,
+                                        should_sync: schema.should_sync,
+                                        sync_type: schema.sync_type,
+                                        incremental_field: schema.incremental_field,
+                                        incremental_field_type: schema.incremental_field_type,
+                                        sync_time_of_day: schema.sync_time_of_day,
+                                    })),
+                                },
+                            })
+                            actions.setIsLoading(true)
+                            actions.createSource()
+                            if (values.selectedConnector) {
+                                posthog.capture('source created', { sourceType: values.selectedConnector.name })
+                            }
+                        },
+                        size: 'small',
+                    },
+                    secondaryButton: {
+                        children: 'Cancel',
+                        type: 'tertiary',
+                        size: 'small',
                     },
                 })
-                actions.setIsLoading(true)
-                actions.createSource()
-                posthog.capture('source created', { sourceType: values.selectedConnector.name })
             }
 
             if (values.currentStep === 4) {
@@ -602,6 +711,30 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     values.selectedConnector.name,
                     values.source.payload ?? {}
                 )
+
+                for (const schema of schemas) {
+                    if (schema.sync_type === null) {
+                        schema.should_sync = true
+
+                        // Use incremental if available
+                        if (schema.incremental_available || schema.append_available) {
+                            const method = schema.incremental_available ? 'incremental' : 'append'
+                            const field = resolveIncrementalField(schema.incremental_fields)
+                            schema.sync_type = method
+                            if (field) {
+                                schema.incremental_field = field.field
+                                schema.incremental_field_type = field.field_type
+                            }
+                        } else {
+                            schema.sync_type = 'full_refresh'
+                        }
+                    }
+                }
+
+                lemonToast.info(
+                    "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
+                )
+
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
@@ -625,12 +758,20 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 intent_context: ProductIntentContext.SELECTED_CONNECTOR,
             })
         },
+        toggleAllTables: ({ selectAll }) => {
+            actions.setDatabaseSchemas(
+                values.databaseSchema.map((schema) => ({
+                    ...schema,
+                    should_sync: selectAll,
+                }))
+            )
+        },
     })),
     urlToAction(({ actions, values }) => {
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
-            const source = values.connectors.find((s) => s.name.toLowerCase() === kind)
-            const manualSource = values.manualConnectors.find((s) => s.type.toLowerCase() === kind)
+            const source = values.connectors?.find((s) => s?.name?.toLowerCase?.() === kind)
+            const manualSource = values.manualConnectors?.find((s) => s?.type?.toLowerCase() === kind)
 
             if (manualSource) {
                 actions.toggleManualLinkFormVisible(true)
