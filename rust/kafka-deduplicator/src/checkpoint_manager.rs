@@ -1,24 +1,20 @@
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::HashSet;
+use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use crate::checkpoint::{
     CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointTarget, CheckpointWorker,
-    CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
 };
 use crate::kafka::types::Partition;
-use crate::metrics_const::{
-    CHECKPOINT_CLEANER_DELETE_ATTEMPTS, CHECKPOINT_CLEANER_DIRS_FOUND,
-    CHECKPOINT_STORE_NOT_FOUND_COUNTER,
-};
+use crate::metrics_const::CHECKPOINT_STORE_NOT_FOUND_COUNTER;
 use crate::store::DeduplicationStore;
 use crate::store_manager::StoreManager;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use dashmap::DashMap;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -60,9 +56,6 @@ pub struct CheckpointManager {
 
     /// Handle to the checkpoint task loop
     checkpoint_task: Option<JoinHandle<()>>,
-
-    /// Handle to the local checkpoint directory cleanup task loop
-    cleanup_task: Option<JoinHandle<()>>,
 }
 
 impl CheckpointManager {
@@ -85,7 +78,6 @@ impl CheckpointManager {
             cancel_token: CancellationToken::new(),
             is_checkpointing: Arc::new(Mutex::new(HashSet::new())),
             checkpoint_task: None,
-            cleanup_task: None,
         }
     }
 
@@ -299,12 +291,6 @@ impl CheckpointManager {
             task.abort();
         }
 
-        // Stop local checkpoint directory cleanup task
-        info!("Checkpoint manager: stopping local checkpoint directory cleanup...");
-        if let Some(task) = self.cleanup_task.take() {
-            task.abort();
-        }
-
         let mut fail_interval =
             tokio::time::interval(self.config.checkpoint_worker_shutdown_timeout);
         let mut probe_interval = tokio::time::interval(Duration::from_secs(1));
@@ -395,12 +381,6 @@ impl Drop for CheckpointManager {
             }
         }
 
-        // Stop local checkpoint directory cleanup loop
-        if let Some(task) = self.cleanup_task.take() {
-            debug!("Checkpoint manager dropped: cleanup task will terminate");
-            task.abort();
-        }
-
         // in-flight workers will be interrupted immediately here if they aren't completed
     }
 }
@@ -408,7 +388,6 @@ impl Drop for CheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checkpoint::worker::CheckpointTarget;
     use crate::checkpoint::{CheckpointPlan, CheckpointUploader};
     use crate::store::{
         DeduplicationStore, DeduplicationStoreConfig, TimestampKey, TimestampMetadata,
@@ -563,7 +542,6 @@ mod tests {
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_secs(30),
-            cleanup_interval: Duration::from_secs(10),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
@@ -571,9 +549,6 @@ mod tests {
 
         assert!(manager.checkpoint_task.is_none());
         assert_eq!(manager.config.checkpoint_interval, Duration::from_secs(30));
-
-        assert!(manager.cleanup_task.is_none());
-        assert_eq!(manager.config.cleanup_interval, Duration::from_secs(10));
 
         assert!(manager.exporter.is_none());
     }
@@ -585,7 +560,6 @@ mod tests {
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_secs(30),
-            cleanup_interval: Duration::from_secs(10),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
@@ -594,12 +568,10 @@ mod tests {
         // Start the manager
         manager.start();
         assert!(manager.checkpoint_task.is_some());
-        assert!(manager.cleanup_task.is_some());
 
         // Stop the manager
         manager.stop().await;
         assert!(manager.checkpoint_task.is_none());
-        assert!(manager.cleanup_task.is_none());
     }
 
     #[tokio::test]
@@ -647,7 +619,6 @@ mod tests {
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_secs(30),
-            cleanup_interval: Duration::from_secs(10),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
@@ -664,7 +635,6 @@ mod tests {
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(50),
-            cleanup_interval: Duration::from_secs(10),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
@@ -710,7 +680,6 @@ mod tests {
         let uploader = Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(100),
-            cleanup_interval: Duration::from_secs(10),
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             s3_key_prefix: "test".to_string(),
             ..Default::default()
@@ -836,7 +805,6 @@ mod tests {
         let uploader = Box::new(FilesystemUploader::new(tmp_export_dir.path().to_path_buf()));
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(50), // Submit frequent checkpoints during test run
-            cleanup_interval: Duration::from_secs(30),
             max_concurrent_checkpoints: 2,
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             s3_key_prefix: "test".to_string(),

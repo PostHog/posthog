@@ -9,10 +9,8 @@ use kafka_deduplicator::checkpoint::{
     CheckpointConfig, CheckpointExporter, CheckpointPlan, CheckpointTarget, CheckpointUploader,
     CheckpointWorker,
 };
-use kafka_deduplicator::checkpoint_manager::CheckpointManager;
 use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig, TimestampMetadata};
-use kafka_deduplicator::store_manager::StoreManager;
 
 use common_types::RawEvent;
 
@@ -253,7 +251,6 @@ async fn test_checkpoint_exporter_creation() {
     let temp_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: temp_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -287,7 +284,6 @@ async fn test_manual_checkpoint_export_incremental() {
     let tmp_checkpoint_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -363,7 +359,6 @@ async fn test_checkpoint_manual_export_full() {
     let tmp_checkpoint_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -410,77 +405,6 @@ async fn test_checkpoint_manual_export_full() {
     assert!(remote_checkpoint_files.keys().any(|k| k.ends_with(".log")));
 }
 
-// TODO: incremental snapshot and export is not implemented yet, but
-// the manager is wired up to track and perform N incrementals per
-// full snapshot. This test case exercises the config and staging logic
-#[tokio::test]
-async fn test_incremental_vs_full_upload_serial() {
-    let tmp_store_dir = TempDir::new().unwrap();
-    let test_topic = "test_incremental_vs_full_upload_serial";
-    let test_partition = 0;
-    let store = create_test_dedup_store(&tmp_store_dir, test_topic, test_partition);
-
-    // Add some test data
-    let events = vec![
-        create_test_raw_event("user1", "token1", "event1"),
-        create_test_raw_event("user2", "token1", "event2"),
-    ];
-    for event in &events {
-        let key = event.into();
-        let metadata = TimestampMetadata::new(event);
-        store.put_timestamp_record(&key, &metadata).unwrap();
-    }
-
-    let tmp_checkpoint_dir = TempDir::new().unwrap();
-    let config = CheckpointConfig {
-        checkpoint_interval: Duration::from_millis(50),
-        cleanup_interval: Duration::from_secs(60),
-        local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
-        s3_bucket: "test-bucket".to_string(),
-        s3_key_prefix: "test-prefix".to_string(),
-        aws_region: "us-east-1".to_string(),
-        full_upload_interval: 2,
-        ..Default::default()
-    };
-
-    let uploader = Box::new(MockUploader::new().unwrap());
-    let exporter = Some(Arc::new(CheckpointExporter::new(
-        config.clone(),
-        uploader.clone(),
-    )));
-
-    let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-        path: tmp_store_dir.path().to_path_buf(),
-        max_capacity: 1_000_000,
-    }));
-
-    let partition = Partition::new("test_topic".to_string(), 0);
-    store_manager
-        .stores()
-        .insert(partition.clone(), store.clone());
-
-    let mut manager = CheckpointManager::new(config, store_manager, exporter);
-
-    // let the checkpoint worker loop run long enough to perform some checkpoints
-    manager.start();
-    tokio::time::sleep(Duration::from_millis(250)).await;
-    manager.stop().await;
-
-    // eval if multiple uploads were performed
-    let stored_files = uploader.get_stored_files().await.unwrap();
-
-    assert!(
-        stored_files.len() >= 4,
-        "Should have performed at least four checkpoints, got {}",
-        stored_files.len()
-    );
-
-    assert!(
-        stored_files.keys().all(|k| k.contains("test-prefix/")),
-        "All uploads should be under test-prefix/"
-    );
-}
-
 #[tokio::test]
 async fn test_unavailable_uploader() {
     let tmp_store_dir = TempDir::new().unwrap();
@@ -502,7 +426,6 @@ async fn test_unavailable_uploader() {
     let tmp_checkpoint_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -556,7 +479,6 @@ async fn test_unpopulated_exporter() {
     let tmp_checkpoint_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -598,7 +520,6 @@ async fn test_incremental_checkpoint_with_no_changes() {
     let tmp_checkpoint_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -679,7 +600,6 @@ async fn test_incremental_checkpoint_with_new_data() {
     let tmp_checkpoint_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
@@ -780,7 +700,6 @@ async fn test_chained_incremental_checkpoints() {
     let tmp_checkpoint_dir = TempDir::new().unwrap();
     let config = CheckpointConfig {
         checkpoint_interval: Duration::from_secs(60),
-        cleanup_interval: Duration::from_secs(60),
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
