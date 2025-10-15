@@ -3,7 +3,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0880_datawarehousetable_queryable_folder"),
+        ("posthog", "0882_add_team_default_evaluation_tags"),
     ]
 
     operations = [
