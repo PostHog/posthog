@@ -2231,19 +2231,14 @@ class TestPrinter(BaseTest):
 
     def test_sortable_semver(self):
         # Also test different capitalizations
-        query = parse_select(
+        printed = self._print(
             """
                 SELECT
-                    sortableSemVer('1.2.3') AS semver1,
-                    sortableSemver('1.2.3') AS semver2,
-                    sortablesemver('1.2.3') AS semver3,
-                    sOrTaBlEsEmVeR('1.2.3') AS semver4
-            """
-        )
-        printed = print_ast(
-            query,
-            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
-            dialect="clickhouse",
+                  sortableSemVer('1.2.3') AS semver1,
+                  sortableSemver('1.2.3') AS semver2,
+                  sortablesemver('1.2.3') AS semver3,
+                  sOrTaBlEsEmVeR('1.2.3') AS semver4
+            """,
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
         self.assertEqual(
