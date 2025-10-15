@@ -50,21 +50,10 @@ class Command(BaseCommand):
             help="Optional: Filter to a specific condition hash",
         )
         parser.add_argument(
-            "--limit",
-            type=int,
-            help="Optional: Limit the number of conditions to process",
-        )
-        parser.add_argument(
             "--parallelism",
             type=int,
             default=10,
             help="Number of parallel child workflows to spawn (default: 10)",
-        )
-        parser.add_argument(
-            "--conditions-per-workflow",
-            type=int,
-            default=5000,
-            help="Maximum conditions per child workflow (default: 5000)",
         )
         parser.add_argument(
             "--schedule",
@@ -74,9 +63,9 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--duration",
-            type=float,
-            default=1.0,
-            help="Duration in hours to run the schedule (only with --schedule, default: 1.0)",
+            type=int,
+            default=60,
+            help="Duration in minutes to run the schedule (only with --schedule, default: 60)",
         )
         parser.add_argument(
             "--interval",
@@ -91,18 +80,16 @@ class Command(BaseCommand):
         team_id = options.get("team_id")
         cohort_id = options.get("cohort_id")
         condition = options.get("condition")
-        limit = options.get("limit")
         parallelism = options.get("parallelism", 10)
-        conditions_per_workflow = options.get("conditions_per_workflow", 5000)
         schedule = options.get("schedule", False)
-        duration_hours = options.get("duration", 1.0)
+        duration_minutes = options.get("duration", 60)
         interval_minutes = options.get("interval", 5)
 
         if schedule:
             # Schedule the workflow to run periodically
             logger.info(
                 "Creating Temporal schedule for behavioral cohorts",
-                duration_hours=duration_hours,
+                duration_minutes=duration_minutes,
                 interval_minutes=interval_minutes,
                 parallelism=parallelism,
             )
@@ -110,7 +97,7 @@ class Command(BaseCommand):
             try:
                 asyncio.run(
                     self.create_schedule(
-                        duration_hours=duration_hours,
+                        duration_minutes=duration_minutes,
                         interval_minutes=interval_minutes,
                         parallelism=parallelism,
                         min_matches=min_matches,
@@ -118,8 +105,6 @@ class Command(BaseCommand):
                         team_id=team_id,
                         cohort_id=cohort_id,
                         condition=condition,
-                        limit=limit,
-                        conditions_per_workflow=conditions_per_workflow,
                     )
                 )
             except Exception as e:
@@ -138,9 +123,7 @@ class Command(BaseCommand):
                 condition=condition,
                 min_matches=min_matches,
                 days=days,
-                limit=limit,
                 parallelism=parallelism,
-                conditions_per_workflow=conditions_per_workflow,
             )
 
             logger.info(
@@ -160,9 +143,7 @@ class Command(BaseCommand):
         condition: str | None,
         min_matches: int,
         days: int,
-        limit: int | None,
         parallelism: int,
-        conditions_per_workflow: int = 5000,
     ) -> None:
         """Run the Temporal workflow for parallel processing."""
 
@@ -177,9 +158,7 @@ class Command(BaseCommand):
                 condition=condition,
                 min_matches=min_matches,
                 days=days,
-                limit=limit,
                 parallelism=parallelism,
-                conditions_per_workflow=conditions_per_workflow,
             )
 
             # Generate unique workflow ID
@@ -211,7 +190,7 @@ class Command(BaseCommand):
 
     async def create_schedule(
         self,
-        duration_hours: float,
+        duration_minutes: int,
         interval_minutes: int,
         parallelism: int,
         min_matches: int,
@@ -219,8 +198,6 @@ class Command(BaseCommand):
         team_id: int | None = None,
         cohort_id: int | None = None,
         condition: str | None = None,
-        limit: int | None = None,
-        conditions_per_workflow: int = 5000,
     ):
         """Create a Temporal schedule to run the workflow at specified intervals."""
 
@@ -234,9 +211,7 @@ class Command(BaseCommand):
             condition=condition,
             min_matches=min_matches,
             days=days,
-            limit=limit,
             parallelism=parallelism,
-            conditions_per_workflow=conditions_per_workflow,
         )
 
         # Create unique schedule ID
@@ -244,11 +219,10 @@ class Command(BaseCommand):
 
         # Calculate end time based on duration
         start_time = datetime.utcnow()
-        end_time = start_time + timedelta(hours=duration_hours)
+        end_time = start_time + timedelta(minutes=duration_minutes)
 
         # Calculate number of expected runs
-        total_minutes = duration_hours * 60
-        expected_runs = int(total_minutes / interval_minutes)
+        expected_runs = int(duration_minutes / interval_minutes)
 
         logger.info(
             "Creating Temporal schedule",
@@ -284,7 +258,7 @@ class Command(BaseCommand):
         next_run = description.info.next_action_times[0] if description.info.next_action_times else None
 
         self.stdout.write(self.style.SUCCESS(f"✅ Successfully created schedule: {schedule_id}"))
-        self.stdout.write(f"⏰ Running every {interval_minutes} minutes for {duration_hours} hour(s)")
+        self.stdout.write(f"⏰ Running every {interval_minutes} minutes for {duration_minutes} minute(s)")
         self.stdout.write(f"📅 Start: {start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         self.stdout.write(f"📅 End: {end_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         self.stdout.write(f"🔄 Expected runs: {expected_runs}")

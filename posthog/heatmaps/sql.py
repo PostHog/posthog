@@ -22,7 +22,7 @@ We only add session_id so that we could offer example sessions for particular cl
 """
 
 KAFKA_HEATMAPS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     session_id VARCHAR,
     team_id Int64,
@@ -96,15 +96,15 @@ HEATMAPS_TABLE_SQL = lambda on_cluster=True: (
     ttl_period=ttl_period("timestamp", 90, unit="DAY"),
 )
 
-KAFKA_HEATMAPS_TABLE_SQL = lambda: KAFKA_HEATMAPS_TABLE_BASE_SQL.format(
+KAFKA_HEATMAPS_TABLE_SQL = lambda on_cluster=True: KAFKA_HEATMAPS_TABLE_BASE_SQL.format(
     table_name="kafka_heatmaps",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_HEATMAP_EVENTS),
 )
 
 HEATMAPS_TABLE_MV_SQL = (
-    lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv ON CLUSTER '{cluster}'
+    lambda on_cluster=True: """
+CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv {on_cluster_clause}
 TO {database}.{target_table}
 AS SELECT
     session_id,
@@ -129,7 +129,7 @@ AS SELECT
 FROM {database}.kafka_heatmaps
 """.format(
         target_table="writable_heatmaps",
-        cluster=settings.CLICKHOUSE_CLUSTER,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         database=settings.CLICKHOUSE_DATABASE,
     )
 )
@@ -159,6 +159,12 @@ DISTRIBUTED_HEATMAPS_TABLE_SQL = lambda on_cluster=True: HEATMAPS_TABLE_BASE_SQL
 DROP_HEATMAPS_TABLE_SQL = lambda: (
     f"DROP TABLE IF EXISTS {HEATMAPS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 )
+
+DROP_WRITABLE_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS writable_heatmaps")
+
+DROP_HEATMAPS_TABLE_MV_SQL = lambda: (f"DROP TABLE IF EXISTS heatmaps_mv")
+
+DROP_KAFKA_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS kafka_heatmaps")
 
 TRUNCATE_HEATMAPS_TABLE_SQL = lambda: (
     f"TRUNCATE TABLE IF EXISTS {HEATMAPS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"

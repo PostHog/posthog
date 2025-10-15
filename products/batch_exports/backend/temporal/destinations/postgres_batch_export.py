@@ -1,6 +1,7 @@
 import re
 import csv
 import json
+import random
 import typing
 import asyncio
 import datetime as dt
@@ -13,6 +14,7 @@ from django.conf import settings
 import psycopg
 import pyarrow as pa
 from psycopg import sql
+from psycopg.errors import SerializationFailure
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -116,6 +118,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "ProgramLimitExceeded",
     # Raised when the destination table schema is incompatible with the schema of the data we are trying to export.
     "PostgreSQLIncompatibleSchemaError",
+    # Raised when a transaction fails to complete after a certain number of retries.
+    "PostgreSQLTransactionError",
 )
 
 
@@ -135,6 +139,13 @@ class PostgreSQLIncompatibleSchemaError(Exception):
         super().__init__(f"The data being exported is incompatible with the schema of the destination table: {err_msg}")
 
 
+class PostgreSQLTransactionError(Exception):
+    """Raised when a transaction fails to complete after a certain number of retries."""
+
+    def __init__(self, max_attempts: int, err_msg: str):
+        super().__init__(f"A transaction failed to complete after {max_attempts} attempts: {err_msg}")
+
+
 @dataclasses.dataclass(kw_only=True)
 class PostgresInsertInputs(BatchExportInsertInputs):
     """Inputs for Postgres."""
@@ -147,6 +158,37 @@ class PostgresInsertInputs(BatchExportInsertInputs):
     schema: str = "public"
     table_name: str
     has_self_signed_cert: bool = False
+
+
+async def run_in_retryable_transaction(
+    connection: psycopg.AsyncConnection,
+    fn: collections.abc.Callable[[], collections.abc.Awaitable[typing.Any]],
+    max_attempts: int = 3,
+) -> typing.Any:
+    """Run a callable inside a transaction with retry logic for serialization failures.
+
+    Inspiration: https://github.com/cockroachdb/example-app-python-psycopg3/blob/main/example.py#L70-L105
+
+    Args:
+        connection: The PostgreSQL connection to use
+        fn: An async callable to execute within the transaction
+        max_attempts: Maximum number of retry attempts
+    Returns:
+        The return value of fn
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with connection.transaction():
+                return await fn()
+
+        except SerializationFailure as e:
+            if attempt == max_attempts:
+                raise PostgreSQLTransactionError(max_attempts, str(e)) from e
+
+            LOGGER.debug("SerializationFailure caught in transaction (attempt %d/%d): %s", attempt, max_attempts, e)
+            sleep_seconds = (2**attempt) * 0.1 * (random.random() + 0.5)
+            LOGGER.debug("Sleeping %s seconds", sleep_seconds)
+            await asyncio.sleep(sleep_seconds)
 
 
 class PostgreSQLClient:
@@ -480,7 +522,7 @@ class PostgreSQLClient:
         """
         tsv_file.seek(0)
 
-        async with self.connection.transaction():
+        async def _copy_tsv_in_transaction():
             async with self.connection.cursor() as cursor:
                 if schema:
                     await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
@@ -497,6 +539,8 @@ class PostgreSQLClient:
                     while data := await asyncio.to_thread(tsv_file.read):
                         data = remove_invalid_json(data)
                         await copy.write(data)
+
+        await run_in_retryable_transaction(self.connection, _copy_tsv_in_transaction)
 
 
 def remove_invalid_json(data: bytes) -> bytes:
