@@ -184,24 +184,30 @@ impl FingerprintComponent for Frame {
         };
 
         let mut included_pieces = Vec::new();
-        if let Some(resolved) = &self.resolved_name {
-            fp.update(resolved.as_bytes());
-            included_pieces.push("Resolved function name");
-            if let Some(s) = self.source.as_ref() {
-                fp.update(s.as_bytes());
-                included_pieces.push("Source file name");
-            }
-            fp.add_part(get_part(&self.raw_id, included_pieces));
-            return;
-        }
 
-        fp.update(self.mangled_name.as_bytes());
-        included_pieces.push("Mangled function name");
-
+        // Include source and module in the fingerprint either way
         if let Some(source) = &self.source {
             fp.update(source.as_bytes());
             included_pieces.push("Source file name");
         }
+
+        if let Some(module) = &self.module {
+            fp.update(module.as_bytes());
+            included_pieces.push("Module name");
+        }
+
+        // If we've resovled this frame, include function name, and then return
+        if let Some(resolved) = &self.resolved_name {
+            fp.update(resolved.as_bytes());
+            included_pieces.push("Resolved function name");
+
+            fp.add_part(get_part(&self.raw_id, included_pieces));
+            return;
+        }
+
+        // Otherwise, get more granular
+        fp.update(self.mangled_name.as_bytes());
+        included_pieces.push("Mangled function name");
 
         if let Some(line) = self.line {
             fp.update(line.to_string().as_bytes());
