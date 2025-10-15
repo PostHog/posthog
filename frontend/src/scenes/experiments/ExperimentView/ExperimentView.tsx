@@ -16,6 +16,7 @@ import { ExperimentImplementationDetails } from '../ExperimentImplementationDeta
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
 import { LegacyMetricSourceModal } from '../Metrics/LegacyMetricSourceModal'
+import { LegacySharedMetricModal } from '../Metrics/LegacySharedMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
@@ -266,7 +267,7 @@ export function ExperimentView(): JSX.Element {
                         <>
                             <MetricSourceModal />
                             <ExperimentMetricModal
-                                experimentId={experimentId}
+                                experiment={experiment}
                                 onSave={(metric, context) => {
                                     const metrics = experiment[context.field]
                                     const isNew = !metrics.some(({ uuid }) => uuid === metric.uuid)
@@ -307,6 +308,7 @@ export function ExperimentView(): JSX.Element {
                                     closeExperimentMetricModal()
                                 }}
                             />
+                            <SharedMetricModal experiment={experiment} onSave={(metrics) => {}} />
                             <ExposureCriteriaModal />
                             <RunningTimeCalculatorModal />
                         </>
@@ -314,13 +316,12 @@ export function ExperimentView(): JSX.Element {
                         <>
                             <LegacyMetricSourceModal experimentId={experimentId} isSecondary={true} />
                             <LegacyMetricSourceModal experimentId={experimentId} isSecondary={false} />
+                            <LegacySharedMetricModal experimentId={experimentId} isSecondary={true} />
+                            <LegacySharedMetricModal experimentId={experimentId} isSecondary={false} />
                             <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
                             <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
                         </>
                     )}
-
-                    <SharedMetricModal experimentId={experimentId} isSecondary={true} />
-                    <SharedMetricModal experimentId={experimentId} isSecondary={false} />
 
                     <DistributionModal experimentId={experimentId} />
                     <ReleaseConditionsModal experimentId={experimentId} />
