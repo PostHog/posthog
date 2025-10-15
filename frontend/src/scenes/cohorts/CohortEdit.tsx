@@ -2,19 +2,20 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } fro
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconCopy, IconMinusSmall, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
+import { IconClock, IconCopy, IconMinusSmall, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
-import { CohortTypeEnum } from 'lib/constants'
+import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
+import { IconErrorOutline, IconRefresh, IconUploadFile } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
@@ -70,6 +71,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     useAttachedLogic(logic, attachTo)
     const {
         deleteCohort,
+        restoreCohort,
         setOuterGroupsType,
         setQuery,
         duplicateCohort,
@@ -89,6 +91,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         personsToCreateStaticCohort,
         canRemovePersonFromCohort,
     } = useValues(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
@@ -127,6 +130,25 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
+    }
+
+    if (cohort.deleted) {
+        return (
+            <div>
+                <LemonBanner type="error">The cohort '{cohort.name}' has been soft deleted.</LemonBanner>
+                <ScenePanel>
+                    <ButtonPrimitive
+                        disabled={cohortLoading}
+                        onClick={() => {
+                            restoreCohort()
+                        }}
+                        menuItem
+                    >
+                        <IconRefresh /> Restore
+                    </ButtonPrimitive>
+                </ScenePanel>
+            </div>
+        )
     }
 
     return (
@@ -172,6 +194,18 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                         >
                             <IconCopy /> Duplicate as static cohort
                         </ButtonPrimitive>
+
+                        {!cohort.is_static && featureFlags[FEATURE_FLAGS.COHORT_CALCULATION_HISTORY] && (
+                            <ButtonPrimitive
+                                onClick={() => router.actions.push(urls.cohortCalculationHistory(cohort.id))}
+                                disabledReasons={{
+                                    'Save the cohort first': isNewCohort,
+                                }}
+                                menuItem
+                            >
+                                <IconClock /> Calculation history
+                            </ButtonPrimitive>
+                        )}
                     </ScenePanelActionsSection>
                     {!isNewCohort && (
                         <>

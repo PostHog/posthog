@@ -20,7 +20,7 @@ from .marketing_analytics_config import MarketingAnalyticsConfig
 class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        self.config = MarketingAnalyticsConfig()
+        self.config = MarketingAnalyticsConfig.from_team(self.team)
         self.date_range = QueryDateRange(
             date_range=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             team=self.team,
@@ -118,7 +118,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
 
         assert isinstance(cte, ast.CTE)
-        assert cte.name == "unified_conversion_goals"
+        assert cte.name == "ucg"
         assert cte.cte_type == "subquery"
         assert isinstance(cte.expr, ast.SelectQuery)
 
@@ -145,7 +145,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
 
         assert isinstance(cte, ast.CTE)
-        assert cte.name == "unified_conversion_goals"
+        assert cte.name == "ucg"
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
@@ -187,7 +187,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
 
         assert isinstance(cte, ast.CTE)
-        assert cte.name == "unified_conversion_goals"
+        assert cte.name == "ucg"
         assert isinstance(cte.expr, ast.SelectQuery)
 
         final_query = cte.expr
@@ -311,7 +311,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         additional_conditions_getter = self._create_mock_additional_conditions_getter()
         cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
         assert isinstance(cte, ast.CTE)
-        assert cte.name == "unified_conversion_goals"
+        assert cte.name == "ucg"
 
         columns = aggregator.get_conversion_goal_columns()
         assert "Events Goal 1" in columns
@@ -368,7 +368,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
 
         assert isinstance(cte, ast.CTE)
-        assert cte.name == "unified_conversion_goals"
+        assert cte.name == "ucg"
 
         final_query = cte.expr
         assert isinstance(final_query, ast.SelectQuery)
@@ -458,4 +458,4 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
 
         assert isinstance(cte, ast.CTE)
-        assert cte.name == "unified_conversion_goals"
+        assert cte.name == "ucg"

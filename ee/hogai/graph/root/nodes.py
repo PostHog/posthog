@@ -753,23 +753,30 @@ class RootNodeTools(AssistantNode):
         elif ToolClass := get_contextual_tool_class(tool_call.name):
             tool_class = ToolClass(team=self._team, user=self._user, state=state)
             try:
-                result = await tool_class.ainvoke(tool_call.model_dump(), config)
+                result: LangchainToolMessage = await tool_class.ainvoke(tool_call.model_dump(), config)
             except Exception as e:
                 capture_exception(
                     e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
                 )
-                result = AssistantToolCallMessage(
-                    content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
-                    id=str(uuid4()),
-                    tool_call_id=tool_call.id,
-                    visible=False,
+                return PartialAssistantState(
+                    # we send all messages from the tool call onwards
+                    messages=[
+                        AssistantToolCallMessage(
+                            content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
+                            id=str(uuid4()),
+                            tool_call_id=tool_call.id,
+                            visible=False,
+                        )
+                    ],
+                    root_tool_calls_count=tool_call_count + 1,
                 )
-            if not isinstance(result, LangchainToolMessage | AssistantToolCallMessage):
-                raise TypeError(f"Expected a {LangchainToolMessage} or {AssistantToolCallMessage}, got {type(result)}")
+            # MaxTool will always return a LangchainToolMessage so raise an exception if it doesn't
+            if not isinstance(result, LangchainToolMessage):
+                raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")
 
             # If this is a navigation tool call, pause the graph execution
             # so that the frontend can re-initialise Max with a new set of contextual tools.
-            if tool_call.name == "navigate" and not isinstance(result, AssistantToolCallMessage):
+            if tool_call.name == "navigate":
                 navigate_message = AssistantToolCallMessage(
                     content=str(result.content) if result.content else "",
                     ui_payload={tool_call.name: result.artifact},
@@ -792,18 +799,16 @@ class RootNodeTools(AssistantNode):
                     root_tool_calls_count=tool_call_count + 1,
                 )
 
+            tool_message = AssistantToolCallMessage(
+                content=str(result.content) if result.content else "",
+                ui_payload={tool_call.name: result.artifact},
+                id=str(uuid4()),
+                tool_call_id=tool_call.id,
+                visible=tool_class.show_tool_call_message,
+            )
+
             return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=str(result.content) if result.content else "",
-                        ui_payload={tool_call.name: result.artifact},
-                        id=str(uuid4()),
-                        tool_call_id=tool_call.id,
-                        visible=tool_class.show_tool_call_message,
-                    )
-                    if not isinstance(result, AssistantToolCallMessage)
-                    else result
-                ],
+                messages=[tool_message],
                 root_tool_calls_count=tool_call_count + 1,
             )
         else:
