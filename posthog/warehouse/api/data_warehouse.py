@@ -188,6 +188,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         Returns success and failed job statistics for the last 1, 7, or 30 days.
         Query parameter 'days' can be 1, 7, or 30 (default: 7).
         """
+
+        # TODO: Will want to cache this data to not spam PG
         try:
             days = int(request.GET.get("days", 7))
             if days not in [1, 7, 30]:
