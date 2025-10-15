@@ -26,6 +26,8 @@ from ee.tasks.subscriptions.subscription_utils import generate_assets, generate_
 
 logger = structlog.get_logger(__name__)
 
+SLACK_USER_CONFIG_ERRORS = frozenset(["not_in_channel", "account_inactive", "is_archived"])
+
 # Prometheus metrics for Celery workers (web/worker pods)
 SUBSCRIPTION_QUEUED = Counter(
     "subscription_queued",
@@ -204,7 +206,13 @@ async def deliver_subscription_report_async(
             logger.info("deliver_subscription_report_async.slack_sent", subscription_id=subscription_id)
             get_subscription_success_metric("slack", "temporal").add(1)
         except Exception as e:
-            get_subscription_failure_metric("slack", "temporal").add(1)
+            from slack_sdk.errors import SlackApiError
+
+            is_user_config_error = isinstance(e, SlackApiError) and e.response.get("error") in SLACK_USER_CONFIG_ERRORS
+
+            if not is_user_config_error:
+                get_subscription_failure_metric("slack", "temporal").add(1)
+
             logger.error(
                 "deliver_subscription_report_async.slack_failed",
                 subscription_id=subscription.id,
