@@ -469,7 +469,7 @@ class TableParameters:
 
 
 @dataclasses.dataclass
-class RedshiftCopyInputs:
+class RedshiftCopyActivityInputs:
     """Inputs for Redshift copy activity."""
 
     batch_export: BatchExportInsertInputs
@@ -1112,7 +1112,7 @@ async def delete_uploaded_files(
 
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
-async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> BatchExportResult:
+async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInputs) -> BatchExportResult:
     """Activity to COPY data to Redshift.
 
     Note that Redshift's COPY requires data to first be available in an S3 bucket that
@@ -1418,7 +1418,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
             if inputs.mode == "COPY" and inputs.copy_inputs is not None:
                 await execute_batch_export_using_internal_stage(
                     copy_into_redshift_activity_from_stage,
-                    RedshiftCopyInputs(  # type: ignore
+                    RedshiftCopyActivityInputs(  # type: ignore
                         batch_export=batch_export_inputs,
                         connection=connection_parameters,
                         table=table_parameters,

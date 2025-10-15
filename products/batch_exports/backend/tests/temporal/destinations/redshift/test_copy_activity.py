@@ -17,7 +17,7 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
     ConnectionParameters,
     CopyParameters,
     Credentials,
-    RedshiftCopyInputs,
+    RedshiftCopyActivityInputs,
     S3StageBucketParameters,
     TableParameters,
     copy_into_redshift_activity_from_stage,
@@ -118,7 +118,7 @@ async def _run_activity(
         authorization=credentials,
     )
 
-    copy_inputs = RedshiftCopyInputs(
+    copy_inputs = RedshiftCopyActivityInputs(
         batch_export=batch_export_inputs,
         connection=connection_parameters,
         table=table_parameters,
