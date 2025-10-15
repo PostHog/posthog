@@ -1604,7 +1604,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$is_identified": {
             "label": "Is identified",
-            "description": "When the person was identified",
+            "description": "Client-side property set by posthog-js indicating whether the user has been previously identified on the device.",
         },
         "$initial_person_info": {
             "label": "Initial person info",
