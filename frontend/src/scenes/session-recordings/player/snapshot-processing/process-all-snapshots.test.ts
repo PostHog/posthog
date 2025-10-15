@@ -60,7 +60,7 @@ describe('process all snapshots', () => {
             const end = performance.now()
             const duration = end - start
             expect(results).toHaveLength(99)
-            expect(duration).toBeLessThan(150) // Increased timeout to account for synthetic snapshot logic
+            expect(duration).toBeLessThan(50)
         })
 
         it('deduplicates snapshot', async () => {
