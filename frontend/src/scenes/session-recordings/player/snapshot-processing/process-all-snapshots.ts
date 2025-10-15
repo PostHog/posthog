@@ -242,7 +242,6 @@ function coerceToEventWithTime(
     if (isFirstEvent && isMobile && currentEvent.type !== EventType.FullSnapshot && postHogEEModule?.mobileReplay) {
         // Create synthetic mobile full snapshot using the proper transformer
         const syntheticMobileFullSnapshot = {
-            windowId: currentEvent.windowId,
             type: EventType.FullSnapshot,
             timestamp: currentEvent.timestamp - 1,
             data: {
