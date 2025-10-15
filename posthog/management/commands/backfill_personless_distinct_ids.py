@@ -6,11 +6,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import connection, transaction
+from django.db import connections, router, transaction
 
 import structlog
 
 from posthog.clickhouse.client.execute import sync_execute as ch_execute
+from posthog.models.person import PersonlessDistinctId
 from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
@@ -37,9 +38,13 @@ def batch_insert_personless_distinct_ids(data, batch_size=1000):
         for i in range(0, len(lst), n):
             yield lst[i : i + n]
 
+    # Use the correct database for PersonlessDistinctId writes (handles persons_db_writer routing in production)
+    db_alias = router.db_for_write(PersonlessDistinctId) or "default"
+    db_connection = connections[db_alias]
+
     for batch in chunks(data, batch_size):
-        with transaction.atomic():
-            with connection.cursor() as cursor:
+        with transaction.atomic(using=db_alias):
+            with db_connection.cursor() as cursor:
                 values = ",".join(
                     cursor.mogrify("(%s, %s, false, now())", (team_id, distinct_id)) for team_id, distinct_id in batch
                 )

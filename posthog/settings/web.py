@@ -38,6 +38,8 @@ PRODUCTS_APPS = [
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
+    "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
+    "products.error_tracking.backend.apps.ErrorTrackingConfig",
 ]
 
 INSTALLED_APPS = [
