@@ -2,6 +2,8 @@
 # Django starts so that shared_task will use this app.
 from posthog.celery import app as celery_app  # noqa: E402
 
+# Test cache mount effectiveness
+
 __all__ = ("celery_app",)
 
 # snowflake-connector-python tries to access a root folder which errors out in pods.
