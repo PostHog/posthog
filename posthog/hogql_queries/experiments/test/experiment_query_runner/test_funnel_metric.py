@@ -1976,3 +1976,195 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(unordered_control.number_of_samples - unordered_control.sum, 2)  # 2 incomplete (only pageview)
         self.assertEqual(unordered_test.sum, 9)  # 5 correct + 4 reverse order (9 with both events)
         self.assertEqual(unordered_test.number_of_samples - unordered_test.sum, 4)  # 4 incomplete (only pageview)
+
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_excludes_different_feature_flags(self, name, use_new_query_builder):
+        """Test that users with $feature_flag_called events for different flags are excluded"""
+        # Create two different feature flags
+        experiment_flag = self.create_feature_flag(key="experiment-flag")
+        other_flag = self.create_feature_flag(key="other-flag")
+
+        experiment = self.create_experiment(feature_flag=experiment_flag)
+        experiment.save()
+        experiment.stats_config = {"method": "frequentist"}
+
+        experiment_ff_property = f"$feature/{experiment_flag.key}"
+        other_ff_property = f"$feature/{other_flag.key}"
+
+        # Control group exposed to experiment flag: 8 successful funnels, 5 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    experiment_ff_property: "control",
+                    "$feature_flag": experiment_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_control_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={experiment_ff_property: "control"},
+            )
+            if i < 8:
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={experiment_ff_property: "control"},
+                )
+
+        # Test group exposed to experiment flag: 6 successful funnels, 7 failures (13 total)
+        for i in range(13):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    experiment_ff_property: "test",
+                    "$feature_flag": experiment_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_test_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={experiment_ff_property: "test"},
+            )
+            if i < 6:
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={experiment_ff_property: "test"},
+                )
+
+        # Users exposed ONLY to other flag (should be excluded from experiment)
+        for i in range(10):
+            _create_person(distinct_ids=[f"user_other_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_other_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "variant",
+                    other_ff_property: "variant",
+                    "$feature_flag": other_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_other_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={other_ff_property: "variant"},
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_other_{i}",
+                timestamp="2024-01-02T12:02:00Z",
+                properties={other_ff_property: "variant"},
+            )
+
+        # Users exposed to BOTH flags (should be included in experiment with experiment flag variant)
+        for i in range(5):
+            _create_person(distinct_ids=[f"user_both_{i}"], team_id=self.team.pk)
+            # First see other flag
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_both_{i}",
+                timestamp="2024-01-02T11:59:00Z",
+                properties={
+                    "$feature_flag_response": "variant",
+                    other_ff_property: "variant",
+                    "$feature_flag": other_flag.key,
+                },
+            )
+            # Then see experiment flag (control)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_both_{i}",
+                timestamp="2024-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    experiment_ff_property: "control",
+                    "$feature_flag": experiment_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"user_both_{i}",
+                timestamp="2024-01-02T12:01:00Z",
+                properties={experiment_ff_property: "control"},
+            )
+            if i < 3:  # 3 of the 5 complete the funnel
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_both_{i}",
+                    timestamp="2024-01-02T12:02:00Z",
+                    properties={experiment_ff_property: "control"},
+                )
+
+        flush_persons_and_events()
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="$pageview"),
+                EventsNode(event="purchase"),
+            ],
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
+        )
+        result = query_runner.calculate()
+
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
+
+        # Control should have: 8 original successes + 3 from both-flags users = 11 successes
+        # Control should have: 5 original failures + 2 from both-flags users = 7 failures
+        # Total control: 18 exposures (13 + 5 from both-flags users)
+        self.assertEqual(control_variant.sum, 11)
+        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 7)
+
+        # Test should have: 6 successes, 7 failures (13 total)
+        self.assertEqual(test_variant.sum, 6)
+        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)
+
+        # Verify that the 10 users exposed only to other_flag are NOT included
+        # Total exposures should be 31 (13 control + 13 test + 5 both), NOT 41 (if other_flag users were included)
