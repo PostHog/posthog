@@ -131,34 +131,19 @@ def sync_cohort_people_from_clickhouse(apps, schema_editor):
                 # Insert this batch using Django ORM
                 from posthog.models.cohort.cohort import CohortPeople
 
-                try:
-                    # Create CohortPeople objects for bulk_create
-                    cohort_people_objects = [
-                        CohortPeople(cohort_id=cohort_id, person_id=person_id, version=0)
-                        for cohort_id, person_id in insert_values
-                    ]
+                # Create CohortPeople objects for bulk_create
+                cohort_people_objects = [
+                    CohortPeople(cohort_id=cohort_id, person_id=person_id, version=0)
+                    for cohort_id, person_id in insert_values
+                ]
 
-                    # Use bulk_create with ignore_conflicts
-                    created_objects = CohortPeople.objects.using(persons_db).bulk_create(
-                        cohort_people_objects, ignore_conflicts=True
-                    )
-                    batch_inserted = len(created_objects)
-                    total_inserted += batch_inserted
-                    logger.info(f"Batch successful: {batch_inserted} records inserted")
-
-                except Exception as e:
-                    # Fallback to individual creates for this batch
-                    logger.warning(f"Batch failed: {e}, falling back to individual creates")
-
-                    for cohort_id, person_id in insert_values:
-                        try:
-                            CohortPeople.objects.using(persons_db).get_or_create(
-                                cohort_id=cohort_id, person_id=person_id, defaults={"version": 0}
-                            )
-                            total_inserted += 1
-                        except Exception as e:
-                            logger.warning(f"Failed to insert cohort_id={cohort_id}, person_id={person_id}: {e}")
-                            pass
+                # Use bulk_create with ignore_conflicts
+                created_objects = CohortPeople.objects.using(persons_db).bulk_create(
+                    cohort_people_objects, ignore_conflicts=True
+                )
+                batch_inserted = len(created_objects)
+                total_inserted += batch_inserted
+                logger.info(f"Batch successful: {batch_inserted} records inserted")
             else:
                 logger.info(f"No new records to insert for batch at offset {offset}")
 
@@ -175,21 +160,12 @@ def sync_cohort_people_from_clickhouse(apps, schema_editor):
                 from posthog.models.cohort.cohort import Cohort
                 from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
 
-                for cohort_id in processed_cohort_ids:
-                    try:
-                        cohort = Cohort.objects.get(pk=cohort_id)
-                    except Cohort.DoesNotExist:
-                        logger.warning(f"Cohort {cohort_id} not found, skipping recalculation")
-                        continue
-                    except Exception as e:
-                        logger.exception(f"Failed to retrieve cohort {cohort_id}: {e}")
-                        continue
-
+                for cohort in Cohort.objects.filter(id__in=processed_cohort_ids).iterator():
                     try:
                         increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
-                        logger.info(f"Triggered recalculation for cohort {cohort_id}")
+                        logger.info(f"Triggered recalculation for cohort {cohort.id}")
                     except Exception as e:
-                        logger.exception(f"Failed to trigger recalculation for cohort {cohort_id}: {e}")
+                        logger.exception(f"Failed to trigger recalculation for cohort {cohort.id}: {e}")
 
                 logger.info("Completed cohort recalculation triggers")
             except ImportError as e:
