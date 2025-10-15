@@ -165,6 +165,13 @@ def _expr_to_compare_op(
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.IS_NOT_SET:
+        if property.type == "event_metadata":
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=expr,
+                right=ast.Constant(value=None),
+            )
+
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
@@ -579,9 +586,8 @@ def property_to_expr(
             operator=operator,
             team=team,
             property=property,
-            is_json_field=property.type != "session",
+            is_json_field=property.type != "session" and property.type != "event_metadata",
         )
-
         if is_exception_string_array_property:
             return parse_expr(
                 "arrayExists(v -> {expr}, {key})",
