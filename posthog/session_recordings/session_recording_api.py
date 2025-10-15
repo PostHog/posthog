@@ -261,6 +261,8 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "person",
             "storage",
             "retention_period_days",
+            "expiry_time",
+            "recording_ttl",
             "snapshot_source",
             "ongoing",
             "activity_score",
@@ -284,6 +286,8 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "start_url",
             "storage",
             "retention_period_days",
+            "expiry_time",
+            "recording_ttl",
             "snapshot_source",
             "ongoing",
             "activity_score",
@@ -963,8 +967,8 @@ class SessionRecordingViewSet(
         with timer("get_recording"):
             recording: SessionRecording = self.get_object()
 
-        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
-            raise exceptions.NotFound("Recording not found")
+        trace.get_current_span().set_attribute("team_id", self.team_id)
+        trace.get_current_span().set_attribute("session_id", str(recording.session_id))
 
         is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
         serializer = SessionRecordingSnapshotsRequestSerializer(
@@ -979,6 +983,13 @@ class SessionRecordingViewSet(
 
         is_v2_enabled: bool = validated_data.get("blob_v2", False)
         is_v2_lts_enabled: bool = validated_data.get("blob_v2_lts", False)
+
+        if (
+            not recording.full_recording_v2_path
+            and not recording.object_storage_path
+            and not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team)
+        ):
+            raise exceptions.NotFound("Recording not found")
 
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 

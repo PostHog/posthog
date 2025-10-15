@@ -426,6 +426,18 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
+    # Replace dynamic event_date and event_time filters in query_log_archive queries
+    query = re.sub(
+        rf"event_date >= '({days_to_sub})'",
+        r"event_date >= 'today'",
+        query,
+    )
+    query = re.sub(
+        rf"event_time >= '({days_to_sub}) \d\d:\d\d:\d\d'",
+        r"event_time >= 'today 00:00:00'",
+        query,
+    )
+
     return query
 
 
@@ -692,6 +704,15 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
     @classmethod
     def setUpClass(cls):
         cls.setUpTestData()
+
+    def _fixture_teardown(self):
+        # Override to use CASCADE when truncating tables.
+        # Required when models are moved between Django apps, as PostgreSQL
+        # needs CASCADE to handle FK constraints across app boundaries.
+        from django.core.management import call_command
+
+        for db_name in self._databases_names(include_mirrors=False):
+            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
@@ -966,7 +987,7 @@ class BaseTestMigrations(QueryMatchingTest):
 
     migrate_from: str
     migrate_to: str
-    apps = None
+    apps: Optional[any] = None
     assert_snapshots = False
 
     def setUp(self):

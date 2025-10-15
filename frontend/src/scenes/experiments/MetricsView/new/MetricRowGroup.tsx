@@ -9,6 +9,7 @@ import { IconTrending } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
+import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 
 import {
     ExperimentMetric,
@@ -107,7 +108,7 @@ export function MetricRowGroup({
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const { featureFlags } = useValues(experimentLogic)
-    const timeseriesEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES]
+    const timeseriesEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && experiment.stats_config?.timeseries
 
     // Calculate total rows for loading/error states
     const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)
@@ -319,12 +320,12 @@ export function MetricRowGroup({
 
                 {/* Variant name */}
                 <td
-                    className={`w-20 pt-1 pl-3 pr-3 pb-1 font-semibold text-left whitespace-nowrap overflow-hidden ${
+                    className={`w-20 pt-1 pl-3 pr-3 pb-1 whitespace-nowrap overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <div className="metric-cell">{baselineResult.key}</div>
+                    <VariantTag experimentId={experiment.id} variantKey={baselineResult.key} />
                 </td>
 
                 {/* Value */}
@@ -372,7 +373,6 @@ export function MetricRowGroup({
                                 metric={metric}
                                 result={result}
                                 experiment={experiment}
-                                isSecondary={isSecondary}
                             />
                         </>
                     )}
@@ -435,7 +435,7 @@ export function MetricRowGroup({
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
-                            <div className="metric-cell whitespace-nowrap">{variant.key}</div>
+                            <VariantTag experimentId={experiment.id} variantKey={variant.key} />
                         </td>
 
                         {/* Value */}

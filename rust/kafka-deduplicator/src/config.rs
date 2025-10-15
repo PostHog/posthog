@@ -49,6 +49,9 @@ pub struct Config {
     // Output topic for deduplicated events (optional - if not set, events are only consumed for metrics)
     pub output_topic: Option<String>,
 
+    // Topic for publishing duplicate detection results (optional)
+    pub duplicate_events_topic: Option<String>,
+
     // RocksDB storage configuration
     #[envconfig(default = "/tmp/deduplication-store")]
     pub store_path: String,
@@ -100,10 +103,10 @@ pub struct Config {
     #[envconfig(default = "900")] // 15 minutes in seconds
     pub checkpoint_cleanup_interval_secs: u64,
 
-    #[envconfig(default = "2")] // 2 hours
+    #[envconfig(default = "1")] // delete local checkpoints older than this
     pub max_checkpoint_retention_hours: u32,
 
-    #[envconfig(default = "8")]
+    #[envconfig(default = "8")] // max concurrent checkpoints to perform on single node
     pub max_concurrent_checkpoints: usize,
 
     #[envconfig(default = "200")]
@@ -112,8 +115,8 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub checkpoint_worker_shutdown_timeout_secs: u64,
 
-    #[envconfig(default = "2")]
-    pub max_local_checkpoints: usize,
+    #[envconfig(default = "1")]
+    pub checkpoints_per_partition: usize,
 
     #[envconfig(default = "/tmp/checkpoints")]
     pub local_checkpoint_dir: String,
@@ -293,10 +296,6 @@ impl Config {
 
     pub fn checkpoint_worker_shutdown_timeout(&self) -> Duration {
         Duration::from_secs(self.checkpoint_worker_shutdown_timeout_secs)
-    }
-
-    pub fn max_local_checkpoints(&self) -> usize {
-        self.max_local_checkpoints
     }
 
     /// Get S3 timeout as Duration

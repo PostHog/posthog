@@ -11,6 +11,8 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/RevenueAnalyticsScene'),
             projectBased: true,
             defaultDocsPath: '/docs/revenue-analytics',
+            iconType: 'revenue_analytics',
+            description: 'Track and analyze your revenue metrics to understand your business performance and growth.',
         },
     },
     routes: {
