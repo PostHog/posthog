@@ -295,6 +295,44 @@ function StepTriggerConfigurationTrackingPixel({
     )
 }
 
+const FREQUENCY_OPTIONS = [
+    { value: null, label: 'Every time the trigger fires' },
+    { value: '{person.id}', label: 'One time' },
+]
+
+const TTL_OPTIONS = [
+    { value: null, label: 'indefinitely' },
+    { value: 5 * 60, label: '5 minutes' },
+    { value: 15 * 60, label: '15 minutes' },
+    { value: 30 * 60, label: '30 minutes' },
+    { value: 60 * 60, label: '1 hour' },
+    { value: 2 * 60 * 60, label: '2 hours' },
+    { value: 4 * 60 * 60, label: '4 hours' },
+    { value: 8 * 60 * 60, label: '8 hours' },
+    { value: 12 * 60 * 60, label: '12 hours' },
+    { value: 24 * 60 * 60, label: '24 hours' },
+    { value: 24 * 60 * 60 * 7, label: '7 days' },
+    { value: 24 * 60 * 60 * 30, label: '30 days' },
+    { value: 24 * 60 * 60 * 90, label: '90 days' },
+    { value: 24 * 60 * 60 * 180, label: '180 days' },
+    { value: 24 * 60 * 60 * 365, label: '365 days' },
+]
+
+function TTLSelect({
+    value,
+    onChange,
+}: {
+    value: number | null | undefined
+    onChange: (val: number | null) => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-wrap gap-1 items-center">
+            <span>per</span>
+            <LemonSelect value={value} onChange={onChange} options={TTL_OPTIONS} />
+        </div>
+    )
+}
+
 function FrequencySection(): JSX.Element {
     const { setCampaignValue } = useActions(campaignLogic)
     const { campaign } = useValues(campaignLogic)
@@ -310,16 +348,7 @@ function FrequencySection(): JSX.Element {
             <LemonField.Pure>
                 <div className="flex flex-wrap gap-1 items-center">
                     <LemonSelect
-                        options={[
-                            {
-                                value: null,
-                                label: 'Every time the trigger fires',
-                            },
-                            {
-                                value: '{person.id}',
-                                label: 'Once per person',
-                            },
-                        ]}
+                        options={FREQUENCY_OPTIONS}
                         value={campaign.trigger_masking?.hash ?? null}
                         onChange={(val) =>
                             setCampaignValue('trigger_masking', {
@@ -329,67 +358,12 @@ function FrequencySection(): JSX.Element {
                         }
                     />
                     {campaign.trigger_masking?.hash ? (
-                        <>
-                            <div className="flex flex-wrap gap-1 items-center">
-                                <span>per</span>
-                                <LemonSelect
-                                    value={campaign.trigger_masking?.ttl}
-                                    onChange={(val) =>
-                                        setCampaignValue('trigger_masking', { ...campaign.trigger_masking, ttl: val })
-                                    }
-                                    options={[
-                                        {
-                                            value: null,
-                                            label: 'indefinitely',
-                                        },
-                                        {
-                                            value: 5 * 60,
-                                            label: '5 minutes',
-                                        },
-                                        {
-                                            value: 15 * 60,
-                                            label: '15 minutes',
-                                        },
-                                        {
-                                            value: 30 * 60,
-                                            label: '30 minutes',
-                                        },
-                                        {
-                                            value: 60 * 60,
-                                            label: '1 hour',
-                                        },
-                                        {
-                                            value: 2 * 60 * 60,
-                                            label: '2 hours',
-                                        },
-                                        {
-                                            value: 4 * 60 * 60,
-                                            label: '4 hours',
-                                        },
-                                        {
-                                            value: 8 * 60 * 60,
-                                            label: '8 hours',
-                                        },
-                                        {
-                                            value: 12 * 60 * 60,
-                                            label: '12 hours',
-                                        },
-                                        {
-                                            value: 24 * 60 * 60,
-                                            label: '24 hours',
-                                        },
-                                        {
-                                            value: 24 * 60 * 60 * 7,
-                                            label: '7 days',
-                                        },
-                                        { value: 24 * 60 * 60 * 30, label: '30 days' },
-                                        { value: 24 * 60 * 60 * 90, label: '90 days' },
-                                        { value: 24 * 60 * 60 * 180, label: '180 days' },
-                                        { value: 24 * 60 * 60 * 365, label: '365 days' },
-                                    ]}
-                                />
-                            </div>
-                        </>
+                        <TTLSelect
+                            value={campaign.trigger_masking.ttl}
+                            onChange={(val) =>
+                                setCampaignValue('trigger_masking', { ...campaign.trigger_masking, ttl: val })
+                            }
+                        />
                     ) : null}
                 </div>
             </LemonField.Pure>
