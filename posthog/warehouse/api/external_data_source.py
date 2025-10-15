@@ -143,7 +143,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         representation = super().to_representation(instance)
 
         # non-sensitive fields
-        whitelisted_keys = {
+        job_inputs_allowed_keys = {
             # stripe
             "stripe_account_id",
             # sql
@@ -199,7 +199,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
             # Remove sensitive fields
             for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
-                if key not in whitelisted_keys:
+                if key not in job_inputs_allowed_keys:
                     job_inputs.pop(key, None)
 
         return representation
