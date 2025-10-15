@@ -190,8 +190,7 @@ async def deliver_subscription_report_async(
             )
 
             if not integration:
-                logger.error("deliver_subscription_report_async.no_slack_integration", subscription_id=subscription_id)
-                get_subscription_failure_metric("slack", "temporal").add(1)
+                logger.warn("deliver_subscription_report_async.no_slack_integration", subscription_id=subscription_id)
                 return
 
             logger.info("deliver_subscription_report_async.sending_slack_message", subscription_id=subscription_id)

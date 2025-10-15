@@ -35,7 +35,6 @@ from posthog.hogql.escape_sql import (
 from posthog.hogql.functions import (
     ADD_OR_NULL_DATETIME_FUNCTIONS,
     FIRST_ARG_DATETIME_FUNCTIONS,
-    SURVEY_FUNCTIONS,
     find_hogql_aggregation,
     find_hogql_function,
     find_hogql_posthog_function,
@@ -637,7 +636,13 @@ class _Printer(Visitor[str]):
         1. and(expr0, 1, expr2, ...) <=> and(expr0, expr2, ...)
         2. and(expr0, 0, expr2, ...) <=> 0
         """
-        exprs = []
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
+
+        if self.dialect == "hogql":
+            return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+        exprs: list[str] = []
         for expr in node.exprs:
             printed = self.visit(expr)
             if printed == "0":  # optimization 2
@@ -656,7 +661,13 @@ class _Printer(Visitor[str]):
         1. or(expr0, 1, expr2, ...) <=> 1
         2. or(expr0, 0, expr2, ...) <=> or(expr0, expr2, ...)
         """
-        exprs = []
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
+
+        if self.dialect == "hogql":
+            return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+        exprs: list[str] = []
         for expr in node.exprs:
             printed = self.visit(expr)
             if printed == "1":
@@ -1234,30 +1245,6 @@ class _Printer(Visitor[str]):
                 args_count = len(node.args) - func_meta.passthrough_suffix_args_count
                 node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
 
-                if node.name in SURVEY_FUNCTIONS:
-                    if node.name == "getSurveyResponse":
-                        question_index_obj = node_args[0]
-                        if not isinstance(question_index_obj, ast.Constant):
-                            raise QueryError("getSurveyResponse first argument must be a constant")
-                        if (
-                            not isinstance(question_index_obj.value, int | str)
-                            or not str(question_index_obj.value).lstrip("-").isdigit()
-                        ):
-                            raise QueryError("getSurveyResponse first argument must be a valid integer")
-                        second_arg = node_args[1] if len(node_args) > 1 else None
-                        third_arg = node_args[2] if len(node_args) > 2 else None
-                        question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
-                        is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
-                        return get_survey_response_clickhouse_query(
-                            int(question_index_obj.value), question_id, is_multiple_choice
-                        )
-
-                    elif node.name == "uniqueSurveySubmissionsFilter":
-                        survey_id = node_args[0]
-                        if not isinstance(survey_id, ast.Constant):
-                            raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
-                        return filter_survey_sent_events_by_unique_submission(survey_id.value)
-
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
                     for idx, arg in enumerate(node_args):
@@ -1414,11 +1401,34 @@ class _Printer(Visitor[str]):
                 elif node.name == "hogql_lookupOrganicMediumType":
                     channel_dict = get_channel_definition_dict()
                     return f"dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
-                elif node.name == "convertCurrency":  # convertCurrency(from_currency, to_currency, amount, timestamp)
+                elif node.name == "convertCurrency":
+                    # convertCurrency(from_currency, to_currency, amount, timestamp?)
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"
                     db = settings.CLICKHOUSE_DATABASE
                     return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
+                elif node.name == "getSurveyResponse":
+                    question_index_obj = node.args[0]
+                    if not isinstance(question_index_obj, ast.Constant):
+                        raise QueryError("getSurveyResponse first argument must be a constant")
+                    if (
+                        not isinstance(question_index_obj.value, int | str)
+                        or not str(question_index_obj.value).lstrip("-").isdigit()
+                    ):
+                        raise QueryError("getSurveyResponse first argument must be a valid integer")
+                    second_arg = node.args[1] if len(node.args) > 1 else None
+                    third_arg = node.args[2] if len(node.args) > 2 else None
+                    question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
+                    is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
+                    return get_survey_response_clickhouse_query(
+                        int(question_index_obj.value), question_id, is_multiple_choice
+                    )
+
+                elif node.name == "uniqueSurveySubmissionsFilter":
+                    survey_id = node.args[0]
+                    if not isinstance(survey_id, ast.Constant):
+                        raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
+                    return filter_survey_sent_events_by_unique_submission(survey_id.value)
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if "{}" in relevant_clickhouse_name:

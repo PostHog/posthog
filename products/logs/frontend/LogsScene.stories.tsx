@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'
+import { deterministicRandom } from 'lib/utils/random'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -116,30 +117,28 @@ const EXAMPLES: Record<
 
 const generateLogs = (): LogMessage[] => {
     const results: LogMessage[] = []
-    const startTime = dayjs().subtract(48, 'hours')
-    const endTime = dayjs()
-
+    const startTime = dayjs().utc().subtract(48, 'hours')
+    const endTime = dayjs().utc()
     // Iterate each minute adding N logs to the results
-
     let currentTime = startTime
 
     while (currentTime.isBefore(endTime)) {
         Object.values(EXAMPLES).forEach((example) => {
-            const logsToAdd = Math.floor(Math.random() * 10)
+            const logsToAdd = Math.floor(deterministicRandom() * 10)
             for (let i = 0; i < logsToAdd; i++) {
                 const log = sampleOne<(typeof example.logs)[0]>(example.logs)
                 results.push({
                     uuid: uuid(),
                     trace_id: uuid(),
                     span_id: uuid(),
-                    resource: 'any',
+                    resource_attributes: 'any',
                     body: log.message,
                     attributes: {
                         ...example.attributes,
                         ...log.attributes,
                     },
-                    timestamp: currentTime.format('YYYY-MM-DDTHH:mm:ss.SSSZ'),
-                    observed_timestamp: currentTime.format('YYYY-MM-DDTHH:mm:ss.SSSZ'),
+                    timestamp: currentTime.toISOString(),
+                    observed_timestamp: currentTime.toISOString(),
                     severity_text: log.level,
                     severity_number: 13,
                     level: log.level,
@@ -167,7 +166,7 @@ const getLogs = async (
         _cachedLogs = generateLogs()
     }
     const ALL_LOGS_GENERATED = _cachedLogs
-    const severityLevels = body.query?.severityLevels ?? ['info', 'warn', 'error']
+    const severityLevels = body.query?.severityLevels ?? []
 
     const startDate = dateStringToDayJs(body.query?.dateRange?.date_from ?? null) ?? dayjs().subtract(30, 'minutes')
     const endDate = dateStringToDayJs(body.query?.dateRange?.date_to ?? null) ?? dayjs()
@@ -182,7 +181,10 @@ const getLogs = async (
         if (body.query?.serviceNames?.length && !body.query?.serviceNames.includes(log.attributes['service.name'])) {
             return false
         }
-        return severityLevels.includes(log.severity_text.toLowerCase())
+        if (severityLevels.length && !severityLevels.includes(log.severity_text.toLowerCase())) {
+            return false
+        }
+        return true
     })
 
     return {
