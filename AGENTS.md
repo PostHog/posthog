@@ -53,7 +53,7 @@ Distributed engine:
 ### Critical rules
 - NEVER use `ON CLUSTER` clause in SQL statements
 - Always use `IF EXISTS` / `IF NOT EXISTS` clauses
-- When dropping and recreating in same migration, use `DROP TABLE IF EXISTS ... SYNC`
+- When dropping and recreating replicated table in same migration, use `DROP TABLE IF EXISTS ... SYNC`
 - If a function generating SQL has on_cluster param, always set `on_cluster=False`
 - Use `sharded=True` when altering sharded tables
 - Use `is_alter_on_replicated_table=True` when altering non-sharded replicated tables

@@ -245,13 +245,16 @@ run_sql_with_exceptions(
 
 # Recreating tables
 
-If a table or view is deleted and created again in the same migration, use `DROP TABLE IF EXISTS ... SYNC`:
+If a replicated table is to be deleted and created again in the same migration, use `DROP TABLE IF EXISTS ... SYNC`:
 
 ```sql
 DROP TABLE IF EXISTS my_table SYNC
 ```
 
-The `SYNC` modifier ensures the drop completes before the subsequent CREATE runs.
+The `SYNC` modifier ensures the drop completes before the subsequent CREATE runs - this is necessary becasue replicated table keeps
+some metadata in ZooKeeper.
+
+SYNC is not necessary for non-replicated objects: Kafka table engine, Distributed table engine or MATERIALIZED VIEW.
 
 # ALTER operations
 
