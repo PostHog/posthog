@@ -13,8 +13,10 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
-    def get_source_type(self) -> str:
-        return "RedditAds"
+    @classmethod
+    def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
+        """Reddit Ads campaigns typically use 'reddit' as the UTM source"""
+        return {"reddit": ["reddit"]}
 
     def validate(self) -> ValidationResult:
         """Validate Reddit Ads tables and required fields"""
@@ -40,9 +42,6 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
     def _get_campaign_name_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
         return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "name"])])
-
-    def _get_source_name_field(self) -> ast.Expr:
-        return ast.Call(name="toString", args=[ast.Constant(value="reddit")])
 
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name

@@ -13,8 +13,10 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
-    def get_source_type(self) -> str:
-        return "LinkedinAds"
+    @classmethod
+    def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
+        """LinkedIn Ads campaigns typically use 'linkedin' as the UTM source"""
+        return {"linkedin": ["linkedin", "li"]}
 
     def validate(self) -> ValidationResult:
         """Validate LinkedIn Ads tables and required fields"""
@@ -40,9 +42,6 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
     def _get_campaign_name_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
         return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "name"])])
-
-    def _get_source_name_field(self) -> ast.Expr:
-        return ast.Call(name="toString", args=[ast.Constant(value="linkedin")])
 
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
