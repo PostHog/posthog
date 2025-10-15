@@ -92,7 +92,7 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
             actions.loadCohorts()
         },
         saveQueryToCohort: async ({ cohort, query }) => {
-            const toastId = 'toast-' + Math.random()
+            const toastId = `save-cohort-${cohort.id}-${Date.now()}`
             try {
                 lemonToast.info('Saving cohort...', { toastId, autoClose: false })
                 await api.update(`api/projects/${values.currentProjectId}/cohorts/${cohort.id}`, {
