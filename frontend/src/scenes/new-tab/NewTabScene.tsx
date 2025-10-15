@@ -113,16 +113,10 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         setCategoryFocusKey((key) => key + 1)
     }
 
-    const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
-        if (event.key === '/' || (event.key === 'Backspace' && !search)) {
-            event.preventDefault()
-            focusCategoryPicker()
-        }
-    }
-
     const handleDestinationChange = (values: string[]): void => {
-        const sanitizedValues = values.filter((value) => value !== 'ask://')
-        if (values.includes('ask://')) {
+        const hasAskMax = values.includes('ask://')
+        const sanitizedValues = hasAskMax ? ['ask://'] : values.filter((value) => value !== 'ask://')
+        if (hasAskMax) {
             openSidePanel(SidePanelTab.Max)
             setQuestion(search)
             focusMaxInput()
@@ -131,6 +125,21 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         if (pendingCategoryReturn) {
             setPendingCategoryReturn(false)
             window.requestAnimationFrame(() => inputRef.current?.focus())
+        }
+    }
+
+    const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+        if (event.key === '/' || (event.key === 'Backspace' && !search)) {
+            event.preventDefault()
+            focusCategoryPicker()
+        } else if (
+            event.key === 'Enter' &&
+            !selectedDestinations.length &&
+            filteredItemsGrid.length === 0 &&
+            search.trim()
+        ) {
+            event.preventDefault()
+            handleDestinationChange(['ask://'])
         }
     }
 

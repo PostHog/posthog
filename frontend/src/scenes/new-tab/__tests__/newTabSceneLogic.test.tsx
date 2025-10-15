@@ -184,13 +184,14 @@ describe('newTabSceneLogic', () => {
         ).toBe(true)
     })
 
-    it('orders destination sections by selection and omits ask://', async () => {
+    it('treats ask:// as an exclusive selection and omits it from sections', async () => {
         await expectLogic(logic, () => {
             logic.actions.setSelectedDestinations(['ask://', 'properties://'])
         }).toFinishAllListeners()
 
+        expect(logic.values.selectedDestinations).toEqual(['ask://'])
         const sectionKeys = logic.values.destinationSections.map(([key]) => key)
-        expect(sectionKeys[0]).toBe('properties://')
+        expect(sectionKeys).toContain('properties://')
         expect(sectionKeys).not.toContain('ask://')
     })
 

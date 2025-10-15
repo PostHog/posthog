@@ -394,6 +394,9 @@ export function LemonInputSelect<T = string>({
     }
 
     const _onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+        if (['Enter', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
+            e.stopPropagation()
+        }
         if (e.key === 'Enter') {
             e.preventDefault()
             const itemToAdd = visibleOptions[selectedIndex]?.key
