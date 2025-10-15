@@ -1394,7 +1394,7 @@ def bulk_create_symbol_sets(
                 dirty = True
 
             if existing.content_hash is not None and existing.content_hash != upload.content_hash:
-                # If this symbol set already has a content hash, and the differ, raise. We do not support changing
+                # If this symbol set already has a content hash, and they differ, raise. We do not support changing
                 # the content of a symbol set once it's been uploaded - callers should inject a new chunk_id instead.
                 # Note - this will also return an error if the upload's content hash is None. This is
                 # intentional - we can't tell whether its safe to overwrite the existing content hash
