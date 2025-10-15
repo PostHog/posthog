@@ -1074,6 +1074,42 @@ async def upload_manifest_file(
         )
 
 
+async def delete_uploaded_files(
+    bucket: str,
+    region_name: str,
+    aws_access_key_id: str | None,
+    aws_secret_access_key: str | None,
+    files_uploaded: list[str],
+    manifest_key: str,
+):
+    """Delete files uploaded to S3 bucket during 'COPY' activity.
+
+    This includes the `files_uploaded` and the manifest in `manifest_key`.
+
+    The delete itself is a "best-effort" as we don't want to fail the batch export if
+    this fails.
+    """
+    session = aioboto3.Session()
+    async with session.client(
+        "s3",
+        region_name=region_name,
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key,
+    ) as client:
+
+        async def delete_key(f: str):
+            """Delete key `f` in S3."""
+            try:
+                _ = await client.delete_object(Bucket=bucket, Prefix=f)
+            except Exception:
+                LOGGER.exception("S3 delete failed", key=f, bucket=bucket)
+
+        async with asyncio.TaskGroup() as tg:
+            for f in files_uploaded:
+                tg.create_task(delete_key(f))
+            tg.create_task(delete_key(manifest_key))
+
+
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> BatchExportResult:
@@ -1253,29 +1289,41 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyInputs) -> 
                     manifest_key=manifest_key if isinstance(manifest_key, str) else manifest_key.decode("utf-8"),
                 )
 
-                external_logger.info(f"Copying {len(consumer.files_uploaded)} file/s into Redshift")
+                try:
+                    external_logger.info(f"Copying {len(consumer.files_uploaded)} file/s into Redshift")
 
-                await redshift_client.acopy_from_s3_bucket(
-                    table_name=redshift_stage_table,
-                    parquet_fields=[field.name for field in record_batch_schema],
-                    schema_name=inputs.table.schema_name,
-                    s3_bucket=inputs.copy.s3_bucket.name,
-                    manifest_key=manifest_key,
-                    authorization=inputs.copy.authorization,
-                )
-
-                if merge_settings.requires_merge is True:
-                    await redshift_client.amerge_tables(
-                        final_table_name=redshift_table,
-                        final_table_fields=table_fields,
-                        stage_table_name=redshift_stage_table,
-                        schema=inputs.table.schema_name,
-                        merge_key=merge_settings.merge_key,
-                        update_key=merge_settings.update_key,
-                        stage_fields_cast_to_json=table_schemas.super_columns if table_schemas.use_super else None,
+                    await redshift_client.acopy_from_s3_bucket(
+                        table_name=redshift_stage_table,
+                        parquet_fields=[field.name for field in record_batch_schema],
+                        schema_name=inputs.table.schema_name,
+                        s3_bucket=inputs.copy.s3_bucket.name,
+                        manifest_key=manifest_key,
+                        authorization=inputs.copy.authorization,
                     )
 
-                external_logger.info(f"Finished {len(consumer.files_uploaded)} copying file/s into Redshift")
+                    if merge_settings.requires_merge is True:
+                        await redshift_client.amerge_tables(
+                            final_table_name=redshift_table,
+                            final_table_fields=table_fields,
+                            stage_table_name=redshift_stage_table,
+                            schema=inputs.table.schema_name,
+                            merge_key=merge_settings.merge_key,
+                            update_key=merge_settings.update_key,
+                            stage_fields_cast_to_json=table_schemas.super_columns if table_schemas.use_super else None,
+                        )
+
+                    external_logger.info(f"Finished {len(consumer.files_uploaded)} copying file/s into Redshift")
+
+                finally:
+                    await delete_uploaded_files(
+                        bucket=inputs.copy.s3_bucket.name,
+                        region_name=inputs.copy.s3_bucket.region_name,
+                        aws_access_key_id=inputs.copy.s3_bucket.credentials.aws_access_key_id,
+                        files_uploaded=consumer.files_uploaded,
+                        aws_secret_access_key=inputs.copy.s3_bucket.credentials.aws_secret_access_key,
+                        # manifest_key is always str, but posixpath.relpath can return both str and bytes.
+                        manifest_key=manifest_key if isinstance(manifest_key, str) else manifest_key.decode("utf-8"),
+                    )
 
         return result
 
