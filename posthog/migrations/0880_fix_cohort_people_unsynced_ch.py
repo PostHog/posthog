@@ -8,23 +8,28 @@ logger = structlog.get_logger(__name__)
 
 BATCH_SIZE = 10000
 PROD_US_CUTOFF = "2025-10-09 00:00:00"
-PROD_EU_CUTOFF = "2025-10-13 00:00:00"
 
 
 def sync_cohort_people_from_clickhouse(apps, schema_editor):
     """
     Sync cohort people records from ClickHouse person_static_cohort table
-    to PostgreSQL posthog_cohortpeople table for records inserted after:
-    - Prod US: Oct 10, 2025 04:00 UTC (Oct 9, 2025 21:00 PT)
-    - Prod EU: Oct 14, 2025 22:00 UTC (Oct 14, 2025 15:00 PT)
-    """
-    try:
-        from posthog.clickhouse.client import sync_execute
-    except ImportError:
-        logger.info("ClickHouse not available, skipping cohort people sync")
-        return
+    to PostgreSQL posthog_cohortpeople table for records inserted after Oct 9, 2025 00:00 UTC.
 
+    EU environments are skipped because the original fix was already deployed there
+    before the persons table separation occurred, making this migration unnecessary.
+    """
+    import os
+
+    from django.conf import settings
     from django.db import connections
+
+    from posthog.clickhouse.client import sync_execute
+
+    # Skip migration for EU environment
+    site_url = getattr(settings, "SITE_URL", os.getenv("SITE_URL", ""))
+    if "eu.posthog.com" in site_url:
+        logger.info("Skipping cohort people sync for EU environment")
+        return
 
     # Determine the correct database connection for persons
     if "persons_db_reader" in connections:
@@ -34,179 +39,132 @@ def sync_cohort_people_from_clickhouse(apps, schema_editor):
     else:
         persons_db = "default"
 
-    # Detect environment and use appropriate cutoff
-    import os
-
-    from django.conf import settings
-
-    site_url = getattr(settings, "SITE_URL", os.getenv("SITE_URL", ""))
-
-    # Detect environment based on SITE_URL
-    if "eu.posthog.com" in site_url:
-        cutoff_timestamp = PROD_EU_CUTOFF
-        environment = "EU"
-    elif "us.posthog.com" in site_url:
-        cutoff_timestamp = PROD_US_CUTOFF
-        environment = "US"
-    else:
-        # Default to US for unknown/local environments
-        cutoff_timestamp = PROD_US_CUTOFF
-        environment = "Unknown (defaulting to US)"
-
-    logger.info(f"Detected environment: {environment}")
+    # Use US cutoff for all non-EU environments
+    cutoff_timestamp = PROD_US_CUTOFF
     logger.info(f"Starting cohort people sync for records after {cutoff_timestamp}")
 
     try:
-        # Get all records from ClickHouse
-        clickhouse_query = """
-            SELECT DISTINCT person_id, cohort_id, team_id, _timestamp
-            FROM person_static_cohort
-            WHERE _timestamp >= %(cutoff_timestamp)s
-            ORDER BY _timestamp, person_id, cohort_id
-        """
-
-        clickhouse_result = sync_execute(clickhouse_query, {"cutoff_timestamp": cutoff_timestamp})
-
-        if not clickhouse_result:
-            logger.info("No records to sync from ClickHouse")
-            return
-
-        logger.info(f"Found {len(clickhouse_result)} records to sync from ClickHouse")
-
-        # Extract unique person UUIDs from ClickHouse results
-        ch_person_uuids = list({str(record[0]) for record in clickhouse_result})
-
-        if not ch_person_uuids:
-            return
-
-        # Use the correct database connection
-        person_connection = connections[persons_db]
-
-        # Check how many persons match in PostgreSQL (in batches)
-        matched_persons = 0
-        with person_connection.cursor() as cursor:
-            for i in range(0, len(ch_person_uuids), BATCH_SIZE):
-                batch_uuids = ch_person_uuids[i : i + BATCH_SIZE]
-                uuid_placeholders = ", ".join(["%s"] * len(batch_uuids))
-                match_sql = f"SELECT COUNT(*) FROM posthog_person WHERE uuid IN ({uuid_placeholders})"
-                cursor.execute(match_sql, batch_uuids)
-                matched_persons += cursor.fetchone()[0]
-
-        logger.info(f"Found {matched_persons} matching persons in PostgreSQL")
-        if matched_persons == 0:
-            logger.info("No matching persons found in PostgreSQL")
-            return
-
-        # Build the cohort data mapping from ClickHouse results and track all cohort IDs
-        cohort_data = {}
+        # Process ClickHouse data in batches and handle each batch completely
+        total_inserted = 0
         processed_cohort_ids = set()
-        for record in clickhouse_result:
-            person_uuid = str(record[0])
-            cohort_id = record[1]
-            processed_cohort_ids.add(cohort_id)
-            if person_uuid not in cohort_data:
-                cohort_data[person_uuid] = set()
-            cohort_data[person_uuid].add(cohort_id)
+        offset = 0
 
-        # Get person ID mappings from persons database (in batches)
-        person_uuid_to_id = {}
-        with person_connection.cursor() as cursor:
-            for i in range(0, len(ch_person_uuids), BATCH_SIZE):
-                batch_uuids = ch_person_uuids[i : i + BATCH_SIZE]
-                uuid_placeholders = ", ".join(["%s"] * len(batch_uuids))
-                cursor.execute(f"SELECT uuid, id FROM posthog_person WHERE uuid IN ({uuid_placeholders})", batch_uuids)
+        while True:
+            batch_query = """
+                SELECT DISTINCT person_id, cohort_id, team_id, _timestamp
+                FROM person_static_cohort
+                WHERE _timestamp >= %(cutoff_timestamp)s
+                ORDER BY _timestamp, person_id, cohort_id
+                LIMIT %(batch_size)s OFFSET %(offset)s
+            """
+
+            clickhouse_batch = sync_execute(
+                batch_query, {"cutoff_timestamp": cutoff_timestamp, "batch_size": BATCH_SIZE, "offset": offset}
+            )
+
+            if not clickhouse_batch:
+                break
+
+            logger.info(f"Processing ClickHouse batch: {len(clickhouse_batch)} records (offset: {offset})")
+
+            # Extract unique person UUIDs from this batch
+            ch_person_uuids = list({str(record[0]) for record in clickhouse_batch})
+
+            if not ch_person_uuids:
+                offset += BATCH_SIZE
+                continue
+
+            # Use the correct database connection
+            person_connection = connections[persons_db]
+
+            # Get person ID mappings from persons database for this batch
+            person_uuid_to_id = {}
+            with person_connection.cursor() as cursor:
+                cursor.execute("SELECT uuid, id FROM posthog_person WHERE uuid = ANY(%s)", [ch_person_uuids])
                 for uuid, person_id in cursor.fetchall():
                     person_uuid_to_id[str(uuid)] = person_id
 
-        logger.info(f"Found {len(person_uuid_to_id)} person ID mappings in persons database")
+            if not person_uuid_to_id:
+                logger.info(f"No matching persons found for batch at offset {offset}")
+                offset += BATCH_SIZE
+                continue
 
-        # Get existing cohortpeople records to avoid duplicates (in batches)
-        logger.info("Checking for existing cohortpeople records")
-        existing_pairs = set()
-        with person_connection.cursor() as cursor:
-            # Get all existing (cohort_id, person_id) pairs for relevant cohorts and persons
-            person_ids = list(person_uuid_to_id.values())
-            if person_ids:
-                for i in range(0, len(person_ids), BATCH_SIZE):
-                    batch_person_ids = person_ids[i : i + BATCH_SIZE]
-                    person_id_placeholders = ", ".join(["%s"] * len(batch_person_ids))
+            logger.info(f"Found {len(person_uuid_to_id)} person ID mappings for batch")
+
+            # Build the cohort data mapping from this ClickHouse batch
+            cohort_data = {}
+            for record in clickhouse_batch:
+                person_uuid = str(record[0])
+                cohort_id = record[1]
+                processed_cohort_ids.add(cohort_id)
+                if person_uuid not in cohort_data:
+                    cohort_data[person_uuid] = set()
+                cohort_data[person_uuid].add(cohort_id)
+
+            # Get existing cohortpeople records to avoid duplicates for this batch
+            existing_pairs = set()
+            with person_connection.cursor() as cursor:
+                person_ids = list(person_uuid_to_id.values())
+                if person_ids:
                     cursor.execute(
-                        f"""
+                        """
                         SELECT cohort_id, person_id
                         FROM posthog_cohortpeople
-                        WHERE person_id IN ({person_id_placeholders})
+                        WHERE person_id = ANY(%s)
                     """,
-                        batch_person_ids,
+                        [person_ids],
                     )
-
                     for cohort_id, person_id in cursor.fetchall():
                         existing_pairs.add((cohort_id, person_id))
 
-        logger.info(f"Found {len(existing_pairs)} existing cohortpeople records")
+            # Prepare bulk insert data for this batch, excluding existing records
+            insert_values = []
+            for person_uuid, cohort_ids in cohort_data.items():
+                if person_uuid not in person_uuid_to_id:
+                    continue
+                person_id = person_uuid_to_id[person_uuid]
+                for cohort_id in cohort_ids:
+                    if (cohort_id, person_id) not in existing_pairs:
+                        insert_values.append((cohort_id, person_id))
 
-        # Prepare bulk insert data, excluding existing records
-        insert_values = []
-        for person_uuid, cohort_ids in cohort_data.items():
-            if person_uuid not in person_uuid_to_id:
-                continue
-            person_id = person_uuid_to_id[person_uuid]
-            for cohort_id in cohort_ids:
-                if (cohort_id, person_id) not in existing_pairs:
-                    insert_values.append((cohort_id, person_id))
-
-        if not insert_values:
-            logger.info("No new records to insert (all already exist)")
-            return
-
-        logger.info(f"Prepared {len(insert_values)} new records for insertion")
-
-        # Do batched bulk inserts - duplicates already filtered out
-        inserted_count = 0
-        with person_connection.cursor() as cursor:
-            # Process inserts in batches
-            for i in range(0, len(insert_values), BATCH_SIZE):
-                batch_values = insert_values[i : i + BATCH_SIZE]
-                batch_num = (i // BATCH_SIZE) + 1
-                total_batches = (len(insert_values) + BATCH_SIZE - 1) // BATCH_SIZE
-
-                logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch_values)} records)")
+            if insert_values:
+                # Insert this batch using Django ORM
+                from posthog.models.cohort.cohort import CohortPeople
 
                 try:
-                    # Create the bulk insert SQL for this batch
-                    values_placeholders = ", ".join(["(%s, %s, 0)"] * len(batch_values))
-                    flat_params = []
-                    for cohort_id, person_id in batch_values:
-                        flat_params.extend([cohort_id, person_id])
+                    # Create CohortPeople objects for bulk_create
+                    cohort_people_objects = [
+                        CohortPeople(cohort_id=cohort_id, person_id=person_id, version=0)
+                        for cohort_id, person_id in insert_values
+                    ]
 
-                    insert_sql = f"""
-                        INSERT INTO posthog_cohortpeople (cohort_id, person_id, version)
-                        VALUES {values_placeholders}
-                    """
-
-                    cursor.execute(insert_sql, flat_params)
-                    batch_inserted = cursor.rowcount
-                    inserted_count += batch_inserted
-                    logger.info(f"Batch {batch_num} successful: {batch_inserted} records")
+                    # Use bulk_create with ignore_conflicts
+                    created_objects = CohortPeople.objects.using(persons_db).bulk_create(
+                        cohort_people_objects, ignore_conflicts=True
+                    )
+                    batch_inserted = len(created_objects)
+                    total_inserted += batch_inserted
+                    logger.info(f"Batch successful: {batch_inserted} records inserted")
 
                 except Exception as e:
-                    # Fallback to individual inserts for this batch
-                    logger.warning(f"Batch {batch_num} failed: {e}, falling back to individual inserts")
+                    # Fallback to individual creates for this batch
+                    logger.warning(f"Batch failed: {e}, falling back to individual creates")
 
-                    for cohort_id, person_id in batch_values:
+                    for cohort_id, person_id in insert_values:
                         try:
-                            cursor.execute(
-                                """
-                                INSERT INTO posthog_cohortpeople (cohort_id, person_id, version)
-                                VALUES (%s, %s, 0)
-                            """,
-                                [cohort_id, person_id],
+                            CohortPeople.objects.using(persons_db).get_or_create(
+                                cohort_id=cohort_id, person_id=person_id, defaults={"version": 0}
                             )
-                            inserted_count += cursor.rowcount
-                        except Exception:
-                            # Skip individual failures silently
+                            total_inserted += 1
+                        except Exception as e:
+                            logger.warning(f"Failed to insert cohort_id={cohort_id}, person_id={person_id}: {e}")
                             pass
+            else:
+                logger.info(f"No new records to insert for batch at offset {offset}")
 
-        logger.info(f"Cohort people sync completed: {inserted_count} records inserted")
+            offset += BATCH_SIZE
+
+        logger.info(f"Cohort people sync completed: {total_inserted} records inserted")
 
         # Trigger cohort recalculation for all processed cohorts
         if processed_cohort_ids:
@@ -220,10 +178,16 @@ def sync_cohort_people_from_clickhouse(apps, schema_editor):
                 for cohort_id in processed_cohort_ids:
                     try:
                         cohort = Cohort.objects.get(pk=cohort_id)
-                        increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
-                        logger.info(f"Triggered recalculation for cohort {cohort_id}")
                     except Cohort.DoesNotExist:
                         logger.warning(f"Cohort {cohort_id} not found, skipping recalculation")
+                        continue
+                    except Exception as e:
+                        logger.exception(f"Failed to retrieve cohort {cohort_id}: {e}")
+                        continue
+
+                    try:
+                        increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+                        logger.info(f"Triggered recalculation for cohort {cohort_id}")
                     except Exception as e:
                         logger.exception(f"Failed to trigger recalculation for cohort {cohort_id}: {e}")
 
