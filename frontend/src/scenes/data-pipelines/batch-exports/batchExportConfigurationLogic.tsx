@@ -618,7 +618,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         ...config
                     } = formdata
 
-                    if (props.service === 'Redshift') {
+                    if (destination === 'Redshift') {
                         if (mode === 'COPY') {
                             const copyInputs = {
                                 s3_bucket: redshift_s3_bucket,
