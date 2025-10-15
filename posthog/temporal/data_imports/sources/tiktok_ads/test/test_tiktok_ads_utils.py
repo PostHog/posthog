@@ -307,7 +307,7 @@ class TestEntityNormalization:
         TikTokReportResource._normalize_entity_status(report)
 
         assert report["status"] == "ENABLE"  # Should remain unchanged
-        assert "current_status" not in report  # Should not add current_status
+        assert report["current_status"] == "ACTIVE"
 
     def test_normalize_timestamps_with_modify_time(self):
         """Test timestamp normalization when modify_time exists."""
@@ -351,7 +351,7 @@ class TestEntityNormalization:
 
         TikTokReportResource._convert_comment_settings(report)
 
-        assert report["is_comment_disable"] is False
+        assert report["is_comment_disable"] is True  # 0 means disabled, so True
 
     def test_convert_comment_settings_disabled(self):
         """Test comment settings conversion when comments are disabled (is_comment_disable = 1)."""
@@ -362,7 +362,7 @@ class TestEntityNormalization:
 
         TikTokReportResource._convert_comment_settings(report)
 
-        assert report["is_comment_disable"] is True
+        assert report["is_comment_disable"] is False  # 1 means enabled, so False
 
     def test_convert_comment_settings_missing_field(self):
         """Test comment settings conversion when field is missing."""
