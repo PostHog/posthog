@@ -1,7 +1,7 @@
 ---
 description: Share current Claude Code session to PostHog/claude-sessions repo (private to PostHog org)
 argument-hint: [optional description]
-allowed-tools: Bash(bash .claude/scripts/share-session.sh:*)
+allowed-tools: Bash(python3 .claude/scripts/share-session.py:*)
 ---
 
 Share the current Claude Code session log to the PostHog/claude-sessions private repository.
@@ -32,4 +32,4 @@ The command will:
 
 ## Execution
 
-!`bash .claude/scripts/share-session.sh "$ARGUMENTS"`
+!`python3 .claude/scripts/share-session.py $ARGUMENTS`
