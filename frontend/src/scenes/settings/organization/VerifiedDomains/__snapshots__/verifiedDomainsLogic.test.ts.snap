@@ -75,6 +75,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "data_attributes": [
           "data-attr",
         ],
+        "default_evaluation_environments_enabled": false,
         "effective_membership_level": 8,
         "feature_flag_confirmation_enabled": false,
         "feature_flag_confirmation_message": "",
