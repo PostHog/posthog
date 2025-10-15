@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useState } from 'react'
 
-import { IconCheck, IconCircleDashed, IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCheck, IconCircleDashed, IconInfo, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -198,7 +198,7 @@ function UrlConfigForm({
     isSubmitting: boolean
 }): JSX.Element {
     const { addUrlTrigger, addUrlBlocklist } = useActions(replayTriggersLogic)
-
+    const { urlTriggerInputValidationWarning, urlBlocklistInputValidationWarning } = useValues(replayTriggersLogic)
     return (
         <Form
             logic={replayTriggersLogic}
@@ -218,6 +218,12 @@ function UrlConfigForm({
                         <LemonInput autoFocus placeholder="Enter URL regex." data-attr="url-input" />
                     </LemonField>
                 </LemonLabel>
+                {urlTriggerInputValidationWarning && (
+                    <span className="text-danger">{urlTriggerInputValidationWarning}</span>
+                )}
+                {urlBlocklistInputValidationWarning && (
+                    <span className="text-danger">{urlBlocklistInputValidationWarning}</span>
+                )}
             </div>
             <div className="flex justify-between gap-2 w-full">
                 <div>
@@ -301,7 +307,15 @@ function UrlConfigRow({
                             'text-danger': checkUrlResult === false,
                         })}
                     >
-                        {checkUrlResult ? '✓ Matches' : '✗ No match'}
+                        {checkUrlResult ? (
+                            <>
+                                <IconCheck /> Matches
+                            </>
+                        ) : (
+                            <>
+                                <IconX /> No match
+                            </>
+                        )}
                     </span>
                 )}
             </span>
@@ -350,11 +364,17 @@ function UrlConfigSection({
     type,
     title,
     description,
+    checkUrl,
+    checkUrlResults,
+    setCheckUrl,
     ...props
 }: {
     type: 'trigger' | 'blocklist'
     title: string
     description: string
+    checkUrl: string
+    checkUrlResults: { [key: number]: boolean }
+    setCheckUrl: (url: string) => void
     isAddFormVisible: boolean
     config: SessionReplayUrlTriggerConfig[] | null
     editIndex: number | null
@@ -364,32 +384,6 @@ function UrlConfigSection({
     onEdit: (index: number) => void
     onRemove: (index: number) => void
 }): JSX.Element {
-    const [checkUrl, setCheckUrl] = useState('')
-    const [checkUrlResults, setCheckUrlResults] = useState<{ [key: number]: boolean }>({})
-
-    const testUrlAgainstRegexes = (url: string): void => {
-        if (!url.trim() || !props.config) {
-            setCheckUrlResults({})
-            return
-        }
-
-        const results: { [key: number]: boolean } = {}
-        props.config.forEach((trigger, index) => {
-            try {
-                const regex = new RegExp(trigger.url)
-                results[index] = regex.test(url)
-            } catch {
-                results[index] = false
-            }
-        })
-        setCheckUrlResults(results)
-    }
-
-    const handleCheckUrlChange = (url: string): void => {
-        setCheckUrl(url)
-        testUrlAgainstRegexes(url)
-    }
-
     return (
         <div className="flex flex-col deprecated-space-y-2 mt-4">
             <div className="flex items-center gap-2 justify-between">
@@ -423,7 +417,7 @@ function UrlConfigSection({
                     </LemonLabel>
                     <LemonInput
                         value={checkUrl}
-                        onChange={handleCheckUrlChange}
+                        onChange={setCheckUrl}
                         placeholder="Enter a URL to test (e.g., https://example.com/page)"
                         data-attr="url-check-input"
                         className="mb-2"
@@ -456,9 +450,15 @@ function UrlConfigSection({
 }
 
 function UrlTriggerOptions(): JSX.Element | null {
-    const { isAddUrlTriggerConfigFormVisible, urlTriggerConfig, editUrlTriggerIndex, isProposedUrlTriggerSubmitting } =
-        useValues(replayTriggersLogic)
-    const { newUrlTrigger, removeUrlTrigger, setEditUrlTriggerIndex, cancelProposingUrlTrigger } =
+    const {
+        isAddUrlTriggerConfigFormVisible,
+        urlTriggerConfig,
+        editUrlTriggerIndex,
+        isProposedUrlTriggerSubmitting,
+        checkUrlTrigger,
+        checkUrlTriggerResults,
+    } = useValues(replayTriggersLogic)
+    const { newUrlTrigger, removeUrlTrigger, setEditUrlTriggerIndex, cancelProposingUrlTrigger, setCheckUrlTrigger } =
         useActions(replayTriggersLogic)
 
     return (
@@ -466,6 +466,9 @@ function UrlTriggerOptions(): JSX.Element | null {
             type="trigger"
             title="Enable recordings when URL matches"
             description="Adding a URL trigger means recording will only be started when the user visits a page that matches the URL."
+            checkUrl={checkUrlTrigger}
+            checkUrlResults={checkUrlTriggerResults}
+            setCheckUrl={setCheckUrlTrigger}
             isAddFormVisible={isAddUrlTriggerConfigFormVisible}
             config={urlTriggerConfig}
             editIndex={editUrlTriggerIndex}
@@ -484,15 +487,25 @@ function UrlBlocklistOptions(): JSX.Element | null {
         urlBlocklistConfig,
         editUrlBlocklistIndex,
         isProposedUrlBlocklistSubmitting,
+        checkUrlBlocklist,
+        checkUrlBlocklistResults,
     } = useValues(replayTriggersLogic)
-    const { newUrlBlocklist, removeUrlBlocklist, setEditUrlBlocklistIndex, cancelProposingUrlBlocklist } =
-        useActions(replayTriggersLogic)
+    const {
+        newUrlBlocklist,
+        removeUrlBlocklist,
+        setEditUrlBlocklistIndex,
+        cancelProposingUrlBlocklist,
+        setCheckUrlBlocklist,
+    } = useActions(replayTriggersLogic)
 
     return (
         <UrlConfigSection
             type="blocklist"
             title="Pause recordings when the user visits a page that matches the URL"
             description="Used to pause recordings for part of a user journey"
+            checkUrl={checkUrlBlocklist}
+            checkUrlResults={checkUrlBlocklistResults}
+            setCheckUrl={setCheckUrlBlocklist}
             isAddFormVisible={isAddUrlBlocklistConfigFormVisible}
             config={urlBlocklistConfig}
             editIndex={editUrlBlocklistIndex}
