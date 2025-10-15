@@ -70,16 +70,7 @@ class ExperimentQueryBuilder:
             case _:
                 raise NotImplementedError(f"Only mean and funnel metrics are supported. Got {type(self.metric)}")
 
-    def _build_mean_query(self) -> ast.SelectQuery:
-        """
-        Builds query for mean metrics (count, sum, avg, etc.)
-        """
-        assert isinstance(self.metric, ExperimentMeanMetric)
-
-        # Get metric source details
-        math_type = getattr(self.metric.source, "math", ExperimentMetricMathType.TOTAL)
-
-        # Calculate conversion window in seconds
+    def _build_conversion_window_predicate(self) -> ast.Expr:
         conversion_window_seconds = 0
         if self.metric.conversion_window and self.metric.conversion_window_unit:
             conversion_window_seconds = conversion_window_to_seconds(
@@ -87,14 +78,20 @@ class ExperimentQueryBuilder:
                 self.metric.conversion_window_unit,
             )
 
-        # Build conversion window constraint for the join
         if conversion_window_seconds > 0:
-            join_time_constraint = """AND metric_events.timestamp >= exposures.first_exposure_time
+            expr = """metric_events.timestamp >= exposures.first_exposure_time
                     AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})"""
         else:
-            join_time_constraint = "AND metric_events.timestamp >= exposures.first_exposure_time"
+            expr = "metric_events.timestamp >= exposures.first_exposure_time"
 
-        # Build the query with placeholders
+        return parse_expr(expr)
+
+    def _build_mean_query(self) -> ast.SelectQuery:
+        """
+        Builds query for mean metrics (count, sum, avg, etc.)
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
         query = parse_select(
             f"""
             WITH exposures AS (
@@ -125,7 +122,7 @@ class ExperimentQueryBuilder:
                     {{value_agg}} AS value
                 FROM exposures
                 LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
-                    {join_time_constraint}
+                    AND {{conversion_window_predicate}}
                 GROUP BY exposures.entity_id, exposures.variant
             )
 
@@ -143,8 +140,8 @@ class ExperimentQueryBuilder:
                 "exposure_predicate": self._build_exposure_predicate(),
                 "metric_predicate": self._build_metric_predicate(),
                 "value_expr": self._build_value_expr(),
-                "value_agg": self._build_value_aggregation_expr(math_type),
-                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                "value_agg": self._build_value_aggregation_expr(),
+                "conversion_window_predicate": self._build_conversion_window_predicate(),
             },
         )
 
@@ -271,11 +268,14 @@ class ExperimentQueryBuilder:
         # TODO: refactor this
         return get_source_value_expr(self.metric.source)
 
-    def _build_value_aggregation_expr(self, math_type: ExperimentMetricMathType) -> ast.Expr:
+    def _build_value_aggregation_expr(self) -> ast.Expr:
         """
         Returns the value aggregation expression based on math type.
         """
         assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # Get metric source details
+        math_type = getattr(self.metric.source, "math", ExperimentMetricMathType.TOTAL)
 
         if math_type in [
             ExperimentMetricMathType.UNIQUE_SESSION,
