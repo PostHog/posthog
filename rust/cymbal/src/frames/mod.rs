@@ -196,7 +196,7 @@ impl FingerprintComponent for Frame {
             included_pieces.push("Module name");
         }
 
-        // If we've resovled this frame, include function name, and then return
+        // If we've resolved this frame, include function name, and then return
         if let Some(resolved) = &self.resolved_name {
             fp.update(resolved.as_bytes());
             included_pieces.push("Resolved function name");
