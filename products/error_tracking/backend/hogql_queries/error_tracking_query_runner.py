@@ -103,7 +103,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
             events_select.order_by = order_by
             return events_select
 
-        group_by.append(ast.Field(chain=["e", self.revenue_entity, self.revenue_entity_key]))
+        group_by.append(self.revenue_entity_field)
         events_select.group_by = group_by
 
         return ast.SelectQuery(
@@ -156,7 +156,14 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                         ast.Alias(alias="sessions", expr=ast.Call(name="sum", args=[ast.Field(chain=["sessions"])])),
                     ],
                     [
-                        ast.Alias(alias="users", expr=ast.Constant(value=1)),
+                        ast.Alias(
+                            alias="users",
+                            expr=ast.Call(
+                                name="count",
+                                distinct=True,
+                                args=[self.revenue_entity_field],
+                            ),
+                        ),
                         ast.Alias(alias="users", expr=ast.Call(name="sum", args=[ast.Field(chain=["users"])])),
                     ],
                     [
@@ -708,13 +715,14 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     def properties(self):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
 
-    @property
+    @cached_property
+    def revenue_entity_field(self):
+        key = "id" if (self.revenue_entity == "person" or self.revenue_entity is None) else "key"
+        return ast.Field(chain=["e", self.revenue_entity, key])
+
+    @cached_property
     def revenue_entity(self):
         return self.query.revenueEntity or RevenueEntity.PERSON
-
-    @property
-    def revenue_entity_key(self):
-        return "id" if (self.query.revenueEntity == "person" or self.query.revenueEntity is None) else "key"
 
 
 def search_tokenizer(query: str) -> list[str]:

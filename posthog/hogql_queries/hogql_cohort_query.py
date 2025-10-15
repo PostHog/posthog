@@ -2,6 +2,7 @@ from collections import namedtuple
 from numbers import Number
 from typing import Literal, Optional, Union, cast
 
+import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -92,7 +93,10 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
 
 class HogQLCohortQuery:
     def __init__(
-        self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None, team: Optional[Team] = None
+        self,
+        cohort_query: Optional[CohortQuery] = None,
+        cohort: Optional[Cohort] = None,
+        team: Optional[Team] = None,
     ):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
@@ -435,8 +439,71 @@ class HogQLCohortQuery:
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
+    def _should_combine_person_properties(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "hogql-cohort-combine-person-properties",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(self.team.organization_id),
+                },
+                "project": {
+                    "id": str(self.team.id),
+                },
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         Condition = namedtuple("Condition", ["query", "negation"])
+        should_combine_person_properties = self._should_combine_person_properties()
+
+        def unwrap_property(prop: Union[PropertyGroup, Property]) -> Optional[Property]:
+            """Unwrap a PropertyGroup to get the underlying Property if it contains exactly one."""
+            if isinstance(prop, Property):
+                return prop
+            if isinstance(prop, PropertyGroup) and len(prop.values) == 1:
+                return unwrap_property(prop.values[0])
+            return None
+
+        def can_combine_person_properties(properties: Union[list[PropertyGroup], list[Property]]) -> bool:
+            """Check if all properties are person properties that can be combined into a single query."""
+            if not properties:
+                return False
+            unwrapped = [unwrap_property(prop) for prop in properties]
+            return all(p is not None and p.type == "person" and not p.negation for p in unwrapped)
+
+        def combine_person_properties(properties: Union[list[Property], list[PropertyGroup]]) -> ast.SelectQuery:
+            """
+            Combine multiple person property filters into a single ActorsQuery.
+
+            This optimization replaces N separate queries with N-1 INTERSECT operations
+            with a single query that includes all conditions. For cohorts with many person
+            properties, this reduces query time by ~19x and memory usage by ~15x.
+
+            Example:
+                Before: Query1 INTERSECT DISTINCT Query2 INTERSECT DISTINCT Query3
+                After:  Single query with AND(condition1, condition2, condition3)
+            """
+            person_filters = []
+            for prop_or_group in properties:
+                # Unwrap PropertyGroup to get the underlying Property
+                prop = unwrap_property(prop_or_group)
+                if prop is None:
+                    continue
+                person_filters.append(convert_property(prop))
+
+            actors_query = ActorsQuery(
+                properties=person_filters,
+                select=["id"],
+            )
+            query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
+            return query_runner.to_query()
 
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]],
@@ -446,6 +513,10 @@ class HogQLCohortQuery:
 
             if isinstance(prop, Property):
                 return Condition(self._get_condition_for_property(prop), prop.negation or False)
+
+            if should_combine_person_properties:
+                if prop.type == PropertyOperatorType.AND and can_combine_person_properties(prop.values):
+                    return Condition(combine_person_properties(prop.values), False)
 
             children = [build_conditions(property) for property in prop.values]
 

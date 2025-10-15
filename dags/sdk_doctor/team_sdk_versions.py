@@ -235,8 +235,8 @@ def aggregate_results_op(context: dagster.OpExecutionContext, results: list[list
 
 @dagster.job(
     description="Queries ClickHouse for recent SDK versions and caches them in Redis",
-    # Do this slowly, 20 batches at a time at most
-    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 20}),
+    # Do this slowly, 10 batches at a time at most, more than this will cause the pod to OOM
+    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 10}),
     tags={"owner": JobOwners.TEAM_GROWTH.value},
 )
 def cache_all_team_sdk_versions_job():
