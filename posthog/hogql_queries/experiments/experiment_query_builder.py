@@ -178,7 +178,8 @@ class ExperimentQueryBuilder:
                     {{entity_key}} AS entity_id,
                     timestamp,
                     uuid,
-                    properties.$session_id AS session_id
+                    properties.$session_id AS session_id,
+                    -- step_0, step_1, ... step_N columns added programmatically below
                 FROM events
                 WHERE {{funnel_steps_filter}}
             ),
@@ -202,6 +203,8 @@ class ExperimentQueryBuilder:
                 count(entity_metrics.entity_id) AS num_users,
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
+                -- step_counts added programatically below
+                -- steps_event_data added programatically below
             FROM entity_metrics
             GROUP BY entity_metrics.variant
             """,
@@ -218,9 +221,7 @@ class ExperimentQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
-        # TODO: Rewrite this to be inline for better readability
-
-        # Now manually inject step columns into the metric_events CTE
+        # Inject step columns into the metric_events CTE
         # Find the metric_events CTE in the query
         if query.ctes and "metric_events" in query.ctes:
             metric_events_cte = query.ctes["metric_events"]
