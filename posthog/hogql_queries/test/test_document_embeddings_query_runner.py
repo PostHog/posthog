@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -67,10 +68,18 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         self.embedding_rows = self._seed_document_embeddings()
 
-    def _seed_document_embeddings(self) -> list[dict[str, object]]:
+    @dataclass(frozen=True)
+    class DocumentEmbeddingRow:
+        document: EmbeddedDocument
+        rendering: str
+        model_name: str
+        embedding: tuple[float, ...]
+        inserted_at: datetime
+
+    def _seed_document_embeddings(self) -> list[DocumentEmbeddingRow]:
         sync_execute("TRUNCATE TABLE posthog_document_embeddings", flush=False, team_id=self.team.pk)
 
-        fixtures: list[dict[str, object]] = []
+        fixtures: list[TestDocumentEmbeddingsQueryRunner.DocumentEmbeddingRow] = []
         rows: list[tuple] = []
         row_index = 0
 
@@ -105,13 +114,13 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
 
                     fixtures.append(
-                        {
-                            "document": embedded_document,
-                            "rendering": rendering,
-                            "model_name": model_name,
-                            "embedding": embedding,
-                            "inserted_at": inserted_at,
-                        }
+                        TestDocumentEmbeddingsQueryRunner.DocumentEmbeddingRow(
+                            document=embedded_document,
+                            rendering=rendering,
+                            model_name=model_name,
+                            embedding=embedding,
+                            inserted_at=inserted_at,
+                        )
                     )
 
                     row_index += 1
@@ -143,11 +152,11 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_query_basic(self):
         origin_row = self.embedding_rows[0]
-        origin_document = origin_row["document"]
+        origin_document = origin_row.document
 
         query = build_document_similarity_query(
             origin=origin_document,
-            model=origin_row["model_name"],
+            model=origin_row.model_name,
             products=[],
             document_types=[],
         )
@@ -162,7 +171,7 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(first_result.product, origin_document.product)
         self.assertEqual(first_result.document_type, origin_document.document_type)
         self.assertEqual(first_result.document_id, origin_document.document_id)
-        self.assertEqual(first_result.model_name, origin_row["model_name"])
+        self.assertEqual(first_result.model_name, origin_row.model_name)
         # Commented out for the sake of being explicit - without specifying a set of possible
         # renderings in the query runner, the runner will return the nearest rendering type within
         # the range of available renderings, for a (product, document_type) universe of renderings
@@ -174,19 +183,19 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertNotEqual(second_result.product, origin_document.product)
         self.assertNotEqual(second_result.document_type, origin_document.document_type)
         self.assertNotEqual(second_result.document_id, origin_document.document_id)
-        self.assertEqual(second_result.model_name, origin_row["model_name"])
+        self.assertEqual(second_result.model_name, origin_row.model_name)
 
     def test_query_respects_product_filter(self):
         # IMPORTANT - we do not filter the origin select, only the returned results - so we re-use
         # the same row across queries for both products, and get 1 result both times. This is because
         # we want to support users saying stuff like "give me the most similar documents from product_b
         # to this document from product_a", and that should only return documents from product_b.
-        origin_row = next(row for row in self.embedding_rows if row["document"].product == "product_a")
-        origin_document = origin_row["document"]
+        origin_row = next(row for row in self.embedding_rows if row.document.product == "product_a")
+        origin_document = origin_row.document
 
         query_product_b = build_document_similarity_query(
             origin=origin_document,
-            model=origin_row["model_name"],
+            model=origin_row.model_name,
             products=["product_b"],
         )
         response = DocumentEmbeddingsQueryRunner(team=self.team, query=query_product_b).calculate()
@@ -195,7 +204,7 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         query_product_a = build_document_similarity_query(
             origin=origin_document,
-            model=origin_row["model_name"],
+            model=origin_row.model_name,
             products=["product_a"],
         )
         response = DocumentEmbeddingsQueryRunner(team=self.team, query=query_product_a).calculate()
@@ -210,12 +219,12 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # to demonstrate this - the origin selection DOES NOT specify a rendering type, rendering
         # filters (and product, and document type) are exclusively applied to the universe the
         # origin is compared against
-        origin_row = next(row for row in self.embedding_rows if row["rendering"] != "text")
-        origin_document = origin_row["document"]
+        origin_row = next(row for row in self.embedding_rows if row.rendering != "text")
+        origin_document = origin_row.document
 
         query = build_document_similarity_query(
             origin=origin_document,
-            model=origin_row["model_name"],
+            model=origin_row.model_name,
             renderings=["text"],
         )
 
@@ -226,11 +235,11 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_descending_order_places_other_product_first(self):
         origin_row = self.embedding_rows[0]
-        origin_document = origin_row["document"]
+        origin_document = origin_row.document
 
         query = build_document_similarity_query(
             origin=origin_document,
-            model=origin_row["model_name"],
+            model=origin_row.model_name,
             order_direction=OrderDirection.DESC,
         )
 

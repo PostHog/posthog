@@ -9,15 +9,15 @@ from posthog.models.team.team import Team
 def resolve_embed_text(team: Team | int | None, node: ast.Call) -> ast.Constant:
     args = node.args
 
-    if isinstance(team, int):
-        team = Team.objects.get(id=team)
-
     if team is None:
         raise ValueError("embed_text() requires a team or team ID")
     if len(args) < 1:
         raise ValueError("embed_text() takes at least one argument")
     if len(args) > 2:
         raise ValueError("embed_text() takes at most two arguments")
+
+    if not isinstance(team, Team):
+        team = Team.objects.get(id=team)
 
     text = args[0]
     model = args[1] if len(args) == 2 else None
