@@ -1,4 +1,5 @@
 import datetime
+from collections.abc import Callable
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -93,9 +94,9 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
 
     def to_query(self) -> ast.SelectQuery:
         # as in "universal set"
-        universe = lambda c: col("universe", c)
+        universe = get_col("universe")
         # as in "point from which all distances are measured"
-        origin = lambda c: col("origin", c)
+        origin = get_col("origin")
 
         nearest = lambda expr: ast.Call(
             name=self.output_argby_func,
@@ -105,10 +106,10 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
         cols: list[ast.Expr] = [
             ast.Alias(alias="result_product", expr=universe("product")),
             ast.Alias(alias="result_document_type", expr=universe("document_type")),
-            ast.Alias(alias="result_model_name", expr=nearest(universe("model_name"))),
-            ast.Alias(alias="result_rendering", expr=nearest(universe("rendering"))),
             ast.Alias(alias="result_document_id", expr=universe("document_id")),
-            ast.Alias(alias="result_timestamp", expr=universe("timestamp")),
+            ast.Alias(alias="result_model_name", expr=universe("model_name")),
+            ast.Alias(alias="result_rendering", expr=nearest(universe("rendering"))),
+            ast.Alias(alias="result_timestamp", expr=nearest(universe("timestamp"))),
             ast.Alias(alias="origin_product", expr=nearest(origin("product"))),
             ast.Alias(alias="origin_document_type", expr=nearest(origin("document_type"))),
             ast.Alias(alias="origin_model_name", expr=nearest(origin("model_name"))),
@@ -127,7 +128,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
             universe("product"),
             universe("document_type"),
             universe("document_id"),
-            universe("timestamp"),
+            universe("model_name"),
         ]
 
         query = ast.SelectQuery(
@@ -142,7 +143,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
         if self.query.threshold:
             query.having = ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
-                left=col("distance"),
+                left=ast.Field(chain=["distance"]),
                 right=ast.Constant(value=self.query.threshold),
             )
 
@@ -188,12 +189,12 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
                             ast.And(
                                 exprs=[
                                     ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Eq,
+                                        op=ast.CompareOperationOp.NotEq,
                                         left=ast.Field(chain=["origin", "product"]),
                                         right=ast.Field(chain=["universe", "product"]),
                                     ),
                                     ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Eq,
+                                        op=ast.CompareOperationOp.NotEq,
                                         left=ast.Field(chain=["origin", "document_type"]),
                                         right=ast.Field(chain=["universe", "document_type"]),
                                     ),
@@ -218,14 +219,17 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
 
     @property
     def universe_select(self) -> ast.SelectQuery:
+        col = get_col("universe")
+        most_recent = get_most_recent("timestamp", col)
+
         cols: list[ast.Expr] = [
             ast.Alias(alias="product", expr=col("product")),
             ast.Alias(alias="document_type", expr=col("document_type")),
             ast.Alias(alias="model_name", expr=col("model_name")),
             ast.Alias(alias="rendering", expr=col("rendering")),
             ast.Alias(alias="document_id", expr=col("document_id")),
-            ast.Alias(alias="timestamp", expr=col("timestamp")),
-            ast.Alias(alias="embedding", expr=col("embedding")),
+            ast.Alias(alias="timestamp", expr=most_recent(col("timestamp"))),
+            ast.Alias(alias="embedding", expr=most_recent(col("embedding"))),
         ]
 
         where_exprs: list[ast.Expr] = [
@@ -264,28 +268,33 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
                 )
             )
 
+        group_by: list[ast.Expr] = [
+            col("product"),
+            col("document_type"),
+            col("document_id"),
+            col("model_name"),
+            col("rendering"),
+        ]
+
         return ast.SelectQuery(
             select=cols,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["document_embeddings"])),
+            group_by=group_by,
+            select_from=ast.JoinExpr(alias="universe", table=ast.Field(chain=["document_embeddings"])),
             where=ast.And(exprs=where_exprs),
         )
 
     @property
     def origin_select(self) -> ast.SelectQuery:
-        # If a document has been embedded twice with two different timestamps, rather than simply updated
-        # in place, we select the most recent one. This should basically never happen, given we specify
-        # the timestamp in the query, but we do it anyway to be safe.
-        most_recent = lambda expr: ast.Call(
-            name="argMax",
-            args=[expr, col("timestamp")],
-        )
+        col = get_col("origin")
+        most_recent = get_most_recent("timestamp", col)
+
         select_cols: list[ast.Expr] = [
-            ast.Alias(alias="product", expr=most_recent(col("product"))),
-            ast.Alias(alias="document_type", expr=most_recent(col("document_type"))),
-            ast.Alias(alias="document_id", expr=most_recent(col("document_id"))),
+            ast.Alias(alias="product", expr=col("product")),
+            ast.Alias(alias="document_type", expr=col("document_type")),
+            ast.Alias(alias="document_id", expr=col("document_id")),
+            ast.Alias(alias="model_name", expr=col("model_name")),
+            ast.Alias(alias="rendering", expr=col("rendering")),
             ast.Alias(alias="timestamp", expr=most_recent(col("timestamp"))),
-            ast.Alias(alias="model_name", expr=most_recent(col("model_name"))),
-            ast.Alias(alias="rendering", expr=most_recent(col("rendering"))),
             ast.Alias(alias="embedding", expr=most_recent(col("embedding"))),
         ]
 
@@ -323,7 +332,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
 
         return ast.SelectQuery(
             select=select_cols,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["document_embeddings"])),
+            select_from=ast.JoinExpr(alias="origin", table=ast.Field(chain=["document_embeddings"])),
             group_by=group_by,
             where=ast.And(exprs=where_exprs),
         )
@@ -376,5 +385,15 @@ def timestamp_fuzzy_match(left: ast.Expr, timestamp: datetime.datetime, range: d
     )
 
 
-def col(*chain: str):
-    return ast.Field(chain=list(chain))
+def get_col(*prefix: str) -> Callable[[str], ast.Field]:
+    return lambda x: ast.Field(chain=[*prefix, x])
+
+
+# If a document has been embedded twice with two different timestamps, rather than simply updated
+# in place, we want to select the most recent one. This is an opinionated choice made on behalf of
+# the query runner user.
+def get_most_recent(ts_field: str, col: Callable[[str], ast.Field]) -> Callable[[ast.Expr], ast.Expr]:
+    return lambda expr: ast.Call(
+        name="argMax",
+        args=[expr, col(ts_field)],
+    )

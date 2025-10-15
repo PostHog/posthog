@@ -13,7 +13,7 @@ from posthog.hogql.database.models import (
     Table,
 )
 
-from posthog.models.error_tracking.embedding import DOCUMENT_EMBEDDINGS
+from products.error_tracking.backend.embedding import DOCUMENT_EMBEDDINGS
 
 DOCUMENT_EMBEDDINGS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -33,7 +33,7 @@ def select_from_embeddings_table(requested_fields: dict[str, list[str | int]]):
     if "document_id" not in requested_fields:
         requested_fields = {**requested_fields, "document_id": ["document_id"]}
     select = argmax_select(
-        table_name=f"raw_{DOCUMENT_EMBEDDINGS}",
+        table_name=f"raw_document_embeddings",
         select_fields=requested_fields,
         # I /think/ this is the right set of fields to group by, but I'm not actually certain.
         # In theory this (plus team_id) is the set of columns that uniquely identify a document embedding.
