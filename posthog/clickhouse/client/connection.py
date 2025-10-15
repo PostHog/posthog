@@ -15,8 +15,9 @@ from clickhouse_connect.driver import (
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 
-from posthog.settings import data_stores
 from posthog.utils import patchable
+
+IS_USING_PROD_CLICKHOUSE_IN_DEV = settings.DEBUG and ".prod." in settings.CLICKHOUSE_HOST
 
 
 class Workload(StrEnum):
@@ -71,7 +72,7 @@ __user_dict: Mapping[ClickHouseUser, tuple[str, str]] | None = None
 
 def init_clickhouse_users() -> Mapping[ClickHouseUser, tuple[str, str]]:
     user_dict = {
-        ClickHouseUser.DEFAULT: (data_stores.CLICKHOUSE_USER, data_stores.CLICKHOUSE_PASSWORD),
+        ClickHouseUser.DEFAULT: (settings.CLICKHOUSE_USER, settings.CLICKHOUSE_PASSWORD),
     }
     for u in ClickHouseUser:
         user = os.getenv(f"CLICKHOUSE_{u.name.upper()}_USER")
@@ -99,6 +100,7 @@ class ProxyClient:
     def execute(
         self,
         query,
+        *,
         params=None,
         with_column_types=False,
         external_tables=None,
@@ -107,8 +109,12 @@ class ProxyClient:
         types_check=False,
         columnar=False,
     ):
+        if settings is None:
+            settings = {}
         if query_id:
             settings["query_id"] = query_id
+        if IS_USING_PROD_CLICKHOUSE_IN_DEV:
+            settings["readonly"] = "2"  # Even though generally queries are just SELECTs, we want to be safe
         result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
 
         # we must play with result summary here
