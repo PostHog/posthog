@@ -719,7 +719,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
                             const field = resolveIncrementalField(schema.incremental_fields)
-                            schema.sync_type = method
                             if (field) {
                                 actions.updateSchemaSyncType(schema, method, field.field, field.field_type)
                             }
