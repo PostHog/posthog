@@ -217,8 +217,11 @@ class RedshiftCopyInputs:
     s3_bucket: str
     region_name: str
     s3_key_prefix: str
+    # Authorization role or credentials for Redshift to COPY data from bucket.
     authorization: IAMRole | AWSCredentials
-    # TODO: Also support RBAC for bucket export
+    # S3 batch export credentials.
+    # TODO: Also support RBAC for S3 batch export, then we could take
+    # `IAMRole | AWSCredentials` here too.
     bucket_credentials: AWSCredentials
 
 
