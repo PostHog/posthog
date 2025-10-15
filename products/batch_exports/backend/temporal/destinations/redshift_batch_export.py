@@ -20,11 +20,11 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
+    AWSCredentials,
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
-    Credentials,
     IAMRole,
     RedshiftBatchExportInputs,
 )
@@ -245,13 +245,13 @@ class RedshiftClient(PostgreSQLClient):
         schema_name: str,
         s3_bucket: str,
         manifest_key: str,
-        authorization: IAMRole | Credentials,
+        authorization: IAMRole | AWSCredentials,
     ) -> None:
         table_identifier = sql.Identifier(schema_name, table_name)
 
         s3_files = sql.Literal(f"s3://{s3_bucket}/{manifest_key}")
 
-        if isinstance(authorization, Credentials):
+        if isinstance(authorization, AWSCredentials):
             credentials = sql.SQL(
                 """
                 ACCESS_KEY_ID {access_key_id}
@@ -441,14 +441,14 @@ class S3StageBucketParameters:
     name: str
     region_name: str
     # TODO: We should support AWS RBAC in S3 batch export.
-    credentials: Credentials
+    credentials: AWSCredentials
 
 
 @dataclasses.dataclass
 class CopyParameters:
     s3_bucket: S3StageBucketParameters
     s3_key_prefix: str
-    authorization: IAMRole | Credentials
+    authorization: IAMRole | AWSCredentials
 
 
 @dataclasses.dataclass

@@ -207,7 +207,7 @@ IAMRole = str
 
 
 @dataclass
-class Credentials:
+class AWSCredentials:
     aws_access_key_id: str
     aws_secret_access_key: str
 
@@ -217,9 +217,9 @@ class RedshiftCopyInputs:
     s3_bucket: str
     region_name: str
     s3_key_prefix: str
-    authorization: IAMRole | Credentials
+    authorization: IAMRole | AWSCredentials
     # TODO: Also support RBAC for bucket export
-    bucket_credentials: Credentials
+    bucket_credentials: AWSCredentials
 
 
 @dataclass(kw_only=True)
@@ -240,15 +240,15 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
     def __post_init__(self):
         if self.copy_inputs is not None and isinstance(self.copy_inputs, str | bytes | bytearray):
             raw_inputs = json.loads(self.copy_inputs)
-            bucket_credentials = Credentials(
+            bucket_credentials = AWSCredentials(
                 aws_access_key_id=raw_inputs["bucket_credentials"]["aws_access_key_id"],
                 aws_secret_access_key=raw_inputs["bucket_credentials"]["aws_secret_access_key"],
             )
 
             if isinstance(raw_inputs["authorization"], str):
-                authorization: IAMRole | Credentials = raw_inputs["authorization"]
+                authorization: IAMRole | AWSCredentials = raw_inputs["authorization"]
             else:
-                authorization = Credentials(
+                authorization = AWSCredentials(
                     aws_access_key_id=raw_inputs["authorization"]["aws_access_key_id"],
                     aws_secret_access_key=raw_inputs["authorization"]["aws_secret_access_key"],
                 )
