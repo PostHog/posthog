@@ -241,15 +241,15 @@ describe('process all snapshots', () => {
             const result = await parseEncodedSnapshots([snapshotJson], sessionId)
 
             // Should detect as mobile and create synthetic full snapshot
-            // In test environment without EE module, we mainly test that parsing doesn't fail
             expect(result.length).toBeGreaterThan(0)
             expect(result[0].windowId).toBe('1')
 
-            // The first event could be either:
-            // - Meta event (type 4) inserted by patchMetaEventIntoMobileData, or
-            // - The original incremental snapshot (type 3) if synthetic snapshot creation fails
-            // Both scenarios should have timestamp 1000 in test environment
-            expect(result[0].timestamp).toBe(1000)
+            // The key test: there should be a full snapshot (type 2) in the first or second position
+            // This ensures that either:
+            // 1. A synthetic full snapshot was created, or
+            // 2. The original recording had a full snapshot
+            const hasFullSnapshotEarly = result[0].type === 2 || (result.length > 1 && result[1].type === 2)
+            expect(hasFullSnapshotEarly).toBe(true)
         })
 
         it('processes mobile recording starting with full snapshot', async () => {
@@ -279,10 +279,13 @@ describe('process all snapshots', () => {
 
             const result = await parseEncodedSnapshots([snapshotJson], sessionId)
 
-            // Should detect as mobile and process accordingly
+            // Should detect as mobile and process the full snapshot
             expect(result.length).toBeGreaterThan(0)
             expect(result[0].windowId).toBe('1')
-            expect(result[0].timestamp).toBe(1000)
+
+            // Should have a full snapshot in the first or second position (no synthetic needed since it starts with full)
+            const hasFullSnapshotEarly = result[0].type === 2 || (result.length > 1 && result[1].type === 2)
+            expect(hasFullSnapshotEarly).toBe(true)
         })
 
         it('processes regular web recording without mobile features', async () => {
@@ -311,8 +314,11 @@ describe('process all snapshots', () => {
             // Should process as regular web recording (no synthetic snapshot created)
             expect(result).toHaveLength(1)
             expect(result[0].windowId).toBe('1')
-            expect(result[0].timestamp).toBe(1000)
-            expect(result[0].type).toBe(3)
+            expect(result[0].type).toBe(3) // Should remain as incremental snapshot
+
+            // Should NOT have a full snapshot since this is a web recording starting with incremental
+            const hasFullSnapshot = result.some((r) => r.type === 2)
+            expect(hasFullSnapshot).toBe(false)
         })
 
         it('verifies synthetic snapshot logic conditions', () => {
