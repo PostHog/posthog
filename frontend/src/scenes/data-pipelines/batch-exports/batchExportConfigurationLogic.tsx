@@ -620,7 +620,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
 
                     if (destination === 'Redshift') {
                         if (mode === 'COPY') {
-                            const copyInputs = {
+                            const copyInputs: Record<string, any> = {
                                 s3_bucket: redshift_s3_bucket,
                                 s3_key_prefix: redshift_s3_key_prefix,
                                 region_name: redshift_s3_bucket_region_name,
