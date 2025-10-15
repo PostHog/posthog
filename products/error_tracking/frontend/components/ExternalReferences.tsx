@@ -12,6 +12,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -76,14 +77,16 @@ export const ExternalReferences = (): JSX.Element | null => {
                     </DropdownMenuTrigger>
 
                     <DropdownMenuContent loop matchTriggerWidth>
-                        {errorTrackingIntegrations.map((integration) => (
-                            <DropdownMenuItem key={integration.id} asChild>
-                                <ButtonPrimitive menuItem onClick={() => onClickCreateIssue(integration)}>
-                                    <IntegrationIcon kind={integration.kind} />
-                                    {integration.display_name}
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
-                        ))}
+                        <DropdownMenuGroup>
+                            {errorTrackingIntegrations.map((integration) => (
+                                <DropdownMenuItem key={integration.id} asChild>
+                                    <ButtonPrimitive menuItem onClick={() => onClickCreateIssue(integration)}>
+                                        <IntegrationIcon kind={integration.kind} />
+                                        {integration.display_name}
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ))}
+                        </DropdownMenuGroup>
                     </DropdownMenuContent>
                 </DropdownMenu>
             ) : (

@@ -2,11 +2,12 @@ import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
+import { IconClock, IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
     LemonSegmentedButton,
+    LemonSelect,
     LemonTable,
     LemonTag,
     LemonTagType,
@@ -14,7 +15,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
-import { TZLabel } from 'lib/components/TZLabel'
+import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -38,12 +39,24 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { wrapBody, logs, sparklineData, logsLoading, sparklineLoading } = useValues(logsLogic)
-    const { runQuery } = useActions(logsLogic)
+    const { wrapBody, logs, sparklineData, logsLoading, sparklineLoading, timestampFormat } = useValues(logsLogic)
+    const { runQuery, setDateRangeFromSparkline } = useActions(logsLogic)
 
     useEffect(() => {
         runQuery()
     }, [runQuery])
+
+    const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
+        setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
+    }
+
+    const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> =
+        timestampFormat === 'absolute'
+            ? {
+                  formatDate: 'YYYY-MM-DD',
+                  formatTime: 'HH:mm:ss',
+              }
+            : {}
 
     return (
         <SceneContent className="h-screen">
@@ -57,15 +70,22 @@ export function LogsScene(): JSX.Element {
             <Filters />
             <div className="relative h-40 flex flex-col">
                 {sparklineData.data.length > 0 ? (
-                    <Sparkline labels={sparklineData.labels} data={sparklineData.data} className="w-full flex-1" />
+                    <Sparkline
+                        labels={sparklineData.labels}
+                        data={sparklineData.data}
+                        className="w-full flex-1"
+                        onSelectionChange={onSelectionChange}
+                    />
                 ) : !sparklineLoading ? (
-                    <div className="flex-1text-muted text-center">No data</div>
+                    <div className="flex-1 text-muted flex items-center justify-center">
+                        No results matching filters
+                    </div>
                 ) : null}
                 {sparklineLoading && <SpinnerOverlay />}
             </div>
             <SceneDivider />
             <DisplayOptions />
-            <div className="flex-1 overflow-y-auto border rounded bg-white">
+            <div className="flex-1 overflow-y-auto border rounded bg-bg-light">
                 <LemonTable
                     hideScrollbar
                     dataSource={logs}
@@ -78,7 +98,7 @@ export function LogsScene(): JSX.Element {
                             key: 'timestamp',
                             dataIndex: 'timestamp',
                             width: 0,
-                            render: (timestamp) => <TZLabel time={(timestamp as string) + 'Z'} />,
+                            render: (_, { timestamp }) => <TZLabel time={timestamp} {...tzLabelFormat} />,
                         },
                         {
                             title: 'Level',
@@ -91,7 +111,7 @@ export function LogsScene(): JSX.Element {
                             title: 'Message',
                             key: 'body',
                             dataIndex: 'body',
-                            render: (body) => (
+                            render: (_, { body }) => (
                                 <div className={cn(wrapBody ? '' : 'whitespace-nowrap')}>{colors.unstyle(body)}</div>
                             ),
                         },
@@ -184,14 +204,16 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
 }
 
 const LogTag = ({ level }: { level: LogMessage['severity_text'] }): JSX.Element => {
-    const type = (
-        {
-            debug: 'completion',
-            info: 'caution',
-            warn: 'warning',
-            error: 'danger',
-        } as Record<LogMessage['severity_text'], LemonTagType>
-    )[level]
+    const type =
+        (
+            {
+                debug: 'muted',
+                info: 'default',
+                warn: 'warning',
+                error: 'danger',
+                fatal: 'danger',
+            } as Record<LogMessage['severity_text'], LemonTagType>
+        )[level] ?? 'muted'
 
     return <LemonTag type={type}>{level}</LemonTag>
 }
@@ -239,11 +261,11 @@ const Filters = (): JSX.Element => {
 }
 
 const DisplayOptions = (): JSX.Element => {
-    const { orderBy, wrapBody } = useValues(logsLogic)
-    const { setOrderBy, setWrapBody } = useActions(logsLogic)
+    const { orderBy, wrapBody, timestampFormat } = useValues(logsLogic)
+    const { setOrderBy, setWrapBody, setTimestampFormat } = useActions(logsLogic)
 
     return (
-        <div className="flex gap-x-2">
+        <div className="flex gap-2">
             <LemonSegmentedButton
                 value={orderBy}
                 onChange={setOrderBy}
@@ -260,6 +282,17 @@ const DisplayOptions = (): JSX.Element => {
                 size="small"
             />
             <LemonCheckbox checked={wrapBody} bordered onChange={setWrapBody} label="Wrap message" size="small" />
+            <LemonSelect
+                value={timestampFormat}
+                icon={<IconClock />}
+                onChange={(value) => setTimestampFormat(value)}
+                size="small"
+                type="secondary"
+                options={[
+                    { value: 'absolute', label: 'Absolute' },
+                    { value: 'relative', label: 'Relative' },
+                ]}
+            />
         </div>
     )
 }

@@ -296,6 +296,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                         return ''
                     }
 
+                    if (key === 'title') {
+                        return `title='${JSON.stringify(value)}'`
+                    }
+
                     return `${key}='${btoa(JSON.stringify(value))}'`
                 })
                 .filter((x) => !!x)

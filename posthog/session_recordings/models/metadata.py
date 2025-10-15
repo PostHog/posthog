@@ -68,6 +68,8 @@ class RecordingMetadata(TypedDict):
     block_last_timestamps: list[datetime]
     block_urls: list[str]
     retention_period_days: Optional[int]
+    expiry_time: datetime
+    recording_ttl: int
 
 
 class RecordingMatchingEvents(TypedDict):

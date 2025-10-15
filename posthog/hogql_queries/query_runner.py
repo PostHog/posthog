@@ -550,7 +550,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingQuery":
-        from .error_tracking_query_runner import ErrorTrackingQueryRunner
+        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
         return ErrorTrackingQueryRunner(
             query=query,
@@ -561,7 +561,9 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingIssueCorrelationQuery":
-        from .error_tracking_issue_correlation_query_runner import ErrorTrackingIssueCorrelationQueryRunner
+        from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
+            ErrorTrackingIssueCorrelationQueryRunner,
+        )
 
         return ErrorTrackingIssueCorrelationQueryRunner(
             query=query,
@@ -656,28 +658,15 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "TracesQuery":
-        from .legacy_compatibility.feature_flag import llm_analytics_traces_query_v2
+        from .ai.traces_query_runner import TracesQueryRunner
 
-        if llm_analytics_traces_query_v2(team):
-            from .ai.traces_query_runner_v2 import TracesQueryRunnerV2
-
-            return TracesQueryRunnerV2(
-                query=cast(TracesQuery | dict[str, Any], query),
-                team=team,
-                timings=timings,
-                limit_context=limit_context,
-                modifiers=modifiers,
-            )
-        else:
-            from .ai.traces_query_runner import TracesQueryRunner
-
-            return TracesQueryRunner(
-                query=cast(TracesQuery | dict[str, Any], query),
-                team=team,
-                timings=timings,
-                limit_context=limit_context,
-                modifiers=modifiers,
-            )
+        return TracesQueryRunner(
+            query=cast(TracesQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
     if kind == "TraceQuery":
         from .ai.trace_query_runner import TraceQueryRunner
 

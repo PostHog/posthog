@@ -63,7 +63,9 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         ]
 
         if not metric_queries:
-            return ast.SelectQuery.empty(columns=["id", "name", "format", "display", "interval", "value"])
+            return ast.SelectQuery.empty(
+                columns=["id", "name", "format", "display", "interval", "value", "previous", "change_from_previous_pct"]
+            )
 
         return ast.SelectSetQuery.create_from_queries(queries=metric_queries, set_operator="UNION ALL")
 
@@ -86,18 +88,27 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 return None
 
             where_expr = ast.And(exprs=[self._get_entity_filter(), *self._get_date_filter(metric=metric), filter_expr])
+            date_to = datetime.now(tz=ZoneInfo("UTC"))
+            date_from = date_to - timedelta(days=metric.interval)
+            prev_date_from = date_to - 2 * timedelta(days=metric.interval)
 
         return parse_select(
             """
             SELECT
-                {id} as id,
-                {name} as name,
-                {format} as format,
-                {display} as display,
-                {interval} as interval,
-                COUNT(*) as value
-            FROM events
-            WHERE {where_expr}
+                *,
+                if(previous > 0, ((value - previous) / previous) * 100, NULL) as change_from_previous_pct
+            FROM (
+                SELECT
+                    {id} as id,
+                    {name} as name,
+                    {format} as format,
+                    {display} as display,
+                    {interval} as interval,
+                    countIf(timestamp >= {date_from} AND timestamp <= {date_to}) as value,
+                    countIf(timestamp >= {prev_date_from} AND timestamp < {date_from}) as previous
+                FROM events
+                WHERE {where_expr}
+            )
         """,
             placeholders={
                 "id": ast.Constant(value=str(metric.id)),
@@ -106,6 +117,9 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 "display": ast.Constant(value=metric.display),
                 "interval": ast.Constant(value=metric.interval),
                 "where_expr": where_expr,
+                "date_from": ast.Constant(value=date_from),
+                "prev_date_from": ast.Constant(value=prev_date_from),
+                "date_to": ast.Constant(value=date_to),
             },
         )
 
@@ -125,7 +139,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
 
     def _get_date_filter(self, metric: GroupUsageMetric) -> list[ast.CompareOperation]:
         date_to = datetime.now(tz=ZoneInfo("UTC"))
-        date_from = date_to - timedelta(days=metric.interval)
+        date_from = date_to - 2 * timedelta(days=metric.interval)
 
         return [
             ast.CompareOperation(
