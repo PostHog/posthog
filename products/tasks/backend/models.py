@@ -1,9 +1,13 @@
+import os
 import uuid
 from typing import Optional, cast
 
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.utils import timezone
+
+from asgiref.sync import async_to_sync
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
@@ -568,3 +572,18 @@ class SandboxSnapshot(UUIDModel):
             if snapshot.has_repos(required_repos):
                 return snapshot
         return None
+
+    def delete(self, *args, **kwargs):
+        if self.external_id:
+            from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+
+            if os.environ.get("RUNLOOP_API_KEY") and not settings.TEST:
+                try:
+                    async_to_sync(SandboxEnvironment.delete_snapshot)(self.external_id)
+                except Exception as e:
+                    raise Exception(
+                        f"Failed to delete external snapshot {self.external_id}: {str(e)}. "
+                        f"The database record has not been deleted."
+                    ) from e
+
+        super().delete(*args, **kwargs)
