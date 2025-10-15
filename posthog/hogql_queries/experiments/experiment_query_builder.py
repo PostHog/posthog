@@ -115,15 +115,7 @@ class ExperimentQueryBuilder:
         query = parse_select(
             f"""
             WITH exposures AS (
-                SELECT
-                    {{entity_key}} AS entity_id,
-                    {{variant_expr}} AS variant,
-                    minIf(timestamp, {{exposure_predicate}}) AS first_exposure_time,
-                    argMinIf(uuid, timestamp, {{exposure_predicate}}) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, timestamp, {{exposure_predicate}}) AS exposure_session_id
-                FROM events
-                WHERE {{exposure_predicate}}
-                GROUP BY entity_id
+                {{exposure_select_query}}
             ),
 
             metric_events AS (
@@ -155,9 +147,8 @@ class ExperimentQueryBuilder:
             GROUP BY entity_metrics.variant
             """,
             placeholders={
+                "exposure_select_query": self._build_exposure_select_query(),
                 "entity_key": parse_expr(self.entity_key),
-                "variant_expr": self._build_variant_expr(),
-                "exposure_predicate": self._build_exposure_predicate(),
                 "metric_predicate": self._build_metric_predicate(),
                 "value_expr": self._build_value_expr(),
                 "value_agg": self._build_value_aggregation_expr(),
@@ -333,6 +324,28 @@ class ExperimentQueryBuilder:
             # Default: SUM or TOTAL
             return parse_expr("coalesce(sum(toFloat(metric_events.value)), 0.0)")
 
+    def _build_exposure_select_query(self) -> ast.SelectQuery:
+        exposure_query = parse_select(
+            """
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_expr} AS variant,
+                    minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
+                    argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
+                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
+                FROM events
+                WHERE {exposure_predicate}
+                GROUP BY entity_id
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.entity_key),
+                "variant_expr": self._build_variant_expr(),
+                "exposure_predicate": self._build_exposure_predicate(),
+            },
+        )
+        assert isinstance(exposure_query, ast.SelectQuery)
+        return exposure_query
+
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
         Builds query for funnel metrics.
@@ -360,15 +373,7 @@ class ExperimentQueryBuilder:
         query = parse_select(
             f"""
             WITH exposures AS (
-                SELECT
-                    {{entity_key}} AS entity_id,
-                    {{variant_expr}} AS variant,
-                    minIf(timestamp, {{exposure_predicate}}) AS first_exposure_time,
-                    argMinIf(uuid, timestamp, {{exposure_predicate}}) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, timestamp, {{exposure_predicate}}) AS exposure_session_id
-                FROM events
-                WHERE {{exposure_predicate}}
-                GROUP BY entity_id
+                {{exposures_select_query}}
             ),
 
             metric_events AS (
@@ -404,9 +409,8 @@ class ExperimentQueryBuilder:
             GROUP BY entity_metrics.variant
             """,
             placeholders={
+                "exposures_select_query": self._build_exposure_select_query(),
                 "entity_key": parse_expr(self.entity_key),
-                "variant_expr": self._build_variant_expr(),
-                "exposure_predicate": self._build_exposure_predicate(),
                 "funnel_steps_filter": self._build_funnel_steps_filter(),
                 "funnel_aggregation": self._build_funnel_aggregation_expr(),
                 "num_steps_minus_1": ast.Constant(value=num_steps - 1),
