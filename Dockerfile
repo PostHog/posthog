@@ -314,8 +314,24 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/fro
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
-# Add in the Gunicorn config, custom bin files and Django deps.
+# Setup ENV early (doesn't invalidate cache).
+ENV NODE_ENV=production \
+    CHROME_BIN=/usr/bin/chromium \
+    CHROME_PATH=/usr/lib/chromium/ \
+    CHROMEDRIVER_BIN=/usr/bin/chromedriver \
+    BUILD_LIBRDKAFKA=0
+
+# Expose container ports early (doesn't invalidate cache).
+EXPOSE 8000
+EXPOSE 8001
+
+# Copy config files that rarely change.
+COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
 COPY --chown=posthog:posthog gunicorn.config.py ./
+
+# Add source code LAST - this changes most frequently.
+# By placing it here, changes to source code don't invalidate
+# the expensive Playwright/Node.js installation layers above.
 COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
@@ -327,18 +343,5 @@ COPY --chown=posthog:posthog products products/
 # Keep server command backwards compatible
 RUN cp ./bin/docker-server-unit ./bin/docker-server
 
-# Setup ENV.
-ENV NODE_ENV=production \
-    CHROME_BIN=/usr/bin/chromium \
-    CHROME_PATH=/usr/lib/chromium/ \
-    CHROMEDRIVER_BIN=/usr/bin/chromedriver \
-    BUILD_LIBRDKAFKA=0
-
-# Expose container port and run entry point script.
-EXPOSE 8000
-
-# Expose the port from which we serve OpenMetrics data.
-EXPOSE 8001
-COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
 USER root
 CMD ["./bin/docker"]
