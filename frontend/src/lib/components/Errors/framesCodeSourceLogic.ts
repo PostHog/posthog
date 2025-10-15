@@ -56,7 +56,11 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                 const parsed = GitMetadataParser.parseRemoteUrl(remoteUrl)
 
                 if (parsed?.provider === 'github') {
-                    const result = await api.githubSearch.search(parsed.owner, parsed.repository, codeSample)
+                    const result = await api.gitProviderFileLinkResolver.resolveGithub(
+                        parsed.owner,
+                        parsed.repository,
+                        codeSample
+                    )
                     actions.setSourceUrl(rawId, result.found && result.url ? result.url : null)
                 } else {
                     actions.setSourceUrl(rawId, null)

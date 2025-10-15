@@ -29,7 +29,7 @@ import products.endpoints.backend.api as endpoints
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.error_tracking.backend.api import error_tracking
+from products.error_tracking.backend.api import error_tracking, git_provider_file_link_resolver
 from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
@@ -60,7 +60,6 @@ from . import (
     exports,
     feature_flag,
     flag_value,
-    github_search,
     hog,
     hog_function,
     hog_function_template,
@@ -725,7 +724,7 @@ environments_router.register(
 
 environments_router.register(
     r"github_search",
-    github_search.GitHubSearchViewSet,
+    git_provider_file_link_resolver.GitProviderFileLinkResolver,
     "project_github_search",
     ["team_id"],
 )

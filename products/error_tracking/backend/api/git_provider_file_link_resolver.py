@@ -43,11 +43,11 @@ def get_github_file_url(code_sample: str, token: str, owner: str, repository: st
         return None
 
 
-class GitHubSearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    scope_object = "INTERNAL"
+class GitProviderFileLinkResolver(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    scope_object = "error_tracking"
 
-    @action(methods=["GET"], detail=False, url_path="search")
-    def search(self, request, **kwargs):
+    @action(methods=["GET"], detail=False, url_path="resolve_github")
+    def resolve_github(self, request, **kwargs):
         owner = request.GET.get("owner")
         repository = request.GET.get("repository")
         code_sample = request.GET.get("code_sample")

@@ -49,10 +49,10 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         initialEventLoading,
         eventsQuery,
         eventsQueryKey,
-        githubSearchResult,
-        githubSearchResultLoading,
+        gitHubFileLinkResult,
+        gitHubFileLinkResultLoading,
     } = useValues(errorTrackingIssueSceneLogic)
-    const { selectEvent, searchGitHub } = useActions(errorTrackingIssueSceneLogic)
+    const { selectEvent, resolveGitHubFileLink } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
 
@@ -108,19 +108,19 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <ButtonPrimitive
                         size="lg"
                         onClick={() => {
-                            searchGitHub('ablaszkiewicz', 'python-scripts', 'python-scripts')
+                            resolveGitHubFileLink('ablaszkiewicz', 'python-scripts', 'python-scripts')
                         }}
-                        disabled={githubSearchResultLoading}
+                        disabled={gitHubFileLinkResultLoading}
                     >
-                        {githubSearchResultLoading ? '🔄 Searching...' : '🔍 Search GitHub for this error (DRAFT)'}
+                        {gitHubFileLinkResultLoading ? '🔄 Searching...' : '🔍 Search GitHub for this error (DRAFT)'}
                     </ButtonPrimitive>
-                    {githubSearchResult && (
+                    {gitHubFileLinkResult && (
                         <div className="mt-2 p-4 border rounded">
-                            {githubSearchResult.found && githubSearchResult.url ? (
+                            {gitHubFileLinkResult.found && gitHubFileLinkResult.url ? (
                                 <div>
                                     <div className="font-bold text-success">Found in GitHub!</div>
                                     <div className="mt-2">
-                                        <Link to={githubSearchResult.url} target="_blank">
+                                        <Link to={gitHubFileLinkResult.url} target="_blank">
                                             View on GitHub →
                                         </Link>
                                     </div>

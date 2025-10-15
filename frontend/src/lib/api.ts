@@ -1034,7 +1034,7 @@ export class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
-    public githubSearch(teamId?: TeamType['id']): ApiRequest {
+    public gitProviderFileLinkResolver(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('github_search')
     }
 
@@ -2979,11 +2979,15 @@ const api = {
         },
     },
 
-    githubSearch: {
-        async search(owner: string, repository: string, codeSample: string): Promise<{ found: boolean; url?: string }> {
+    gitProviderFileLinkResolver: {
+        async resolveGithub(
+            owner: string,
+            repository: string,
+            codeSample: string
+        ): Promise<{ found: boolean; url?: string }> {
             return await new ApiRequest()
-                .githubSearch()
-                .withAction('search')
+                .gitProviderFileLinkResolver()
+                .withAction('resolve_github')
                 .withQueryString({ owner, repository, code_sample: codeSample })
                 .get()
         },

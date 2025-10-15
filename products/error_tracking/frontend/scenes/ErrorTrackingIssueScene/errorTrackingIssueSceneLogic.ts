@@ -78,7 +78,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
         updateName: (name: string) => ({ name }),
         updateDescription: (description: string) => ({ description }),
-        searchGitHub: (owner: string, repository: string, codeSample: string) => ({ owner, repository, codeSample }),
+        resolveGitHubFileLink: (owner: string, repository: string, codeSample: string) => ({
+            owner,
+            repository,
+            codeSample,
+        }),
     }),
 
     defaults({
@@ -232,11 +236,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 loadSimilarIssues: async () => await api.errorTracking.getSimilarIssues(props.id),
             },
         ],
-        githubSearchResult: [
+        gitHubFileLinkResult: [
             null as { found: boolean; url?: string } | null,
             {
-                searchGitHub: async ({ owner, repository, codeSample }) => {
-                    return await api.githubSearch.search(owner, repository, codeSample)
+                resolveGitHubFileLink: async ({ owner, repository, codeSample }) => {
+                    return await api.gitProviderFileLinkResolver.resolveGithub(owner, repository, codeSample)
                 },
             },
         ],
