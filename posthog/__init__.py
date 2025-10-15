@@ -3,6 +3,7 @@
 from posthog.celery import app as celery_app  # noqa: E402
 
 __all__ = ("celery_app",)
+# Test comment for cache measurement
 
 
 # snowflake-connector-python tries to access a root folder which errors out in pods.
