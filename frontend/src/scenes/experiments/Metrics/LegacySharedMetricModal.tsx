@@ -14,27 +14,44 @@ import { AvailableFeature, Experiment } from '~/types'
 
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
-import { MetricContext } from './experimentMetricModalLogic'
-import { sharedMetricModalLogic } from './sharedMetricModalLogic'
+import { experimentLogic } from '../experimentLogic'
+import { modalsLogic } from '../modalsLogic'
+import { appendMetricToOrderingArray, removeMetricFromOrderingArray } from '../utils'
 
-export function SharedMetricModal({
-    experiment,
-    onSave,
-    onDelete,
+/**
+ * @deprecated
+ * This component is deprecated and only supports the legacy query runner.
+ * Use the SharedMetricModal component instead.
+ */
+export function LegacySharedMetricModal({
+    experimentId,
+    isSecondary,
 }: {
-    experiment: Experiment
-    onSave: (metrics: SharedMetric[], context: MetricContext) => void
-    onDelete: (metric: SharedMetric, context: MetricContext) => void
-}): JSX.Element | null {
-    const { hasAvailableFeature } = useValues(userLogic)
-    const { isModalOpen, context, compatibleSharedMetrics, sharedMetricId, isCreateMode, isEditMode } =
-        useValues(sharedMetricModalLogic)
-    const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
-
+    experimentId: Experiment['id']
+    isSecondary?: boolean
+}): JSX.Element {
+    const { experiment, compatibleSharedMetrics, editingSharedMetricId } = useValues(experimentLogic({ experimentId }))
+    const {
+        addSharedMetricsToExperiment,
+        removeSharedMetricFromExperiment,
+        restoreUnmodifiedExperiment,
+        setExperiment,
+    } = useActions(experimentLogic({ experimentId }))
+    const { closePrimarySharedMetricModal, closeSecondarySharedMetricModal } = useActions(modalsLogic)
+    const { isPrimarySharedMetricModalOpen, isSecondarySharedMetricModalOpen } = useValues(modalsLogic)
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
+    const mode = editingSharedMetricId ? 'edit' : 'create'
+
+    const { hasAvailableFeature } = useValues(userLogic)
 
     if (!compatibleSharedMetrics) {
-        return null
+        return <></>
+    }
+
+    const isOpen = isSecondary ? isSecondarySharedMetricModalOpen : isPrimarySharedMetricModalOpen
+    const onClose = (): void => {
+        restoreUnmodifiedExperiment()
+        isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
     }
 
     const addSharedMetricDisabledReason = (): string | undefined => {
@@ -59,23 +76,32 @@ export function SharedMetricModal({
 
     return (
         <LemonModal
-            isOpen={isModalOpen}
-            onClose={closeSharedMetricModal}
+            isOpen={isOpen}
+            onClose={onClose}
             width={500}
-            title={isCreateMode ? 'Select one or more shared metrics' : 'Shared metric'}
+            title={mode === 'create' ? 'Select one or more shared metrics' : 'Shared metric'}
             footer={
                 <div className="flex justify-between w-full">
                     <div>
-                        {isEditMode && (
+                        {editingSharedMetricId && (
                             <LemonButton
                                 status="danger"
                                 onClick={() => {
-                                    const metric = compatibleSharedMetrics.find((m) => m.id === sharedMetricId)
-                                    if (!metric) {
-                                        return
+                                    const metric = compatibleSharedMetrics.find((m) => m.id === editingSharedMetricId)
+                                    if (metric) {
+                                        const newOrderingArray = removeMetricFromOrderingArray(
+                                            experiment,
+                                            metric.query.uuid,
+                                            !!isSecondary
+                                        )
+                                        setExperiment({
+                                            [isSecondary
+                                                ? 'secondary_metrics_ordered_uuids'
+                                                : 'primary_metrics_ordered_uuids']: newOrderingArray,
+                                        })
                                     }
-
-                                    onDelete(metric, context)
+                                    removeSharedMetricFromExperiment(editingSharedMetricId)
+                                    isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
                                 }}
                                 type="secondary"
                             >
@@ -84,19 +110,44 @@ export function SharedMetricModal({
                         )}
                     </div>
                     <div className="flex gap-2">
-                        <LemonButton onClick={closeSharedMetricModal} type="secondary">
+                        <LemonButton onClick={onClose} type="secondary">
                             Cancel
                         </LemonButton>
                         {/* Changing the existing metric is a pain because saved metrics are stored separately */}
                         {/* Only allow deletion for now */}
-                        {isCreateMode && (
+                        {mode === 'create' && (
                             <LemonButton
                                 onClick={() => {
-                                    const metrics = selectedMetricIds
-                                        .map((metricId) => compatibleSharedMetrics.find((m) => m.id === metricId))
-                                        .filter((metric): metric is SharedMetric => metric !== undefined)
+                                    let newOrderingArray = isSecondary
+                                        ? (experiment.secondary_metrics_ordered_uuids ?? [])
+                                        : (experiment.primary_metrics_ordered_uuids ?? [])
 
-                                    onSave(metrics, context)
+                                    selectedMetricIds.forEach((metricId) => {
+                                        const metric = compatibleSharedMetrics.find((m) => m.id === metricId)
+                                        if (metric) {
+                                            newOrderingArray = appendMetricToOrderingArray(
+                                                {
+                                                    ...experiment,
+                                                    [isSecondary
+                                                        ? 'secondary_metrics_ordered_uuids'
+                                                        : 'primary_metrics_ordered_uuids']: newOrderingArray,
+                                                },
+                                                metric.query.uuid,
+                                                !!isSecondary
+                                            )
+                                        }
+                                    })
+
+                                    setExperiment({
+                                        [isSecondary
+                                            ? 'secondary_metrics_ordered_uuids'
+                                            : 'primary_metrics_ordered_uuids']: newOrderingArray,
+                                    })
+
+                                    addSharedMetricsToExperiment(selectedMetricIds, {
+                                        type: isSecondary ? 'secondary' : 'primary',
+                                    })
+                                    isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
                                 }}
                                 type="primary"
                                 disabledReason={addSharedMetricDisabledReason()}
@@ -108,7 +159,7 @@ export function SharedMetricModal({
                 </div>
             }
         >
-            {isCreateMode && (
+            {mode === 'create' && (
                 <div className="deprecated-space-y-2">
                     {availableSharedMetrics.length > 0 ? (
                         <>
@@ -227,12 +278,12 @@ export function SharedMetricModal({
                 </div>
             )}
 
-            {isEditMode && (
+            {editingSharedMetricId && (
                 <div>
                     {(() => {
-                        const metric = compatibleSharedMetrics.find((m: SharedMetric) => m.id === sharedMetricId)
+                        const metric = compatibleSharedMetrics.find((m: SharedMetric) => m.id === editingSharedMetricId)
                         if (!metric) {
-                            return null
+                            return <></>
                         }
 
                         return (
