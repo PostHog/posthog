@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { ProjectSecretAPIKeyRequest } from 'src/queries/schema/schema-general'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -14,7 +15,7 @@ import { ProjectSecretAPIKeyType } from '~/types'
 
 import type { projectAPIKeysLogicType } from './projectAPIKeysLogicType'
 
-export type EditingProjectKeyFormValues = Pick<ProjectSecretAPIKeyType, 'label' | 'scopes'> & {
+export type EditingProjectKeyFormValues = ProjectSecretAPIKeyRequest & {
     preset?: string
 }
 
@@ -54,10 +55,10 @@ export const projectAPIKeysLogic = kea<projectAPIKeysLogicType>([
                     if (!values.currentTeamId) {
                         return []
                     }
-                    return await api.projectSecretApiKeys.list(values.currentTeamId)
+                    return await api.projectSecretApiKeys.list()
                 },
                 deleteKey: async ({ id }: { id: string }) => {
-                    await api.projectSecretApiKeys.delete(values.currentTeamId!, id)
+                    await api.projectSecretApiKeys.delete(id)
                     lemonToast.success('Project API key deleted')
                     return values.keys.filter((key: ProjectSecretAPIKeyType) => key.id !== id)
                 },
@@ -95,8 +96,8 @@ export const projectAPIKeysLogic = kea<projectAPIKeysLogicType>([
 
                 const key =
                     values.editingKeyId === 'new'
-                        ? await api.projectSecretApiKeys.create(values.currentTeamId, payload)
-                        : await api.projectSecretApiKeys.update(values.currentTeamId, values.editingKeyId, payload)
+                        ? await api.projectSecretApiKeys.create(payload)
+                        : await api.projectSecretApiKeys.update(values.editingKeyId, payload)
 
                 breakpoint()
 

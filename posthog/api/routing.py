@@ -14,6 +14,7 @@ from posthog.api.utils import get_token
 from posthog.auth import (
     JwtAuthentication,
     PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyUser,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
@@ -178,6 +179,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         if self.action != "list":
             # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
             # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
+            return queryset
+
+        if isinstance(self.request.user, ProjectSecretAPIKeyUser):
             return queryset
 
         # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)

@@ -32,6 +32,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
@@ -40,6 +41,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
+from posthog.permissions import ProjectSecretAPIKeyPermission
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
@@ -51,21 +53,34 @@ from .models import Endpoint
 
 @extend_schema(tags=["endpoints"])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
-    # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
-    # Special case for query - these are all essentially read actions
-    scope_object_read_actions = ["retrieve", "list", "run"]
-    scope_object_write_actions: list[str] = ["create", "destroy", "update"]
     lookup_field = "name"
     queryset = Endpoint.objects.all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["is_active", "created_by"]
+    filterset_fields = ["is_active", "created_by_user", "created_by_api_key"]
+
+    scope_object_read_actions = ["retrieve", "list", "run"]
+    scope_object_write_actions: list[str] = ["create", "destroy", "update"]
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    permission_classes = [ProjectSecretAPIKeyPermission]
 
     def get_serializer_class(self):
         return None  # We use Pydantic models instead
 
     def get_throttles(self):
         return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
+
+    def _serialize_creator(self, endpoint: Endpoint) -> dict:
+        """Serialize the creator, handling both User and ProjectSecretAPIKey"""
+        creator = endpoint.created_by
+        if isinstance(creator, User):
+            return UserBasicSerializer(creator).data
+        else:
+            return {
+                "id": str(creator.id),
+                "label": creator.label,
+                "type": "project_secret_api_key",
+            }
 
     def check_team_api_queries_concurrency(self):
         cache_key = f"team/{self.team_id}/feature/{AvailableFeature.API_QUERIES_CONCURRENCY}"
@@ -95,7 +110,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "endpoint_path": endpoint.endpoint_path,
                     "created_at": endpoint.created_at,
                     "updated_at": endpoint.updated_at,
-                    "created_by": UserBasicSerializer(endpoint.created_by).data,
+                    "created_by": self._serialize_creator(endpoint),
                 }
             )
 
@@ -128,14 +143,21 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         self.validate_request(data, strict=True)
 
         try:
-            endpoint = Endpoint.objects.create(
-                team=self.team,
-                created_by=cast(User, request.user),
-                name=cast(str, data.name),  # verified in validate_request
-                query=cast(Union[HogQLQuery, InsightQueryNode], data.query).model_dump(),
-                description=data.description or "",
-                is_active=data.is_active if data.is_active is not None else True,
-            )
+            # Handle both User and ProjectSecretAPIKeyUser creators
+            create_kwargs = {
+                "team": self.team,
+                "name": cast(str, data.name),  # verified in validate_request
+                "query": cast(Union[HogQLQuery, InsightQueryNode], data.query).model_dump(),
+                "description": data.description or "",
+                "is_active": data.is_active if data.is_active is not None else True,
+            }
+
+            if isinstance(request.user, ProjectSecretAPIKeyUser):
+                create_kwargs["created_by_api_key"] = request.user.project_secret_api_key
+            else:
+                create_kwargs["created_by_user"] = cast(User, request.user)
+
+            endpoint = Endpoint.objects.create(**create_kwargs)
 
             return Response(
                 {
@@ -209,7 +231,13 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         request=EndpointRunRequest,
         description="Update an existing endpoint. Parameters are optional.",
     )
-    @action(methods=["GET", "POST"], detail=True)
+    @action(
+        methods=["GET", "POST"],
+        detail=True,
+        required_scopes=["endpoint:read"],
+        # authentication_classes=[ProjectSecretAPIKeyAuthentication],
+        # permission_classes=[ProjectSecretAPIKeyPermission],
+    )
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute a endpoint with optional parameters."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True)

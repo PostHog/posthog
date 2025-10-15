@@ -127,18 +127,7 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
 }
 
 // Project API keys have a restricted subset of scopes
-// Note: 'endpoint' scope doesn't exist yet in backend, using 'task' as placeholder
-export const PROJECT_API_KEY_ALLOWED_SCOPES: readonly APIScopeObject[] = [
-    'task', // TODO: Change to 'endpoint' when backend adds it
-    'query',
-    'insight',
-    'dashboard',
-    'cohort',
-    'feature_flag',
-    'session_recording',
-    'event_definition',
-    'property_definition',
-] as const
+export const PROJECT_API_KEY_ALLOWED_SCOPES: readonly APIScopeObject[] = ['endpoint', 'feature_flag'] as const
 
 // Filter API_SCOPES to only show allowed scopes for project keys
 export const PROJECT_API_KEY_SCOPES = API_SCOPES.filter((scope) => PROJECT_API_KEY_ALLOWED_SCOPES.includes(scope.key))
@@ -153,14 +142,8 @@ export const PROJECT_API_KEY_SCOPE_PRESETS: {
     {
         value: 'endpoint_execution',
         label: 'Endpoint execution',
-        scopes: ['task:read', 'query:read'], // TODO: Change to 'endpoint:read' when backend adds it
+        scopes: ['endpoint:read'],
         description: 'Execute endpoints and run queries',
-    },
-    {
-        value: 'data_export',
-        label: 'Data export',
-        scopes: ['insight:read', 'dashboard:read', 'cohort:read'],
-        description: 'Export insights, dashboards, and cohorts',
     },
     {
         value: 'feature_flag_client',

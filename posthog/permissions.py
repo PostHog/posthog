@@ -440,7 +440,7 @@ class APIScopePermission(ScopeBasePermission):
                 valid_scopes.append(required_scope.replace(":read", ":write"))
 
             if not any(scope in key_scopes for scope in valid_scopes):
-                self.message = f"API key missing required scope '{required_scope}'"
+                self.message = f"Personal API key missing required scope '{required_scope}'"
                 return False
 
         return True
@@ -686,6 +686,85 @@ class ProjectSecretAPITokenPermission(BasePermission):
             return True
 
         return authenticated_team.id == resolved_team.id
+
+
+class ProjectSecretAPIKeyPermission(ScopeBasePermission):
+    """
+    Permission class for project secret API key authentication.
+
+    Validates:
+    1. Request is authenticated with ProjectSecretAPIKeyAuthentication
+    2. If authenticated with a managed ProjectSecretAPIKey (not team token), validate scopes
+    3. Key's project matches the resolved project
+    """
+
+    message = "Project API key does not have required permissions"
+
+    def has_permission(self, request: Request, view) -> bool:
+        from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+
+        if not isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+            return True
+
+        # If not using ProjectSecretAPIKeyUser, pass through
+        if not isinstance(request.user, ProjectSecretAPIKeyUser):
+            return True
+
+        # If authenticated with team secret token (no project_secret_api_key), full access
+        if request.user.project_secret_api_key is None:
+            return True
+
+        # Managed ProjectSecretAPIKey - validate scopes
+        project_secret_api_key = request.user.project_secret_api_key
+
+        # Validate that the API key's team matches the team being accessed
+        try:
+            view_team_id = view.team_id
+            if project_secret_api_key.team_id != view_team_id:
+                self.message = f"Project API key does not have access to team {view_team_id}"
+                return False
+        except AttributeError:
+            # not a team view
+            return False
+
+        required_scopes = self._get_required_scopes(request, view)
+        if required_scopes:
+            key_scopes = set(project_secret_api_key.scopes or [])
+
+            # Check if any required scope is satisfied
+            for required_scope in required_scopes:
+                valid_scopes = [required_scope]
+
+                # For all valid scopes with :read we also add :write
+                # This allows write scopes to satisfy read requirements
+                if required_scope.endswith(":read"):
+                    valid_scopes.append(required_scope.replace(":read", ":write"))
+
+                if any(scope in key_scopes for scope in valid_scopes):
+                    return True
+
+            self.message = f"Project API key missing required scope '{required_scopes[0]}'"
+            return False
+
+        return True
+
+    def has_object_permission(self, request: Request, view, obj) -> bool:
+        from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+
+        if not isinstance(request.successful_authenticator, ProjectSecretAPIKeyAuthentication):
+            return True
+
+        if not isinstance(request.user, ProjectSecretAPIKeyUser):
+            return True
+
+        # Validate key's project matches the object's project
+        team = request.user.team
+        if hasattr(obj, "team"):
+            return obj.team.id == team.id
+        elif hasattr(obj, "team_id"):
+            return obj.team_id == team.id
+
+        return False
 
 
 class UserCanInvitePermission(BasePermission):

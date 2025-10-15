@@ -59,7 +59,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         # Verify it was saved to database
         endpoint = Endpoint.objects.get(name="test_query", team=self.team)
         self.assertEqual(endpoint.query, self.sample_query)
-        self.assertEqual(endpoint.created_by, self.user)
+        self.assertEqual(endpoint.created_by_user, self.user)
 
     def test_update_endpoint(self):
         """Test updating an existing endpoint."""
@@ -68,7 +68,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=self.sample_query,
             description="Original description",
-            created_by=self.user,
+            created_by_user=self.user,
         )
 
         updated_data = {
@@ -113,7 +113,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="delete_test",
             team=self.team,
             query=self.sample_query,
-            created_by=self.user,
+            created_by_user=self.user,
         )
 
         response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/delete_test/")
@@ -126,7 +126,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="execute_test",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1 as result"},
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=True,
         )
 
@@ -145,7 +145,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="inactive_test",
             team=self.team,
             query=self.sample_query,
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=False,
         )
 
@@ -184,7 +184,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="duplicate_test",
             team=self.team,
             query=self.sample_query,
-            created_by=self.user,
+            created_by_user=self.user,
         )
 
         data = {
@@ -205,7 +205,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="other_team_query",
             team=other_team,
             query=self.sample_query,
-            created_by=other_user,
+            created_by_user=other_user,
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/other_team_query/run/")
@@ -218,7 +218,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="invalid_sql_test",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT FROM invalid_syntax"},
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=True,
         )
 
@@ -249,7 +249,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="query_with_variables",
             team=self.team,
             query=query_with_variables,
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=True,
         )
 
@@ -269,14 +269,14 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="active_query",
             team=self.team,
             query=self.sample_query,
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=True,
         )
         Endpoint.objects.create(
             name="inactive_query",
             team=self.team,
             query=self.sample_query,
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=False,
         )
 
@@ -302,24 +302,24 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="query_by_user1",
             team=self.team,
             query=self.sample_query,
-            created_by=self.user,
+            created_by_user=self.user,
         )
         Endpoint.objects.create(
             name="query_by_user2",
             team=self.team,
             query=self.sample_query,
-            created_by=other_user,
+            created_by_user=other_user,
         )
 
         # Test filtering by first user
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/?created_by={self.user.id}")
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/?created_by_user={self.user.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
         self.assertEqual(response_data["results"][0]["name"], "query_by_user1")
 
         # Test filtering by second user
-        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/?created_by={other_user.id}")
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/?created_by_user={other_user.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
@@ -333,26 +333,26 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="active_query_user1",
             team=self.team,
             query=self.sample_query,
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=True,
         )
         Endpoint.objects.create(
             name="inactive_query_user1",
             team=self.team,
             query=self.sample_query,
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=False,
         )
         Endpoint.objects.create(
             name="active_query_user2",
             team=self.team,
             query=self.sample_query,
-            created_by=other_user,
+            created_by_user=other_user,
             is_active=True,
         )
 
         response = self.client.get(
-            f"/api/environments/{self.team.id}/endpoints/?is_active=true&created_by={self.user.id}"
+            f"/api/environments/{self.team.id}/endpoints/?is_active=true&created_by_user={self.user.id}"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -366,14 +366,14 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="query1",
             team=self.team,
             query=self.sample_query,
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=True,
         )
         Endpoint.objects.create(
             name="query2",
             team=self.team,
             query=self.sample_query,
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=False,
         )
 
@@ -505,7 +505,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(1, saved_query["aggregation_group_type_index"])
 
         endpoint = Endpoint.objects.get(name="comprehensive_trends_test", team=self.team)
-        self.assertEqual(endpoint.created_by, self.user)
+        self.assertEqual(endpoint.created_by_user, self.user)
         self.assertEqual("TrendsQuery", endpoint.query["kind"])
 
     def test_execute_endpoint_with_trends_query_override(self):
@@ -527,7 +527,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="trends_execution_test",
             team=self.team,
             query=trends_query,
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=True,
         )
 
@@ -566,7 +566,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="hogql_validation_test",
             team=self.team,
             query=hogql_query,
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=True,
         )
 
@@ -605,14 +605,14 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="test_query_1",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=True,
         )
         Endpoint.objects.create(
             name="test_query_2",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 2"},
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=True,
         )
 
@@ -678,7 +678,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             name="test_query_1",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            created_by=self.user,
+            created_by_user=self.user,
             is_active=True,
         )
 

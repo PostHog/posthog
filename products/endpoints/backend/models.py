@@ -1,9 +1,10 @@
 import re
-from typing import Any
+from typing import Any, Union
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
@@ -52,7 +53,10 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     is_active = models.BooleanField(default=True, help_text="Whether this endpoint is available via the API")
 
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    # Exactly one of these must be set (enforced by constraint)
+    created_by_user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    created_by_api_key = models.ForeignKey(ProjectSecretAPIKey, on_delete=models.CASCADE, null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -61,7 +65,14 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             models.UniqueConstraint(
                 fields=["team", "name"],
                 name="unique_team_endpoint_name",
-            )
+            ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(created_by_user__isnull=False, created_by_api_key__isnull=True)
+                    | models.Q(created_by_user__isnull=True, created_by_api_key__isnull=False)
+                ),
+                name="endpoint_exactly_one_creator",
+            ),
         ]
         indexes = [
             models.Index(fields=["team", "is_active"]),
@@ -70,6 +81,15 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     def __str__(self) -> str:
         return f"{self.team.name}: {self.name}"
+
+    @property
+    def created_by(self) -> Union[User, ProjectSecretAPIKey]:
+        """Return the creator, which can be either a User or ProjectSecretAPIKey."""
+        if self.created_by_user:
+            return self.created_by_user
+        if self.created_by_api_key:
+            return self.created_by_api_key
+        raise ValueError("Endpoint must have either created_by_user or created_by_api_key")
 
     @property
     def endpoint_path(self) -> str:
