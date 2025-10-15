@@ -83,10 +83,10 @@ async def execute_batch_export_using_internal_stage(
     """
     get_export_started_metric().add(1)
 
-    try:
-        batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export  # type: ignore
-    except AttributeError:
-        batch_export_inputs = inputs  # type: ignore
+    if hasattr(inputs, "batch_export"):
+        batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export
+    else:
+        batch_export_inputs = inputs
 
     assert batch_export_inputs.batch_export_id is not None
     assert batch_export_inputs.run_id is not None
