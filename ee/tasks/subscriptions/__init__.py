@@ -6,6 +6,7 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 from prometheus_client import Counter
+from slack_sdk.errors import SlackApiError
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
 
@@ -26,6 +27,7 @@ from ee.tasks.subscriptions.subscription_utils import generate_assets, generate_
 
 logger = structlog.get_logger(__name__)
 
+# Slack errors that are user configuration issues, not system failures
 SLACK_USER_CONFIG_ERRORS = frozenset(["not_in_channel", "account_inactive", "is_archived"])
 
 # Prometheus metrics for Celery workers (web/worker pods)
@@ -206,8 +208,6 @@ async def deliver_subscription_report_async(
             logger.info("deliver_subscription_report_async.slack_sent", subscription_id=subscription_id)
             get_subscription_success_metric("slack", "temporal").add(1)
         except Exception as e:
-            from slack_sdk.errors import SlackApiError
-
             is_user_config_error = isinstance(e, SlackApiError) and e.response.get("error") in SLACK_USER_CONFIG_ERRORS
 
             if not is_user_config_error:
