@@ -23,6 +23,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingRelease,
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
