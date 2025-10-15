@@ -941,7 +941,7 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("b.a(bla)", "You can only call simple functions in HogQL, not expressions")
         self._assert_expr_error("a -> { print(2) }", "You can not use placeholders here")
 
-    def test_logical_and_optimization(self):
+    def test_boolean_and_optimization(self):
         self.assertEqual(
             self._expr("team_id=1 AND 1 AND event='name'"),
             "and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
@@ -963,6 +963,28 @@ class TestPrinter(BaseTest):
             "0",
         )
 
+    def test_boolean_or_optimization(self):
+        self.assertEqual(
+            self._expr("team_id=1 OR 0 OR event='name'"),
+            "or(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 OR 0"),
+            "equals(events.team_id, 1)",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 OR 1"),
+            "1",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 OR (1=1 OR event='name')"),
+            "1",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 OR (0=1 OR event='name')"),
+            "or(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
+        )
+
     def test_logic(self):
         self.assertEqual(
             self._expr("event or timestamp"),
@@ -973,8 +995,12 @@ class TestPrinter(BaseTest):
             "and(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))",
         )
         self.assertEqual(
+            self._expr("event or timestamp or count()"),
+            "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), count())",
+        )
+        self.assertEqual(
             self._expr("event or timestamp or true or count()"),
-            "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), 1, count())",
+            "1",
         )
         self.assertEqual(
             self._expr("event or not timestamp"),
@@ -2219,6 +2245,34 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             (
                 f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+            ),
+            printed,
+        )
+
+    def test_sortable_semver(self):
+        # Also test different capitalizations
+        query = parse_select(
+            """
+                SELECT
+                    sortableSemVer('1.2.3') AS semver1,
+                    sortableSemver('1.2.3') AS semver2,
+                    sortablesemver('1.2.3') AS semver3,
+                    sOrTaBlEsEmVeR('1.2.3') AS semver4
+            """
+        )
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            (
+                f"SELECT arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_0)s), '(\\d+(\\.\\d+)+)'))) AS semver1, "
+                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_1)s), '(\\d+(\\.\\d+)+)'))) AS semver2, "
+                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_2)s), '(\\d+(\\.\\d+)+)'))) AS semver3, "
+                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_3)s), '(\\d+(\\.\\d+)+)'))) AS semver4 "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
             ),
             printed,
