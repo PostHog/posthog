@@ -594,28 +594,28 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setSearch: () => [
             router.values.location.pathname,
             {
-                search: values.search || undefined,
+                search: values.search !== '' ? values.search : undefined,
                 category: values.selectedCategory !== 'all' ? values.selectedCategory : undefined,
             },
         ],
         setSelectedCategory: () => [
             router.values.location.pathname,
             {
-                search: values.search || undefined,
+                search: values.search !== '' ? values.search : undefined,
                 category: values.selectedCategory !== 'all' ? values.selectedCategory : undefined,
             },
         ],
     })),
     tabAwareUrlToAction(({ actions, values }) => ({
         [urls.newTab()]: (_, searchParams) => {
-            if (searchParams.search && searchParams.search !== values.search) {
+            if (searchParams.search !== undefined && searchParams.search !== values.search) {
                 actions.setSearch(String(searchParams.search))
             }
             if (searchParams.category && searchParams.category !== values.selectedCategory) {
                 actions.setSelectedCategory(searchParams.category)
             }
             // Set defaults from URL if no params
-            if (!searchParams.search && values.search) {
+            if (searchParams.search === undefined && values.search !== '') {
                 actions.setSearch('')
             }
             if (!searchParams.category && values.selectedCategory !== 'all') {
