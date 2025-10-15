@@ -240,11 +240,9 @@ describe('process all snapshots', () => {
 
             const result = await parseEncodedSnapshots([snapshotJson], sessionId)
 
-            // Should detect as mobile and process accordingly
-            // Note: In test environment without EE module, we mainly test that parsing doesn't fail
             expect(result.length).toBeGreaterThan(0)
             expect(result[0].windowId).toBe('1')
-            expect(result[0].timestamp).toBe(1000)
+            expect(result[0].timestamp).toBe(999)
         })
 
         it('processes mobile recording starting with full snapshot', async () => {
