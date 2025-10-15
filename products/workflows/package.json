@@ -1,5 +1,5 @@
 {
-    "name": "@posthog/products-messaging",
+    "name": "@posthog/products-workflows",
     "dependencies": {
         "kea": "^3.1.7",
         "kea-forms": "^3.2.0",
