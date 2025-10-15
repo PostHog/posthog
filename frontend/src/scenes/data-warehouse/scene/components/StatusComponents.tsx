@@ -2,48 +2,44 @@ import { IconCheckCircle } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { IconCancel, IconExclamation, IconRadioButtonUnchecked, IconSync } from 'lib/lemon-ui/icons'
+import { StatusTagSetting } from 'scenes/data-warehouse/utils'
 
-export function StatusIcon({ status }: { status?: string }): JSX.Element {
-    const s = (status || '').toLowerCase()
+import { ExternalDataJobStatus } from '~/types'
 
-    if (s === 'failed' || s === 'error') {
+export function StatusIcon({ status }: { status?: ExternalDataJobStatus }): JSX.Element {
+    if (!status) {
+        return <IconRadioButtonUnchecked className="text-muted" />
+    }
+
+    if (status === ExternalDataJobStatus.Failed) {
         return <IconCancel className="text-danger" />
     }
-    if (s === 'warning' || s.includes('billing')) {
+    if (status === ExternalDataJobStatus.BillingLimits || status === ExternalDataJobStatus.BillingLimitTooLow) {
         return <IconExclamation className="text-warning" />
     }
-    if (s === 'running') {
+    if (status === ExternalDataJobStatus.Running) {
         return <IconSync className="animate-spin" />
     }
-    if (s === 'completed' || s === 'success') {
+    if (status === ExternalDataJobStatus.Completed) {
         return <IconCheckCircle className="text-success" />
     }
     return <IconRadioButtonUnchecked className="text-muted" />
 }
 
-export function StatusTag({ status }: { status?: string }): JSX.Element {
-    const s = (status || '').toLowerCase()
+export function StatusTag({ status }: { status?: ExternalDataJobStatus }): JSX.Element {
+    if (!status) {
+        return (
+            <LemonTag size="small" type="muted" className="px-1 rounded-lg">
+                —
+            </LemonTag>
+        )
+    }
 
-    const type = ['failed', 'error'].includes(s)
-        ? ('danger' as const)
-        : s === 'warning'
-          ? ('warning' as const)
-          : ['completed', 'success'].includes(s)
-            ? ('success' as const)
-            : s === 'running'
-              ? ('none' as const)
-              : ('muted' as const)
-
-    const size = (['completed', 'failed', 'error'].includes(s) ? 'medium' : 'small') as 'medium' | 'small'
+    const type = StatusTagSetting[status] || 'muted'
 
     return (
-        <LemonTag
-            size={size}
-            type={type}
-            className="px-1 rounded-lg"
-            style={type === 'none' ? { color: '#3b82f6', borderColor: '#3b82f6' } : undefined}
-        >
-            {s || '—'}
+        <LemonTag size="medium" type={type} className="px-1 rounded-lg">
+            {status}
         </LemonTag>
     )
 }

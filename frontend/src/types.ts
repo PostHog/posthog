@@ -5815,7 +5815,7 @@ export interface DataWarehouseActivityRecord {
     id: string
     type: string
     name: string | null
-    status: string
+    status: ExternalDataJobStatus
     rows: number
     created_at: string
     finished_at: string | null
