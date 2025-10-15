@@ -1413,6 +1413,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
         if (
             str(inputs.team_id) in settings.BATCH_EXPORT_REDSHIFT_USE_STAGE_TEAM_IDS
             or inputs.team_id % 100 < settings.BATCH_EXPORT_REDSHIFT_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
+            or inputs.mode == "COPY"
         ):
             if inputs.mode == "COPY" and inputs.copy_inputs is not None:
                 await execute_batch_export_using_internal_stage(
