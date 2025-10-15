@@ -407,7 +407,7 @@ export const GENERATED_DASHBOARD_PREFIX = 'Generated Dashboard'
 
 export const ACTIVITY_PAGE_SIZE = 20
 export const ADVANCED_ACTIVITY_PAGE_SIZE = 100
-// Test build cache - 2025-10-15 15:41
+// Test build cache - 2025-10-15 16:45
 export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
