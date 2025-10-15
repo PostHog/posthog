@@ -54,6 +54,7 @@ ffmpeg.pkg-path = "ffmpeg"
 DEBUG = "1"
 POSTHOG_SKIP_MIGRATION_CHECKS = "1"
 DIRENV_LOG_FORMAT = "" # Disable direnv activation logging (in case direnv is present)
+RUST_LOG = "flox=error,flox_rust_sdk=error,flox_watchdog=error" # Suppress Flox logs only (also set in .envrc for early activation)
 OPENSSL_ROOT_DIR = "$FLOX_ENV"
 OPENSSL_LIB_DIR = "$FLOX_ENV/lib"
 DOTENV_FILE = ".env"
@@ -83,6 +84,9 @@ if [[ -t 0 ]] && ! command -v direnv >/dev/null 2>&1 && [ ! -f "$FLOX_ENV_CACHE/
   touch $FLOX_ENV_CACHE/.hush-direnv
   echo
 fi
+
+# Clean up old Flox log files (older than 7 days)
+find "$FLOX_ENV_PROJECT/.flox/log" -name "*.log" -type f -mtime +7 -delete 2>/dev/null || true
 
 # Ensure Python virtual environment - Python version is defined in pyproject.toml
 uv sync

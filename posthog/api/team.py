@@ -951,15 +951,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 return response.Response({"error": "tag_name is required"}, status=400)
 
             with transaction.atomic():
-                # Limit to 10 default tags - check within transaction to prevent race condition
-                current_count = TeamDefaultEvaluationTag.objects.filter(team=team).count()
-                if current_count >= 10:
+                # Select and lock all existing tags for this team
+                existing_tags = list(TeamDefaultEvaluationTag.objects.filter(team=team).select_for_update())
+                if len(existing_tags) >= 10:
                     return response.Response({"error": "Maximum of 10 default evaluation tags allowed"}, status=400)
 
-                # Get or create the tag
                 tag, _ = Tag.objects.get_or_create(name=tag_name, team=team)
-
-                # Create the default evaluation tag link
                 default_tag, created = TeamDefaultEvaluationTag.objects.get_or_create(team=team, tag=tag)
 
                 if created:

@@ -456,8 +456,6 @@ class TestSessionSummarizationNode(BaseTest):
             },
         )
 
-        # Set config before calling arun so context_manager can access it
-        self.node._config = config
         result = async_to_sync(self.node.arun)(state, config)
 
         # Should return "No sessions were found" message since we mocked empty results
