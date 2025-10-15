@@ -1420,7 +1420,7 @@ def bulk_create_symbol_sets(
             if dirty:
                 to_update.append(existing)
 
-        # We update only the frames we modified the release of - for all others, this is a no-op (we assume they were uploaded
+        # We update only the symbol sets we modified the release of - for all others, this is a no-op (we assume they were uploaded
         # during a prior attempt or something).
         _ = ErrorTrackingSymbolSet.objects.bulk_update(to_update, ["release", "content_hash", "storage_ptr"])
 
