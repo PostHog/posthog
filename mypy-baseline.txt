@@ -442,7 +442,7 @@ posthog/api/file_system/test/test_file_system.py:0: error: Value of type "Any | 
 posthog/api/file_system/test/test_file_system.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/api/insight.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
 posthog/api/integration.py:0: error: Incompatible types in assignment (expression has type "Any | None", variable has type "str")  [assignment]
-posthog/api/notebook.py:0: error: Incompatible types in assignment (expression has type "int", variable has type "str | None")  [assignment]
+products/notebooks/backend/api/notebook.py:0: error: Incompatible types in assignment (expression has type "int", variable has type "str | None")  [assignment]
 posthog/api/organization.py:0: error: Incompatible return value type (got "int | None", expected "Level | None")  [return-value]
 posthog/api/organization_feature_flag.py:0: error: Invalid index type "str | None" for "dict[str, int]"; expected type "str"  [index]
 posthog/api/organization_feature_flag.py:0: error: Invalid index type "str | None" for "dict[str, int]"; expected type "str"  [index]
