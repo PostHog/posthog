@@ -1,12 +1,12 @@
-from typing import Optional
-
 from django.db import transaction
+
 from django_scim import constants
 from django_scim.adapters import SCIMGroup
 
-from ee.models.rbac.role import Role, RoleMembership
 from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
+
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class PostHogSCIMGroup(SCIMGroup):
@@ -68,12 +68,12 @@ class PostHogSCIMGroup(SCIMGroup):
         }
 
     @classmethod
-    def from_dict(cls, d: dict, organization_domain: OrganizationDomain) -> "PostHogSCIMGroup":
+    def from_dict(cls, data: dict, organization_domain: OrganizationDomain) -> "PostHogSCIMGroup":
         """
         Create or update a Role from SCIM Group data.
         Upserts role by name matching.
         """
-        display_name = d.get("displayName")
+        display_name = data.get("displayName")
         if not display_name:
             raise ValueError("displayName is required for groups")
 
@@ -86,15 +86,13 @@ class PostHogSCIMGroup(SCIMGroup):
             )
 
             # Handle member updates if provided
-            if "members" in d:
-                cls._update_members(role, d["members"], organization_domain)
+            if "members" in data:
+                cls._update_members(role, data["members"], organization_domain)
 
         return cls(role, organization_domain)
 
     @classmethod
-    def _update_members(
-        cls, role: Role, members_data: list[dict], organization_domain: OrganizationDomain
-    ) -> None:
+    def _update_members(cls, role: Role, members_data: list[dict], organization_domain: OrganizationDomain) -> None:
         """
         Update role membership based on SCIM members list.
         """
@@ -130,15 +128,32 @@ class PostHogSCIMGroup(SCIMGroup):
         # Remove members no longer in the group
         RoleMembership.objects.filter(role=role, user__id__in=to_remove).delete()
 
+    def replace(self, data: dict) -> None:
+        """
+        Replace role from SCIM Group data (for PUT operations).
+        """
+        display_name = data.get("displayName")
+        if not display_name:
+            raise ValueError("displayName is required for groups")
+
+        with transaction.atomic():
+            if display_name != self.obj.name:
+                self.obj.name = display_name
+                self.obj.save()
+
+            if "members" in data:
+                self._update_members(self.obj, data["members"], self._organization_domain)
+
     def delete(self) -> None:
         """
         Delete the role.
         """
         self.obj.delete()
 
-    def handle_replace(self, data: dict) -> None:
+    def update(self, data: dict) -> None:
         """
-        Handle SCIM PATCH replace operations for groups.
+        Update group from SCIM PATCH operation.
+        Applies partial updates to specific group attributes.
         """
         if "displayName" in data:
             self.obj.name = data["displayName"]

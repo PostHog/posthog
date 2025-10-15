@@ -1,6 +1,7 @@
 from typing import Optional
 
 from django.db import transaction
+
 from django_scim import constants
 from django_scim.adapters import SCIMUser
 
@@ -50,6 +51,17 @@ class PostHogSCIMUser(SCIMUser):
         super().__init__(obj)
         self._organization_domain = organization_domain
 
+    @staticmethod
+    def _extract_email_from_scim(emails: list[dict]) -> Optional[str]:
+        """
+        Extract email from SCIM emails array.
+        Returns primary email if available, otherwise first email.
+        """
+        if not emails:
+            return None
+        primary_email = next((e["value"] for e in emails if e.get("primary")), None)
+        return primary_email or emails[0]["value"]
+
     @classmethod
     def resource_type_dict(cls, request=None) -> dict:
         return {
@@ -81,15 +93,15 @@ class PostHogSCIMUser(SCIMUser):
         return base_dict
 
     @classmethod
-    def from_dict(cls, d: dict, organization_domain: OrganizationDomain) -> "PostHogSCIMUser":
+    def from_dict(cls, data: dict, organization_domain: OrganizationDomain) -> "PostHogSCIMUser":
         """
         Create or update a User from SCIM data.
         """
-        email = d.get("userName") or d.get("emails", [{}])[0].get("value")
+        email = cls._extract_email_from_scim(data.get("emails", []))
         if not email:
-            raise ValueError("userName or email is required")
+            raise ValueError("email is required")
 
-        name_data = d.get("name", {})
+        name_data = data.get("name", {})
         first_name = name_data.get("givenName", "")
         last_name = name_data.get("familyName", "")
 
@@ -125,6 +137,23 @@ class PostHogSCIMUser(SCIMUser):
 
         return cls(user, organization_domain)
 
+    def replace(self, data: dict) -> None:
+        """
+        Replace user from SCIM data (for PUT operations).
+        """
+        name_data = data.get("name", {})
+        email = self._extract_email_from_scim(data.get("emails", []))
+
+        with transaction.atomic():
+            if "givenName" in name_data:
+                self.obj.first_name = name_data["givenName"]
+            if "familyName" in name_data:
+                self.obj.last_name = name_data["familyName"]
+            if email:
+                self.obj.email = email
+
+            self.obj.save()
+
     def delete(self) -> None:
         """
         Deactivate user by removing their membership from this organization.
@@ -133,9 +162,10 @@ class PostHogSCIMUser(SCIMUser):
             user=self.obj, organization=self._organization_domain.organization
         ).delete()
 
-    def handle_replace(self, data: dict) -> None:
+    def update(self, data: dict) -> None:
         """
-        Handle SCIM PATCH replace operations.
+        Update user from SCIM PATCH operation.
+        Applies partial updates to specific user attributes.
         """
         if "active" in data and not data["active"]:
             # If active=false, remove membership
@@ -148,8 +178,9 @@ class PostHogSCIMUser(SCIMUser):
             if "familyName" in name_data:
                 self.obj.last_name = name_data["familyName"]
 
-            if "emails" in data and data["emails"]:
-                self.obj.email = data["emails"][0]["value"]
+            email = self._extract_email_from_scim(data.get("emails", []))
+            if email:
+                self.obj.email = email
 
             self.obj.save()
 

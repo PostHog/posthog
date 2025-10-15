@@ -1,14 +1,15 @@
-from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.models.organization_domain import OrganizationDomain
+
 from ee.api.scim.auth import SCIMBearerTokenAuthentication
 from ee.api.scim.group import PostHogSCIMGroup
 from ee.api.scim.user import PostHogSCIMUser
-from posthog.models.organization_domain import OrganizationDomain
 
 
 @csrf_exempt
@@ -68,7 +69,7 @@ def scim_user_detail_view(request: Request, domain_id: str, user_id: str) -> Res
 
     elif request.method == "PUT":
         try:
-            scim_user = PostHogSCIMUser.from_dict(request.data, organization_domain)
+            scim_user.replace(request.data)
             return Response(scim_user.to_dict())
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -78,7 +79,7 @@ def scim_user_detail_view(request: Request, domain_id: str, user_id: str) -> Res
             operations = request.data.get("Operations", [])
             for op in operations:
                 if op.get("op") == "replace":
-                    scim_user.handle_replace(op.get("value", {}))
+                    scim_user.update(op.get("value", {}))
             return Response(scim_user.to_dict())
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -145,7 +146,7 @@ def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> R
 
     elif request.method == "PUT":
         try:
-            scim_group = PostHogSCIMGroup.from_dict(request.data, organization_domain)
+            scim_group.replace(request.data)
             return Response(scim_group.to_dict())
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -155,7 +156,7 @@ def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> R
             operations = request.data.get("Operations", [])
             for op in operations:
                 if op.get("op") == "replace":
-                    scim_group.handle_replace(op.get("value", {}))
+                    scim_group.update(op.get("value", {}))
             return Response(scim_group.to_dict())
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
