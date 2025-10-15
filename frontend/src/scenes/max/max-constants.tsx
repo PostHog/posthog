@@ -265,13 +265,13 @@ export const MAX_GENERALLY_CANNOT: string[] = [
 ]
 
 export function getToolDefinition(identifier: string): ToolDefinition | null {
-    const flatTools = Object.values(TOOL_DEFINITIONS).flatMap((tool) => {
+    const flatTools = Object.entries(TOOL_DEFINITIONS).flatMap(([key, tool]) => {
         if (tool.kinds) {
-            return Object.values(tool.kinds)
+            return [{ ...tool, key }, ...Object.entries(tool.kinds).map(([key, value]) => ({ ...value, key }))]
         }
-        return [tool]
+        return [{ ...tool, key }]
     })
-    let definition = flatTools.find((tool) => tool.name === identifier)
+    let definition = flatTools.find((tool) => tool.key === identifier)
     if (!definition) {
         return null
     }
