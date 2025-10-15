@@ -12,6 +12,7 @@ from collections.abc import AsyncGenerator
 from django.conf import settings
 
 import pyarrow as pa
+import urllib3.exceptions
 from databricks import sql
 from databricks.sdk._base_client import _BaseClient
 from databricks.sdk.core import Config, ConfigAttribute, oauth_service_principal
@@ -22,7 +23,7 @@ from databricks.sdk.oauth import (
     get_workspace_endpoints,
 )
 from databricks.sql.client import Connection
-from databricks.sql.exc import OperationalError, ServerOperationError
+from databricks.sql.exc import DatabaseError, OperationalError, ServerOperationError
 from databricks.sql.types import Row
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -101,6 +102,20 @@ class DatabricksIntegrationNotFoundError(Exception):
     """Error raised when the Databricks integration is not found."""
 
     pass
+
+
+class DatabricksCatalogNotFoundError(Exception):
+    """Error raised when the Databricks catalog is not found."""
+
+    def __init__(self, catalog: str):
+        super().__init__(f"Catalog '{catalog}' not found")
+
+
+class DatabricksSchemaNotFoundError(Exception):
+    """Error raised when the Databricks schema is not found."""
+
+    def __init__(self, schema: str):
+        super().__init__(f"Schema '{schema}' not found")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -265,8 +280,8 @@ class DatabricksClient:
             raise DatabricksConnectionError(
                 f"Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
             )
-        # for some reason, some connection failures are reported as a ValueError
-        except ValueError as err:
+        # for some reason, Databricks reports some connection failures as a ValueError
+        except (ValueError, urllib3.exceptions.HTTPError, urllib3.exceptions.MaxRetryError) as err:
             self.logger.info(
                 "Failed to connect to Databricks: %s. server_hostname: %s, http_path: %s",
                 err,
@@ -284,23 +299,26 @@ class DatabricksClient:
                 self.http_path,
             )
             raise DatabricksConnectionError(f"Failed to connect to Databricks: {err}") from err
+
         return result
 
     @contextlib.asynccontextmanager
-    async def connect(self):
+    async def connect(self, set_context: bool = True):
         """Manage a Databricks connection.
 
         Methods that require a connection should be ran within this block.
 
-        We call `use_catalog` and `use_schema` to ensure that all queries are run in the correct catalog and schema.
+        If set_context is `True`, we call `use_catalog` and `use_schema` to ensure that all queries are run in the
+        correct catalog and schema.
         """
         self.logger.info("Initializing Databricks connection")
 
         self._connection = await self._connect()
         self.logger.info("Connected to Databricks")
 
-        await self.use_catalog(self.catalog)
-        await self.use_schema(self.schema)
+        if set_context is True:
+            await self.use_catalog(self.catalog)
+            await self.use_schema(self.schema)
 
         try:
             yield self
@@ -393,10 +411,20 @@ class DatabricksClient:
             return results
 
     async def use_catalog(self, catalog: str):
-        await self.execute_query(f"USE CATALOG `{catalog}`", fetch_results=False)
+        try:
+            await self.execute_query(f"USE CATALOG `{catalog}`", fetch_results=False)
+        except ServerOperationError as err:
+            if err.message and "[NO_SUCH_CATALOG_EXCEPTION]" in err.message:
+                raise DatabricksCatalogNotFoundError(catalog)
+            raise
 
     async def use_schema(self, schema: str):
-        await self.execute_query(f"USE SCHEMA `{schema}`", fetch_results=False)
+        try:
+            await self.execute_query(f"USE SCHEMA `{schema}`", fetch_results=False)
+        except ServerOperationError as err:
+            if err.message and "[SCHEMA_NOT_FOUND]" in err.message:
+                raise DatabricksSchemaNotFoundError(schema)
+            raise
 
     @contextlib.asynccontextmanager
     async def managed_table(
@@ -436,14 +464,18 @@ class DatabricksClient:
                 """
             await self.execute_query(query, fetch_results=False)
         except ServerOperationError as err:
-            if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
-                self.external_logger.error("Failed to create table: %s", err.message)  # noqa: TRY400
+            if _is_insufficient_permissions_error(err):
                 raise DatabricksInsufficientPermissionsError(f"Failed to create table: {err.message}")
             raise
 
     async def adelete_table(self, table_name: str):
         """Asynchronously delete the Databricks delta table if it exists."""
-        await self.execute_query(f"DROP TABLE IF EXISTS `{table_name}`", fetch_results=False)
+        try:
+            await self.execute_query(f"DROP TABLE IF EXISTS `{table_name}`", fetch_results=False)
+        except ServerOperationError as err:
+            if _is_insufficient_permissions_error(err):
+                raise DatabricksInsufficientPermissionsError(f"Failed to delete table: {err.message}")
+            raise
 
     async def aput_file_stream_to_volume(self, file: io.BytesIO, volume_path: str, file_name: str):
         """Asynchronously put a local file stream to a Databricks volume."""
@@ -452,26 +484,32 @@ class DatabricksClient:
             query_kwargs={"input_stream": file},
         )
 
-    async def acopy_into_table_from_volume(self, table_name: str, volume_path: str, fields: list[DatabricksField]):
+    async def acopy_into_table_from_volume(
+        self, table_name: str, volume_path: str, fields: list[DatabricksField], with_schema_evolution: bool = True
+    ):
         """Asynchronously copy data from a Databricks volume into a Databricks table."""
         self.logger.info("Copying data from volume into table '%s'", table_name)
         query = self._get_copy_into_table_from_volume_query(
-            table_name=table_name, volume_path=volume_path, fields=fields
+            table_name=table_name, volume_path=volume_path, fields=fields, with_schema_evolution=with_schema_evolution
         )
         try:
             await self.execute_async_query(query, fetch_results=False)
         except ServerOperationError as err:
-            if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
-                self.external_logger.error("Failed to copy data from volume into table: %s", err.message)  # noqa: TRY400
+            if _is_insufficient_permissions_error(err):
                 raise DatabricksInsufficientPermissionsError(
                     f"Failed to copy data from volume into table: {err.message}"
                 )
             raise
 
     def _get_copy_into_table_from_volume_query(
-        self, table_name: str, volume_path: str, fields: list[DatabricksField]
+        self, table_name: str, volume_path: str, fields: list[DatabricksField], with_schema_evolution: bool = True
     ) -> str:
         """Get the query to copy data from a Databricks volume into a Databricks table.
+
+        We use the following COPY_OPTIONS:
+        - force=true to ensure we always load in data from the files in the volume even if they have already been loaded
+            previously
+        - mergeSchema: whether to merge the schema of the source table with the schema of the target table
 
         Databricks is very strict about the schema of the destination table matching the schema of the Parquet file.
         Therefore, we need to cast the data to the correct type, otherwise the request will fail.
@@ -490,12 +528,15 @@ class DatabricksClient:
                 select_fields.append(f"`{field[0]}`")
         select_fields_str = ", ".join(select_fields)
 
+        merge_schema = f"true" if with_schema_evolution else "false"
+
         return f"""
         COPY INTO `{table_name}`
         FROM (
             SELECT {select_fields_str} FROM '{volume_path}'
         )
         FILEFORMAT = PARQUET
+        COPY_OPTIONS ('force' = 'true', 'mergeSchema' = '{merge_schema}')
         """
 
     @contextlib.asynccontextmanager
@@ -509,17 +550,27 @@ class DatabricksClient:
 
     async def acreate_volume(self, volume: str):
         """Asynchronously create a Databricks volume."""
-        await self.execute_query(
-            f"CREATE VOLUME IF NOT EXISTS `{volume}` COMMENT 'PostHog generated volume'",
-            fetch_results=False,
-        )
+        try:
+            await self.execute_query(
+                f"CREATE VOLUME IF NOT EXISTS `{volume}` COMMENT 'PostHog generated volume'",
+                fetch_results=False,
+            )
+        except ServerOperationError as err:
+            if _is_insufficient_permissions_error(err):
+                raise DatabricksInsufficientPermissionsError(f"Failed to create volume: {err.message}")
+            raise
 
     async def adelete_volume(self, volume: str):
         """Asynchronously delete a Databricks volume."""
-        await self.execute_query(
-            f"DROP VOLUME IF EXISTS `{volume}`",
-            fetch_results=False,
-        )
+        try:
+            await self.execute_query(
+                f"DROP VOLUME IF EXISTS `{volume}`",
+                fetch_results=False,
+            )
+        except ServerOperationError as err:
+            if _is_insufficient_permissions_error(err):
+                raise DatabricksInsufficientPermissionsError(f"Failed to delete volume: {err.message}")
+            raise
 
     async def aget_table_columns(self, table_name: str) -> list[str]:
         """Asynchronously get the columns of a Databricks table.
@@ -527,13 +578,20 @@ class DatabricksClient:
         The Databricks connector has dedicated methods for retrieving metadata.
         """
         with self.connection.cursor() as cursor:
-            await asyncio.to_thread(cursor.columns, table_name=table_name)
-            results = await asyncio.to_thread(cursor.fetchall)
             try:
-                column_names = [row.name for row in results]
-            except AttributeError:
-                # depending on the table column mapping mode, this could also be returned via a different attribute
-                column_names = [row.COLUMN_NAME for row in results]
+                await asyncio.to_thread(cursor.columns, table_name=table_name)
+                results = await asyncio.to_thread(cursor.fetchall)
+                try:
+                    column_names = [row.name for row in results]
+                except AttributeError:
+                    # depending on the table column mapping mode, this could also be returned via a different attribute
+                    column_names = [row.COLUMN_NAME for row in results]
+            except DatabaseError as err:
+                if "Expected field named: DataAccessConfigID" in str(err):
+                    raise DatabricksInsufficientPermissionsError(
+                        f"Failed to get table columns: {err}. Please check that you have SELECT permissions on the table."
+                    )
+                raise
             return column_names
 
     async def amerge_tables(
@@ -822,6 +880,13 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
     return DatabricksIntegration(integration)
 
 
+def _is_insufficient_permissions_error(err: ServerOperationError) -> bool:
+    """Check if the error is an insufficient permissions error."""
+    if err.message is None:
+        return False
+    return "INSUFFICIENT_PERMISSIONS" in err.message or "PERMISSION_DENIED" in err.message
+
+
 class DatabricksConsumer(Consumer):
     """A consumer that uploads data to a Databricks managed volume."""
 
@@ -973,13 +1038,13 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         requires_merge, merge_key, update_key = _get_databricks_merge_config(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        # include attempt in the stage table name to avoid collisions if multiple attempts are running at the same time
-        # (ideally this should never happen but it has in the past)
+        # include attempt in the stage table & volume names to avoid collisions if multiple attempts are running at the
+        # same time (ideally this should never happen but it has in the past)
         attempt = activity.info().attempt
         stage_table_name: str | None = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}" if requires_merge else None
         )
-        volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+        volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
         volume_path = f"/Volumes/{inputs.catalog}/{inputs.schema}/{volume_name}"
 
         async with DatabricksClient.from_inputs_and_integration(
@@ -1022,6 +1087,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     table_name=stage_table_name if stage_table_name else inputs.table_name,
                     volume_path=volume_path,
                     fields=table_fields,
+                    with_schema_evolution=inputs.use_automatic_schema_evolution,
                 )
 
                 if requires_merge and stage_table_name is not None:

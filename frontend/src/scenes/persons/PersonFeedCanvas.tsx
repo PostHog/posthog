@@ -24,6 +24,7 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
             initialContent={{
                 type: 'doc',
                 content: [
+                    { type: 'ph-usage-metrics', attrs: { personId: id, nodeId: uuid() } },
                     {
                         type: 'ph-person-feed',
                         attrs: {

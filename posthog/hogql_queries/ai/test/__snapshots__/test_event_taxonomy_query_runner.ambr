@@ -28,6 +28,39 @@
                      allow_experimental_join_condition=1
   '''
 # ---
+# name: TestEventTaxonomyQueryRunner.test_property_taxonomy_handles_numeric_property_values
+  '''
+  SELECT key AS key,
+                arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS
+  values,
+                count(DISTINCT value) AS total_count
+  FROM
+    (SELECT key,
+            value,
+            count() AS count
+     FROM
+       (SELECT [tuple('zero_duration_recording_count_in_period', JSONExtractString(events.properties, 'zero_duration_recording_count_in_period'))] AS kv
+        FROM events
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'organization usage report'), notEquals(JSONExtractString(events.properties, 'zero_duration_recording_count_in_period'), ''))) ARRAY
+     JOIN (kv).1 AS key,
+          (kv).2 AS value
+     WHERE ifNull(notEquals(value, ''), 1)
+     GROUP BY key,
+              value
+     ORDER BY count DESC)
+  GROUP BY key
+  LIMIT 500 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
 # name: TestEventTaxonomyQueryRunner.test_retrieves_action_properties
   '''
   SELECT key,
