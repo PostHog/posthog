@@ -105,6 +105,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
     url_pattern = models.CharField(max_length=500)
+    queryable_folder = models.CharField(max_length=500, null=True, blank=True)
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
     external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
