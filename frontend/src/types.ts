@@ -1093,7 +1093,7 @@ export interface SessionRecordingSnapshotSource {
     blob_key?: string
 }
 
-export type SessionRecordingSnapshotParams =
+export type SessionRecordingSnapshotParams = (
     | {
           source: 'blob'
           blob_key?: string
@@ -1110,6 +1110,9 @@ export type SessionRecordingSnapshotParams =
     | {
           source: 'realtime'
       }
+) & {
+    decompress?: boolean
+}
 
 export interface SessionRecordingSnapshotSourceResponse {
     // v1 loaded each source separately
@@ -3452,6 +3455,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
+    _should_create_usage_dashboard?: boolean
 }
 
 export interface OrganizationFeatureFlag {
