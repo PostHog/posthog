@@ -778,7 +778,7 @@ export const HOG_FLOW_MASK_EXAMPLES: Record<string, Pick<any, 'trigger_masking'>
             ttl: null,
             hash: '{person.id}',
             bytecode: ['_h', 32, 'id', 32, 'person', 1, 2],
-            threshold: 1,
+            threshold: null,
         },
     },
 }

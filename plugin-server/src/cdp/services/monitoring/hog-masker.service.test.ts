@@ -296,18 +296,17 @@ describe('HogMasker', () => {
                 it('resets after ttl for hog flow trigger masking', async () => {
                     const inv = createExampleHogFlowInvocation(hogFlowOncePer)
                     expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
-                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(0)
+                    expect((await masker.filterByMasking([inv])).masked).toHaveLength(1)
                     await reallyAdvanceTime(1000)
                     expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
+                    expect((await masker.filterByMasking([inv])).masked).toHaveLength(1)
                 })
 
                 it('uses threshold for onceEver flow trigger masking', async () => {
-                    // threshold=1 means first allowed (oldValue 0), next allowed once every threshold crossing logic
                     const inv = createExampleHogFlowInvocation(hogFlowOnceEver)
                     expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
-                    // subsequent should be masked until threshold crosses (threshold=1 effectively every time after?)
-                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
-                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
+                    expect((await masker.filterByMasking([inv])).masked).toHaveLength(1)
+                    expect((await masker.filterByMasking([inv])).masked).toHaveLength(1)
                 })
             })
         })
