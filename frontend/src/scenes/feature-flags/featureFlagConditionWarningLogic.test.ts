@@ -67,7 +67,7 @@ describe('featureFlagConditionWarningLogic', () => {
                     key: 'email',
                     type: PropertyFilterType.Person,
                     operator: PropertyOperator.Regex,
-                    value: '(?=test)', // lookahead pattern escaped
+                    value: '\\(?=test\\)', // lookahead pattern escaped
                 },
             ]
 
