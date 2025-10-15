@@ -77,7 +77,7 @@ export function StacktraceGenericExceptionHeader({
                     </>
                 )}
             </div>
-            {(value || loading) && (
+            {(loading || value) && (
                 <div
                     className={cn('font-medium text-[var(--gray-8)] leading-6', {
                         'line-clamp-1': truncate,
