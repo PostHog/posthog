@@ -59,7 +59,7 @@
             "label": "Person ID"
         },
         "person_mode": {
-            "description": "Person processing mode for the event (full, propertyless, or force_upgrade)",
+            "description": "The person mode determined during ingestion: full (identified user with properties), propertyless (anonymous user), or force_upgrade (anonymous event linked to an already identified user). Used in usage reports.",
             "examples": ["full", "propertyless", "force_upgrade"],
             "ignored_in_assistant": true,
             "label": "Person mode",
@@ -906,7 +906,7 @@
             "label": "Is emulator"
         },
         "$is_identified": {
-            "description": "When the person was identified",
+            "description": "Client-side property set by posthog-js indicating whether the user has been previously identified on the device.",
             "label": "Is identified"
         },
         "$is_ios_running_on_mac": {
@@ -2000,7 +2000,7 @@
             "label": "Person ID"
         },
         "person_mode": {
-            "description": "Person processing mode for the event (full, propertyless, or force_upgrade)",
+            "description": "The person mode determined during ingestion: full (identified user with properties), propertyless (anonymous user), or force_upgrade (anonymous event linked to an already identified user). Used in usage reports.",
             "examples": ["full", "propertyless", "force_upgrade"],
             "ignored_in_assistant": true,
             "label": "Person mode",
@@ -3140,7 +3140,7 @@
             "label": "Is emulator"
         },
         "$is_identified": {
-            "description": "When the person was identified",
+            "description": "Client-side property set by posthog-js indicating whether the user has been previously identified on the device.",
             "label": "Is identified"
         },
         "$is_ios_running_on_mac": {
