@@ -124,6 +124,9 @@
                           person_id: {
                             hidden: False
                           },
+                          person_mode: {
+                            hidden: False
+                          },
                           poe: {
                             hidden: False
                           },
@@ -317,6 +320,13 @@
                     }
                   }
                 },
+                person_mode: {
+                  alias: "person_mode"
+                  type: {
+                    name: "person_mode"
+                    table_type: <recursion ...>
+                  }
+                },
                 properties: {
                   alias: "properties"
                   type: {
@@ -486,6 +496,23 @@
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -807,6 +834,17 @@
             expr: {
               chain: [
                 "$window_id"
+              ]
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
+          },
+          {
+            alias: "person_mode"
+            expr: {
+              chain: [
+                "person_mode"
               ]
               type: <recursion ...>
             }
@@ -1335,6 +1373,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -1464,6 +1503,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  person_mode: {
                     hidden: False
                   },
                   poe: {
@@ -1629,6 +1671,23 @@
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -2269,6 +2328,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -3294,6 +3354,9 @@
                           person_id: {
                             hidden: False
                           },
+                          person_mode: {
+                            hidden: False
+                          },
                           poe: {
                             hidden: False
                           },
@@ -3487,6 +3550,13 @@
                     }
                   }
                 },
+                person_mode: {
+                  alias: "person_mode"
+                  type: {
+                    name: "person_mode"
+                    table_type: <recursion ...>
+                  }
+                },
                 properties: {
                   alias: "properties"
                   type: {
@@ -3656,6 +3726,23 @@
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -3978,6 +4065,17 @@
               expr: {
                 chain: [
                   "$window_id"
+                ]
+                type: <recursion ...>
+              }
+              hidden: True
+              type: <recursion ...>
+            },
+            {
+              alias: "person_mode"
+              expr: {
+                chain: [
+                  "person_mode"
                 ]
                 type: <recursion ...>
               }
@@ -4596,6 +4694,9 @@
                             person_id: {
                               hidden: False
                             },
+                            person_mode: {
+                              hidden: False
+                            },
                             poe: {
                               hidden: False
                             },
@@ -4759,6 +4860,23 @@
                   hidden: True
                   type: {
                     alias: "$window_id"
+                    type: <recursion ...>
+                  }
+                },
+                {
+                  alias: "person_mode"
+                  expr: {
+                    chain: [
+                      "person_mode"
+                    ]
+                    type: {
+                      name: "person_mode"
+                      table_type: <recursion ...>
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "person_mode"
                     type: <recursion ...>
                   }
                 },
@@ -5399,6 +5517,7 @@
                   event_person_id: <recursion ...>,
                   issue_id: <recursion ...>,
                   person_id: <recursion ...>,
+                  person_mode: <recursion ...>,
                   properties: <recursion ...>,
                   timestamp: <recursion ...>,
                   uuid: <recursion ...>
@@ -5447,6 +5566,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -5793,6 +5913,9 @@
                   person_id: {
                     hidden: False
                   },
+                  person_mode: {
+                    hidden: False
+                  },
                   poe: {
                     hidden: False
                   },
@@ -5956,6 +6079,23 @@
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -6596,6 +6736,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -6726,6 +6867,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    person_mode: {
                       hidden: False
                     },
                     poe: {
@@ -6892,6 +7036,23 @@
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -7533,6 +7694,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -7663,6 +7825,9 @@
                         hidden: False
                       },
                       person_id: {
+                        hidden: False
+                      },
+                      person_mode: {
                         hidden: False
                       },
                       poe: {
@@ -7856,6 +8021,9 @@
                         hidden: False
                       },
                       person_id: {
+                        hidden: False
+                      },
+                      person_mode: {
                         hidden: False
                       },
                       poe: {
@@ -8361,6 +8529,9 @@
                   person_id: {
                     hidden: False
                   },
+                  person_mode: {
+                    hidden: False
+                  },
                   poe: {
                     hidden: False
                   },
@@ -8584,6 +8755,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    person_mode: {
                       hidden: False
                     },
                     poe: {
@@ -8813,6 +8987,9 @@
                         hidden: False
                       },
                       person_id: {
+                        hidden: False
+                      },
+                      person_mode: {
                         hidden: False
                       },
                       poe: {
@@ -9078,6 +9255,9 @@
                                 hidden: False
                               },
                               person_id: {
+                                hidden: False
+                              },
+                              person_mode: {
                                 hidden: False
                               },
                               poe: {
@@ -9351,6 +9531,9 @@
                   person_id: {
                     hidden: False
                   },
+                  person_mode: {
+                    hidden: False
+                  },
                   poe: {
                     hidden: False
                   },
@@ -9583,6 +9766,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    person_mode: {
                       hidden: False
                     },
                     poe: {
@@ -9820,6 +10006,9 @@
                   person_id: {
                     hidden: False
                   },
+                  person_mode: {
+                    hidden: False
+                  },
                   poe: {
                     hidden: False
                   },
@@ -10039,6 +10228,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    person_mode: {
                       hidden: False
                     },
                     poe: {
@@ -10359,6 +10551,9 @@
                     person_id: {
                       hidden: False
                     },
+                    person_mode: {
+                      hidden: False
+                    },
                     poe: {
                       hidden: False
                     },
@@ -10545,6 +10740,9 @@
                           hidden: False
                         },
                         person_id: {
+                          hidden: False
+                        },
+                        person_mode: {
                           hidden: False
                         },
                         poe: {
@@ -10745,6 +10943,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  person_mode: {
                     hidden: False
                   },
                   poe: {
