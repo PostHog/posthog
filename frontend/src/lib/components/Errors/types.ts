@@ -70,6 +70,7 @@ export interface ErrorTrackingStackFrame {
     lang: string
     resolved: boolean
     resolve_failure: string | null
+    module: string | null
 }
 
 export interface ErrorTrackingFingerprint {

@@ -153,7 +153,7 @@ function Trace({
 }
 
 export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }): JSX.Element {
-    const { raw_id, source, line, column, resolved_name, resolved, resolve_failure, in_app } = frame
+    const { raw_id, source, line, column, resolved_name, resolved, resolve_failure, in_app, module } = frame
     const { getFrameFingerprint } = useValues(errorPropertiesLogic)
     const part = getFrameFingerprint(raw_id)
     return (
@@ -161,7 +161,7 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
             <div className="flex flex-wrap gap-x-1">
                 {resolved_name ? (
                     <div className="flex">
-                        <span>{resolved_name}</span>
+                        <span>{module ? `${module}.${resolved_name}` : resolved_name}</span>
                     </div>
                 ) : null}
                 <div className="flex font-light text-xs">

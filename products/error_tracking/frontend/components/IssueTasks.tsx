@@ -68,7 +68,7 @@ const createTaskForm = (
                 frames.forEach((frame, index) => {
                     description += `**${index + 1}.** `
                     if (frame.resolved_name && frame.resolved_name !== '?') {
-                        description += `\`${frame.resolved_name}\``
+                        description += `\`${frame.module ? `${frame.module}.${frame.resolved_name}` : frame.resolved_name}\``
                     } else {
                         description += 'Anonymous function'
                     }
