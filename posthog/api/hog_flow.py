@@ -18,7 +18,12 @@ from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, InputsSerializer
+from posthog.cdp.validation import (
+    HogFunctionFiltersSerializer,
+    InputsSchemaItemSerializer,
+    InputsSerializer,
+    generate_template_bytecode,
+)
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
@@ -93,6 +98,18 @@ class HogFlowActionSerializer(serializers.Serializer):
         return data
 
 
+class HogFlowMaskingSerializer(serializers.Serializer):
+    ttl = serializers.IntegerField(required=False, min_value=60, max_value=60 * 60 * 24 * 365, allow_null=True)
+    threshold = serializers.IntegerField(required=False, allow_null=True)
+    hash = serializers.CharField(required=True)
+    bytecode = serializers.JSONField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
+
+        return super().validate(attrs)
+
+
 class HogFlowMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
@@ -108,6 +125,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "created_by",
             "updated_at",
             "trigger",
+            "trigger_masking",
             "conversion",
             "exit_condition",
             "edges",
@@ -119,6 +137,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
     actions = serializers.ListField(child=HogFlowActionSerializer(), required=True)
+    trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
 
     class Meta:
         model = HogFlow
@@ -132,6 +151,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "created_by",
             "updated_at",
             "trigger",
+            "trigger_masking",
             "conversion",
             "exit_condition",
             "edges",

@@ -1,6 +1,10 @@
+import os
+import re
 import json
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
+from tempfile import mkstemp
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
 
@@ -109,6 +113,16 @@ async def group_recording_blocks(input: RecordingWithBlocks) -> list[list[Record
     return block_groups
 
 
+def overwrite_block(path: str, start_byte: int, block_length: int, buffer_size: int = 1024) -> None:
+    with open(path, "rb+") as fp:
+        fp.seek(start_byte)
+
+        for _ in range(block_length // buffer_size):
+            fp.write(bytearray(buffer_size))
+
+        fp.write(bytearray(block_length % buffer_size))
+
+
 @activity.defn(name="delete-recording-blocks")
 async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
     bind_contextvars(
@@ -122,13 +136,43 @@ async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
         block_deleted_error_counter = 0
 
         for block in input.blocks:
+            _, _, path, _, query, _ = urlparse(block.url)
+            match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
+
+            if not match:
+                raise DeleteRecordingError(f"Got malformed byte range in block URL: {query}")
+
+            start_byte, end_byte = int(match.group(1)), int(match.group(2))
+            block_length = end_byte - start_byte + 1
+            key = path.lstrip("/")
+
+            tmpfile = None
             try:
-                await storage.delete_block(block.url)
+                _, tmpfile = mkstemp()
+
+                await storage.download_file(key, tmpfile)
+
+                size_before = Path(tmpfile).stat().st_size
+
+                overwrite_block(tmpfile, start_byte, block_length)
+
+                size_after = Path(tmpfile).stat().st_size
+
+                assert size_before == size_after
+
+                await storage.upload_file(key, tmpfile)
+
                 logger.info(f"Deleted block at {block.url}")
                 block_deleted_counter += 1
-            except session_recording_v2_object_storage.BlockDeleteError:
-                logger.warning(f"Failed to delete block at {block.url}, skipping...")
+            except session_recording_v2_object_storage.FileDownloadError:
+                logger.warning(f"Failed to download block at {block.url}, skipping...")
                 block_deleted_error_counter += 1
+            except session_recording_v2_object_storage.FileUploadError:
+                logger.warning(f"Failed to upload block at {block.url}, skipping...")
+                block_deleted_error_counter += 1
+            finally:
+                if tmpfile is not None:
+                    os.remove(tmpfile)
 
     get_block_deleted_counter().add(block_deleted_counter)
     get_block_deleted_error_counter().add(block_deleted_error_counter)

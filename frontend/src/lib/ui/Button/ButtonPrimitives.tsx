@@ -46,6 +46,7 @@ type ButtonBaseProps = {
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
+    tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
     tooltipVisible?: boolean
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     // Like disabled but doesn't show the disabled state or focus state (still shows tooltip)
@@ -260,6 +261,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         hasSideActionRight,
         isSideActionRight,
         tooltip,
+        tooltipCloseDelayMs,
         tooltipPlacement,
         tooltipDocLink,
         tooltipVisible,
@@ -313,6 +315,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                         : tooltip
                 }
                 placement={tooltipPlacement}
+                closeDelayMs={tooltipCloseDelayMs}
                 docLink={tooltipDocLink}
                 visible={tooltipVisible}
             >

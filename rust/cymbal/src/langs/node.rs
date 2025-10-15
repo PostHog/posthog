@@ -23,7 +23,7 @@ pub struct RawNodeFrame {
     pub function: String,    // The name of the function the exception came from
     pub lineno: Option<u32>, // The line number of the context line
     pub colno: Option<u32>,  // The column number of the context line
-    pub module: Option<String>, // The python-import style module name the function is in
+    pub module: Option<String>, // The python-import style module name the function is in. TODO - this seems like a copy-paste error?
     pub context_line: Option<String>, // The line of code the exception came from
     #[serde(default)]
     pub pre_context: Vec<String>, // The lines of code before the context line
@@ -165,6 +165,7 @@ impl From<&RawNodeFrame> for Frame {
             release: None,
             synthetic: raw.meta.synthetic,
             suspicious: false,
+            module: raw.module.clone(),
         }
     }
 }
@@ -207,6 +208,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
+            module: raw_frame.module.clone(),
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -250,6 +252,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
+            module: raw_frame.module.clone(),
         };
 
         add_raw_to_junk(&mut res, raw_frame);
