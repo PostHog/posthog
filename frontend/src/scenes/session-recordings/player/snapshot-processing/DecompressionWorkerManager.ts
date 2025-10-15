@@ -1,96 +1,34 @@
-import type { DecompressionResponse } from './decompressionWorker'
+import snappyInit, { decompress_raw } from 'snappy-wasm'
 
 export class DecompressionWorkerManager {
-    private worker: Worker | null = null
-    private nextRequestId = 0
-    private pendingRequests = new Map<number, { resolve: (data: Uint8Array) => void; reject: (error: Error) => void }>()
     private readonly readyPromise: Promise<void>
+    private snappyInitialized = false
 
     constructor() {
-        this.readyPromise = this.initWorker()
+        this.readyPromise = this.initSnappy()
     }
 
-    private async initWorker(): Promise<void> {
-        return new Promise((resolve, reject) => {
-            try {
-                const workerUrl = new URL('./decompressionWorker?worker_file&type=module', import.meta.url)
-
-                // Use blob workaround for cross-origin worker loading in development
-                // See: https://github.com/vitejs/vite/issues/13680
-                const js = `import ${JSON.stringify(workerUrl.href)}`
-                const blob = new Blob([js], { type: 'application/javascript' })
-                const objURL = URL.createObjectURL(blob)
-
-                this.worker = new Worker(objURL, { type: 'module' })
-
-                this.worker.addEventListener('error', () => {
-                    URL.revokeObjectURL(objURL)
-                })
-
-                // Set up error listener to catch loading errors
-                this.worker.addEventListener('error', (error) => {
-                    console.error('Decompression worker error:', error)
-                    reject(error)
-                })
-
-                // Add a timeout to detect if worker never sends ready signal
-                const timeoutId = setTimeout(() => {
-                    console.error('Worker initialization timeout - worker did not send ready signal')
-                    reject(new Error('Worker initialization timeout - worker did not send ready signal'))
-                }, 5000)
-
-                this.worker.addEventListener('message', (event: MessageEvent) => {
-                    if (event.data.type === 'ready') {
-                        clearTimeout(timeoutId)
-                        resolve()
-                        return
-                    }
-
-                    const response = event.data as DecompressionResponse
-                    const pending = this.pendingRequests.get(response.id)
-
-                    if (pending) {
-                        this.pendingRequests.delete(response.id)
-
-                        if (response.error) {
-                            console.error('Worker decompression error:', response.error)
-                            pending.reject(new Error(response.error))
-                        } else if (response.decompressedData) {
-                            pending.resolve(response.decompressedData)
-                        } else {
-                            console.error('Worker returned no data and no error')
-                            pending.reject(new Error('No data returned from worker'))
-                        }
-                    }
-                })
-            } catch (error) {
-                console.error('Failed to initialize decompression worker:', error)
-                reject(error)
-            }
-        })
+    private async initSnappy(): Promise<void> {
+        if (this.snappyInitialized) {
+            return
+        }
+        await snappyInit()
+        this.snappyInitialized = true
     }
 
     async decompress(compressedData: Uint8Array): Promise<Uint8Array> {
         await this.readyPromise
 
-        if (!this.worker) {
-            throw new Error('Worker not initialized')
+        try {
+            return decompress_raw(compressedData)
+        } catch (error) {
+            console.error('Decompression error:', error)
+            throw error instanceof Error ? error : new Error('Unknown decompression error')
         }
-
-        return new Promise((resolve, reject) => {
-            const id = this.nextRequestId++
-            this.pendingRequests.set(id, { resolve, reject })
-
-            this.worker!.postMessage({ id, compressedData })
-        })
     }
 
     terminate(): void {
-        if (this.worker) {
-            this.worker.terminate()
-            this.worker = null
-        }
-        this.pendingRequests.clear()
+        // No cleanup needed for direct snappy usage
     }
 }
 
