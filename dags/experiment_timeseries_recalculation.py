@@ -26,7 +26,7 @@ experiment_timeseries_recalculation_partitions_def = dagster.DynamicPartitionsDe
 )
 
 
-def parse_partition_key(partition_key: str) -> tuple[int, int, str, str]:
+def parse_partition_key(partition_key: str) -> tuple[str, int, str, str]:
     """
     Parse a recalculation partition key into its components.
 
@@ -41,7 +41,7 @@ def parse_partition_key(partition_key: str) -> tuple[int, int, str, str]:
         raise ValueError(f"Invalid partition key format: {partition_key}")
 
     try:
-        recalculation_id = int(parts[1])
+        recalculation_id = parts[1]  # UUID string
         experiment_id = int(parts[3])
         metric_uuid = parts[5]
         fingerprint = "_".join(parts[6:])
@@ -198,7 +198,7 @@ def experiment_timeseries_recalculation(context: AssetExecutionContext) -> dict[
     )
 
     return {
-        "recalculation_id": recalculation_id,
+        "recalculation_id": str(recalculation_id),
         "experiment_id": experiment.id,
         "metric_uuid": recalculation_request.metric.get("uuid"),
         "days_processed": days_processed,
@@ -227,13 +227,13 @@ def experiment_timeseries_recalculation_sensor(context: dagster.SensorEvaluation
     creates dynamic partitions for them, and triggers their execution.
     """
     # Track which recalculation requests we've already processed
-    last_processed_id = int(context.cursor) if context.cursor else 0
+    last_processed_id = context.cursor
 
-    new_recalculations = list(
-        ExperimentTimeseriesRecalculation.objects.filter(
-            status=ExperimentTimeseriesRecalculation.Status.PENDING, id__gt=last_processed_id
-        ).order_by("id")[:100]  # Limit to 100 requests at a time
-    )
+    filter_kwargs = {"status": ExperimentTimeseriesRecalculation.Status.PENDING}
+    if last_processed_id:
+        filter_kwargs["id__gt"] = last_processed_id
+
+    new_recalculations = list(ExperimentTimeseriesRecalculation.objects.filter(**filter_kwargs).order_by("id")[:100])
 
     if not new_recalculations:
         return SkipReason("No new recalculation requests")
@@ -241,7 +241,7 @@ def experiment_timeseries_recalculation_sensor(context: dagster.SensorEvaluation
     context.log.info(f"Found {len(new_recalculations)} new recalculation requests")
 
     partition_keys = []
-    latest_id = last_processed_id
+    latest_id = last_processed_id or ""
 
     for recalc_request in new_recalculations:
         metric_uuid = recalc_request.metric.get("uuid", "unknown")
@@ -251,11 +251,11 @@ def experiment_timeseries_recalculation_sensor(context: dagster.SensorEvaluation
             f"metric_{metric_uuid}_{recalc_request.fingerprint}"
         )
         partition_keys.append(partition_key)
-        latest_id = max(latest_id, recalc_request.id)
+        latest_id = max(latest_id, str(recalc_request.id))
         context.log.info(f"Creating partition {partition_key}")
 
     context.instance.add_dynamic_partitions("experiment_recalculations", partition_keys)
-    context.update_cursor(str(latest_id))
+    context.update_cursor(latest_id)
 
     run_requests = []
     for partition_key in partition_keys:

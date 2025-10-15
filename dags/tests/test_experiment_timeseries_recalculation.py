@@ -100,7 +100,7 @@ class TestExperimentRecalculation(BaseTest):
             assert metric_result.status == ExperimentMetricResult.Status.COMPLETED
             assert metric_result.result == mock_result.model_dump()
 
-        assert result["recalculation_id"] == recalculation_request.id
+        assert result["recalculation_id"] == str(recalculation_request.id)
         assert result["experiment_id"] == experiment.id
         assert result["metric_uuid"] == "test-metric-uuid"
         assert result["days_processed"] == 3

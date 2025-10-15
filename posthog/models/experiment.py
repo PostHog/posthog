@@ -7,7 +7,7 @@ from django.utils import timezone
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.utils import RootTeamMixin
+from posthog.models.utils import RootTeamMixin, UUIDModel
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -195,7 +195,7 @@ class ExperimentMetricResult(models.Model):
         return f"ExperimentMetricResult({self.experiment_id}, {self.metric_uuid}, {self.query_from}, {self.status})"
 
 
-class ExperimentTimeseriesRecalculation(models.Model):
+class ExperimentTimeseriesRecalculation(UUIDModel):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         IN_PROGRESS = "in_progress", "In Progress"
