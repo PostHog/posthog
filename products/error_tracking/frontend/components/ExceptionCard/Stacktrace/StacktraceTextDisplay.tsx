@@ -7,6 +7,7 @@ import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException, ErrorTrackingStackFrame } from 'lib/components/Errors/types'
+import { formatResolvedName } from 'lib/components/Errors/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { exceptionCardLogic } from '../exceptionCardLogic'
@@ -91,8 +92,7 @@ function StackframeTextDisplay({ frame }: { frame: ErrorTrackingStackFrame }): J
     return (
         <>
             <p className="font-mono indent-[1rem] whitespace-no-wrap mb-0 line-clamp-1">
-                File "{frame.source}", line: {frame.line}, in:{' '}
-                {frame.module ? `${frame.module}.${frame.resolved_name}` : frame.resolved_name}
+                File "{frame.source}", line: {frame.line}, in: {formatResolvedName(frame)}
             </p>
             {stackFrameRecords[frame.raw_id] && stackFrameRecords[frame.raw_id].context?.line.line && (
                 <p className="font-mono indent-[2rem] whitespace-no-wrap mb-0 text-tertiary line-clamp-1">

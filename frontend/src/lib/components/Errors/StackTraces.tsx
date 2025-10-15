@@ -23,7 +23,7 @@ import {
     ErrorTrackingStackFrameContextLine,
     FingerprintRecordPart,
 } from './types'
-import { stacktraceHasInAppFrames } from './utils'
+import { formatResolvedName, stacktraceHasInAppFrames } from './utils'
 
 export type ExceptionHeaderProps = {
     id?: string
@@ -153,15 +153,16 @@ function Trace({
 }
 
 export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }): JSX.Element {
-    const { raw_id, source, line, column, resolved_name, resolved, resolve_failure, in_app, module } = frame
+    const { raw_id, source, line, column, resolved, resolve_failure, in_app } = frame
     const { getFrameFingerprint } = useValues(errorPropertiesLogic)
     const part = getFrameFingerprint(raw_id)
+    const resolvedName = formatResolvedName(frame)
     return (
         <div className="flex flex-1 justify-between items-center h-full">
             <div className="flex flex-wrap gap-x-1">
-                {resolved_name ? (
+                {resolvedName ? (
                     <div className="flex">
-                        <span>{module ? `${module}.${resolved_name}` : resolved_name}</span>
+                        <span>{resolvedName}</span>
                     </div>
                 ) : null}
                 <div className="flex font-light text-xs">
