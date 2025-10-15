@@ -12,7 +12,7 @@ from posthog.settings.data_stores import CLICKHOUSE_SINGLE_SHARD_CLUSTER
 DEAD_LETTER_QUEUE_TABLE = "events_dead_letter_queue"
 
 DEAD_LETTER_QUEUE_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name}
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     id UUID,
     event_uuid UUID,
@@ -39,7 +39,7 @@ def DEAD_LETTER_QUEUE_TABLE_ENGINE():
     return ReplacingMergeTree(DEAD_LETTER_QUEUE_TABLE, ver="_timestamp")
 
 
-def DEAD_LETTER_QUEUE_TABLE_SQL():
+def DEAD_LETTER_QUEUE_TABLE_SQL(on_cluster=True):
     return (
         DEAD_LETTER_QUEUE_TABLE_BASE_SQL
         + """ORDER BY (id, event_uuid, distinct_id, team_id)
@@ -48,7 +48,7 @@ SETTINGS index_granularity=512
 """
     ).format(
         table_name=DEAD_LETTER_QUEUE_TABLE,
-        cluster=CLICKHOUSE_CLUSTER,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         extra_fields=f"""
     {KAFKA_COLUMNS}
     , {index_by_kafka_timestamp(DEAD_LETTER_QUEUE_TABLE)}
@@ -63,17 +63,19 @@ SETTINGS index_granularity=512
 # so it should fail and require manual intervention
 
 
-def KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL():
+def KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL(on_cluster=True):
     return (DEAD_LETTER_QUEUE_TABLE_BASE_SQL + " SETTINGS kafka_skip_broken_messages=1000").format(
         table_name="kafka_" + DEAD_LETTER_QUEUE_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_DEAD_LETTER_QUEUE),
         extra_fields="",
     )
 
 
-def WRITABLE_DEAD_LETTER_QUEUE_TABLE_SQL():
+def WRITABLE_DEAD_LETTER_QUEUE_TABLE_SQL(on_cluster=True):
     return (DEAD_LETTER_QUEUE_TABLE_BASE_SQL).format(
         table_name="writable_" + DEAD_LETTER_QUEUE_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(data_table=DEAD_LETTER_QUEUE_TABLE, cluster=CLICKHOUSE_SINGLE_SHARD_CLUSTER),
         extra_fields=f"""
     {KAFKA_COLUMNS}
