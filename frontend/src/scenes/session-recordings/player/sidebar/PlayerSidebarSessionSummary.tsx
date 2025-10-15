@@ -577,21 +577,18 @@ function LoadSessionSummaryButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { sessionSummaryLoading, loading } = useValues(playerMetaLogic(logicProps))
     const inspectorLogic = playerInspectorLogic(logicProps)
-    const { items: inspectorItems } = useValues(inspectorLogic)
+    const { allItemsByMiniFilterKey } = useValues(inspectorLogic)
     const { summarizeSession } = useActions(playerMetaLogic(logicProps))
 
     // We need $autocapture events to be able to generate a summary
-    const hasEvents = inspectorItems && inspectorItems.length > 0
-    const hasEnoughEvents =
-        hasEvents &&
-        inspectorItems?.some(
-            (item) =>
-                'data' in item &&
-                item.data &&
-                typeof item.data === 'object' &&
-                'event' in item.data &&
-                item.data.event === '$autocapture'
-        )
+    const hasEvents = [
+        'events-posthog',
+        'events-custom',
+        'events-pageview',
+        'events-autocapture',
+        'events-exceptions',
+    ].some((key) => allItemsByMiniFilterKey[key]?.length > 0)
+    const hasAutocaptureEvents = allItemsByMiniFilterKey['events-autocapture']?.length > 0
 
     return (
         <div className="space-y-2">
@@ -601,7 +598,7 @@ function LoadSessionSummaryButton(): JSX.Element {
                 icon={<IconMagicWand />}
                 fullWidth={true}
                 data-attr="load-session-summary"
-                disabled={loading || !hasEnoughEvents}
+                disabled={loading || !hasAutocaptureEvents}
                 disabledReason={sessionSummaryLoading ? 'Loading...' : undefined}
                 onClick={summarizeSession}
             >
@@ -613,7 +610,7 @@ function LoadSessionSummaryButton(): JSX.Element {
                     Checking on session events... <Spinner />
                 </div>
             ) : (
-                !hasEnoughEvents && (
+                !hasAutocaptureEvents && (
                     <div>
                         {hasEvents ? (
                             <>
