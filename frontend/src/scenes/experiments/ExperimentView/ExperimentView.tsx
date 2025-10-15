@@ -20,6 +20,7 @@ import { LegacySharedMetricModal } from '../Metrics/LegacySharedMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
+import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
 import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
@@ -205,9 +206,11 @@ const VariantsTab = (): JSX.Element => {
 export function ExperimentView(): JSX.Element {
     const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft } =
         useValues(experimentLogic)
-    const { setExperiment, updateExperimentMetrics } = useActions(experimentLogic)
+    const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
+        useActions(experimentLogic)
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
+    const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     const [activeTabKey, setActiveTabKey] = useState<string>('metrics')
 
@@ -308,7 +311,42 @@ export function ExperimentView(): JSX.Element {
                                     closeExperimentMetricModal()
                                 }}
                             />
-                            <SharedMetricModal experiment={experiment} onSave={(metrics) => {}} />
+                            <SharedMetricModal
+                                experiment={experiment}
+                                onSave={(metrics, context) => {
+                                    const existingOrderingArray = experiment[context.orderingField] ?? []
+                                    const newMetricUuids = metrics
+                                        .map((metric) => metric.query.uuid)
+                                        .filter((uuid) => !existingOrderingArray.includes(uuid))
+                                    const newOrderingArray = [...existingOrderingArray, ...newMetricUuids]
+
+                                    setExperiment({
+                                        [context.orderingField]: newOrderingArray,
+                                    })
+
+                                    addSharedMetricsToExperiment(
+                                        metrics.map(({ id }) => id),
+                                        { type: context.type }
+                                    )
+                                    closeSharedMetricModal()
+                                }}
+                                onDelete={(metric, context) => {
+                                    const newOrderingArray = removeMetricFromOrderingArray(
+                                        experiment,
+                                        metric.query.uuid,
+                                        context.type === 'secondary'
+                                    )
+
+                                    setExperiment({
+                                        [context.type === 'secondary'
+                                            ? 'secondary_metrics_ordered_uuids'
+                                            : 'primary_metrics_ordered_uuids']: newOrderingArray,
+                                    })
+
+                                    removeSharedMetricFromExperiment(metric.id)
+                                    closeSharedMetricModal()
+                                }}
+                            />
                             <ExposureCriteriaModal />
                             <RunningTimeCalculatorModal />
                         </>
