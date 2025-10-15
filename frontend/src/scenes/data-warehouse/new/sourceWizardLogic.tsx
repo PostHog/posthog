@@ -171,7 +171,11 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
 }
 
 const isTimeRelatedField = (field: IncrementalField): boolean => {
-    return field.field_type === 'timestamp' || field.type === 'datetime' || field.type === 'date'
+    // database types which can be used for incremental sync
+    const isDateFieldType = field.field_type === 'integer' || field.field_type === 'timestamp'
+    // ui field types that signal a field may conform the underlying db field type
+    const isDateType = field.type === 'timestamp' || field.type === 'datetime' || field.type === 'date'
+    return isDateFieldType && isDateType
 }
 
 const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
