@@ -1,6 +1,7 @@
 """Tests for TikTok Ads utility functions."""
 
 from datetime import date, datetime, timedelta
+from enum import Enum
 from typing import Any, cast
 
 import pytest
@@ -197,9 +198,16 @@ class TestSecondaryGoalNormalization:
 
         TikTokReportResource._normalize_secondary_goal_fields(report)
 
-        assert report["secondary_goal_result"] is None
-        assert report["cost_per_secondary_goal_result"] == "2.5"  # Unchanged
-        assert report["secondary_goal_result_rate"] is None
+        # Verify the transformation results
+        expected_report = {
+            "campaign_id": "123",
+            "secondary_goal_result": None,  # Converted from "-"
+            "cost_per_secondary_goal_result": "2.5",  # Unchanged
+            "secondary_goal_result_rate": None,  # Converted from "-"
+            "clicks": "100",
+        }
+
+        assert report == expected_report
 
 
 class TestAccountReportsTransformation:
@@ -427,8 +435,15 @@ class TestStreamTransformations:
         """Test stream transformations for unknown endpoint type."""
         reports = [{"data": "test"}]
 
+        # Create a mock EndpointType enum value that's not handled
+        class MockEndpointType(str, Enum):
+            UNKNOWN = "unknown"
+
+        mock_endpoint = MockEndpointType.UNKNOWN
+
+        # Use type: ignore to bypass mypy check for this test case
         with pytest.raises(ValueError, match="Endpoint type: unknown is not implemented"):
-            TikTokReportResource.apply_stream_transformations("unknown", reports)
+            TikTokReportResource.apply_stream_transformations(mock_endpoint, reports)  # type: ignore[arg-type]
 
 
 class TestDateRangeFunctions:

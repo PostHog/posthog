@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
@@ -137,7 +138,7 @@ class TestGetResource:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.advertiser_id = "test_advertiser_123"
+        self.advertiser_id = "123456789"
 
     def test_get_tiktok_resource_unknown_endpoint(self):
         """Test error handling for unknown endpoint."""
@@ -198,7 +199,7 @@ class TestTikTokAdsSource:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.advertiser_id = "test_advertiser_123"
+        self.advertiser_id = "123456789"
         self.team_id = 123
         self.job_id = str(uuid4())
         self.access_token = "test_access_token"
@@ -210,8 +211,16 @@ class TestTikTokAdsSource:
             ("ads", False, None),
         ]
     )
-    def test_tiktok_ads_source_entity_endpoints(self, endpoint, should_use_incremental, last_value):
+    @patch("posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads.rest_api_resources")
+    def test_tiktok_ads_source_entity_endpoints(
+        self, endpoint, should_use_incremental, last_value, mock_rest_api_resources
+    ):
         """Test source function for entity endpoints (non-report)."""
+        # Mock the rest_api_resources function to return a list with a mock DLT resource
+        mock_dlt_resource = Mock()
+        mock_dlt_resource.__iter__ = Mock(return_value=iter([{"campaign_id": "123", "name": "Test Campaign"}]))
+        mock_rest_api_resources.return_value = [mock_dlt_resource]
+
         result = tiktok_ads_source(
             advertiser_id=self.advertiser_id,
             endpoint=endpoint,
@@ -233,8 +242,16 @@ class TestTikTokAdsSource:
             ("ad_report", False, None),
         ]
     )
-    def test_tiktok_ads_source_report_endpoints_full_refresh(self, endpoint, should_use_incremental, last_value):
+    @patch("posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads.rest_api_resources")
+    def test_tiktok_ads_source_report_endpoints_full_refresh(
+        self, endpoint, should_use_incremental, last_value, mock_rest_api_resources
+    ):
         """Test source function for report endpoints with full refresh."""
+        # Mock the rest_api_resources function to return a list with a mock DLT resource
+        mock_dlt_resource = Mock()
+        mock_dlt_resource.__iter__ = Mock(return_value=iter([{"campaign_id": "123", "clicks": "100"}]))
+        mock_rest_api_resources.return_value = [mock_dlt_resource]
+
         result = tiktok_ads_source(
             advertiser_id=self.advertiser_id,
             endpoint=endpoint,
@@ -256,8 +273,16 @@ class TestTikTokAdsSource:
             ("ad_report", True, datetime.now() - timedelta(days=10)),
         ]
     )
-    def test_tiktok_ads_source_report_endpoints_incremental(self, endpoint, should_use_incremental, last_value):
+    @patch("posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads.rest_api_resources")
+    def test_tiktok_ads_source_report_endpoints_incremental(
+        self, endpoint, should_use_incremental, last_value, mock_rest_api_resources
+    ):
         """Test source function for report endpoints with incremental sync."""
+        # Mock the rest_api_resources function to return a list with a mock DLT resource
+        mock_dlt_resource = Mock()
+        mock_dlt_resource.__iter__ = Mock(return_value=iter([{"campaign_id": "123", "clicks": "100"}]))
+        mock_rest_api_resources.return_value = [mock_dlt_resource]
+
         result = tiktok_ads_source(
             advertiser_id=self.advertiser_id,
             endpoint=endpoint,

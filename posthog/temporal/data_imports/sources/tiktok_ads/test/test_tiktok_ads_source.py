@@ -23,7 +23,7 @@ class TestTikTokAdsSource:
         """Set up test fixtures."""
         self.source = TikTokAdsSource()
         self.team_id = 123
-        self.advertiser_id = "test_advertiser_123"
+        self.advertiser_id = "123456789"
         self.integration_id = 456
         self.job_id = str(uuid4())
 
@@ -59,7 +59,7 @@ class TestTikTokAdsSource:
             ("missing_advertiser_id", "", 123, False, "Advertiser ID and TikTok Ads integration are required"),
             (
                 "missing_integration_id",
-                "test_advertiser",
+                "123456789",
                 0,
                 False,
                 "Advertiser ID and TikTok Ads integration are required",
@@ -161,7 +161,7 @@ class TestTikTokAdsSource:
 
     def test_validate_credentials_exception_handling(self):
         """Test credential validation handles exceptions properly."""
-        config = TikTokAdsSourceConfig(advertiser_id="test_advertiser", tiktok_integration_id=123)
+        config = TikTokAdsSourceConfig(advertiser_id="123456789", tiktok_integration_id=123)
 
         with patch.object(self.source, "get_oauth_integration") as mock_get_integration:
             mock_get_integration.side_effect = Exception("Network error")
