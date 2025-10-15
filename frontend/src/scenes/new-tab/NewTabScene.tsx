@@ -184,7 +184,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                 innerClassName="pt-6"
                 styledScrollbars
             >
-                <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8">
+                <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 group/colorful-product-icons colorful-product-icons-true">
                     {filteredItemsGrid.length === 0 && !isSearching ? (
                         <div className="flex flex-col gap-4 px-2 py-2 bg-glass-bg-3000 rounded-lg">
                             <div className="flex flex-col gap-1">
@@ -213,7 +213,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                     ) : (
                         <div
                             className={cn({
-                                'grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4 group/colorful-product-icons colorful-product-icons-true':
+                                'grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4':
                                     !newTabSceneData,
                                 'flex flex-col gap-4': newTabSceneData,
                             })}

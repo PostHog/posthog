@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight, IconEllipsis, IconInfo } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -23,7 +23,6 @@ import { urls } from 'scenes/urls'
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SidePanelTab } from '~/types'
 
 import { convertToTreeDataItem, getCategoryDisplayName } from '../NewTabScene'
@@ -48,28 +47,36 @@ function Category({
 
     return (
         <>
-            <div className={cn('mb-8', { 'mb-2': newTabSceneData })} key={category}>
-                <div className="mb-4">
-                    <div className="flex items-baseline gap-2">
-                        {newTabSceneData ? (
-                            <Label intent="menu" className="px-2">
-                                {getCategoryDisplayName(category)}
-                            </Label>
-                        ) : (
-                            <>
+            <div className={cn('mb-8', { 'mb-4': newTabSceneData })} key={category}>
+                <div className={cn('mb-4', { 'mb-2': newTabSceneData })}>
+                    <div className={cn('flex items-baseline gap-2', { 'gap-0': newTabSceneData })}>
+                        <>
+                            {newTabSceneData ? (
+                                <Label intent="menu" className="px-2">
+                                    {getCategoryDisplayName(category)}
+                                </Label>
+                            ) : (
                                 <h3 className="mb-0 text-lg font-medium text-secondary">
                                     {getCategoryDisplayName(category)}
                                 </h3>
-                                {newTabSceneData && category === 'persons' && personSearchResults.length > 0 && (
-                                    <span className="text-xs text-tertiary">
-                                        Showing first {personSearchResults.length} entries
-                                    </span>
-                                )}
-                            </>
-                        )}
-                        {(category === 'recents' || (newTabSceneData && category === 'persons')) && isSearching && (
-                            <Spinner size="small" />
-                        )}
+                            )}
+                            {newTabSceneData && category === 'persons' && (
+                                <div className="flex items-center gap-1">
+                                    {isSearching || (isSearching && personSearchResults.length === 0) ? (
+                                        <WrappingLoadingSkeleton className="h-[18px]">
+                                            <LemonTag className="text-xs text-tertiary" size="small">
+                                                Showing {personSearchResults.length} results
+                                            </LemonTag>
+                                        </WrappingLoadingSkeleton>
+                                    ) : (
+                                        <LemonTag className="text-xs text-tertiary" size="small">
+                                            Showing {personSearchResults.length} results
+                                        </LemonTag>
+                                    )}
+                                </div>
+                            )}
+                        </>
+                        {category === 'recents' && isSearching && <Spinner size="small" />}
                     </div>
                     {(() => {
                         const categoryInfo = categories.find((c) => c.key === category)
@@ -81,7 +88,7 @@ function Category({
                     })()}
                 </div>
                 <div className="flex flex-col gap-2">
-                    {(category === 'recents' || newTabSceneData) && typedItems.length === 0 ? (
+                    {category === 'recents' && typedItems.length === 0 ? (
                         // Special handling for empty project items and persons
                         <div className="flex flex-col gap-2 text-tertiary text-balance">
                             {isSearching ? (
@@ -169,7 +176,7 @@ function Category({
                             <Link
                                 to={urls.persons()}
                                 buttonProps={{
-                                    className: 'w-full mt-2',
+                                    className: 'w-full',
                                 }}
                             >
                                 <IconArrowRight className="size-4" /> See all persons
@@ -178,11 +185,6 @@ function Category({
                     )}
                 </div>
             </div>
-            {newTabSceneData && (
-                <div className="px-4">
-                    <SceneDivider />
-                </div>
-            )}
         </>
     )
 }
@@ -193,7 +195,6 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
         groupedFilteredItems,
         newTabSceneDataGroupedItems,
         search,
-        categories,
         selectedCategory,
         isSearching,
         newTabSceneDataIncludePersons,
@@ -219,13 +220,13 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
 
               const result = orderedSections
                   .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
-                  .filter(([section]) => {
+                  .filter(([section, items]) => {
                       // Always show persons section if filter is enabled (even when empty)
                       if (section === 'persons' && newTabSceneDataIncludePersons) {
                           return true
                       }
-                      // Show all other sections (including when empty to display "no results found")
-                      return true
+                      // Hide empty categories for other sections
+                      return items.length > 0
                   })
 
               return result
@@ -245,14 +246,6 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
                         </h3>
                         {selectedCategory === 'recents' && isSearching && <Spinner size="small" />}
                     </div>
-                    {(() => {
-                        const categoryInfo = categories.find((c) => c.key === selectedCategory)
-                        return (
-                            categoryInfo?.description && (
-                                <p className="text-xs text-tertiary mt-1 mb-0 min-h-8">{categoryInfo.description}</p>
-                            )
-                        )
-                    })()}
                 </div>
                 <div className="flex flex-col gap-2">
                     {selectedCategory === 'recents' && typedItems.length === 0 ? (
