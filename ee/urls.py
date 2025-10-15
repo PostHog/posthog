@@ -127,7 +127,7 @@ urlpatterns: list[Any] = [
     opt_slash_path("mcp", csrf_exempt(mcp_view)),
     # SCIM endpoints
     path("scim/v2/<uuid:domain_id>/Users", scim_views.scim_users_view, name="scim_users"),
-    path("scim/v2/<uuid:domain_id>/Users/<uuid:user_id>", scim_views.scim_user_detail_view, name="scim_user_detail"),
+    path("scim/v2/<uuid:domain_id>/Users/<int:user_id>", scim_views.scim_user_detail_view, name="scim_user_detail"),
     path("scim/v2/<uuid:domain_id>/Groups", scim_views.scim_groups_view, name="scim_groups"),
     path(
         "scim/v2/<uuid:domain_id>/Groups/<uuid:group_id>",
