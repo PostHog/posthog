@@ -21,7 +21,6 @@ interface SearchHintsProps {
 export function SearchHints({
     specialSearchMode,
     search,
-    filteredItemsGridLength,
     setSearch,
     setQuestion,
     focusMaxInput,
@@ -90,8 +89,7 @@ export function SearchHints({
                 </span>
             )}
             <span className="text-primary flex gap-1 items-center">
-                {/* if filtered results length is 0, this will be the first to focus */}
-                <ListBox.Item asChild focusFirst={filteredItemsGridLength === 0}>
+                <ListBox.Item asChild>
                     <ButtonPrimitive
                         size="xxs"
                         onClick={() => {

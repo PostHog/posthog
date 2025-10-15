@@ -41,9 +41,7 @@ function Category({
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
-    const { filteredItemsGrid, search, categories, isSearching, personSearchResults } = useValues(
-        newTabSceneLogic({ tabId })
-    )
+    const { filteredItemsGrid, search, isSearching, personSearchResults } = useValues(newTabSceneLogic({ tabId }))
 
     return (
         <>
@@ -69,23 +67,23 @@ function Category({
                                             </LemonTag>
                                         </WrappingLoadingSkeleton>
                                     ) : (
-                                        <LemonTag className="text-xs text-tertiary" size="small">
-                                            Showing {personSearchResults.length} results
-                                        </LemonTag>
+                                        <>
+                                            {personSearchResults.length > 0 ? (
+                                                <LemonTag className="text-xs text-tertiary" size="small">
+                                                    Showing {personSearchResults.length} results
+                                                </LemonTag>
+                                            ) : (
+                                                <LemonTag className="text-xs text-tertiary" size="small">
+                                                    No results found
+                                                </LemonTag>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             )}
                         </>
                         {category === 'recents' && isSearching && <Spinner size="small" />}
                     </div>
-                    {(() => {
-                        const categoryInfo = categories.find((c) => c.key === category)
-                        return (
-                            categoryInfo?.description && (
-                                <p className="text-xs text-tertiary mt-1 mb-0 min-h-8">{categoryInfo.description}</p>
-                            )
-                        )
-                    })()}
                 </div>
                 <div className="flex flex-col gap-2">
                     {category === 'recents' && typedItems.length === 0 ? (
@@ -107,7 +105,10 @@ function Category({
                                     <ContextMenuTrigger asChild>
                                         <ListBox.Item
                                             asChild
-                                            focusFirst={filteredItemsGrid.length > 0 && isFirstCategory && index === 0}
+                                            focusFirst={
+                                                (newTabSceneData && !isSearching) ||
+                                                (filteredItemsGrid.length > 0 && isFirstCategory && index === 0)
+                                            }
                                             row={index}
                                             column={columnIndex}
                                         >
@@ -176,7 +177,7 @@ function Category({
                             <Link
                                 to={urls.persons()}
                                 buttonProps={{
-                                    className: 'w-full',
+                                    className: 'w-full text-tertiary',
                                 }}
                             >
                                 <IconArrowRight className="size-4" /> See all persons

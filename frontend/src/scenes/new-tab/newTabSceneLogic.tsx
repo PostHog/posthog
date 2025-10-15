@@ -131,12 +131,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             [] as PersonType[],
             {
                 loadPersonSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
-                    if (!searchTerm.trim()) {
+                    if (searchTerm.trim() === '') {
                         return []
                     }
-                    const limit = 20
-                    const url = api.persons.determineListUrl({ search: searchTerm.trim() }) + `&limit=${limit}`
-                    const response = await api.get(url)
+
+                    // Use consistent API approach like other working implementations
+                    const response = await api.persons.list({ search: searchTerm.trim() })
                     breakpoint()
 
                     // Store pagination info immediately
@@ -144,22 +144,24 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         actions.setPersonSearchPagination({
                             count: response.count,
                             hasMore: Boolean(response.next),
-                            limit,
+                            limit: 20,
                         })
                     }, 0)
 
                     return response.results
                 },
                 loadMorePersonSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
-                    if (!searchTerm.trim()) {
+                    if (searchTerm.trim() === '') {
                         return values.personSearchResults
                     }
 
                     const currentResults = values.personSearchResults
                     const offset = currentResults.length
 
-                    const url =
-                        api.persons.determineListUrl({ search: searchTerm.trim() }) + `&limit=20&offset=${offset}`
+                    // Build URL properly to avoid malformed query strings
+                    const baseUrl = api.persons.determineListUrl({ search: searchTerm.trim() })
+                    const separator = baseUrl.includes('?') ? '&' : '?'
+                    const url = `${baseUrl}${separator}limit=20&offset=${offset}`
                     const response = await api.get(url)
                     breakpoint()
 
@@ -261,9 +263,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         isSearching: [
-            (s) => [s.recentsLoading, s.personSearchResultsLoading, s.personSearchPending],
-            (recentsLoading: boolean, personSearchResultsLoading: boolean, personSearchPending: boolean): boolean =>
-                recentsLoading || personSearchResultsLoading || personSearchPending,
+            (s) => [s.recentsLoading, s.personSearchResultsLoading, s.personSearchPending, s.search],
+            (
+                recentsLoading: boolean,
+                personSearchResultsLoading: boolean,
+                personSearchPending: boolean,
+                search: string
+            ): boolean => (recentsLoading || personSearchResultsLoading || personSearchPending) && search.trim() !== '',
         ],
         projectTreeSearchItems: [
             (s) => [s.recents],
@@ -542,7 +548,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
             // For newTabSceneData mode, trigger person search if includePersons is enabled and there's a search term
             if (newTabSceneData && values.newTabSceneDataIncludePersons) {
-                if (values.search.trim()) {
+                if (values.search.trim() !== '') {
                     actions.debouncedPersonSearch(values.search.trim())
                 } else {
                     // Clear results when search is empty
@@ -553,7 +559,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setNewTabSceneDataIncludePersons: ({ includePersons }) => {
             const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
-            if (newTabSceneData && includePersons && values.search.trim()) {
+            if (newTabSceneData && includePersons && values.search.trim() !== '') {
                 // If enabling persons filter and there's a search term, trigger person search
                 actions.debouncedPersonSearch(values.search.trim())
             } else if (newTabSceneData && !includePersons) {
@@ -564,7 +570,24 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         debouncedPersonSearch: async ({ searchTerm }, breakpoint) => {
             // Debounce for 300ms
             await breakpoint(300)
-            actions.loadPersonSearchResults({ searchTerm })
+
+            try {
+                // Manually trigger the search and handle the result
+                const response = await api.persons.list({ search: searchTerm.trim() })
+
+                // Update pagination info
+                actions.setPersonSearchPagination({
+                    count: response.count,
+                    hasMore: Boolean(response.next),
+                    limit: 20,
+                })
+
+                // Manually set the results instead of relying on the loader
+                actions.loadPersonSearchResultsSuccess(response.results)
+            } catch (error) {
+                console.error('Person search failed:', error)
+                actions.loadPersonSearchResultsFailure(error as string)
+            }
         },
     })),
     tabAwareActionToUrl(({ values }) => ({
