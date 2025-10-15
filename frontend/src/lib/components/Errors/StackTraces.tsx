@@ -9,7 +9,6 @@ import { IconBox, IconExternal } from '@posthog/icons'
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import { cancelEvent } from '@posthog/products-error-tracking/frontend/utils'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 
@@ -186,11 +185,9 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
             </div>
             <div className="flex gap-x-1 items-center justify-end">
                 {in_app && sourceUrl && (
-                    <span onClick={cancelEvent} className="text-secondary">
-                        <Link to={sourceUrl} target="_blank">
-                            <LemonButton size="xsmall" tooltip="View on GitHub" icon={<IconExternal />} />
-                        </Link>
-                    </span>
+                    <Link to={sourceUrl} target="_blank">
+                        <IconExternal className="text-primary" />
+                    </Link>
                 )}
                 {resolved && source && (
                     <span onClick={cancelEvent} className="text-secondary">
@@ -198,6 +195,7 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
                             tooltipMessage="Copy file name"
                             iconSize="xsmall"
                             explicitValue={source}
+                            className="ml-0"
                         />
                     </span>
                 )}

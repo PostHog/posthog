@@ -4,7 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonBanner, Link } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -41,18 +41,9 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const {
-        issue,
-        issueId,
-        issueLoading,
-        selectedEvent,
-        initialEventLoading,
-        eventsQuery,
-        eventsQueryKey,
-        gitHubFileLinkResult,
-        gitHubFileLinkResultLoading,
-    } = useValues(errorTrackingIssueSceneLogic)
-    const { selectEvent, resolveGitHubFileLink } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueId, issueLoading, selectedEvent, initialEventLoading, eventsQuery, eventsQueryKey } =
+        useValues(errorTrackingIssueSceneLogic)
+    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
 
@@ -103,34 +94,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         "Suppressed".
                     </LemonBanner>
                 )}
-
-                <div className="mb-4">
-                    <ButtonPrimitive
-                        size="lg"
-                        onClick={() => {
-                            resolveGitHubFileLink('ablaszkiewicz', 'python-scripts', 'python-scripts', 'asdf')
-                        }}
-                        disabled={gitHubFileLinkResultLoading}
-                    >
-                        {gitHubFileLinkResultLoading ? '🔄 Searching...' : '🔍 Search GitHub for this error (DRAFT)'}
-                    </ButtonPrimitive>
-                    {gitHubFileLinkResult && (
-                        <div className="mt-2 p-4 border rounded">
-                            {gitHubFileLinkResult.found && gitHubFileLinkResult.url ? (
-                                <div>
-                                    <div className="font-bold text-success">Found in GitHub!</div>
-                                    <div className="mt-2">
-                                        <Link to={gitHubFileLinkResult.url} target="_blank">
-                                            View on GitHub →
-                                        </Link>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="font-bold text-danger">Not found in GitHub</div>
-                            )}
-                        </div>
-                    )}
-                </div>
 
                 <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
                     <div className="space-y-2 col-span-3">
