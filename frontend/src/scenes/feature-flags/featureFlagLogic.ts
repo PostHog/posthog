@@ -314,7 +314,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             enabledFeaturesLogic,
             ['featureFlags as enabledFeatures'],
             defaultEvaluationEnvironmentsLogic,
-            ['tags as defaultEvaluationTags', 'isEnabled as defaultEvaluationEnabled'],
+            ['defaultEvaluationEnvironments'],
         ],
         actions: [
             newDashboardLogic({ featureFlagId: typeof props.id === 'number' ? props.id : undefined }),
@@ -325,6 +325,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['closeSidePanel'],
             teamLogic,
             ['addProductIntent'],
+            defaultEvaluationEnvironmentsLogic,
+            ['loadDefaultEvaluationEnvironments'],
         ],
     })),
     actions({
@@ -368,7 +370,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 ...NEW_FLAG,
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
                 _should_create_usage_dashboard: true,
-            } as FeatureFlagType,
+            },
             errors: ({ key, filters, is_remote_configuration }) => {
                 return {
                     key: validateFeatureFlagKey(key),
@@ -685,6 +687,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         featureFlag: {
             loadFeatureFlag: async () => {
                 const sourceId = router.values.searchParams.sourceId
+
                 if (props.id === 'new' && sourceId) {
                     // Used when "duplicating a feature flag". This populates the form with the source flag's data.
                     const sourceFlag = await api.featureFlags.get(sourceId)
@@ -733,20 +736,31 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         throw e
                     }
                 }
+                // For new flags, load default evaluation environments and set default tags
+                if (props.id === 'new') {
+                    try {
+                        actions.loadDefaultEvaluationEnvironments()
+                    } catch (error) {
+                        // If loading default evaluation environments fails, continue with empty tags
+                        console.warn('Failed to load default evaluation environments:', error)
+                    }
+                    const defaultEnvs = values.defaultEvaluationEnvironments
+                    const defaultTags = defaultEnvs?.default_evaluation_tags || []
 
-                const newFlag = {
+                    return {
+                        ...NEW_FLAG,
+                        ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                        _should_create_usage_dashboard: true,
+                        tags: defaultTags.map((tag) => tag.name),
+                        evaluation_tags: defaultTags.map((tag) => tag.name),
+                    }
+                }
+
+                return {
                     ...NEW_FLAG,
                     ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                    _should_create_usage_dashboard: true,
                 }
-
-                // // Add default evaluation tags for new flags
-                if (values.defaultEvaluationEnabled && values.defaultEvaluationTags.length > 0) {
-                    const tagNames = values.defaultEvaluationTags.map((tag) => tag.name)
-                    newFlag.tags = tagNames
-                    newFlag.evaluation_tags = tagNames
-                }
-
-                return newFlag
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 // Destructure all fields we want to exclude or handle specially
@@ -1309,7 +1323,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 {
                     key: [Scene.FeatureFlag, featureFlag.id || 'unknown'],
-                    name: featureFlag.key || 'Unnamed',
+                    name: featureFlag.key || (!featureFlag.id ? 'New feature flag' : 'Unnamed'),
                     iconType: 'feature_flag',
                 },
             ],
@@ -1429,8 +1443,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         actions.loadFeatureFlag()
                         return
                     }
-                    // When pushing to `/new` and the feature flag has no id, do not load the flag again
-                    if (props.id === 'new' && values.featureFlag.id == null) {
+                    // When pushing to `/new` and the feature flag already has default tags loaded, do not load the flag again
+                    if (props.id === 'new' && values.featureFlag.id == null && values.featureFlag.tags?.length > 0) {
                         return
                     }
                     actions.loadFeatureFlag()
@@ -1441,7 +1455,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     afterMount(({ props, actions }) => {
-        if (props.id === 'new') {
+        if (props.id === 'new' && router.values.searchParams.sourceId) {
             actions.loadFeatureFlag()
             return
         }
@@ -1455,9 +1469,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
             actions.loadFeatureFlagStatus()
-        } else {
+        } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()
+        } else if (props.id === 'new') {
+            // Load default evaluation environments for new flags
+            actions.loadFeatureFlag()
         }
     }),
 ])
