@@ -116,12 +116,15 @@ function ThemeMenu(): JSX.Element {
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     {customCssEnabled && (
-                        <DropdownMenuItem asChild>
-                            <Link to={urls.customCss()}>
-                                <IconPalette />
-                                Edit custom CSS
-                            </Link>
-                        </DropdownMenuItem>
+                        <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem asChild>
+                                <Link to={urls.customCss()} buttonProps={{ menuItem: true }}>
+                                    <IconPalette />
+                                    Edit custom CSS
+                                </Link>
+                            </DropdownMenuItem>
+                        </>
                     )}
                 </DropdownMenuGroup>
             </DropdownMenuSubContent>
