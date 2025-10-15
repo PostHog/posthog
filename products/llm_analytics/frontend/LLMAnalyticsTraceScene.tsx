@@ -563,7 +563,7 @@ const EventContent = React.memo(
         const hasSessionRecording = !!sessionId
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
-                
+
         const showPlaygroundButton = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
