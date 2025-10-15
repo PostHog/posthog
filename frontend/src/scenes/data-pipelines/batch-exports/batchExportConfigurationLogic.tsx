@@ -619,17 +619,24 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                                 s3_bucket: redshift_s3_bucket,
                                 s3_key_prefix: redshift_s3_key_prefix,
                                 region_name: redshift_s3_bucket_region_name,
-                                authorization: redshift_iam_role
-                                    ? redshift_iam_role
-                                    : {
-                                          aws_access_key_id: redshift_aws_access_key_id,
-                                          aws_secret_access_key: redshift_aws_secret_access_key,
-                                      },
-                                bucket_credentials: {
+                            }
+
+                            if (redshift_iam_role) {
+                                copyInputs.authorization = redshift_iam_role
+                            } else if (redshift_aws_access_key_id && redshift_aws_secret_access_key) {
+                                copyInputs.authorization = {
+                                    aws_access_key_id: redshift_aws_access_key_id,
+                                    aws_secret_access_key: redshift_aws_secret_access_key,
+                                }
+                            }
+
+                            if (redshift_s3_bucket_aws_access_key_id && redshift_s3_bucket_aws_secret_access_key) {
+                                copyInputs.bucket_credentials = {
                                     aws_access_key_id: redshift_s3_bucket_aws_access_key_id,
                                     aws_secret_access_key: redshift_s3_bucket_aws_secret_access_key,
-                                },
+                                }
                             }
+
                             config.copy_inputs = copyInputs
                         }
                         config.mode = mode
