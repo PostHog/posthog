@@ -556,6 +556,7 @@ class TestExternalDataSource(APIBaseTest):
                 "schemas",
                 "job_inputs",
                 "revenue_analytics_config",
+                "user_access_level",
             ],
         )
         self.assertEqual(
