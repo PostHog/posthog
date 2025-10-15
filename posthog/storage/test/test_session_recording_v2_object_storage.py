@@ -330,9 +330,7 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         ]
     )
     @patch("posthog.storage.session_recording_v2_object_storage.aioboto3")
-    async def test_throws_runtimeerror_if_required_settings_missing(
-        self, settings_override, patched_aioboto3
-    ) -> None:
+    async def test_throws_runtimeerror_if_required_settings_missing(self, settings_override, patched_aioboto3) -> None:
         with self.settings(**settings_override):
             client_mock = MagicMock(AsyncContextManager)
             patched_aioboto3.Session.return_value.client = client_mock
