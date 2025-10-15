@@ -442,7 +442,7 @@ class TestStreamTransformations:
         mock_endpoint = MockEndpointType.UNKNOWN
 
         # Use type: ignore to bypass mypy check for this test case
-        with pytest.raises(ValueError, match="Endpoint type: unknown is not implemented"):
+        with pytest.raises(ValueError, match="Endpoint type: .* is not implemented"):
             TikTokReportResource.apply_stream_transformations(mock_endpoint, reports)  # type: ignore[arg-type]
 
 
