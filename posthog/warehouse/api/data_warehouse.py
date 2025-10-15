@@ -205,16 +205,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             external_stats = external_jobs.aggregate(
                 total=Count("id"),
-                successful=Count("id", filter=Q(status="Completed")),
-                failed=Count("id", filter=Q(status__in=["Failed", "Error"])),
+                successful=Count("id", filter=Q(status=ExternalDataJob.Status.COMPLETED)),
+                failed=Count("id", filter=Q(status=ExternalDataJob.Status.FAILED)),
             )
 
             modeling_jobs = DataModelingJob.objects.filter(team_id=self.team_id, created_at__gte=cutoff_time)
 
             modeling_stats = modeling_jobs.aggregate(
                 total=Count("id"),
-                successful=Count("id", filter=Q(status="Completed")),
-                failed=Count("id", filter=Q(status__in=["Failed", "Error"])),
+                successful=Count("id", filter=Q(status=DataModelingJob.Status.COMPLETED)),
+                failed=Count("id", filter=Q(status=DataModelingJob.Status.FAILED)),
             )
 
             total_jobs = external_stats["total"] + modeling_stats["total"]
@@ -228,13 +228,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     hour_end = hour_start + timedelta(hours=1)
 
                     hour_external = external_jobs.filter(created_at__gte=hour_start, created_at__lt=hour_end).aggregate(
-                        successful=Count("id", filter=Q(status="Completed")),
-                        failed=Count("id", filter=Q(status__in=["Failed", "Error"])),
+                        successful=Count("id", filter=Q(status=ExternalDataJob.Status.COMPLETED)),
+                        failed=Count("id", filter=Q(status=ExternalDataJob.Status.FAILED)),
                     )
 
                     hour_modeling = modeling_jobs.filter(created_at__gte=hour_start, created_at__lt=hour_end).aggregate(
-                        successful=Count("id", filter=Q(status="Completed")),
-                        failed=Count("id", filter=Q(status__in=["Failed", "Error"])),
+                        successful=Count("id", filter=Q(status=DataModelingJob.Status.COMPLETED)),
+                        failed=Count("id", filter=Q(status=DataModelingJob.Status.FAILED)),
                     )
 
                     breakdown[hour_start.isoformat()] = {
@@ -248,13 +248,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     day_end = day_start + timedelta(days=1)
 
                     day_external = external_jobs.filter(created_at__gte=day_start, created_at__lt=day_end).aggregate(
-                        successful=Count("id", filter=Q(status="Completed")),
-                        failed=Count("id", filter=Q(status__in=["Failed", "Error"])),
+                        successful=Count("id", filter=Q(status=ExternalDataJob.Status.COMPLETED)),
+                        failed=Count("id", filter=Q(status=ExternalDataJob.Status.FAILED)),
                     )
 
                     day_modeling = modeling_jobs.filter(created_at__gte=day_start, created_at__lt=day_end).aggregate(
-                        successful=Count("id", filter=Q(status="Completed")),
-                        failed=Count("id", filter=Q(status__in=["Failed", "Error"])),
+                        successful=Count("id", filter=Q(status=DataModelingJob.Status.COMPLETED)),
+                        failed=Count("id", filter=Q(status=DataModelingJob.Status.FAILED)),
                     )
 
                     breakdown[str(date)] = {

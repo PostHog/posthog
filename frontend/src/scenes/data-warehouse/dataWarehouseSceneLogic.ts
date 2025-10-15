@@ -26,7 +26,6 @@ const REFRESH_INTERVAL = 10000
 
 export enum DataWarehouseTab {
     OVERVIEW = 'overview',
-    MODELS = 'models',
     SOURCES = 'sources',
 }
 
@@ -204,7 +203,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         activityPaginationState: [
             (s) => [s.recentActivity, s.activityCurrentPage],
             (recentActivity: DataWarehouseActivityRecord[], activityCurrentPage: number) => {
-                const pageSize = 5
+                const pageSize = 8
                 const totalData = recentActivity.length
                 const pageCount = Math.ceil(totalData / pageSize)
                 const startIndex = (activityCurrentPage - 1) * pageSize
