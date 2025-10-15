@@ -31,11 +31,6 @@ export const navigationLogic = kea<navigationLogicType>([
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({
-        openAccountPopover: true,
-        closeAccountPopover: true,
-        toggleAccountPopover: true,
-        toggleProjectSwitcher: true,
-        hideProjectSwitcher: true,
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
     }),
     loaders({
@@ -56,21 +51,6 @@ export const navigationLogic = kea<navigationLogicType>([
         mobileLayout: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     reducers({
-        isAccountPopoverOpen: [
-            false,
-            {
-                openAccountPopover: () => true,
-                closeAccountPopover: () => false,
-                toggleAccountPopover: (state) => !state,
-            },
-        ],
-        isProjectSwitcherShown: [
-            false,
-            {
-                toggleProjectSwitcher: (state) => !state,
-                hideProjectSwitcher: () => false,
-            },
-        ],
         projectNoticesAcknowledged: [
             {} as Record<ProjectNoticeVariant, boolean>,
             { persist: true },
