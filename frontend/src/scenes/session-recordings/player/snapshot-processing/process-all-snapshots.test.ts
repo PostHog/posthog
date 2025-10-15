@@ -228,8 +228,8 @@ describe('process all snapshots', () => {
 
             const result = await parseEncodedSnapshots([snapshotJson], sessionId)
 
-            // Should have 2 snapshots: synthetic full + original incremental
-            expect(result).toHaveLength(2)
+            // Should have 3 snapshots: synthetic full + original incremental + meta event (added by patchMetaEventIntoMobileData)
+            expect(result).toHaveLength(3)
 
             // First snapshot should be the synthetic full snapshot
             expect(result[0].type).toBe(2) // FullSnapshot
@@ -238,6 +238,9 @@ describe('process all snapshots', () => {
             // Second snapshot should be the original incremental
             expect(result[1].type).toBe(3) // IncrementalSnapshot
             expect(result[1].timestamp).toBe(1000)
+
+            // Third snapshot should be the Meta event (added by patchMetaEventIntoMobileData)
+            expect(result[2].type).toBe(4) // Meta
 
             // Verify transformEventToWeb was called twice
             expect(mockMobileReplay.transformEventToWeb).toHaveBeenCalledTimes(2)
@@ -327,10 +330,17 @@ describe('process all snapshots', () => {
 
             const result = await parseEncodedSnapshots([snapshotJson], sessionId)
 
-            // Should only have 1 snapshot (no synthetic one needed)
-            expect(result).toHaveLength(1)
-            expect(result[0].type).toBe(2)
+            // Should have 2 snapshots: Meta event (added by patchMetaEventIntoMobileData) + Full snapshot
+            // No synthetic snapshot should be created since it already starts with a full snapshot
+            expect(result).toHaveLength(2)
+
+            // First event should be the Meta event (added by patchMetaEventIntoMobileData)
+            expect(result[0].type).toBe(4) // Meta
             expect(result[0].timestamp).toBe(1000)
+
+            // Second event should be the original full snapshot
+            expect(result[1].type).toBe(2) // FullSnapshot
+            expect(result[1].timestamp).toBe(1000)
 
             // transformEventToWeb should be called once for the original event
             expect(mockMobileReplay.transformEventToWeb).toHaveBeenCalledTimes(1)
