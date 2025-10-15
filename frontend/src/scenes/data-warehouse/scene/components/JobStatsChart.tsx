@@ -2,17 +2,10 @@ import { useEffect, useRef } from 'react'
 
 import { Chart } from 'lib/Chart'
 
+import { DataWarehouseJobStats } from '~/types'
+
 interface JobStatsChartProps {
-    jobStats: {
-        days: number
-        breakdown: Record<
-            string,
-            {
-                successful: number
-                failed: number
-            }
-        >
-    }
+    jobStats: DataWarehouseJobStats
 }
 
 export function JobStatsChart({ jobStats }: JobStatsChartProps): JSX.Element {
