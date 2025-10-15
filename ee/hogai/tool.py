@@ -152,10 +152,10 @@ class search_entity(BaseModel):
 
     query: str = Field(
         description="The search query to find entities by name or description. "
-        "This will search across all entity types (insights, dashboards, cohorts, actions, etc.)."
+        "This will search across all entity types (insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, surveys, event definitions)."
     )
     entity_types: list[EntityTypes] = Field(
-        description="List of entity types to search for that the user mentioned in their query."
+        description="List of entity types to search for that the user mentioned in their query if the user mentions more than one entity make sure to include all the entity types."
     )
 
 

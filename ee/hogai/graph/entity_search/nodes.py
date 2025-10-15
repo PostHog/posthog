@@ -1,7 +1,7 @@
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
 
-from posthog.schema import AssistantMessage, AssistantMessageType
+from posthog.schema import AssistantMessage, AssistantMessageType, AssistantToolCallMessage
 
 from posthog.api.search import ENTITY_MAP, class_queryset
 from posthog.rbac.user_access_control import UserAccessControl
@@ -10,6 +10,8 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.composed import MaxNodeName
+
+from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE, HYPERLINK_USAGE_INSTRUCTIONS
 
 
 class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
@@ -23,6 +25,49 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
     def user_access_control(self) -> UserAccessControl:
         return UserAccessControl(user=self._user, team=self._team)
 
+    def build_url(self, result: dict) -> str:
+        entity_type = result["type"]
+        result_id = result["result_id"]
+        match entity_type:
+            case "insight":
+                return f"/project/{self._team.id}/insights/{result_id}"
+            case "dashboard":
+                return f"/project/{self._team.id}/dashboard/{result_id}"
+            case "experiment":
+                return f"/project/{self._team.id}/experiments/{result_id}"
+            case "feature_flag":
+                return f"/project/{self._team.id}/feature_flags/{result_id}"
+            case "notebook":
+                return f"/project/{self._team.id}/notebooks/{result_id}"
+            case "action":
+                return f"/project/{self._team.id}/data-management/actions/{result_id}"
+            case "cohort":
+                return f"/project/{self._team.id}/cohorts/{result_id}"
+            case "event_definition":
+                return f"/project/{self._team.id}/data-management/events/{result_id}"
+            case "survey":
+                return f"/project/{self._team.id}/surveys/{result_id}"
+            case _:
+                return f"/project/{self._team.id}/{entity_type}/{result_id}"
+
+    def get_formatted_entity_result(self, result: dict) -> list[str]:
+        result_summary = []
+        entity_type = result["type"]
+        result_id = result["result_id"]
+
+        extra_fields = result.get("extra_fields", {})
+
+        name = extra_fields.get("name", f"{entity_type.upper()} {result_id}")
+        key = extra_fields.get("key", "")
+        description = extra_fields.get("description", "")
+
+        result_summary.append(f"**[{name}]({self.build_url(result)})**")
+        if key:
+            result_summary.append(f"\n - Key: {key}")
+        if description:
+            result_summary.append(f"\n - Description: {description}")
+        return result_summary
+
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Search for entities by query and optional entity types."""
 
@@ -30,7 +75,7 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
         if not query:
             return PartialAssistantState(
                 messages=[
-                    AssistantMessage(
+                    AssistantToolCallMessage(
                         content="No search query provided.",
                         type=AssistantMessageType.Assistant,
                     )
@@ -41,22 +86,16 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
             entity_types = state.entity_search_types or list(ENTITY_MAP.keys())
 
             # Validate entity types
-            invalid_types = [t for t in entity_types if t not in ENTITY_MAP]
-            if invalid_types:
-                return PartialAssistantState(
-                    messages=[
-                        AssistantMessage(
-                            content=f"Invalid entity types: {', '.join(invalid_types)}. Available types: {', '.join(ENTITY_MAP.keys())}"
-                        )
-                    ]
-                )
-
+            content = ""
             # Build search results using the existing search infrastructure
             results = []
             counts = {}
 
             for entity_type in entity_types:
-                entity_meta = ENTITY_MAP[entity_type]
+                entity_meta = ENTITY_MAP.get(entity_type)
+                if not entity_meta:
+                    content += f"Invalid entity type: {entity_type}. Will not search for this entity type."
+                    continue
                 klass_qs, _ = await database_sync_to_async(class_queryset)(
                     view=self,
                     klass=entity_meta["klass"],
@@ -81,84 +120,38 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
 
             # Format results for display
             if not results:
-                content = f"No entities found matching '{state.entity_search_query}'"
+                content += (
+                    f"\n\n No entities found matching '{state.entity_search_query}' for entity types {entity_type}"
+                )
             else:
                 # Create a summary of results
                 result_summary = []
                 for result in results:
-                    entity_type = result["type"]
-                    result_id = result["result_id"]
-                    extra_fields = result.get("extra_fields", {})
-
                     # Format the result based on entity type
-                    if entity_type == "insight":
-                        name = extra_fields.get("name", f"Insight {result_id}")
-                        description = extra_fields.get("description", "")
-                        result_summary.append(f"📊 **{name}** (Insight {result_id})")
-                        if description:
-                            result_summary.append(f"   {description}")
-                    elif entity_type == "dashboard":
-                        name = extra_fields.get("name", f"Dashboard {result_id}")
-                        description = extra_fields.get("description", "")
-                        result_summary.append(f"📋 **{name}** (Dashboard {result_id})")
-                        if description:
-                            result_summary.append(f"   {description}")
-                    elif entity_type == "cohort":
-                        name = extra_fields.get("name", f"Cohort {result_id}")
-                        description = extra_fields.get("description", "")
-                        result_summary.append(f"👥 **{name}** (Cohort {result_id})")
-                        if description:
-                            result_summary.append(f"   {description}")
-                    elif entity_type == "action":
-                        name = extra_fields.get("name", f"Action {result_id}")
-                        description = extra_fields.get("description", "")
-                        result_summary.append(f"⚡ **{name}** (Action {result_id})")
-                        if description:
-                            result_summary.append(f"   {description}")
-                    elif entity_type == "experiment":
-                        name = extra_fields.get("name", f"Experiment {result_id}")
-                        description = extra_fields.get("description", "")
-                        result_summary.append(f"🧪 **{name}** (Experiment {result_id})")
-                        if description:
-                            result_summary.append(f"   {description}")
-                    elif entity_type == "feature_flag":
-                        key = extra_fields.get("key", f"Flag {result_id}")
-                        name = extra_fields.get("name", "")
-                        result_summary.append(f"🚩 **{key}** (Feature Flag {result_id})")
-                        if name:
-                            result_summary.append(f"   {name}")
-                    elif entity_type == "notebook":
-                        title = extra_fields.get("title", f"Notebook {result_id}")
-                        result_summary.append(f"📝 **{title}** (Notebook {result_id})")
-                    elif entity_type == "survey":
-                        name = extra_fields.get("name", f"Survey {result_id}")
-                        description = extra_fields.get("description", "")
-                        result_summary.append(f"📋 **{name}** (Survey {result_id})")
-                        if description:
-                            result_summary.append(f"   {description}")
-                    elif entity_type == "event_definition":
-                        name = extra_fields.get("name", f"Event {result_id}")
-                        result_summary.append(f"📈 **{name}** (Event Definition {result_id})")
-
-                    result_summary.append("")  # Add spacing between results
+                    result_summary.extend(self.get_formatted_entity_result(result))
 
                 # Create summary text
                 total_results = len(results)
-                content = f"Found {total_results} entities matching the user's query\n\n"
-                content += "\n".join(result_summary)
+                content += FOUND_ENTITIES_MESSAGE_TEMPLATE.format(
+                    total_results=total_results, entities_list="\n".join(result_summary)
+                )
 
                 # Add counts summary
                 if counts:
-                    content += f"\n\n**Results by type:**\n"
-                    for entity_type, count in counts.items():
-                        if count > 0:
-                            content += f"- {entity_type.title()}: {count}\n"
+                    content += ENTITY_TYPE_SUMMARY_TEMPLATE.format(
+                        entity_type_summary="\n".join(
+                            [f"- {entity_type.title()}: {count}" for entity_type, count in counts.items() if count > 0]
+                        )
+                    )
+                content += f"\n\n{HYPERLINK_USAGE_INSTRUCTIONS}"
 
             return PartialAssistantState(
                 messages=[
-                    AssistantMessage(
+                    AssistantToolCallMessage(
                         content=content,
-                    )
+                        tool_call_id=state.root_tool_call_id,
+                        visible=True,
+                    ),
                 ]
             )
 

@@ -260,6 +260,18 @@ class BaseStateWithIntermediateSteps(BaseState):
     """
 
 
+class EntityType(StrEnum):
+    INSIGHT = "insight"
+    DASHBOARD = "dashboard"
+    COHORT = "cohort"
+    ACTION = "action"
+    EXPERIMENT = "experiment"
+    FEATURE_FLAG = "feature_flag"
+    NOTEBOOK = "notebook"
+    SURVEY = "survey"
+    EVENT_DEFINITION = "event_definition"
+
+
 class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateSteps):
     """
     The state of the root node.
@@ -352,7 +364,7 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's search query for finding entities.
     """
-    entity_search_types: Optional[list[str]] = Field(default=None)
+    entity_search_types: Optional[list[EntityType]] = Field(default=None)
     """
     The entity types to search for.
     """
