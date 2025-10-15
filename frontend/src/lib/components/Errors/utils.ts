@@ -209,3 +209,7 @@ export function formatResolvedName(frame: Pick<ErrorTrackingStackFrame, 'module'
     }
     return frame.module ? `${frame.module}.${frame.resolved_name}` : frame.resolved_name
 }
+
+export function formatType(exception: Pick<ErrorTrackingException, 'module' | 'type'>): string {
+    return `${exception.module}.${exception.type}`
+}
