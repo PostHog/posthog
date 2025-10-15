@@ -114,20 +114,20 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     }
 
     const handleDestinationChange = (values: string[]): void => {
-        const hasAskMax = values.includes('ask://')
-        const sanitizedValues = hasAskMax ? ['ask://'] : values.filter((value) => value !== 'ask://')
-        if (hasAskMax) {
-            openSidePanel(SidePanelTab.Max)
-            setQuestion(search)
-            focusMaxInput()
-        }
-        setSelectedDestinations(sanitizedValues)
+        setSelectedDestinations(values)
         if (pendingCategoryReturn) {
             setPendingCategoryReturn(false)
             setCategorySearchActive(false)
             setCategoryFocusKey((key) => key + 1)
             window.requestAnimationFrame(() => inputRef.current?.focus())
         }
+    }
+
+    const handleAskMax = (question?: string): void => {
+        const nextQuestion = (question ?? search).trim()
+        openSidePanel(SidePanelTab.Max)
+        setQuestion(nextQuestion)
+        focusMaxInput()
     }
 
     const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
@@ -144,7 +144,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             search.trim()
         ) {
             event.preventDefault()
-            handleDestinationChange(['ask://'])
+            handleAskMax(search)
         }
     }
 
@@ -311,11 +311,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     </ListBox.Item>
                                     or{' '}
                                     <ListBox.Item asChild>
-                                        <ButtonPrimitive
-                                            size="sm"
-                                            onClick={() => openSidePanel(SidePanelTab.Max)}
-                                            variant="panel"
-                                        >
+                                        <ButtonPrimitive size="sm" onClick={() => handleAskMax(search)} variant="panel">
                                             Ask Max!
                                         </ButtonPrimitive>
                                     </ListBox.Item>
@@ -330,7 +326,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 'flex flex-col gap-4': newTabSceneData,
                             })}
                         >
-                            <Results tabId={tabId || ''} />
+                            <Results tabId={tabId || ''} onAskMax={handleAskMax} />
                         </div>
                     )}
                 </div>

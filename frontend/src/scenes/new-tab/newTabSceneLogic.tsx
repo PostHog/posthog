@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { IconDatabase, IconHogQL, IconPerson } from '@posthog/icons'
+import { IconDatabase, IconHogQL, IconPerson, IconSparkles } from '@posthog/icons'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -29,7 +29,14 @@ import { PersonType } from '~/types'
 
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
-export type NEW_TAB_CATEGORY_ITEMS = 'all' | 'create-new' | 'apps' | 'data-management' | 'recents' | 'persons'
+export type NEW_TAB_CATEGORY_ITEMS =
+    | 'all'
+    | 'create-new'
+    | 'apps'
+    | 'data-management'
+    | 'recents'
+    | 'persons'
+    | 'ask://'
 
 export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
@@ -75,7 +82,7 @@ const BASE_DESTINATION_LABELS: Record<string, { label: string; description?: str
     'persons://': { label: 'Persons' },
     'shortcuts://': { label: 'Shortcuts' },
     'new://': { label: 'Create new' },
-    'ask://': { label: 'Ask Max', description: 'Send your query to Max' },
+    'ask://': { label: 'Ask Max' },
 }
 
 const ALWAYS_INCLUDED_DESTINATIONS = new Set(['events://', 'properties://'])
@@ -415,13 +422,15 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.personSearchItems,
                 s.specialSearchMode,
                 s.selectedDestinations,
+                s.search,
             ],
             (
                 featureFlags,
                 projectTreeSearchItems,
                 personSearchItems,
                 specialSearchMode,
-                selectedDestinations
+                selectedDestinations,
+                search
             ): NewTabTreeDataItem[] => {
                 const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
                 const normalizedSelections = selectedDestinations
@@ -430,6 +439,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 const includePersons =
                     newTabSceneData && (normalizedSelections.includes('persons://') || specialSearchMode === 'persons')
+
+                const trimmedSearch = search.trim()
+                const askMaxItem: NewTabTreeDataItem = {
+                    id: 'ask-max',
+                    name: trimmedSearch || 'Ask Max',
+                    displayName: trimmedSearch || 'Ask Max',
+                    category: 'ask://',
+                    protocol: 'ask://',
+                    icon: <IconSparkles />,
+                    record: {
+                        type: 'ask-max',
+                        question: trimmedSearch,
+                        protocol: 'ask://',
+                        path: trimmedSearch || 'Ask Max',
+                    },
+                }
 
                 const newInsightItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Insight/'))
@@ -544,6 +569,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     ...data,
                     ...newDataItems,
                     ...projectTreeSearchItems,
+                    askMaxItem,
                 ]
 
                 if (includePersons && specialSearchMode !== 'persons') {
@@ -581,7 +607,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (newTabSceneData) {
                     const normalizedSelections = selectedDestinations
                         .map((destination) => normalizeDestination(destination))
-                        .filter((value): value is string => !!value && value !== 'ask://')
+                        .filter((value): value is string => !!value)
 
                     if (normalizedSelections.length > 0) {
                         filtered = filtered.filter((item) => {
@@ -739,7 +765,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 const normalizedSelection = selectedDestinations
                     .map((value) => normalizeDestination(value))
-                    .filter((value): value is string => !!value && value !== 'ask://')
+                    .filter((value): value is string => !!value)
 
                 const sections: [string, NewTabTreeDataItem[]][] = []
                 const seen = new Set<string>()
@@ -749,7 +775,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         ? normalizedSelection
                         : destinationOptions
                               .map((option) => normalizeDestination(option.value))
-                              .filter((value): value is string => !!value && value !== 'ask://')
+                              .filter((value): value is string => !!value)
 
                 for (const value of orderedValues) {
                     if (!value || seen.has(value)) {
@@ -765,7 +791,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (normalizedSelection.length === 0) {
                     Object.entries(groupedItems).forEach(([key, items]) => {
                         const value = normalizeDestination(key)
-                        if (!value || value === 'ask://') {
+                        if (!value) {
                             return
                         }
                         if (!seen.has(value) && items.length > 0) {
