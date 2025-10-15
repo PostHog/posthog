@@ -1,4 +1,3 @@
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_APP_METRICS
@@ -38,7 +37,7 @@ APP_METRICS_TIMESTAMP_TRUNCATION = "toStartOfHour(timestamp)"
 
 APP_METRICS_DATA_TABLE_SQL = (
     lambda on_cluster=True: f"""
-CREATE TABLE IF NOT EXISTS {APP_METRICS_SHARDED_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
+CREATE TABLE IF NOT EXISTS {APP_METRICS_SHARDED_TABLE}
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -52,7 +51,7 @@ ORDER BY (team_id, plugin_config_id, job_id, category, {APP_METRICS_TIMESTAMP_TR
 
 DISTRIBUTED_APP_METRICS_TABLE_SQL = (
     lambda on_cluster=True: f"""
-CREATE TABLE IF NOT EXISTS {APP_METRICS_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
+CREATE TABLE IF NOT EXISTS {APP_METRICS_TABLE}
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -63,7 +62,7 @@ ENGINE={Distributed(data_table=APP_METRICS_SHARDED_TABLE, sharding_key="rand()")
 
 WRITABLE_APP_METRICS_TABLE_SQL = (
     lambda on_cluster=True: f"""
-CREATE TABLE IF NOT EXISTS {APP_METRICS_WRITABLE_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
+CREATE TABLE IF NOT EXISTS {APP_METRICS_WRITABLE_TABLE}
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -74,7 +73,7 @@ ENGINE={Distributed(data_table=APP_METRICS_SHARDED_TABLE, sharding_key="rand()")
 
 KAFKA_APP_METRICS_TABLE_SQL = (
     lambda on_cluster=True: f"""
-CREATE TABLE IF NOT EXISTS {KAFKA_APP_METRICS_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
+CREATE TABLE IF NOT EXISTS kafka_app_metrics
 (
     team_id Int64,
     timestamp DateTime64(6, 'UTC'),
@@ -93,13 +92,13 @@ ENGINE={kafka_engine(topic=KAFKA_APP_METRICS)}
 )
 
 
-def APP_METRICS_MV_TABLE_SQL(on_cluster: bool = True, target_table: str = APP_METRICS_WRITABLE_TABLE) -> str:
+def APP_METRICS_MV_TABLE_SQL(target_table: str = APP_METRICS_WRITABLE_TABLE) -> str:
     """
     Create materialized view SQL for app_metrics.
     This must be a function to ensure CLICKHOUSE_DATABASE is evaluated at runtime.
     """
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {APP_METRICS_MV_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {APP_METRICS_MV_TABLE}
 TO {target_table}
 AS SELECT
 team_id,

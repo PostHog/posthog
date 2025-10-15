@@ -1,7 +1,5 @@
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import CollapsingMergeTree
 from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
-from posthog.settings import CLICKHOUSE_CLUSTER
 
 CALCULATE_COHORT_PEOPLE_SQL = """
 SELECT {id_column} FROM ({GET_TEAM_PERSON_DISTINCT_IDS}) WHERE {query}
@@ -13,8 +11,8 @@ def COHORTPEOPLE_TABLE_ENGINE():
 
 
 CREATE_COHORTPEOPLE_TABLE_SQL = (
-    lambda on_cluster=True: """
-CREATE TABLE IF NOT EXISTS cohortpeople {on_cluster_clause}
+    lambda: """
+CREATE TABLE IF NOT EXISTS cohortpeople
 (
     person_id UUID,
     cohort_id Int64,
@@ -25,13 +23,12 @@ CREATE TABLE IF NOT EXISTS cohortpeople {on_cluster_clause}
 Order By (team_id, cohort_id, person_id, version)
 {storage_policy}
 """.format(
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=COHORTPEOPLE_TABLE_ENGINE(),
         storage_policy="",
     )
 )
 
-TRUNCATE_COHORTPEOPLE_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+TRUNCATE_COHORTPEOPLE_TABLE_SQL = "TRUNCATE TABLE IF EXISTS cohortpeople"
 
 GET_COHORT_SIZE_SQL = """
 SELECT count(DISTINCT person_id)

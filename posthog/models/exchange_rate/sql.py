@@ -3,7 +3,6 @@ import re
 import csv
 import datetime
 
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
@@ -107,9 +106,9 @@ EXCHANGE_RATE_DECIMAL_PRECISION = 10
 
 
 # `version` is used to ensure the latest version is kept, see https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree
-def EXCHANGE_RATE_TABLE_SQL(on_cluster=True):
+def EXCHANGE_RATE_TABLE_SQL():
     return """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
+CREATE TABLE IF NOT EXISTS {table_name} (
     currency String,
     date Date,
     rate Decimal64({decimal_precision}),
@@ -118,23 +117,20 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
 ORDER BY (date, currency);
 """.format(
         table_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_TABLE_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         decimal_precision=EXCHANGE_RATE_DECIMAL_PRECISION,
         engine=ReplacingMergeTree("exchange_rate", ver="version"),
     )
 
 
-def DROP_EXCHANGE_RATE_TABLE_SQL(on_cluster=False):
-    return "DROP TABLE IF EXISTS {table_name} {on_cluster_clause}".format(
+def DROP_EXCHANGE_RATE_TABLE_SQL():
+    return "DROP TABLE IF EXISTS {table_name}".format(
         table_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_TABLE_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
 
-def TRUNCATE_EXCHANGE_RATE_TABLE_SQL(on_cluster=False):
-    return "TRUNCATE TABLE IF EXISTS {table_name} {on_cluster_clause}".format(
+def TRUNCATE_EXCHANGE_RATE_TABLE_SQL():
+    return "TRUNCATE TABLE IF EXISTS {table_name}".format(
         table_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_TABLE_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
 
@@ -207,9 +203,9 @@ EXCHANGE_RATE_DICTIONARY_QUERY = re.sub(r"\s\s+", " ", EXCHANGE_RATE_DICTIONARY_
 # Also, note the `anyLast` function on the query construction
 # It is used to get the latest rate for a given date and currency from the underlying table
 # given that we might have more than one while the merges haven't finished yet
-def EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False):
+def EXCHANGE_RATE_DICTIONARY_SQL():
     return """
-CREATE DICTIONARY IF NOT EXISTS {exchange_rate_dictionary_name} {on_cluster_clause} (
+CREATE DICTIONARY IF NOT EXISTS {exchange_rate_dictionary_name} (
     currency String,
     start_date Date,
     end_date Nullable(Date),
@@ -221,7 +217,6 @@ LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(RANGE_HASHED(range_lookup_strategy 'max'))
 RANGE(MIN start_date MAX end_date)""".format(
         exchange_rate_dictionary_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         decimal_precision=EXCHANGE_RATE_DECIMAL_PRECISION,
         query=EXCHANGE_RATE_DICTIONARY_QUERY,
         clickhouse_user=CLICKHOUSE_USER,
@@ -229,8 +224,7 @@ RANGE(MIN start_date MAX end_date)""".format(
     )
 
 
-def DROP_EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False):
-    return "DROP DICTIONARY IF EXISTS {dictionary_name} {on_cluster_clause}".format(
+def DROP_EXCHANGE_RATE_DICTIONARY_SQL():
+    return "DROP DICTIONARY IF EXISTS {dictionary_name}".format(
         dictionary_name=f"`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     ).strip()

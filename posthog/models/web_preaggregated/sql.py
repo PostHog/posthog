@@ -4,7 +4,6 @@ from django.conf import settings
 
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
 
@@ -13,13 +12,13 @@ def is_eu_cluster() -> bool:
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
-def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, force_unique_zk_path=False, replace=False):
+def TABLE_TEMPLATE(table_name, columns, order_by, force_unique_zk_path=False, replace=False):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
     if force_unique_zk_path:
         engine.set_zookeeper_path_key(str(uuid.uuid4()))
 
     return f"""
-    {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -32,9 +31,7 @@ def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, force_unique_
     """
 
 
-def HOURLY_TABLE_TEMPLATE(
-    table_name, columns, order_by, ttl=None, on_cluster=True, force_unique_zk_path=False, replace=False
-):
+def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None, force_unique_zk_path=False, replace=False):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
     if force_unique_zk_path:
         engine.set_zookeeper_path_key(str(uuid.uuid4()))
@@ -42,7 +39,7 @@ def HOURLY_TABLE_TEMPLATE(
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
     return f"""
-    {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -57,7 +54,7 @@ def HOURLY_TABLE_TEMPLATE(
 
 
 def _DROP_TABLE_TEMPLATE(table_name: str):
-    return f"DROP TABLE IF EXISTS {table_name} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {table_name}"
 
 
 def DROP_WEB_STATS_SQL():
@@ -100,7 +97,6 @@ def REPLACE_WEB_BOUNCES_HOURLY_STAGING_SQL():
         ttl="24 HOUR",
         force_unique_zk_path=True,
         replace=True,
-        on_cluster=False,
     )
 
 
@@ -112,7 +108,6 @@ def REPLACE_WEB_STATS_HOURLY_STAGING_SQL():
         ttl="24 HOUR",
         force_unique_zk_path=True,
         replace=True,
-        on_cluster=False,
     )
 
 
@@ -246,7 +241,6 @@ def REPLACE_WEB_STATS_V2_STAGING_SQL():
         WEB_STATS_V2_PRODUCTION_ORDER_BY,
         force_unique_zk_path=True,
         replace=True,
-        on_cluster=False,
     )
 
 
@@ -257,7 +251,6 @@ def REPLACE_WEB_BOUNCES_V2_STAGING_SQL():
         WEB_BOUNCES_V2_PRODUCTION_ORDER_BY,
         force_unique_zk_path=True,
         replace=True,
-        on_cluster=False,
     )
 
 
@@ -386,20 +379,20 @@ def DROP_PARTITION_SQL(table_name, date_start, granularity="daily"):
     """
 
 
-def WEB_STATS_DAILY_SQL(table_name="web_stats_daily", on_cluster=False):
-    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
+def WEB_STATS_DAILY_SQL(table_name="web_stats_daily"):
+    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"))
 
 
-def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily", on_cluster=False):
-    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
+def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"):
+    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"))
 
 
-def WEB_STATS_SQL(table_name="web_pre_aggregated_stats", on_cluster=False):
-    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
+def WEB_STATS_SQL(table_name="web_pre_aggregated_stats"):
+    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"))
 
 
-def WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces", on_cluster=False):
-    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
+def WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces"):
+    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"))
 
 
 def WEB_STATS_HOURLY_SQL():

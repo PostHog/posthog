@@ -3,7 +3,6 @@ from django.conf import settings
 from posthog.clickhouse.kafka_engine import kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_HEATMAP_EVENTS
-from posthog.session_recordings.sql.session_recording_event_sql import ON_CLUSTER_CLAUSE
 
 HEATMAPS_DATA_TABLE = lambda: "sharded_heatmaps"
 
@@ -22,7 +21,7 @@ We only add session_id so that we could offer example sessions for particular cl
 """
 
 KAFKA_HEATMAPS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     session_id VARCHAR,
     team_id Int64,
@@ -44,7 +43,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 """
 
 HEATMAPS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     session_id VARCHAR,
     team_id Int64,
@@ -70,7 +69,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 
 HEATMAPS_DATA_TABLE_ENGINE = lambda: MergeTreeEngine("heatmaps", replication_scheme=ReplicationScheme.SHARDED)
 
-HEATMAPS_TABLE_SQL = lambda on_cluster=True: (
+HEATMAPS_TABLE_SQL = lambda: (
     HEATMAPS_TABLE_BASE_SQL
     + """
     PARTITION BY toYYYYMM(timestamp)
@@ -91,20 +90,18 @@ HEATMAPS_TABLE_SQL = lambda on_cluster=True: (
 """
 ).format(
     table_name=HEATMAPS_DATA_TABLE(),
-    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     engine=HEATMAPS_DATA_TABLE_ENGINE(),
     ttl_period=ttl_period("timestamp", 90, unit="DAY"),
 )
 
-KAFKA_HEATMAPS_TABLE_SQL = lambda on_cluster=True: KAFKA_HEATMAPS_TABLE_BASE_SQL.format(
+KAFKA_HEATMAPS_TABLE_SQL = lambda: KAFKA_HEATMAPS_TABLE_BASE_SQL.format(
     table_name="kafka_heatmaps",
-    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_HEATMAP_EVENTS),
 )
 
 HEATMAPS_TABLE_MV_SQL = (
-    lambda on_cluster=True: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv {on_cluster_clause}
+    lambda: """
+CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv
 TO {database}.{target_table}
 AS SELECT
     session_id,
@@ -129,7 +126,6 @@ AS SELECT
 FROM {database}.kafka_heatmaps
 """.format(
         target_table="writable_heatmaps",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         database=settings.CLICKHOUSE_DATABASE,
     )
 )
@@ -137,9 +133,8 @@ FROM {database}.kafka_heatmaps
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_heatmaps based on a sharding key.
-WRITABLE_HEATMAPS_TABLE_SQL = lambda on_cluster=True: HEATMAPS_TABLE_BASE_SQL.format(
+WRITABLE_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
     table_name="writable_heatmaps",
-    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     engine=Distributed(
         data_table=HEATMAPS_DATA_TABLE(),
         sharding_key="cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))",
@@ -147,18 +142,15 @@ WRITABLE_HEATMAPS_TABLE_SQL = lambda on_cluster=True: HEATMAPS_TABLE_BASE_SQL.fo
 )
 
 # This table is responsible for reading from heatmaps on a cluster setting
-DISTRIBUTED_HEATMAPS_TABLE_SQL = lambda on_cluster=True: HEATMAPS_TABLE_BASE_SQL.format(
+DISTRIBUTED_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
     table_name="heatmaps",
-    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     engine=Distributed(
         data_table=HEATMAPS_DATA_TABLE(),
         sharding_key="cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))",
     ),
 )
 
-DROP_HEATMAPS_TABLE_SQL = lambda: (
-    f"DROP TABLE IF EXISTS {HEATMAPS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-)
+DROP_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS {HEATMAPS_DATA_TABLE()}")
 
 DROP_WRITABLE_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS writable_heatmaps")
 
@@ -171,5 +163,5 @@ TRUNCATE_HEATMAPS_TABLE_SQL = lambda: (
 )
 
 ALTER_TABLE_ADD_TTL_PERIOD = lambda: (
-    f"ALTER TABLE {HEATMAPS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY {ttl_period('timestamp', 90, unit='DAY')}"
+    f"ALTER TABLE {HEATMAPS_DATA_TABLE()} MODIFY {ttl_period('timestamp', 90, unit='DAY')}"
 )

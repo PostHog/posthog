@@ -1,24 +1,22 @@
 from posthog import settings
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_GROUPS
-from posthog.settings import CLICKHOUSE_CLUSTER
 
 GROUPS_TABLE = "groups"
 GROUPS_TABLE_MV = f"{GROUPS_TABLE}_mv"
 GROUPS_WRITABLE_TABLE = f"writable_{GROUPS_TABLE}"
 KAFKA_GROUPS_TABLE = f"kafka_{GROUPS_TABLE}"
 
-DROP_GROUPS_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+DROP_GROUPS_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE}"
 DROP_GROUPS_TABLE_MV_SQL = f"DROP TABLE IF EXISTS {GROUPS_TABLE_MV}"
 DROP_KAFKA_GROUPS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_GROUPS_TABLE}"
 
-TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {GROUPS_TABLE}"
 
 GROUPS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     group_type_index UInt8,
     group_key VARCHAR,
@@ -34,7 +32,7 @@ def GROUPS_TABLE_ENGINE():
     return ReplacingMergeTree(GROUPS_TABLE, ver="_timestamp")
 
 
-def GROUPS_TABLE_SQL(on_cluster=True):
+def GROUPS_TABLE_SQL():
     return (
         GROUPS_TABLE_BASE_SQL
         + """ORDER BY (team_id, group_type_index, group_key)
@@ -42,17 +40,15 @@ def GROUPS_TABLE_SQL(on_cluster=True):
 """
     ).format(
         table_name=GROUPS_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=GROUPS_TABLE_ENGINE(),
         extra_fields=KAFKA_COLUMNS,
         storage_policy=STORAGE_POLICY(),
     )
 
 
-def KAFKA_GROUPS_TABLE_SQL(on_cluster=True):
+def KAFKA_GROUPS_TABLE_SQL():
     return GROUPS_TABLE_BASE_SQL.format(
         table_name="kafka_" + GROUPS_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(KAFKA_GROUPS),
         extra_fields="",
     )
@@ -62,15 +58,14 @@ def GROUPS_WRITABLE_TABLE_SQL():
     # This is a table used for writing from the ingestion layer. It's not sharded, thus it uses the single shard cluster.
     return GROUPS_TABLE_BASE_SQL.format(
         table_name="writable_" + GROUPS_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=Distributed(data_table=GROUPS_TABLE, cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER),
         extra_fields=KAFKA_COLUMNS,
     )
 
 
-def GROUPS_TABLE_MV_SQL(target_table=GROUPS_WRITABLE_TABLE, on_cluster=True):
+def GROUPS_TABLE_MV_SQL(target_table=GROUPS_WRITABLE_TABLE):
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {GROUPS_TABLE_MV} {ON_CLUSTER_CLAUSE(on_cluster)}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {GROUPS_TABLE_MV}
 TO {target_table}
 AS SELECT
 group_type_index,

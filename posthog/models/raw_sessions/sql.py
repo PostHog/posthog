@@ -1,6 +1,5 @@
 from django.conf import settings
 
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
 TABLE_BASE_NAME = "raw_sessions"
@@ -15,33 +14,33 @@ def WRITABLE_RAW_SESSIONS_DATA_TABLE():
 
 
 def TRUNCATE_RAW_SESSIONS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"TRUNCATE TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()}"
 
 
 def DROP_RAW_SESSION_SHARDED_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()}"
 
 
 def DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}"
 
 
 def DROP_RAW_SESSION_WRITABLE_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {WRITABLE_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {WRITABLE_RAW_SESSIONS_DATA_TABLE()}"
 
 
 def DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL():
-    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv"
 
 
 def DROP_RAW_SESSION_VIEW_SQL():
-    return f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE()}"
+    return f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v"
 
 
 # if updating these column definitions
 # you'll need to update the explicit column definitions in the materialized view creation statement below
 RAW_SESSIONS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     session_id_v7 UInt128, -- integer representation of a uuidv7
@@ -149,7 +148,7 @@ def RAW_SESSIONS_DATA_TABLE_ENGINE():
 # 1M / 24 / 60 / 8192 = ~0.08. This is <1, so we wouldn't benefit much from sampling.
 
 
-def RAW_SESSIONS_TABLE_SQL(on_cluster=True):
+def RAW_SESSIONS_TABLE_SQL():
     return (
         RAW_SESSIONS_TABLE_BASE_SQL
         + """
@@ -164,7 +163,6 @@ SAMPLE BY cityHash64(session_id_v7)
 """
     ).format(
         table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=RAW_SESSIONS_DATA_TABLE_ENGINE(),
     )
 
@@ -440,14 +438,13 @@ GROUP BY
 
 RAW_SESSIONS_TABLE_MV_SQL = (
     lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}
 TO {database}.{target_table}
 AS
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
         target_table=f"writable_{TABLE_BASE_NAME}",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
         database=settings.CLICKHOUSE_DATABASE,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL(),
     )
@@ -455,12 +452,11 @@ AS
 
 RAW_SESSION_TABLE_UPDATE_SQL = (
     lambda: """
-ALTER TABLE {table_name} {on_cluster_clause}
+ALTER TABLE {table_name}
 MODIFY QUERY
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL(),
     )
 )
@@ -470,10 +466,9 @@ MODIFY QUERY
 # This table is responsible for writing to sharded_sessions based on a sharding key.
 
 
-def WRITABLE_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
+def WRITABLE_RAW_SESSIONS_TABLE_SQL():
     return RAW_SESSIONS_TABLE_BASE_SQL.format(
         table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE(),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=SHARDED_RAW_SESSIONS_DATA_TABLE(),
             # shard via session_id so that all events for a session are on the same shard
@@ -485,10 +480,9 @@ def WRITABLE_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
 # This table is responsible for reading from sessions on a cluster setting
 
 
-def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
+def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL():
     return RAW_SESSIONS_TABLE_BASE_SQL.format(
         table_name=TABLE_BASE_NAME,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=SHARDED_RAW_SESSIONS_DATA_TABLE(),
             sharding_key="cityHash64(session_id_v7)",
@@ -501,7 +495,7 @@ def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
 # debugging
 RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL = (
     lambda: f"""
-CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE(on_cluster=False)} AS
+CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v AS
 SELECT
     session_id_v7,
     fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) as session_timestamp,

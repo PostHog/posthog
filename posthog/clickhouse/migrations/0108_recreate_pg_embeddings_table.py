@@ -8,7 +8,5 @@ _DROP_SYNC_PG_EMBEDDINGS_TABLE_SQL = f"DROP TABLE IF EXISTS {PG_EMBEDDINGS_DATA_
 operations = [
     # The table had an engine ReplacingMergeTree.
     run_sql_with_exceptions(_DROP_SYNC_PG_EMBEDDINGS_TABLE_SQL, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
-    run_sql_with_exceptions(
-        PG_EMBEDDINGS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
-    ),
+    run_sql_with_exceptions(PG_EMBEDDINGS_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
 ]

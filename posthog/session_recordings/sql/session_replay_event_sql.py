@@ -1,6 +1,5 @@
 from django.conf import settings
 
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
@@ -16,7 +15,7 @@ We write first_timestamp and last_timestamp as individual records
 They will be grouped as min_first_timestamp and max_last_timestamp in the main table
 """
 KAFKA_SESSION_REPLAY_EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     session_id VARCHAR,
     team_id Int64,
@@ -45,7 +44,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 # if updating these column definitions
 # you'll need to update the explicit column definitions in the materialized view creation statement below
 SESSION_REPLAY_EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     -- part of order by so will aggregate correctly
     session_id VARCHAR,
@@ -97,7 +96,7 @@ def SESSION_REPLAY_EVENTS_DATA_TABLE_ENGINE():
     return AggregatingMergeTree("session_replay_events", replication_scheme=ReplicationScheme.SHARDED)
 
 
-def SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
+def SESSION_REPLAY_EVENTS_TABLE_SQL():
     return (
         SESSION_REPLAY_EVENTS_TABLE_BASE_SQL
         + """
@@ -117,12 +116,11 @@ SETTINGS index_granularity=512
 """
     ).format(
         table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=SESSION_REPLAY_EVENTS_DATA_TABLE_ENGINE(),
     )
 
 
-def KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
+def KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL():
     return KAFKA_SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
         table_name="kafka_session_replay_events",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
@@ -130,11 +128,10 @@ def KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
     )
 
 
-def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
+def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(exclude_columns=None):
     exclude_columns = exclude_columns or []
 
     target_table = "writable_session_replay_events"
-    on_cluster_clause = ON_CLUSTER_CLAUSE(on_cluster)
     database = settings.CLICKHOUSE_DATABASE
 
     # ClickHouse is incorrectly expanding the type of the snapshot source column
@@ -161,7 +158,7 @@ def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
 )"""
 
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv {on_cluster_clause}
+CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv
 TO {database}.{target_table} {explictly_specify_columns}
 AS SELECT
 session_id,
@@ -208,10 +205,9 @@ group by session_id, team_id
 # This table is responsible for writing to sharded_session_replay_events based on a sharding key.
 
 
-def WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False):
+def WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL():
     return SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
         table_name="writable_session_replay_events",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(),
             sharding_key="sipHash64(distinct_id)",
@@ -222,10 +218,9 @@ def WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False):
 # This table is responsible for reading from session_replay_events on a cluster setting
 
 
-def DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False):
+def DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL():
     return SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
         table_name="session_replay_events",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(),
             sharding_key="sipHash64(distinct_id)",
@@ -235,14 +230,6 @@ def DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False):
 
 def DROP_SESSION_REPLAY_EVENTS_TABLE_SQL():
     return f"DROP TABLE IF EXISTS {SESSION_REPLAY_EVENTS_DATA_TABLE()}"
-
-
-def DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS kafka_session_replay_events"
-
-
-def DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL():
-    return f"DROP TABLE IF EXISTS session_replay_events_mv"
 
 
 def TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL():
