@@ -13,15 +13,13 @@ export class DecompressionWorkerManager {
     private async initWorker(): Promise<void> {
         return new Promise((resolve, reject) => {
             try {
-                // Detect file extension based on current module
-                // In dev: DecompressionWorkerManager.ts -> decompressionWorker.ts
-                // In prod: DecompressionWorkerManager-[hash].js -> decompressionWorker-[hash].js
-                const currentUrl = import.meta.url
-                const extension = currentUrl.includes('.ts') ? 'ts' : 'js'
-                const workerUrl = new URL(`./decompressionWorker.${extension}?worker_file&type=module`, import.meta.url)
-                const js = `import ${JSON.stringify(workerUrl.href)}`
+                // Use .js extension - Vite will resolve to .ts in dev, esbuild will resolve to hashed .js in prod
+                // The bundler resolves this at build time to the correct file with hash
+                const workerUrl = new URL('./decompressionWorker?worker_file&type=module', import.meta.url)
+
                 // Use blob workaround for cross-origin worker loading in development
                 // See: https://github.com/vitejs/vite/issues/13680
+                const js = `import ${JSON.stringify(workerUrl.href)}`
                 const blob = new Blob([js], { type: 'application/javascript' })
                 const objURL = URL.createObjectURL(blob)
 
