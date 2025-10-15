@@ -6,10 +6,14 @@ from posthog.models.team.team import Team
 
 # Takes an embed text call, calls out to the embedding worker,
 # and then returns an embedding.
-def resolve_embed_text(team_id: int | None, node: ast.Call) -> ast.Constant:
+def resolve_embed_text(team: Team | int | None, node: ast.Call) -> ast.Constant:
     args = node.args
-    if team_id is None:
-        raise ValueError("embed_text() requires a team ID")
+
+    if isinstance(team, int):
+        team = Team.objects.get(id=team)
+
+    if team is None:
+        raise ValueError("embed_text() requires a team or team ID")
     if len(args) < 1:
         raise ValueError("embed_text() takes at least one argument")
     if len(args) > 2:
@@ -23,7 +27,7 @@ def resolve_embed_text(team_id: int | None, node: ast.Call) -> ast.Constant:
     if model is not None and (not isinstance(model, ast.Constant) or not isinstance(model.value, str)):
         raise ValueError("embed_text() second argument must be a string literal")
 
-    response = generate_embedding(Team.objects.get(id=team_id), text.value, model.value if model else None)
+    response = generate_embedding(team, text.value, model.value if model else None)
 
     # Return the embedding as a constant
     return ast.Constant(value=response.embedding)

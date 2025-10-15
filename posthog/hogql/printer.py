@@ -1388,7 +1388,7 @@ class _Printer(Visitor[str]):
 
             if self.dialect == "clickhouse":
                 if node.name == "embed_text":
-                    return self.visit_constant(resolve_embed_text(self.context.team_id, node))
+                    return self.visit_constant(resolve_embed_text(self.context.team, node))
                 if node.name == "hogql_lookupDomainType":
                     channel_dict = get_channel_definition_dict()
                     return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
