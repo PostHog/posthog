@@ -89,7 +89,21 @@ jobs:
               run: |
                   ruff format --check --diff .
 
-            - name: Add Problem Matcher
+            - name: Add ty Problem Matcher
+              shell: bash
+              run: |
+                  echo "::add-matcher::.github/ty-problem-matcher.json"
+
+            - name: Check ty type checking (informational)
+              shell: bash
+              continue-on-error: true
+              run: |
+                  echo "👀 Running ty type checker (informational - does not block CI)"
+                  echo "📊 Trial run to evaluate ty vs mypy. Feedback welcome in #team-devex"
+                  echo ""
+                  ./bin/ty.py check posthog ee common dags || echo "⚠️ ty found type issues (annotations below)"
+
+            - name: Add mypy Problem Matcher
               shell: bash
               run: |
                   echo "::add-matcher::.github/mypy-problem-matcher.json"

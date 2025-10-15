@@ -30,6 +30,7 @@ import {
     getDelta,
     getMetricSubtitleValues,
     getNiceTickValues,
+    hasValidationFailures,
     isDeltaPositive,
     isSignificant,
     isWinning,
@@ -202,8 +203,11 @@ export function MetricRowGroup({
         })
     }
 
-    // Handle loading or error states
-    if (isLoading || error || !result || !hasMinimumExposureForResults) {
+    // Handle loading, API errors, or missing result
+    // Note: If result has validation_failures but no API error, we'll show the data with inline warnings
+    const hasResultWithValidationFailures = result && hasValidationFailures(result)
+
+    if (isLoading || error || !result || (!hasMinimumExposureForResults && !hasResultWithValidationFailures)) {
         return (
             <tr
                 className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
@@ -243,7 +247,6 @@ export function MetricRowGroup({
                         <ChartEmptyState
                             height={CELL_HEIGHT}
                             experimentStarted={!!experiment.start_date}
-                            hasMinimumExposure={hasMinimumExposureForResults}
                             metric={metric}
                             error={error}
                         />
