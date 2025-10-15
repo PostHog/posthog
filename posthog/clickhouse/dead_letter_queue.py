@@ -12,7 +12,7 @@ from posthog.settings.data_stores import CLICKHOUSE_SINGLE_SHARD_CLUSTER
 DEAD_LETTER_QUEUE_TABLE = "events_dead_letter_queue"
 
 DEAD_LETTER_QUEUE_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     id UUID,
     event_uuid UUID,
@@ -66,7 +66,6 @@ SETTINGS index_granularity=512
 def KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL():
     return (DEAD_LETTER_QUEUE_TABLE_BASE_SQL + " SETTINGS kafka_skip_broken_messages=1000").format(
         table_name="kafka_" + DEAD_LETTER_QUEUE_TABLE,
-        cluster=CLICKHOUSE_CLUSTER,
         engine=kafka_engine(topic=KAFKA_DEAD_LETTER_QUEUE),
         extra_fields="",
     )
@@ -75,7 +74,6 @@ def KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL():
 def WRITABLE_DEAD_LETTER_QUEUE_TABLE_SQL():
     return (DEAD_LETTER_QUEUE_TABLE_BASE_SQL).format(
         table_name="writable_" + DEAD_LETTER_QUEUE_TABLE,
-        cluster=CLICKHOUSE_CLUSTER,
         engine=Distributed(data_table=DEAD_LETTER_QUEUE_TABLE, cluster=CLICKHOUSE_SINGLE_SHARD_CLUSTER),
         extra_fields=f"""
     {KAFKA_COLUMNS}
