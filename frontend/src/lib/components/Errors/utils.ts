@@ -204,7 +204,7 @@ export function stringify(value: any): string {
 }
 
 export function formatResolvedName(frame: Pick<ErrorTrackingStackFrame, 'module' | 'resolved_name'>): string | null {
-    if (!frame.resolved_name) {
+    if (!frame.resolved_name || frame.resolved_name === '?') {
         return null
     }
     return frame.module ? `${frame.module}.${frame.resolved_name}` : frame.resolved_name

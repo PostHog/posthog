@@ -69,7 +69,7 @@ const createTaskForm = (
                 frames.forEach((frame, index) => {
                     description += `**${index + 1}.** `
                     const resolvedName = formatResolvedName(frame)
-                    if (resolvedName && resolvedName !== '?') {
+                    if (resolvedName) {
                         description += `\`${resolvedName}\``
                     } else {
                         description += 'Anonymous function'
