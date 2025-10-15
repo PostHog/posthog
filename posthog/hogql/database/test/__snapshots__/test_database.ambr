@@ -480,6 +480,16 @@
                   "table": null,
                   "type": "string"
               },
+              "person_mode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "person_mode",
+                  "id": null,
+                  "name": "person_mode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "pdi": {
                   "chain": null,
                   "fields": [
@@ -2969,6 +2979,16 @@
                   "hogql_value": "`$window_id`",
                   "id": null,
                   "name": "$window_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "person_mode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "person_mode",
+                  "id": null,
+                  "name": "person_mode",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
