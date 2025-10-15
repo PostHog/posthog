@@ -37,8 +37,8 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         ...batchExportConfig.destination.config,
     }
 
-    const authorizationMode: 'IAMRole' | 'Credentials' = 'IAMRole'
-    const copyInputsFields: Record<string, any> = {}
+    let authorizationMode: 'IAMRole' | 'Credentials' = 'IAMRole'
+    let copyInputsFields: Record<string, any> = {}
 
     if (batchExportConfig.destination.type === 'Redshift' && batchExportConfig.destination.config.copy_inputs) {
         const copyInputs = batchExportConfig.destination.config.copy_inputs
