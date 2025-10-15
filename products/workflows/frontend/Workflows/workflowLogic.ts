@@ -323,7 +323,10 @@ export const workflowLogic = kea<workflowLogicType>([
             lemonToast.success('Workflow saved')
             if (props.id === 'new' && originalWorkflow.id) {
                 router.actions.replace(
-                    urls.workflow(originalWorkflow.id, workflowSceneLogic.findMounted()?.values.currentTab)
+                    urls.workflow(
+                        originalWorkflow.id,
+                        workflowSceneLogic.findMounted()?.values.currentTab || 'workflow'
+                    )
                 )
             }
 

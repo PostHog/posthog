@@ -60,7 +60,7 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/workflows/workflows/:id/:tab': ({ tab }) => {
+        '/workflows/:id/:tab': ({ tab }) => {
             if (tab !== values.currentTab) {
                 actions.setCurrentTab(tab as WorkflowTab)
             }

@@ -87,7 +87,13 @@ export function WorkflowsTable(): JSX.Element {
             key: 'name',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: (_, item) => {
-                return <LemonTableLink to={urls.workflow(item.id)} title={item.name} description={item.description} />
+                return (
+                    <LemonTableLink
+                        to={urls.workflow(item.id, 'workflow')}
+                        title={item.name}
+                        description={item.description}
+                    />
+                )
             },
         },
 

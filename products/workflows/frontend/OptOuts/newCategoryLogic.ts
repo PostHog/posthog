@@ -63,11 +63,11 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
             submit: async (formValues: CategoryForm) => {
                 if (props.category) {
                     // Update existing category
-                    await api.workflows.updateCategory(props.category.id, formValues)
+                    await api.messaging.updateCategory(props.category.id, formValues)
                     lemonToast.success('Category updated successfully')
                 } else {
                     // Create new category
-                    await api.workflows.createCategory(formValues)
+                    await api.messaging.createCategory(formValues)
                     lemonToast.success('Category created successfully')
                 }
                 // Reload categories in the parent logic

@@ -10,23 +10,27 @@ export const manifest: ProductManifest = {
         Workflows: {
             import: () => import('./frontend/WorkflowsScene'),
             name: 'Workflows',
+            iconType: 'workflows',
             projectBased: true,
         },
         Workflow: {
             import: () => import('./frontend/Workflows/WorkflowScene'),
             name: 'Workflows',
+            iconType: 'workflows',
             projectBased: true,
         },
         WorkflowsLibraryTemplate: {
             import: () => import('./frontend/TemplateLibrary/MessageTemplate'),
             name: 'Workflows',
+            iconType: 'workflows',
             projectBased: true,
         },
     },
     routes: {
         // URL: [Scene, SceneKey]
+        '/workflows': ['Workflows', 'workflows'],
         '/workflows/:tab': ['Workflows', 'workflows'],
-        '/workflows/workflows/:id/:tab': ['Workflow', 'workflowTab'],
+        '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
         '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/workflows/library/templates/new?messageId=:messageId': [
@@ -34,14 +38,10 @@ export const manifest: ProductManifest = {
             'workflowsLibraryTemplateFromMessage',
         ],
     },
-    redirects: {
-        '/workflows': '/workflows/workflows',
-        '/workflows/workflows/new': '/workflows/workflows/new/workflow',
-    },
     urls: {
-        workflows: (tab?: WorkflowsSceneTab): string => `/workflows/${tab || 'workflows'}`,
-        workflow: (id: string, tab?: string): string => `/workflows/workflows/${id}/${tab || 'workflow'}`,
-        workflowNew: (): string => '/workflows/workflows/new/workflow',
+        workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
+        workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
+        workflowNew: (): string => '/workflows/new/workflow',
         workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
         workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
         workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
@@ -53,7 +53,7 @@ export const manifest: ProductManifest = {
             name: 'Workflow',
             iconType: 'workflows',
             iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
-            href: (ref: string) => urls.workflow(ref),
+            href: (ref: string) => urls.workflows(ref),
             filterKey: 'workflows',
         },
     },

@@ -30,7 +30,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             [] as MessageTemplate[],
             {
                 loadTemplates: async () => {
-                    const response = await api.workflows.getTemplates()
+                    const response = await api.messaging.getTemplates()
                     return response.results
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
@@ -50,7 +50,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 createTemplate: async ({ template }: { template: Partial<MessageTemplate> }) => {
                     try {
-                        const newTemplate = await api.workflows.createTemplate(template)
+                        const newTemplate = await api.messaging.createTemplate(template)
                         lemonToast.success('Template created successfully')
                         return [...values.templates, newTemplate]
                     } catch {
@@ -66,7 +66,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                     template: Partial<MessageTemplate>
                 }) => {
                     try {
-                        const updatedTemplate = await api.workflows.updateTemplate(templateId, template)
+                        const updatedTemplate = await api.messaging.updateTemplate(templateId, template)
                         lemonToast.success('Template updated successfully')
                         return values.templates.map((t: MessageTemplate) => (t.id === templateId ? updatedTemplate : t))
                     } catch {

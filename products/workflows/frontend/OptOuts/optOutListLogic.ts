@@ -75,7 +75,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
             __default: [] as OptOutEntry[],
             loadOptOutPersons: async (): Promise<OptOutEntry[]> => {
                 try {
-                    return await api.workflows.getMessageOptOuts(props.category?.key)
+                    return await api.messaging.getMessageOptOuts(props.category?.key)
                 } catch {
                     lemonToast.error('Failed to load opt-out persons')
                     return []

@@ -1,5 +1,5 @@
-import { actions, kea, listeners, path, props, reducers, selectors, useActions, useValues } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { urlToAction } from 'kea-router'
 
 import { IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
@@ -23,7 +23,7 @@ import { OptOutScene } from './OptOuts/OptOutScene'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
-import type { workflowSceneLogicType } from './workflowSceneLogicType'
+import type { workflowSceneLogicType } from './WorkflowsSceneType'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs'] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -61,13 +61,13 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
             },
         ],
     }),
-    listeners({
-        setCurrentTab: ({ tab }) => {
-            router.actions.push(urls.workflows(tab))
-        },
-    }),
     urlToAction(({ actions, values }) => {
         return {
+            [urls.workflows()]: () => {
+                if (values.currentTab !== 'workflows') {
+                    actions.setCurrentTab('workflows')
+                }
+            },
             [urls.workflows(':tab' as WorkflowsSceneTab)]: ({ tab }) => {
                 let possibleTab: WorkflowsSceneTab = (tab as WorkflowsSceneTab) ?? 'workflows'
                 possibleTab = WORKFLOW_SCENE_TABS.includes(possibleTab) ? possibleTab : 'workflows'
@@ -88,7 +88,6 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
 
 export function WorkflowsScene(): JSX.Element {
     const { currentTab } = useValues(workflowSceneLogic)
-    const { setCurrentTab } = useActions(workflowSceneLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
 
@@ -147,6 +146,7 @@ export function WorkflowsScene(): JSX.Element {
                     <WorkflowsTable />
                 </>
             ),
+            link: urls.workflows(),
         },
         {
             label: 'Library',
@@ -157,16 +157,19 @@ export function WorkflowsScene(): JSX.Element {
                     <MessageTemplatesTable />
                 </>
             ),
+            link: urls.workflows('library'),
         },
         {
             label: 'Channels',
             key: 'channels',
             content: <MessageChannels />,
+            link: urls.workflows('channels'),
         },
         {
             label: 'Opt-outs',
             key: 'opt-outs',
             content: <OptOutScene />,
+            link: urls.workflows('opt-outs'),
         },
     ]
 
@@ -219,7 +222,7 @@ export function WorkflowsScene(): JSX.Element {
                 }
             />
             <SceneDivider />
-            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+            <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset />
         </SceneContent>
     )
 }

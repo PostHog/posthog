@@ -11,6 +11,7 @@ import {
     IconCursor,
     IconDashboard,
     IconDatabase,
+    IconDecisionTree,
     IconExternal,
     IconFlask,
     IconFunnels,
@@ -151,7 +152,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-links-light)', 'var(--color-product-links-dark)'],
     },
     workflows: {
-        icon: <IconMessage />,
+        icon: <IconDecisionTree />,
         iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
     },
     notebook: {

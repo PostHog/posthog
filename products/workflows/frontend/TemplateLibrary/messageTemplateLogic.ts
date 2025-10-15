@@ -104,13 +104,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     } as MessageTemplate
                 }
 
-                return await api.workflows.getTemplate(props.id)
+                return await api.messaging.getTemplate(props.id)
             },
             saveTemplate: (template) => {
                 if (template.id === 'new') {
-                    return api.workflows.createTemplate(template)
+                    return api.messaging.createTemplate(template)
                 }
-                return api.workflows.updateTemplate(template.id, template)
+                return api.messaging.updateTemplate(template.id, template)
             },
         },
         message: {

@@ -28,7 +28,7 @@ export const optOutCategoriesLogic = kea<optOutCategoriesLogicType>([
         categories: {
             __default: [] as MessageCategory[],
             loadCategories: async (): Promise<MessageCategory[]> => {
-                const response = await api.workflows.getCategories({ category_type: 'marketing' })
+                const response = await api.messaging.getCategories({ category_type: 'marketing' })
                 return response.results || []
             },
         },
@@ -53,7 +53,7 @@ export const optOutCategoriesLogic = kea<optOutCategoriesLogicType>([
     listeners(({ actions }) => ({
         deleteCategory: async ({ id }: { id: string }) => {
             try {
-                await api.workflows.updateCategory(id, { deleted: true })
+                await api.messaging.updateCategory(id, { deleted: true })
                 actions.loadCategories()
             } catch (error) {
                 console.error('Failed to delete category:', error)
