@@ -124,7 +124,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_dead_letter_queue]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue
+  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
       event_uuid UUID,
@@ -929,7 +929,7 @@
 # name: test_create_table_query[events_dead_letter_queue]
   '''
   
-  CREATE TABLE IF NOT EXISTS events_dead_letter_queue
+  CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
       event_uuid UUID,
@@ -1341,7 +1341,7 @@
 # name: test_create_table_query[kafka_events_dead_letter_queue]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue
+  CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
       event_uuid UUID,
@@ -4626,7 +4626,7 @@
 # name: test_create_table_query[writable_events_dead_letter_queue]
   '''
   
-  CREATE TABLE IF NOT EXISTS writable_events_dead_letter_queue
+  CREATE TABLE IF NOT EXISTS writable_events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
       event_uuid UUID,
@@ -5290,7 +5290,7 @@
 # name: test_create_table_query_replicated_and_storage[events_dead_letter_queue]
   '''
   
-  CREATE TABLE IF NOT EXISTS events_dead_letter_queue
+  CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
       event_uuid UUID,
