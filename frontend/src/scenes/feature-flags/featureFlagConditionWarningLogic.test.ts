@@ -63,6 +63,12 @@ describe('featureFlagConditionWarningLogic', () => {
                     operator: PropertyOperator.Regex,
                     value: '^[a-z]+@posthog\\.com$',
                 },
+                {
+                    key: 'email',
+                    type: PropertyFilterType.Person,
+                    operator: PropertyOperator.Regex,
+                    value: '(?=test)', // lookahead pattern escaped
+                },
             ]
 
             const logic = featureFlagConditionWarningLogic({

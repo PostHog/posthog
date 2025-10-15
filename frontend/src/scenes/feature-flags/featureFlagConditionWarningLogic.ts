@@ -11,6 +11,10 @@ export interface FeatureFlagConditionWarningLogicProps {
     evaluationRuntime: FeatureFlagEvaluationRuntime
 }
 
+const REGEX_LOOKAHEAD = /(?<!\\)\(\?[=!]/ // (?= or (?!
+const REGEX_LOOKBEHIND = /(?<!\\)\(\?<[=!]/ //  or (?<!
+const REGEX_BACKREFERENCE = /(?<!\\)\\[1-9]/ // \1 through \9
+
 export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagConditionWarningLogic']),
     props({} as FeatureFlagConditionWarningLogicProps),
@@ -29,18 +33,15 @@ export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningL
                     if (isPropertyFilterWithOperator(property) && property.operator === 'regex') {
                         const pattern = String(property.value)
 
-                        // Check for lookahead assertions: (?= or (?!
-                        if (pattern.includes('(?=') || pattern.includes('(?!')) {
+                        if (REGEX_LOOKAHEAD.test(pattern)) {
                             unsupportedFeatures.add('lookahead')
                         }
 
-                        // Check for lookbehind assertions: (?<= or (?<!
-                        if (pattern.includes('(?<=') || pattern.includes('(?<!')) {
+                        if (REGEX_LOOKBEHIND.test(pattern)) {
                             unsupportedFeatures.add('lookbehind')
                         }
 
-                        // Check for backreferences: \1 through \9
-                        if (/\\[1-9]/.test(pattern)) {
+                        if (REGEX_BACKREFERENCE.test(pattern)) {
                             unsupportedFeatures.add('backreferences')
                         }
                     }
