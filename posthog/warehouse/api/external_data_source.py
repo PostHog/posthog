@@ -155,27 +155,40 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "ssh_tunnel",
             "using_ssl",
             # vitally
-            "payload",
-            "prefix",
-            "regionsubdomain",
-            "source_type",
+            "region"
             # chargebee
             "site_name",
             # zendesk
             "subdomain",
             "email_address",
             # hubspot
-            "redirect_uri",
+            "hubspot_integration_id",
             # snowflake
             "account_id",
             "warehouse",
             "role",
             # bigquery
             "dataset_id",
-            "project_id",
-            "client_email",
-            "token_uri",
-            "temporary-dataset",
+            "temporary_dataset",
+            "dataset_project"
+            # google ads
+            "customer_id",
+            "google_ads_integration_id",
+            "is_mcc_account",
+            # google sheets
+            "spreadsheet_url",
+            # linkedin ads
+            "linkedin_ads_integration_id",
+            # meta ads
+            "meta_ads_integration_id",
+            # reddit ads
+            "reddit_integration_id",
+            # salesforce
+            "salesforce_integration_id",
+            # shopify
+            "shopify_store_id",
+            # temporal
+            "namespace",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
