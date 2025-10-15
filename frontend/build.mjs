@@ -6,6 +6,8 @@ import {
     buildInParallel,
     copyIndexHtml,
     copyPublicFolder,
+    copyRRWebWorkerFiles,
+    copySnappyWASMFile,
     createHashlessEntrypoints,
     isDev,
     startDevServer,
@@ -15,6 +17,9 @@ export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
+copySnappyWASMFile(__dirname)
+copyRRWebWorkerFiles(__dirname)
+
 writeIndexHtml()
 writeExporterHtml()
 await import('./build-products.mjs')
