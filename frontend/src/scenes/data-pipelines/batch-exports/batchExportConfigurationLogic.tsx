@@ -25,7 +25,7 @@ export interface BatchExportConfigurationLogicProps {
 }
 
 function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportConfiguration): Record<string, any> {
-    let config = {
+    const config = {
         name: batchExportConfig.name,
         destination: batchExportConfig.destination.type,
         paused: batchExportConfig.paused,
@@ -37,11 +37,11 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         ...batchExportConfig.destination.config,
     }
 
-    let authorizationMode: 'IAMRole' | 'Credentials' = 'IAMRole'
-    let copyInputsFields: Record<string, any> = {}
+    const authorizationMode: 'IAMRole' | 'Credentials' = 'IAMRole'
+    const copyInputsFields: Record<string, any> = {}
 
     if (batchExportConfig.destination.type === 'Redshift' && batchExportConfig.destination.config.copy_inputs) {
-        let copyInputs = batchExportConfig.destination.config.copy_inputs
+        const copyInputs = batchExportConfig.destination.config.copy_inputs
 
         copyInputsFields = {
             redshift_s3_bucket: copyInputs.s3_bucket,
