@@ -76,7 +76,7 @@ export function DefaultEvaluationEnvironments(): JSX.Element | null {
                         <h4 className="text-sm font-semibold mb-2">Default Evaluation Tags</h4>
                         <p className="text-xs text-muted mb-3">
                             These tags will be automatically added as evaluation constraints to all new feature flags.
-                            Users can still modify or remove them from individual flags after creation.
+                            Users can still modify or remove them from individual flags during creation.
                         </p>
                     </div>
 
