@@ -658,28 +658,15 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "TracesQuery":
-        from .legacy_compatibility.feature_flag import llm_analytics_traces_query_v2
+        from .ai.traces_query_runner import TracesQueryRunner
 
-        if llm_analytics_traces_query_v2(team):
-            from .ai.traces_query_runner_v2 import TracesQueryRunnerV2
-
-            return TracesQueryRunnerV2(
-                query=cast(TracesQuery | dict[str, Any], query),
-                team=team,
-                timings=timings,
-                limit_context=limit_context,
-                modifiers=modifiers,
-            )
-        else:
-            from .ai.traces_query_runner import TracesQueryRunner
-
-            return TracesQueryRunner(
-                query=cast(TracesQuery | dict[str, Any], query),
-                team=team,
-                timings=timings,
-                limit_context=limit_context,
-                modifiers=modifiers,
-            )
+        return TracesQueryRunner(
+            query=cast(TracesQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
     if kind == "TraceQuery":
         from .ai.trace_query_runner import TraceQueryRunner
 
