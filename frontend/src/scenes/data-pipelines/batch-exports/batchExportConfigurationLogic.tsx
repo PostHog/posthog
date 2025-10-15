@@ -84,6 +84,11 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
             file_format: 'Parquet',
             compression: 'zstd',
         }),
+        ...(service === 'Redshift' && {
+            mode: 'COPY',
+            authorization_mode: 'IAMRole',
+            properties_data_type: 'SUPER',
+        }),
         ...(service === 'Databricks' && {
             use_variant_type: true,
             // prefill prefix for http path
