@@ -112,6 +112,8 @@ jobs:
 
         steps:
             - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 1
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -151,6 +153,7 @@ jobs:
               uses: actions/checkout@v4
               with:
                   ref: master
+                  fetch-depth: 1
 
             - name: Install python dependencies for master
               run: |
@@ -174,6 +177,8 @@ jobs:
             # Now we can consider this PR's migrations
             - name: Checkout this PR
               uses: actions/checkout@v4
+              with:
+                  fetch-depth: 1
 
             - name: Install python dependencies for this PR
               run: |
