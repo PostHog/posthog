@@ -970,9 +970,6 @@ class SessionRecordingViewSet(
         trace.get_current_span().set_attribute("team_id", self.team_id)
         trace.get_current_span().set_attribute("session_id", str(recording.session_id))
 
-        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
-            raise exceptions.NotFound("Recording not found")
-
         is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
         serializer = SessionRecordingSnapshotsRequestSerializer(
             data=request.GET.dict(),
@@ -986,6 +983,13 @@ class SessionRecordingViewSet(
 
         is_v2_enabled: bool = validated_data.get("blob_v2", False)
         is_v2_lts_enabled: bool = validated_data.get("blob_v2_lts", False)
+
+        if (
+            not recording.full_recording_v2_path
+            and not recording.object_storage_path
+            and not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team)
+        ):
+            raise exceptions.NotFound("Recording not found")
 
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 

@@ -131,7 +131,7 @@ const generateLogs = (): LogMessage[] => {
                     uuid: uuid(),
                     trace_id: uuid(),
                     span_id: uuid(),
-                    resource: 'any',
+                    resource_attributes: 'any',
                     body: log.message,
                     attributes: {
                         ...example.attributes,

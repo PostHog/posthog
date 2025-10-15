@@ -133,12 +133,12 @@ pub struct Frame {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub column: Option<u32>, // Column the function is defined on, if known
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>, // Generally, the file the function is defined in
-    pub in_app: bool,         // We hard-require clients to tell us this?
+    pub source: Option<String>, // Generally, the file or module the function is defined in. Not always a path!.
+    pub in_app: bool, // We hard-require clients to tell us this?
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved_name: Option<String>, // The name of the function, after symbolification
-    pub lang: String,         // The language of the frame. Always known (I guess?)
-    pub resolved: bool,       // Did we manage to resolve the frame?
+    pub lang: String, // The language of the frame. Always known (I guess?)
+    pub resolved: bool, // Did we manage to resolve the frame?
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
 
