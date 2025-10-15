@@ -5,6 +5,7 @@ import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
+    HogFunctionInvocationGlobals,
     HogFunctionMasking,
 } from '../../types'
 import { execHog } from '../../utils/hog-exec'
@@ -51,6 +52,24 @@ function extractMaskingConfig(invocation: CyclotronJobInvocation): HogFunctionMa
     return null
 }
 
+function extractGlobals(
+    invocation: CyclotronJobInvocation
+): Pick<HogFunctionInvocationGlobals, 'event' | 'person'> | null {
+    if ('hogFunction' in invocation) {
+        const hogFunctionInvocation = invocation as CyclotronJobInvocationHogFunction
+        return hogFunctionInvocation.state.globals
+    }
+    if ('hogFlow' in invocation) {
+        const hogFlowInvocation = invocation as CyclotronJobInvocationHogFlow
+        // For hog flows, we need to construct globals from the filter globals and event
+        return {
+            event: hogFlowInvocation.state?.event,
+            person: hogFlowInvocation.person,
+        }
+    }
+    return null
+}
+
 // Helper to get entity ID for masking
 function getEntityId(invocation: CyclotronJobInvocation): string {
     if ('hogFunction' in invocation) {
@@ -85,23 +104,11 @@ export class HogMaskerService {
         for (const item of invocationsWithMasker) {
             const maskingConfig = extractMaskingConfig(item)
             if (maskingConfig) {
-                // Get globals for masking evaluation
-                let globals: any = null
-                if ('hogFunction' in item) {
-                    const hogFunctionInvocation = item as CyclotronJobInvocationHogFunction
-                    globals = hogFunctionInvocation.state.globals
-                } else if ('hogFlow' in item) {
-                    const hogFlowInvocation = item as CyclotronJobInvocationHogFlow
-                    // For hog flows, we need to construct globals from the filter globals and event
-                    globals = {
-                        event: hogFlowInvocation.state?.event,
-                        person: hogFlowInvocation.person,
-                    }
-                }
+                const globals = extractGlobals(item)
 
                 // TODO: Catch errors
                 const execHogResult = await execHog(maskingConfig.bytecode, {
-                    globals,
+                    globals: globals as Record<string, any>,
                     timeout: 50,
                 })
 
