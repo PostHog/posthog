@@ -9,10 +9,10 @@ use crate::{
     error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
-        custom::CustomFrame, go::RawGoFrame, hermes::RawHermesFrame, js::RawJSFrame,
-        node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
+        custom::CustomFrame, go::RawGoFrame, hermes::RawHermesFrame, java::RawJavaFrame,
+        js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
     },
-    metric_consts::PER_FRAME_TIME,
+    metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_string,
     symbol_store::Catalog,
 };
@@ -38,18 +38,23 @@ pub enum RawFrame {
     Go(RawGoFrame),
     #[serde(rename = "hermes")]
     Hermes(RawHermesFrame),
+    #[serde(rename = "java")]
+    Java(RawJavaFrame),
+    #[serde(rename = "custom")]
+    Custom(CustomFrame),
     // TODO - remove once we're happy no clients are using this anymore
     #[serde(rename = "javascript")]
     LegacyJS(RawJSFrame),
-    #[serde(rename = "custom")]
-    Custom(CustomFrame),
 }
 
 impl RawFrame {
     pub async fn resolve(&self, team_id: i32, catalog: &Catalog) -> Result<Frame, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
         let (res, lang_tag) = match self {
-            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
+            RawFrame::JavaScriptWeb(frame) => (frame.resolve(team_id, catalog).await, "javascript"),
+            RawFrame::LegacyJS(frame) => {
+                // TODO: monitor this metric and remove the legacy frame type when it hits 0
+                metrics::counter!(LEGACY_JS_FRAME_RESOLVED).increment(1);
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
             RawFrame::JavaScriptNode(frame) => {
@@ -60,6 +65,7 @@ impl RawFrame {
             RawFrame::Custom(frame) => (Ok(frame.into()), "custom"),
             RawFrame::Go(frame) => (Ok(frame.into()), "go"),
             RawFrame::Hermes(frame) => (frame.resolve(team_id, catalog).await, "hermes"),
+            RawFrame::Java(frame) => (Ok(frame.into()), "java"),
         };
 
         // The raw id of the frame is set after it's resolved
@@ -87,7 +93,7 @@ impl RawFrame {
             // TODO - Python and Go frames don't use symbol sets for frame resolution, but could still use "marker" symbol set
             // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
             // which we'd then use to do a join on the releases table to get release information)
-            RawFrame::Python(_) | RawFrame::Ruby(_) | RawFrame::Go(_) => None,
+            RawFrame::Python(_) | RawFrame::Ruby(_) | RawFrame::Go(_) | RawFrame::Java(_) => None,
             RawFrame::Custom(_) => None,
         }
     }
@@ -101,9 +107,17 @@ impl RawFrame {
             RawFrame::Go(raw) => raw.frame_id(),
             RawFrame::Custom(raw) => raw.frame_id(),
             RawFrame::Hermes(raw) => raw.frame_id(),
+            RawFrame::Java(raw) => raw.frame_id(),
         };
 
         FrameId::new(hash_id, team_id)
+    }
+
+    pub fn is_suspicious(&self) -> bool {
+        match self {
+            RawFrame::JavaScriptWeb(frame) => frame.is_suspicious(),
+            _ => false,
+        }
     }
 }
 
@@ -119,17 +133,20 @@ pub struct Frame {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub column: Option<u32>, // Column the function is defined on, if known
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>, // Generally, the file the function is defined in
-    pub in_app: bool,         // We hard-require clients to tell us this?
+    pub source: Option<String>, // Generally, the file or module the function is defined in. Not always a path!.
+    pub in_app: bool, // We hard-require clients to tell us this?
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved_name: Option<String>, // The name of the function, after symbolification
-    pub lang: String,         // The language of the frame. Always known (I guess?)
-    pub resolved: bool,       // Did we manage to resolve the frame?
+    pub lang: String, // The language of the frame. Always known (I guess?)
+    pub resolved: bool, // Did we manage to resolve the frame?
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
 
     #[serde(default)] // Defaults to false
     pub synthetic: bool, // Some SDKs construct stack traces, or partially reconstruct them. This flag indicates whether the frame is synthetic or not.
+
+    #[serde(default)] // Defaults to false
+    pub suspicious: bool, // We mark some frames as suspicious if we think they might be from our own SDK code.
 
     // Random extra/internal data we want to tag onto frames, e.g. the raw input. For debugging
     // purposes, all production code should assume this is None

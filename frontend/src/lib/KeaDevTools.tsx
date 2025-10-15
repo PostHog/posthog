@@ -33,6 +33,11 @@ type KeaDevtoolsProps = {
     maxActions?: number
 }
 
+type WindowRect = { width: number; height: number; top: number; left: number }
+
+const MIN_WINDOW_WIDTH = 480
+const MIN_WINDOW_HEIGHT = 360
+
 type ActionLogItem = { id: number; ts: number; type: string; payload: unknown }
 
 function useStoreTick(): number {
@@ -43,6 +48,10 @@ function useStoreTick(): number {
         return unsub
     }, [store])
     return tick
+}
+
+function clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max)
 }
 
 function compactJSON(x: unknown) {
@@ -1697,12 +1706,134 @@ export function KeaDevtools({
     const [actions, setActions] = useState<ActionLogItem[]>([])
     const [paused, setPaused] = useState(false)
     const dispatchPatched = useRef(false)
+    const [windowed, setWindowed] = useState(false)
+    const [windowRect, setWindowRect] = useState<WindowRect>(() => {
+        if (typeof window !== 'undefined') {
+            const maxWidth = Math.max(MIN_WINDOW_WIDTH, window.innerWidth - offset * 2)
+            const maxHeight = Math.max(MIN_WINDOW_HEIGHT, window.innerHeight - offset * 2)
+            return {
+                width: clamp(960, MIN_WINDOW_WIDTH, maxWidth),
+                height: clamp(640, MIN_WINDOW_HEIGHT, maxHeight),
+                top: offset,
+                left: offset,
+            }
+        }
+        return { width: 960, height: 640, top: offset, left: offset }
+    })
+    const dragState = useRef<{ offsetX: number; offsetY: number } | null>(null)
+    const resizeState = useRef<{ startX: number; startY: number; width: number; height: number } | null>(null)
 
     // highlight for graph ("Show on graph")
     const [graphHighlight, setGraphHighlight] = useState<string | null>(null)
 
     const { mount, store } = getContext() as KeaContext
     const mounted = ((mount as any)?.mounted ?? {}) as MountedMap
+
+    useEffect(() => {
+        if (typeof window === 'undefined') {
+            return
+        }
+        const handleMove = (event: MouseEvent): void => {
+            if (!windowed) {
+                return
+            }
+            if (dragState.current) {
+                const { offsetX, offsetY } = dragState.current
+                setWindowRect((rect) => {
+                    const maxLeft = Math.max(offset, window.innerWidth - rect.width - offset)
+                    const maxTop = Math.max(offset, window.innerHeight - rect.height - offset)
+                    return {
+                        ...rect,
+                        left: clamp(event.clientX - offsetX, offset, maxLeft),
+                        top: clamp(event.clientY - offsetY, offset, maxTop),
+                    }
+                })
+            } else if (resizeState.current) {
+                const { startX, startY, width, height } = resizeState.current
+                setWindowRect((rect) => {
+                    const maxWidth = Math.max(MIN_WINDOW_WIDTH, window.innerWidth - rect.left - offset)
+                    const maxHeight = Math.max(MIN_WINDOW_HEIGHT, window.innerHeight - rect.top - offset)
+                    return {
+                        ...rect,
+                        width: clamp(width + (event.clientX - startX), MIN_WINDOW_WIDTH, maxWidth),
+                        height: clamp(height + (event.clientY - startY), MIN_WINDOW_HEIGHT, maxHeight),
+                    }
+                })
+            }
+        }
+        const handleUp = (): void => {
+            dragState.current = null
+            resizeState.current = null
+        }
+        window.addEventListener('mousemove', handleMove)
+        window.addEventListener('mouseup', handleUp)
+        return () => {
+            window.removeEventListener('mousemove', handleMove)
+            window.removeEventListener('mouseup', handleUp)
+        }
+    }, [windowed, offset])
+
+    useEffect(() => {
+        if (!windowed || typeof window === 'undefined') {
+            return
+        }
+        const clampToViewport = (): void => {
+            setWindowRect((rect) => {
+                const maxWidth = Math.max(MIN_WINDOW_WIDTH, window.innerWidth - offset * 2)
+                const maxHeight = Math.max(MIN_WINDOW_HEIGHT, window.innerHeight - offset * 2)
+                const width = clamp(rect.width, MIN_WINDOW_WIDTH, maxWidth)
+                const height = clamp(rect.height, MIN_WINDOW_HEIGHT, maxHeight)
+                const maxLeft = Math.max(offset, window.innerWidth - width - offset)
+                const maxTop = Math.max(offset, window.innerHeight - height - offset)
+                return {
+                    width,
+                    height,
+                    left: clamp(rect.left, offset, maxLeft),
+                    top: clamp(rect.top, offset, maxTop),
+                }
+            })
+        }
+        const handleResize = (): void => clampToViewport()
+        window.addEventListener('resize', handleResize)
+        clampToViewport()
+        return () => {
+            window.removeEventListener('resize', handleResize)
+        }
+    }, [windowed, offset])
+
+    useEffect(() => {
+        if (!windowed) {
+            dragState.current = null
+            resizeState.current = null
+        }
+    }, [windowed])
+
+    const onHeaderMouseDown = (event: React.MouseEvent<HTMLDivElement>): void => {
+        if (!windowed || event.button !== 0) {
+            return
+        }
+        if ((event.target as HTMLElement)?.closest('button, input, select, textarea')) {
+            return
+        }
+        event.preventDefault()
+        dragState.current = {
+            offsetX: event.clientX - windowRect.left,
+            offsetY: event.clientY - windowRect.top,
+        }
+    }
+
+    const onResizeMouseDown = (event: React.MouseEvent<HTMLDivElement>): void => {
+        if (!windowed || event.button !== 0) {
+            return
+        }
+        event.preventDefault()
+        resizeState.current = {
+            startX: event.clientX,
+            startY: event.clientY,
+            width: windowRect.width,
+            height: windowRect.height,
+        }
+    }
 
     // collect actions
     useEffect(() => {
@@ -1774,7 +1905,17 @@ export function KeaDevtools({
     const selectedLogic = selectedKey ? mounted[selectedKey] : undefined
 
     const header = (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px' }}>
+        <div
+            onMouseDown={onHeaderMouseDown}
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 10px',
+                cursor: windowed ? 'move' : 'default',
+                userSelect: dragState.current ? 'none' : undefined,
+            }}
+        >
             <div style={{ fontWeight: 800, fontSize: 16 }}>Kea Devtools</div>
             {activeTab === 'logics' ? (
                 <div style={{ color: 'rgba(0,0,0,0.55)' }}>{allKeys.length} mounted</div>
@@ -1813,11 +1954,169 @@ export function KeaDevtools({
                 >
                     Memory
                 </button>
+                <button
+                    type="button"
+                    onClick={() => setWindowed((value) => !value)}
+                    style={simpleBtnStyle}
+                    title={windowed ? 'Return to full-screen mode' : 'Switch to windowed mode'}
+                >
+                    {windowed ? 'Full screen' : 'Windowed'}
+                </button>
                 <button type="button" onClick={() => setOpen(false)} style={simpleBtnStyle}>
                     Close
                 </button>
             </div>
         </div>
+    )
+
+    const panelContent = (
+        <>
+            {header}
+
+            {activeTab === 'logics' ? (
+                <div style={{ display: 'flex', minHeight: 0, flex: 1 }}>
+                    {/* Left panel */}
+                    <div
+                        style={{
+                            width: 360,
+                            minWidth: 280,
+                            maxWidth: 480,
+                            borderRight: '1px solid rgba(0,0,0,0.08)',
+                            background: '#ffffff',
+                            display: 'flex',
+                            flexDirection: 'column',
+                        }}
+                    >
+                        <div style={{ display: 'flex', gap: 6, padding: 8 }}>
+                            <input
+                                type="search"
+                                placeholder="Search logics…"
+                                value={query || ''}
+                                onChange={(e) => setQuery(e.target.value)}
+                                style={inputStyle}
+                            />
+                            <select
+                                value={sortMode}
+                                onChange={(e) => setSortMode(e.target.value as SortMode)}
+                                style={inputStyle}
+                            >
+                                <option value="alpha">A → Z</option>
+                                <option value="recent">Recent</option>
+                            </select>
+                        </div>
+                        <div style={{ overflow: 'auto', padding: 6 }}>
+                            {visibleKeys.map((k) => {
+                                const logic = mounted[k]
+                                const active = selectedKey === k
+                                const name = displayName(logic)
+                                const size = logicSize(logic)
+                                const tint = Math.min(0.18, 0.04 + size * 0.01)
+                                return (
+                                    <button
+                                        key={k}
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedKey(k)
+                                            recent.current.set(k, Date.now())
+                                        }}
+                                        title={k}
+                                        style={{
+                                            ...listItemStyle,
+                                            ...(active ? listItemActiveStyle : null),
+                                            background: active
+                                                ? `rgba(99,102,241,${tint + 0.08})`
+                                                : `rgba(99,102,241,${tint})`,
+                                        }}
+                                    >
+                                        <div style={{ fontWeight: 700, textAlign: 'left' }}>{name}</div>
+                                        <div
+                                            style={{
+                                                color: 'rgba(0,0,0,0.6)',
+                                                fontSize: 12,
+                                                textAlign: 'left',
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                            }}
+                                        >
+                                            {k}
+                                        </div>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Right panel */}
+                    <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+                        {selectedLogic ? (
+                            <div
+                                style={{
+                                    background: '#fff',
+                                    border: '1px solid rgba(0,0,0,0.06)',
+                                    borderRadius: 12,
+                                    boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
+                                    padding: 12,
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        marginBottom: 6,
+                                    }}
+                                >
+                                    <div style={{ fontWeight: 800 }}>{(selectedLogic as any).pathString}</div>
+                                    <div style={{ marginLeft: 'auto' }} />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setGraphHighlight((selectedLogic as any).pathString)
+                                            setActiveTab('graph')
+                                        }}
+                                        style={simpleBtnStyle}
+                                    >
+                                        Show on graph
+                                    </button>
+                                </div>
+
+                                {/* Key + Props */}
+                                <KeyAndProps logic={selectedLogic} />
+
+                                <Connections logic={selectedLogic} onOpen={(path) => setSelectedKey(path)} />
+                                <ReverseConnections
+                                    logic={selectedLogic}
+                                    mounted={mounted}
+                                    onOpen={(path) => setSelectedKey(path)}
+                                />
+                                <ActionsList logic={selectedLogic} />
+                                <Values logic={selectedLogic} />
+                            </div>
+                        ) : (
+                            <div style={{ color: 'rgba(0,0,0,0.6)' }}>Select a logic on the left.</div>
+                        )}
+                    </div>
+                </div>
+            ) : activeTab === 'actions' ? (
+                <ActionsTab
+                    actions={actions}
+                    paused={paused}
+                    onPauseToggle={() => setPaused((p) => !p)}
+                    onClear={() => setActions([])}
+                />
+            ) : activeTab === 'graph' ? (
+                <GraphTab
+                    mounted={mounted}
+                    onOpen={(path) => setSelectedKey(path)}
+                    highlightId={graphHighlight ?? undefined}
+                />
+            ) : activeTab === 'memory' ? (
+                <MemoryTab store={store} mounted={mounted} />
+            ) : (
+                <></>
+            )}
+        </>
     )
 
     return (
@@ -1848,181 +2147,74 @@ export function KeaDevtools({
             </button>
 
             {open ? (
-                <div
-                    role="dialog"
-                    aria-modal="true"
-                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex }}
-                    onClick={() => setOpen(false)}
-                >
-                    <div
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                            position: 'absolute',
-                            right: offset,
-                            bottom: offset + buttonSize + 12,
-                            left: offset,
-                            top: offset,
-                            background: '#f7f8fa',
-                            border: '1px solid rgba(0,0,0,0.08)',
-                            borderRadius: 14,
-                            boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
-                            overflow: 'hidden',
-                            display: 'flex',
-                            flexDirection: 'column',
-                        }}
-                    >
-                        {header}
-
-                        {activeTab === 'logics' ? (
-                            <div style={{ display: 'flex', minHeight: 0, flex: 1 }}>
-                                {/* Left panel */}
-                                <div
-                                    style={{
-                                        width: 360,
-                                        minWidth: 280,
-                                        maxWidth: 480,
-                                        borderRight: '1px solid rgba(0,0,0,0.08)',
-                                        background: '#ffffff',
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                    }}
-                                >
-                                    <div style={{ display: 'flex', gap: 6, padding: 8 }}>
-                                        <input
-                                            type="search"
-                                            placeholder="Search logics…"
-                                            value={query || ''}
-                                            onChange={(e) => setQuery(e.target.value)}
-                                            style={inputStyle}
-                                        />
-                                        <select
-                                            value={sortMode}
-                                            onChange={(e) => setSortMode(e.target.value as SortMode)}
-                                            style={inputStyle}
-                                        >
-                                            <option value="alpha">A → Z</option>
-                                            <option value="recent">Recent</option>
-                                        </select>
-                                    </div>
-                                    <div style={{ overflow: 'auto', padding: 6 }}>
-                                        {visibleKeys.map((k) => {
-                                            const logic = mounted[k]
-                                            const active = selectedKey === k
-                                            const name = displayName(logic)
-                                            const size = logicSize(logic)
-                                            const tint = Math.min(0.18, 0.04 + size * 0.01)
-                                            return (
-                                                <button
-                                                    key={k}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setSelectedKey(k)
-                                                        recent.current.set(k, Date.now())
-                                                    }}
-                                                    title={k}
-                                                    style={{
-                                                        ...listItemStyle,
-                                                        ...(active ? listItemActiveStyle : null),
-                                                        background: active
-                                                            ? `rgba(99,102,241,${tint + 0.08})`
-                                                            : `rgba(99,102,241,${tint})`,
-                                                    }}
-                                                >
-                                                    <div style={{ fontWeight: 700, textAlign: 'left' }}>{name}</div>
-                                                    <div
-                                                        style={{
-                                                            color: 'rgba(0,0,0,0.6)',
-                                                            fontSize: 12,
-                                                            textAlign: 'left',
-                                                            whiteSpace: 'nowrap',
-                                                            overflow: 'hidden',
-                                                            textOverflow: 'ellipsis',
-                                                        }}
-                                                    >
-                                                        {k}
-                                                    </div>
-                                                </button>
-                                            )
-                                        })}
-                                    </div>
-                                </div>
-
-                                {/* Right panel */}
-                                <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
-                                    {selectedLogic ? (
-                                        <div
-                                            style={{
-                                                background: '#fff',
-                                                border: '1px solid rgba(0,0,0,0.06)',
-                                                borderRadius: 12,
-                                                boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
-                                                padding: 12,
-                                            }}
-                                        >
-                                            <div
-                                                style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: 8,
-                                                    marginBottom: 6,
-                                                }}
-                                            >
-                                                <div style={{ fontWeight: 800 }}>
-                                                    {(selectedLogic as any).pathString}
-                                                </div>
-                                                <div style={{ marginLeft: 'auto' }} />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setGraphHighlight((selectedLogic as any).pathString)
-                                                        setActiveTab('graph')
-                                                    }}
-                                                    style={simpleBtnStyle}
-                                                >
-                                                    Show on graph
-                                                </button>
-                                            </div>
-
-                                            {/* Key + Props */}
-                                            <KeyAndProps logic={selectedLogic} />
-
-                                            <Connections
-                                                logic={selectedLogic}
-                                                onOpen={(path) => setSelectedKey(path)}
-                                            />
-                                            <ReverseConnections
-                                                logic={selectedLogic}
-                                                mounted={mounted}
-                                                onOpen={(path) => setSelectedKey(path)}
-                                            />
-                                            <ActionsList logic={selectedLogic} />
-                                            <Values logic={selectedLogic} />
-                                        </div>
-                                    ) : (
-                                        <div style={{ color: 'rgba(0,0,0,0.6)' }}>Select a logic on the left.</div>
-                                    )}
-                                </div>
-                            </div>
-                        ) : activeTab === 'actions' ? (
-                            <ActionsTab
-                                actions={actions}
-                                paused={paused}
-                                onPauseToggle={() => setPaused((p) => !p)}
-                                onClear={() => setActions([])}
+                windowed ? (
+                    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex }}>
+                        <div
+                            role="dialog"
+                            aria-modal={false}
+                            style={{
+                                position: 'fixed',
+                                top: windowRect.top,
+                                left: windowRect.left,
+                                width: windowRect.width,
+                                height: windowRect.height,
+                                background: '#f7f8fa',
+                                border: '1px solid rgba(0,0,0,0.08)',
+                                borderRadius: 14,
+                                boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+                                overflow: 'hidden',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                pointerEvents: 'auto',
+                                userSelect: dragState.current ? 'none' : undefined,
+                            }}
+                        >
+                            {panelContent}
+                            <div
+                                onMouseDown={onResizeMouseDown}
+                                aria-hidden={true}
+                                style={{
+                                    position: 'absolute',
+                                    right: 4,
+                                    bottom: 4,
+                                    width: 16,
+                                    height: 16,
+                                    cursor: 'nwse-resize',
+                                    borderRight: '2px solid rgba(0,0,0,0.2)',
+                                    borderBottom: '2px solid rgba(0,0,0,0.2)',
+                                }}
                             />
-                        ) : activeTab === 'graph' ? (
-                            <GraphTab
-                                mounted={mounted}
-                                onOpen={(path) => setSelectedKey(path)}
-                                highlightId={graphHighlight ?? undefined}
-                            />
-                        ) : activeTab === 'memory' ? (
-                            <MemoryTab store={store} mounted={mounted} />
-                        ) : (
-                            <></>
-                        )}
+                        </div>
                     </div>
-                </div>
+                ) : (
+                    <div
+                        role="dialog"
+                        aria-modal
+                        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex }}
+                        onClick={() => setOpen(false)}
+                    >
+                        <div
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                                position: 'absolute',
+                                right: offset,
+                                bottom: offset + buttonSize + 12,
+                                left: offset,
+                                top: offset,
+                                background: '#f7f8fa',
+                                border: '1px solid rgba(0,0,0,0.08)',
+                                borderRadius: 14,
+                                boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
+                                overflow: 'hidden',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                userSelect: dragState.current ? 'none' : undefined,
+                            }}
+                        >
+                            {panelContent}
+                        </div>
+                    </div>
+                )
             ) : null}
         </>
     )

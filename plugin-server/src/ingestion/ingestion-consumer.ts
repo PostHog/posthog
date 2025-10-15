@@ -24,7 +24,6 @@ import {
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
-import { EventPipelineResult } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
@@ -41,12 +40,22 @@ import {
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
+import { createEmitEventStep } from './event-processing/emit-event-step'
 import {
     PreprocessedEventWithStores,
     createEventPipelineRunnerV1Step,
 } from './event-processing/event-pipeline-runner-v1-step'
-import { createBatch, createNewBatchPipeline, createNewPipeline, createRetryingPipeline } from './pipelines/helpers'
+import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
+import { BatchPipeline } from './pipelines/batch-pipeline.interface'
+import {
+    createBatch,
+    createNewBatchPipeline,
+    createNewPipeline,
+    createRetryingPipeline,
+    createUnwrapper,
+} from './pipelines/helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './pipelines/result-handling-pipeline'
+import { SideEffectHandlingPipeline } from './pipelines/side-effect-handling-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -116,8 +125,8 @@ export class IngestionConsumer {
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     public readonly promiseScheduler = new PromiseScheduler()
 
-    private preprocessingPipeline!: ResultHandlingPipeline<{ message: Message }, PreprocessedEvent>
-    private perDistinctIdPipeline!: ResultHandlingPipeline<PreprocessedEventWithStores, EventPipelineResult>
+    private preprocessingPipeline!: BatchPipelineUnwrapper<{ message: Message }, PreprocessedEvent>
+    private perDistinctIdPipeline!: BatchPipeline<PreprocessedEventWithStores, void>
 
     constructor(
         private hub: Hub,
@@ -245,7 +254,13 @@ export class IngestionConsumer {
             .gather()
             .pipeBatch(createApplyCookielessProcessingStep(this.hub))
 
-        this.preprocessingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+        const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
+        const sideEffectHandlingPipeline = new SideEffectHandlingPipeline(
+            resultHandlingPipeline,
+            this.promiseScheduler,
+            { await: false }
+        )
+        this.preprocessingPipeline = createUnwrapper(sideEffectHandlingPipeline)
     }
 
     private initializePerDistinctIdPipeline(): void {
@@ -256,9 +271,13 @@ export class IngestionConsumer {
         }
 
         const eventPipelineStep = createEventPipelineRunnerV1Step(this.hub, this.hogTransformer)
+        const emitEventStep = createEmitEventStep({
+            kafkaProducer: this.kafkaProducer!,
+            clickhouseJsonEventsTopic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+        })
 
         const eventProcessingPipeline = createRetryingPipeline(
-            createNewPipeline<PreprocessedEventWithStores>().pipe(eventPipelineStep),
+            createNewPipeline<PreprocessedEventWithStores>().pipe(eventPipelineStep).pipe(emitEventStep),
             {
                 tries: 3,
                 sleepMs: 100,
@@ -268,7 +287,10 @@ export class IngestionConsumer {
         const perDistinctIdBatchPipeline =
             createNewBatchPipeline<PreprocessedEventWithStores>().pipeSequentially(eventProcessingPipeline)
 
-        this.perDistinctIdPipeline = ResultHandlingPipeline.of(perDistinctIdBatchPipeline, pipelineConfig)
+        const resultHandlingPipeline = ResultHandlingPipeline.of(perDistinctIdBatchPipeline, pipelineConfig)
+        this.perDistinctIdPipeline = new SideEffectHandlingPipeline(resultHandlingPipeline, this.promiseScheduler, {
+            await: false,
+        })
     }
 
     public async stop(): Promise<void> {
@@ -539,15 +561,7 @@ export class IngestionConsumer {
         // Feed the batch to the main event pipeline
         const eventsSequence = createBatch(preprocessedEventsWithStores)
         this.perDistinctIdPipeline.feed(eventsSequence)
-        const results = await this.perDistinctIdPipeline.next()
-
-        if (results) {
-            results.forEach((result) => {
-                result.ackPromises?.forEach((promise: Promise<void>) => {
-                    void this.promiseScheduler.schedule(promise)
-                })
-            })
-        }
+        await this.perDistinctIdPipeline.next()
     }
 
     private async preprocessEvents(messages: Message[]): Promise<PreprocessedEvent[]> {
