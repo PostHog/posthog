@@ -1112,7 +1112,7 @@ async def delete_uploaded_files(
         async def delete_key(f: str):
             """Delete key `f` in S3."""
             try:
-                _ = await client.delete_object(Bucket=bucket, Prefix=f)
+                _ = await client.delete_object(Bucket=bucket, Key=f)
             except Exception:
                 LOGGER.exception("S3 delete failed", key=f, bucket=bucket)
 
