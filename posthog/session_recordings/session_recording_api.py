@@ -984,12 +984,10 @@ class SessionRecordingViewSet(
         is_v2_enabled: bool = validated_data.get("blob_v2", False)
         is_v2_lts_enabled: bool = validated_data.get("blob_v2_lts", False)
 
-        is_v2_lts_recording: bool = (
-            (source == "blob_v2") and ("min_blob_key" not in validated_data) and ("blob_key" in validated_data)
-        )
-
-        if not is_v2_lts_recording and not SessionReplayEvents().exists(
-            session_id=str(recording.session_id), team=self.team
+        if (
+            not recording.full_recording_v2_path
+            and not recording.object_storage_path
+            and not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team)
         ):
             raise exceptions.NotFound("Recording not found")
 
