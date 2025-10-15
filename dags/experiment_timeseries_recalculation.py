@@ -31,9 +31,6 @@ def parse_partition_key(partition_key: str) -> tuple[str, int, str, str]:
     Parse a recalculation partition key into its components.
 
     Expected format: "recalculation_{recalc_id}_experiment_{experiment_id}_metric_{metric_uuid}_{fingerprint}"
-
-    Returns:
-        Tuple of (recalculation_id, experiment_id, metric_uuid, fingerprint)
     """
     parts = partition_key.split("_")
 
@@ -41,7 +38,7 @@ def parse_partition_key(partition_key: str) -> tuple[str, int, str, str]:
         raise ValueError(f"Invalid partition key format: {partition_key}")
 
     try:
-        recalculation_id = parts[1]  # UUID string
+        recalculation_id = parts[1]
         experiment_id = int(parts[3])
         metric_uuid = parts[5]
         fingerprint = "_".join(parts[6:])
@@ -229,11 +226,13 @@ def experiment_timeseries_recalculation_sensor(context: dagster.SensorEvaluation
     # Track which recalculation requests we've already processed
     last_processed_id = context.cursor
 
-    filter_kwargs = {"status": ExperimentTimeseriesRecalculation.Status.PENDING}
+    filter_kwargs: dict[str, Any] = {"status": ExperimentTimeseriesRecalculation.Status.PENDING}
     if last_processed_id:
         filter_kwargs["id__gt"] = last_processed_id
 
-    new_recalculations = list(ExperimentTimeseriesRecalculation.objects.filter(**filter_kwargs).order_by("id")[:100])
+    new_recalculations = list(
+        ExperimentTimeseriesRecalculation.objects.filter(**filter_kwargs).order_by("id")[:100]
+    )  # Limit to 100 requests at a time
 
     if not new_recalculations:
         return SkipReason("No new recalculation requests")

@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0879_migrate_error_tracking_models"),
+        ("posthog", "0880_datawarehousetable_queryable_folder"),
     ]
 
     operations = [
