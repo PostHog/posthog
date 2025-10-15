@@ -228,10 +228,36 @@ function hashSnapshot(snapshot: RecordingSnapshot): number {
  *
  * If it can't be case as eventWithTime by this point, then it's probably not a valid event anyway
  */
-function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWithTime {
+function coerceToEventWithTime(
+    d: unknown,
+    sessionRecordingId: string,
+    isFirstEvent: boolean = false,
+    isMobile: boolean = false
+): eventWithTime | eventWithTime[] {
     // we decompress first so that we could support partial compression on mobile in the future
     const currentEvent = decompressEvent(d, sessionRecordingId)
-    return postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
+    const transformedEvent =
+        postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || (currentEvent as eventWithTime)
+
+    // If this is the first event and it's not a full snapshot, and it's mobile, create a synthetic full snapshot first
+    if (isFirstEvent && transformedEvent.type !== EventType.FullSnapshot && isMobile && postHogEEModule?.mobileReplay) {
+        // Create synthetic mobile full snapshot using the proper transformer
+        const syntheticMobileFullSnapshot = {
+            type: EventType.FullSnapshot,
+            timestamp: transformedEvent.timestamp - 1,
+            data: {
+                wireframes: [], // Empty wireframes - just create the basic HTML structure
+                initialOffset: { top: 0, left: 0 },
+            },
+        }
+
+        // Transform it using the existing makeFullEvent transformer
+        const syntheticFullSnapshot = postHogEEModule.mobileReplay.transformEventToWeb(syntheticMobileFullSnapshot)
+
+        return [syntheticFullSnapshot, transformedEvent]
+    }
+
+    return transformedEvent
 }
 
 export const parseEncodedSnapshots = async (
@@ -306,7 +332,7 @@ export const parseEncodedSnapshots = async (
     const unparseableLines: string[] = []
     let isMobileSnapshots = false
 
-    const parsedLines: RecordingSnapshot[] = items.flatMap((l) => {
+    const parsedLines: RecordingSnapshot[] = items.flatMap((l, index) => {
         if (!l) {
             // blob files have an empty line at the end
             return []
@@ -339,16 +365,23 @@ export const parseEncodedSnapshots = async (
                 isMobileSnapshots = hasAnyWireframes(snapshotData)
             }
 
-            return snapshotData.flatMap((d: unknown) => {
-                const snap = coerceToEventWithTime(d, sessionId)
+            return snapshotData.flatMap((d: unknown, dataIndex: number) => {
+                // Check if this is the very first event in the entire recording
+                const isFirstEvent = index === 0 && dataIndex === 0
+                const snapResult = coerceToEventWithTime(d, sessionId, isFirstEvent, isMobileSnapshots)
 
-                const baseSnapshot: RecordingSnapshot = {
-                    windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
-                    ...snap,
-                }
+                // Handle both single event and array of events (synthetic + original)
+                const snaps = Array.isArray(snapResult) ? snapResult : [snapResult]
 
-                // Apply chunking to the snapshot if needed
-                return chunkMutationSnapshot(baseSnapshot)
+                return snaps.flatMap((snap) => {
+                    const baseSnapshot: RecordingSnapshot = {
+                        windowId: (snapshotLine as any)['window_id'] || snapshotLine['windowId'],
+                        ...snap,
+                    }
+
+                    // Apply chunking to the snapshot if needed
+                    return chunkMutationSnapshot(baseSnapshot)
+                })
             })
         } catch {
             if (typeof l === 'string') {
