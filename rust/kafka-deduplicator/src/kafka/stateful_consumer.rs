@@ -71,68 +71,128 @@ impl StatefulKafkaConsumer {
         let mut metrics_interval = tokio::time::interval(Duration::from_secs(10));
 
         loop {
-            tokio::select! {
-                // Check for shutdown signal
-                _ = &mut self.shutdown_rx => {
-                    info!("Shutdown signal received, starting graceful shutdown");
-                    break;
-                }
+            // Check capacity BEFORE polling Kafka
+            let permits_available = self.tracker.available_permits();
 
-                // Poll for messages
-                msg_result = timeout(Duration::from_secs(1), self.consumer.recv()) => {
-                    match msg_result {
-                        Ok(Ok(msg)) => {
-                            // Send message to processor pool
-                            self.send_to_processor(msg).await?;
-                        }
-                        Ok(Err(e)) => {
-                            error!("Error receiving message: {}", e);
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-                        }
-                        Err(_) => {
-                            // Timeout - continue
-                            debug!("Consumer poll timeout");
-                        }
+            if permits_available == 0 {
+                // No capacity - don't poll Kafka, just handle control operations
+                tokio::select! {
+                    // Check for shutdown signal
+                    _ = &mut self.shutdown_rx => {
+                        info!("Shutdown signal received, starting graceful shutdown");
+                        break;
                     }
-                }
 
-                // Publish metrics every 10 seconds
-                _ = metrics_interval.tick() => {
-                    info!("Starting metrics publication cycle");
+                    // Wait briefly for capacity to become available
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                        debug!("No permits available, waiting for capacity");
+                        continue;
+                    }
 
-                    let stats = self.tracker.get_stats().await;
-                    let available_permits = self.tracker.available_permits();
-                    let partition_health = self.tracker.get_partition_health().await;
+                    // Publish metrics every 10 seconds
+                    _ = metrics_interval.tick() => {
+                        info!("Starting metrics publication cycle");
 
-                    info!(
-                        "Global Metrics: in_flight={}, completed={}, failed={}, memory={}MB, available_permits={}",
-                        stats.in_flight, stats.completed, stats.failed,
-                        stats.memory_usage / (1024 * 1024),
-                        available_permits
-                    );
+                        let stats = self.tracker.get_stats().await;
+                        let available_permits = self.tracker.available_permits();
+                        let partition_health = self.tracker.get_partition_health().await;
 
-                    // Log partition health status
-                    for health in &partition_health {
                         info!(
-                            "Partition {}-{}: last_committed={}, in_flight={}",
-                            health.topic, health.partition,
-                            health.last_committed_offset, health.in_flight_count
+                            "Global Metrics: in_flight={}, completed={}, failed={}, memory={}MB, available_permits={}",
+                            stats.in_flight, stats.completed, stats.failed,
+                            stats.memory_usage / (1024 * 1024),
+                            available_permits
                         );
+
+                        // Log partition health status
+                        for health in &partition_health {
+                            info!(
+                                "Partition {}-{}: last_committed={}, in_flight={}",
+                                health.topic, health.partition,
+                                health.last_committed_offset, health.in_flight_count
+                            );
+                        }
+
+                        stats.publish_metrics();
+
+                        // Also publish semaphore permit metrics from the tracker
+                        metrics::gauge!(KAFKA_CONSUMER_AVAILABLE_PERMITS)
+                            .set(available_permits as f64);
+
+                        info!("Metrics published successfully");
                     }
 
-                    stats.publish_metrics();
-
-                    // Also publish semaphore permit metrics from the tracker
-                    metrics::gauge!(KAFKA_CONSUMER_AVAILABLE_PERMITS)
-                        .set(available_permits as f64);
-
-                    info!("Metrics published successfully");
+                    // Commit offsets periodically
+                    _ = commit_interval.tick() => {
+                        if let Err(e) = self.commit_offsets().await {
+                            error!("Failed to commit offsets: {}", e);
+                        }
+                    }
                 }
+            } else {
+                // We have capacity - poll Kafka with short timeout
+                tokio::select! {
+                    // Check for shutdown signal
+                    _ = &mut self.shutdown_rx => {
+                        info!("Shutdown signal received, starting graceful shutdown");
+                        break;
+                    }
 
-                // Commit offsets periodically
-                _ = commit_interval.tick() => {
-                    if let Err(e) = self.commit_offsets().await {
-                        error!("Failed to commit offsets: {}", e);
+                    // Poll for messages
+                    msg_result = timeout(Duration::from_millis(10), self.consumer.recv()) => {
+                        match msg_result {
+                            Ok(Ok(msg)) => {
+                                // Send message to processor pool
+                                self.send_to_processor(msg).await?;
+                            }
+                            Ok(Err(e)) => {
+                                error!("Error receiving message: {}", e);
+                                tokio::time::sleep(Duration::from_millis(100)).await;
+                            }
+                            Err(_) => {
+                                // Timeout, this is expected when no messages available
+                            }
+                        }
+                    }
+
+                    // Publish metrics every 10 seconds
+                    _ = metrics_interval.tick() => {
+                        info!("Starting metrics publication cycle");
+
+                        let stats = self.tracker.get_stats().await;
+                        let available_permits = self.tracker.available_permits();
+                        let partition_health = self.tracker.get_partition_health().await;
+
+                        info!(
+                            "Global Metrics: in_flight={}, completed={}, failed={}, memory={}MB, available_permits={}",
+                            stats.in_flight, stats.completed, stats.failed,
+                            stats.memory_usage / (1024 * 1024),
+                            available_permits
+                        );
+
+                        // Log partition health status
+                        for health in &partition_health {
+                            info!(
+                                "Partition {}-{}: last_committed={}, in_flight={}",
+                                health.topic, health.partition,
+                                health.last_committed_offset, health.in_flight_count
+                            );
+                        }
+
+                        stats.publish_metrics();
+
+                        // Also publish semaphore permit metrics from the tracker
+                        metrics::gauge!(KAFKA_CONSUMER_AVAILABLE_PERMITS)
+                            .set(available_permits as f64);
+
+                        info!("Metrics published successfully");
+                    }
+
+                    // Commit offsets periodically
+                    _ = commit_interval.tick() => {
+                        if let Err(e) = self.commit_offsets().await {
+                            error!("Failed to commit offsets: {}", e);
+                        }
                     }
                 }
             }
