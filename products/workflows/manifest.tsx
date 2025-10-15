@@ -2,13 +2,13 @@ import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
-import type { WorkflowsSceneTab } from './frontend/WorkflowScene'
+import type { WorkflowsSceneTab } from './frontend/WorkflowsScene'
 
 export const manifest: ProductManifest = {
     name: 'Workflows',
     scenes: {
         Workflows: {
-            import: () => import('./frontend/WorkflowScene'),
+            import: () => import('./frontend/WorkflowsScene'),
             name: 'Workflows',
             projectBased: true,
         },
