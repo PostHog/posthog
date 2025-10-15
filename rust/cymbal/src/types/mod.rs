@@ -515,12 +515,10 @@ mod test {
             }]
         }"#;
 
-        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
-        assert!(props.is_err());
-        assert_eq!(
-            props.unwrap_err().to_string(),
-            "missing field `value` at line 4 column 13"
-        );
+        // We support default values
+        let props: RawErrProps =
+            serde_json::from_str(raw).expect("Can deserialize with missing value");
+        assert_eq!(props.exception_list[0].exception_message, "");
 
         let raw: &'static str = r#"{
             "$exception_list": [{
