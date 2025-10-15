@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use kafka_deduplicator::checkpoint::{
-    CheckpointConfig, CheckpointExporter, CheckpointMode, CheckpointPlan, CheckpointTarget,
-    CheckpointUploader, CheckpointWorker,
+    CheckpointConfig, CheckpointExporter, CheckpointPlan, CheckpointTarget, CheckpointUploader,
+    CheckpointWorker,
 };
 use kafka_deduplicator::checkpoint_manager::CheckpointManager;
 use kafka_deduplicator::kafka::types::Partition;
@@ -308,9 +308,7 @@ async fn test_manual_checkpoint_export_incremental() {
     let worker = CheckpointWorker::new(1, target.clone(), exporter.clone());
 
     // Perform checkpoint
-    let result = worker
-        .checkpoint_partition(CheckpointMode::Incremental, &store, None)
-        .await;
+    let result = worker.checkpoint_partition(&store, None).await;
     assert!(result.is_ok());
 
     let result = result.unwrap();
@@ -385,9 +383,7 @@ async fn test_checkpoint_manual_export_full() {
 
     let worker = CheckpointWorker::new(1, target.clone(), exporter.clone());
 
-    let result = worker
-        .checkpoint_partition(CheckpointMode::Full, &store, None)
-        .await;
+    let result = worker.checkpoint_partition(&store, None).await;
     assert!(
         result.is_ok(),
         "checkpoint should succeed: {:?}",
@@ -528,9 +524,7 @@ async fn test_unavailable_uploader() {
 
     // The wrapper thread closure that is spawned to run this in
     // production will catch and log/stat these errors
-    let result = worker
-        .checkpoint_partition(CheckpointMode::Full, &store, None)
-        .await;
+    let result = worker.checkpoint_partition(&store, None).await;
     assert!(result.is_err());
 
     // No files should be uploaded when the remote storage is unavailable
@@ -579,9 +573,7 @@ async fn test_unpopulated_exporter() {
     let worker = CheckpointWorker::new(1, target, None);
 
     // Checkpoint should still succeed even if uploader is unavailable
-    let result = worker
-        .checkpoint_partition(CheckpointMode::Full, &store, None)
-        .await;
+    let result = worker.checkpoint_partition(&store, None).await;
     assert!(result.is_ok());
     assert!(result.unwrap().is_none());
 }
@@ -626,9 +618,7 @@ async fn test_incremental_checkpoint_with_no_changes() {
 
     let worker1 = CheckpointWorker::new(1, target1.clone(), exporter.clone());
 
-    let result1 = worker1
-        .checkpoint_partition(CheckpointMode::Full, &store, None)
-        .await;
+    let result1 = worker1.checkpoint_partition(&store, None).await;
     assert!(result1.is_ok());
 
     let (remote_path1, metadata1) = result1.unwrap().unwrap();
@@ -641,9 +631,7 @@ async fn test_incremental_checkpoint_with_no_changes() {
         CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
     let worker2 = CheckpointWorker::new(2, target2.clone(), exporter.clone());
 
-    let result2 = worker2
-        .checkpoint_partition(CheckpointMode::Incremental, &store, Some(&metadata1))
-        .await;
+    let result2 = worker2.checkpoint_partition(&store, Some(&metadata1)).await;
     assert!(result2.is_ok());
 
     let (remote_path2, metadata2) = result2.unwrap().unwrap();
@@ -711,9 +699,7 @@ async fn test_incremental_checkpoint_with_new_data() {
 
     let worker1 = CheckpointWorker::new(1, target1.clone(), exporter.clone());
 
-    let result1 = worker1
-        .checkpoint_partition(CheckpointMode::Full, &store, None)
-        .await;
+    let result1 = worker1.checkpoint_partition(&store, None).await;
     assert!(result1.is_ok());
 
     let (remote_path1, metadata1) = result1.unwrap().unwrap();
@@ -737,9 +723,7 @@ async fn test_incremental_checkpoint_with_new_data() {
         CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
     let worker2 = CheckpointWorker::new(2, target2.clone(), exporter.clone());
 
-    let result2 = worker2
-        .checkpoint_partition(CheckpointMode::Incremental, &store, Some(&metadata1))
-        .await;
+    let result2 = worker2.checkpoint_partition(&store, Some(&metadata1)).await;
     assert!(result2.is_ok());
 
     let (remote_path2, metadata2) = result2.unwrap().unwrap();
@@ -815,9 +799,7 @@ async fn test_chained_incremental_checkpoints() {
     let target1 =
         CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
     let worker1 = CheckpointWorker::new(1, target1, exporter.clone());
-    let result1 = worker1
-        .checkpoint_partition(CheckpointMode::Full, &store, None)
-        .await;
+    let result1 = worker1.checkpoint_partition(&store, None).await;
     assert!(result1.is_ok());
     let (remote_path1, metadata1) = result1.unwrap().unwrap();
 
@@ -826,9 +808,7 @@ async fn test_chained_incremental_checkpoints() {
     let target2 =
         CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
     let worker2 = CheckpointWorker::new(2, target2, exporter.clone());
-    let result2 = worker2
-        .checkpoint_partition(CheckpointMode::Incremental, &store, Some(&metadata1))
-        .await;
+    let result2 = worker2.checkpoint_partition(&store, Some(&metadata1)).await;
     assert!(result2.is_ok());
     let (remote_path2, metadata2) = result2.unwrap().unwrap();
 
@@ -837,9 +817,7 @@ async fn test_chained_incremental_checkpoints() {
     let target3 =
         CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
     let worker3 = CheckpointWorker::new(3, target3, exporter.clone());
-    let result3 = worker3
-        .checkpoint_partition(CheckpointMode::Incremental, &store, Some(&metadata2))
-        .await;
+    let result3 = worker3.checkpoint_partition(&store, Some(&metadata2)).await;
     assert!(result3.is_ok());
     let (remote_path3, metadata3) = result3.unwrap().unwrap();
 

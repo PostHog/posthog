@@ -15,6 +15,5 @@ pub use planner::{plan_checkpoint, CheckpointPlan};
 pub use s3_uploader::S3Uploader;
 pub use uploader::CheckpointUploader;
 pub use worker::{
-    CheckpointMode, CheckpointTarget, CheckpointWorker, CHECKPOINT_PARTITION_PREFIX,
-    CHECKPOINT_TOPIC_PREFIX,
+    CheckpointTarget, CheckpointWorker, CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
 };

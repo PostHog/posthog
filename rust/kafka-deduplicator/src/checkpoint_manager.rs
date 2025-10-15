@@ -7,8 +7,8 @@ use std::sync::{
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::checkpoint::{
-    CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointMode, CheckpointTarget,
-    CheckpointWorker, CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
+    CheckpointConfig, CheckpointExporter, CheckpointMetadata, CheckpointTarget, CheckpointWorker,
+    CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
 };
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
@@ -198,7 +198,6 @@ impl CheckpointManager {
                             let worker_store_manager = store_manager.clone();
                             let worker_exporter = exporter.as_ref().map(|e| e.clone());
                             let worker_cancel_token = cancel_submit_loop_token.child_token();
-                            let worker_full_checkpoint_interval = submit_loop_config.full_upload_interval;
 
                             // create worker with unique task ID and partition target helper
                             let target = CheckpointTarget::new(partition.clone(), Path::new(&submit_loop_config.local_checkpoint_dir)).unwrap();
@@ -246,11 +245,8 @@ impl CheckpointManager {
                                     .map(|entry| (entry.0, Some(entry.1.clone())))
                                     .unwrap_or((0, None));
 
-                                // Determine if this should be a full checkpoint or incremental
-                                let mode = Self::get_checkpoint_mode(counter, worker_full_checkpoint_interval);
-
                                 // Execute checkpoint operation with previous metadata for deduplication
-                                let result = worker.checkpoint_partition(mode, &target_store, prev_metadata.as_ref()).await;
+                                let result = worker.checkpoint_partition(&target_store, prev_metadata.as_ref()).await;
 
                                 // handle releasing locks and reporting outcome
                                 let status = match &result {
@@ -389,28 +385,10 @@ impl CheckpointManager {
                 None,
             );
 
-            worker
-                .checkpoint_partition(CheckpointMode::Full, &store, None)
-                .await?;
+            worker.checkpoint_partition(&store, None).await?;
         }
 
         Ok(())
-    }
-
-    // use the checkpoint counter to determine if this checkpoint should be full or incremental.
-    // CheckpointConfig specifies the interval at which full checkpoints should be performed
-    fn get_checkpoint_mode(counter: u32, full_checkpoint_interval: u32) -> CheckpointMode {
-        // if config.full_upload_interval is 0, then we should always do full uploads
-        if full_checkpoint_interval == 0 {
-            return CheckpointMode::Full;
-        }
-
-        // when counter is a multiple of the interval, perform a full checkpoint
-        if counter.is_multiple_of(full_checkpoint_interval) {
-            CheckpointMode::Full
-        } else {
-            CheckpointMode::Incremental
-        }
     }
 
     async fn get_checkpoint_status(
