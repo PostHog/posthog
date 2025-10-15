@@ -25,6 +25,11 @@ def sync_cohort_people_from_clickhouse(apps, schema_editor):
 
     from posthog.clickhouse.client import sync_execute
 
+    # Skip migration during tests
+    if settings.TEST:
+        logger.info("Skipping cohort people sync during tests")
+        return
+
     # Skip migration for EU environment
     site_url = getattr(settings, "SITE_URL", os.getenv("SITE_URL", ""))
     if site_url == "https://eu.posthog.com":
