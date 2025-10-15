@@ -5,6 +5,8 @@ import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import { getDefaultFunnelMetric } from '../utils'
 import type { experimentMetricModalLogicType } from './experimentMetricModalLogicType'
 
+// import type { SharedMetricContext } from './sharedMetricModalLogic'
+
 export const METRIC_CONTEXTS = {
     primary: {
         type: 'primary' as const,
