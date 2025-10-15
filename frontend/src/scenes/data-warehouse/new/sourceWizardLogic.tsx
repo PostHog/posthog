@@ -713,7 +713,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     values.selectedConnector.name,
                     values.source.payload ?? {}
                 )
-                schemas.forEach((schema) => {
+                for (const schema of schemas) {
                     if (schema.sync_type === null) {
                         // Use incremental if available
                         if (schema.incremental_available || schema.append_available) {
@@ -728,7 +728,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         }
                         actions.toggleSchemaShouldSync(schema, true)
                     }
-                })
+                }
 
                 lemonToast.info(
                     "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
