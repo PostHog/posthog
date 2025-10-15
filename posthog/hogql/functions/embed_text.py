@@ -16,8 +16,11 @@ def resolve_embed_text(team: Team | int | None, node: ast.Call) -> ast.Constant:
     if len(args) > 2:
         raise ValueError("embed_text() takes at most two arguments")
 
+    # mypy really goes crazy
     if not isinstance(team, Team):
-        team = Team.objects.get(id=team)
+        team_used = Team.objects.get(id=team)
+    else:
+        team_used = team
 
     text = args[0]
     model = args[1] if len(args) == 2 else None
@@ -27,7 +30,7 @@ def resolve_embed_text(team: Team | int | None, node: ast.Call) -> ast.Constant:
     if model is not None and (not isinstance(model, ast.Constant) or not isinstance(model.value, str)):
         raise ValueError("embed_text() second argument must be a string literal")
 
-    response = generate_embedding(team, text.value, model.value if model else None)
+    response = generate_embedding(team_used, text.value, model.value if model else None)
 
     # Return the embedding as a constant
     return ast.Constant(value=response.embedding)
