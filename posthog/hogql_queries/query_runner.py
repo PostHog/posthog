@@ -916,7 +916,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 {"cache_key": cache_manager.cache_key},
             )
 
-        if self.is_cached_response(cached_response_candidate):
+        if self.is_cached_response(cached_response):
             assert isinstance(cached_response, CachedResponse)
 
             if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
