@@ -281,12 +281,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     })),
     reducers({
-        tablesAllToggledOn: [
-            true as boolean,
-            {
-                toggleAllTables: (_, { selectAll }) => selectAll,
-            },
-        ],
         manualLinkingProvider: [
             null as ManualLinkSourceType | null,
             {

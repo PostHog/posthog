@@ -27,7 +27,7 @@ export default function SchemaForm(): JSX.Element {
     const containerRef = useFloatingContainer()
     const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime, toggleAllTables } =
         useActions(sourceWizardLogic)
-    const { databaseSchema, isProjectTime, tablesAllToggledOn } = useValues(sourceWizardLogic)
+    const { databaseSchema, isProjectTime } = useValues(sourceWizardLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
@@ -37,6 +37,8 @@ export default function SchemaForm(): JSX.Element {
         }
         toggleSchemaShouldSync(schema, checked)
     }
+
+    const allTablesToggledOn = databaseSchema.every((schema) => schema.should_sync)
 
     // scroll to top of container
     useEffect(() => {
@@ -54,7 +56,7 @@ export default function SchemaForm(): JSX.Element {
                             {
                                 title: (
                                     <LemonCheckbox
-                                        checked={tablesAllToggledOn}
+                                        checked={allTablesToggledOn}
                                         onChange={(checked) => toggleAllTables(checked)}
                                     />
                                 ),
