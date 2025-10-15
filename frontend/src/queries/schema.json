@@ -807,10 +807,6 @@
                 "search_insights",
                 "session_summarization",
                 "create_dashboard",
-                "read_taxonomy",
-                "search",
-                "read_data",
-                "todo_write",
                 "filter_revenue_analytics"
             ],
             "type": "string"
@@ -9358,6 +9354,9 @@
                         }
                     ],
                     "description": "Source of the events"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
