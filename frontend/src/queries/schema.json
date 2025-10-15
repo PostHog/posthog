@@ -1518,6 +1518,9 @@
                 "meta": {
                     "$ref": "#/definitions/AssistantMessageMetadata"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "tool_calls": {
                     "items": {
                         "$ref": "#/definitions/AssistantToolCall"
@@ -1563,7 +1566,8 @@
                 "ai/failure",
                 "ai/notebook",
                 "ai/planning",
-                "ai/task_execution"
+                "ai/task_execution",
+                "ai/update"
             ],
             "type": "string"
         },
@@ -1863,6 +1867,9 @@
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "parent_tool_call_id": {
                     "type": "string"
                 },
                 "tool_call_id": {
@@ -2252,6 +2259,9 @@
             "additionalProperties": false,
             "properties": {
                 "id": {
+                    "type": "string"
+                },
+                "parent_tool_call_id": {
                     "type": "string"
                 },
                 "visible": {
@@ -7085,6 +7095,9 @@
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "parent_tool_call_id": {
                     "type": "string"
                 },
                 "type": {
@@ -12518,6 +12531,9 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "ai/failure",
                     "type": "string"
@@ -14441,6 +14457,9 @@
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "parent_tool_call_id": {
                     "type": "string"
                 },
                 "type": {
@@ -16732,6 +16751,9 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "type": {
                     "const": "ai/multi_viz",
                     "type": "string"
@@ -16963,6 +16985,9 @@
                 },
                 "notebook_type": {
                     "$ref": "#/definitions/Category"
+                },
+                "parent_tool_call_id": {
+                    "type": "string"
                 },
                 "tool_calls": {
                     "items": {
@@ -17437,6 +17462,9 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "steps": {
                     "items": {
                         "$ref": "#/definitions/PlanningStep"
@@ -17445,6 +17473,7 @@
                 },
                 "type": {
                     "const": "ai/planning",
+                    "deprecated": "The class should not be used",
                     "type": "string"
                 },
                 "visible": {
@@ -17458,6 +17487,7 @@
             "additionalProperties": false,
             "properties": {
                 "description": {
+                    "deprecated": "The class should not be used",
                     "type": "string"
                 },
                 "status": {
@@ -21571,6 +21601,9 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "substeps": {
                     "items": {
                         "type": "string"
@@ -21579,6 +21612,7 @@
                 },
                 "type": {
                     "const": "ai/reasoning",
+                    "deprecated": "The model should not be used",
                     "type": "string"
                 },
                 "visible": {
@@ -23119,31 +23153,10 @@
                     "$ref": "#/definitions/TaskExecutionMessage"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "content": {
-                            "type": "string"
-                        },
-                        "id": {
-                            "type": "string"
-                        },
-                        "tool_call_id": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "const": "tool",
-                            "type": "string"
-                        },
-                        "ui_payload": {
-                            "description": "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages without a ui_payload are not passed through to the frontend.",
-                            "type": "object"
-                        },
-                        "visible": {
-                            "type": "boolean"
-                        }
-                    },
-                    "required": ["content", "tool_call_id", "type"],
-                    "type": "object"
+                    "$ref": "#/definitions/AssistantToolCallMessage"
+                },
+                {
+                    "$ref": "#/definitions/UpdateMessage"
                 }
             ]
         },
@@ -24886,6 +24899,7 @@
                     "type": "string"
                 },
                 "id": {
+                    "deprecated": "The class should not be used",
                     "type": "string"
                 },
                 "progress_text": {
@@ -24910,6 +24924,9 @@
                 "id": {
                     "type": "string"
                 },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
                 "tasks": {
                     "items": {
                         "$ref": "#/definitions/TaskExecutionItem"
@@ -24918,6 +24935,7 @@
                 },
                 "type": {
                     "const": "ai/task_execution",
+                    "deprecated": "The class should not be used",
                     "type": "string"
                 },
                 "visible": {
@@ -25844,6 +25862,26 @@
             "required": ["results"],
             "type": "object"
         },
+        "UpdateMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ai/update",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id", "parent_tool_call_id", "content"],
+            "type": "object"
+        },
         "UserBasicType": {
             "additionalProperties": false,
             "properties": {
@@ -26010,6 +26048,9 @@
                     "type": "string"
                 },
                 "initiator": {
+                    "type": "string"
+                },
+                "parent_tool_call_id": {
                     "type": "string"
                 },
                 "plan": {

@@ -211,6 +211,7 @@ class AssistantMessageType(StrEnum):
     AI_NOTEBOOK = "ai/notebook"
     AI_PLANNING = "ai/planning"
     AI_TASK_EXECUTION = "ai/task_execution"
+    AI_UPDATE = "ai/update"
 
 
 class AssistantNavigateUrl(StrEnum):
@@ -300,6 +301,7 @@ class AssistantToolCallMessage(BaseModel):
     )
     content: str
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     tool_call_id: str
     type: Literal["tool"] = "tool"
     ui_payload: Optional[dict[str, Any]] = Field(
@@ -451,6 +453,7 @@ class BaseAssistantMessage(BaseModel):
         extra="forbid",
     )
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     visible: Optional[bool] = None
 
 
@@ -624,6 +627,7 @@ class ContextMessage(BaseModel):
     )
     content: str
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     type: Literal["context"] = "context"
     visible: Optional[bool] = None
 
@@ -1294,6 +1298,7 @@ class FailureMessage(BaseModel):
     )
     content: Optional[str] = None
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     type: Literal["ai/failure"] = "ai/failure"
     visible: Optional[bool] = None
 
@@ -2232,6 +2237,7 @@ class ReasoningMessage(BaseModel):
     )
     content: str
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     substeps: Optional[list[str]] = None
     type: Literal["ai/reasoning"] = "ai/reasoning"
     visible: Optional[bool] = None
@@ -2412,24 +2418,6 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     )
     property: Optional[str] = None
     static: Optional[CurrencyCode] = None
-
-
-class RootAssistantMessage1(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: Optional[str] = None
-    tool_call_id: str
-    type: Literal["tool"] = "tool"
-    ui_payload: Optional[dict[str, Any]] = Field(
-        default=None,
-        description=(
-            "Payload passed through to the frontend - specifically for calls of contextual tool. Tool call messages"
-            " without a ui_payload are not passed through to the frontend."
-        ),
-    )
-    visible: Optional[bool] = None
 
 
 class SamplingRate(BaseModel):
@@ -2815,6 +2803,16 @@ class TrendsFormulaNode(BaseModel):
     )
     custom_name: Optional[str] = Field(default=None, description="Optional user-defined name for the formula")
     formula: str
+
+
+class UpdateMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: str
+    parent_tool_call_id: str
+    type: Literal["ai/update"] = "ai/update"
 
 
 class UserBasicType(BaseModel):
@@ -4245,6 +4243,7 @@ class NotebookUpdateMessage(BaseModel):
     id: Optional[str] = None
     notebook_id: str
     notebook_type: Literal["deep_research"] = "deep_research"
+    parent_tool_call_id: Optional[str] = None
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai/notebook"] = "ai/notebook"
     visible: Optional[bool] = None
@@ -5029,6 +5028,7 @@ class TaskExecutionMessage(BaseModel):
         extra="forbid",
     )
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     tasks: list[TaskExecutionItem]
     type: Literal["ai/task_execution"] = "ai/task_execution"
     visible: Optional[bool] = None
@@ -5730,6 +5730,7 @@ class AssistantMessage(BaseModel):
     content: str
     id: Optional[str] = None
     meta: Optional[AssistantMessageMetadata] = None
+    parent_tool_call_id: Optional[str] = None
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai"] = "ai"
     visible: Optional[bool] = None
@@ -9274,6 +9275,7 @@ class PlanningMessage(BaseModel):
         extra="forbid",
     )
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     steps: list[PlanningStep]
     type: Literal["ai/planning"] = "ai/planning"
     visible: Optional[bool] = None
@@ -13929,6 +13931,7 @@ class VisualizationMessage(BaseModel):
     ]
     id: Optional[str] = None
     initiator: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     plan: Optional[str] = None
     query: Optional[str] = ""
     short_id: Optional[str] = None
@@ -14020,6 +14023,7 @@ class MultiVisualizationMessage(BaseModel):
     )
     commentary: Optional[str] = None
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     type: Literal["ai/multi_viz"] = "ai/multi_viz"
     visible: Optional[bool] = None
     visualizations: list[VisualizationItem]
@@ -14618,6 +14622,7 @@ class HumanMessage(BaseModel):
     )
     content: str
     id: Optional[str] = None
+    parent_tool_call_id: Optional[str] = None
     type: Literal["human"] = "human"
     ui_context: Optional[MaxUIContext] = None
     visible: Optional[bool] = None
@@ -15088,7 +15093,8 @@ class RootAssistantMessage(
             NotebookUpdateMessage,
             PlanningMessage,
             TaskExecutionMessage,
-            RootAssistantMessage1,
+            AssistantToolCallMessage,
+            UpdateMessage,
         ]
     ]
 ):
@@ -15102,7 +15108,8 @@ class RootAssistantMessage(
         NotebookUpdateMessage,
         PlanningMessage,
         TaskExecutionMessage,
-        RootAssistantMessage1,
+        AssistantToolCallMessage,
+        UpdateMessage,
     ]
 
 

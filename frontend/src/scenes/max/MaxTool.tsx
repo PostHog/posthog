@@ -25,7 +25,6 @@ interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
 
 export function MaxTool({
     identifier,
-    icon,
     context,
     introOverride,
     callback,
@@ -41,7 +40,6 @@ export function MaxTool({
 
     const { definition, isMaxOpen, openMax } = useMaxTool({
         identifier,
-        icon,
         context,
         introOverride,
         callback,
@@ -68,7 +66,7 @@ export function MaxTool({
                             <>
                                 Max can use this tool
                                 <br />
-                                {icon || <IconWrench />}
+                                {definition.icon || <IconWrench />}
                                 <i className="ml-1.5">{definition.name}</i>
                             </>
                         )
