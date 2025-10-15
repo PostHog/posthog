@@ -273,16 +273,6 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
   '''
-  
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = 0
-  '''
-# ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
-  '''
   /* celery:posthog.tasks.calculate_cohort.collect_cohort_query_stats */
   SELECT query_id,
          query_duration_ms,
@@ -301,7 +291,7 @@
   ORDER BY event_time DESC
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.5
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
   '''
   
   SELECT count(DISTINCT person_id)
@@ -309,6 +299,29 @@
   WHERE team_id = 99999
     AND cohort_id = 99999
     AND version = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.5
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 99999
+       AND id in
+         (SELECT person_id as id
+          FROM person_static_cohort
+          WHERE cohort_id = 99999
+            AND team_id = 99999)
+       AND id in
+         (SELECT DISTINCT person_id
+          FROM cohortpeople
+          WHERE team_id = 99999
+            AND cohort_id = 99999
+            AND version = 0 )
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.6
