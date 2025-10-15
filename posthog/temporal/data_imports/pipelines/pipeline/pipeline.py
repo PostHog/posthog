@@ -395,11 +395,14 @@ def _get_incremental_field_value(
         return
 
     column = table[normalize_column_name(incremental_field_name)]
+    processed_column = pa.array(
+        [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
+    )
 
     if aggregate == "max":
-        last_value = pc.max(column)
+        last_value = pc.max(processed_column)
     elif aggregate == "min":
-        last_value = pc.min(column)
+        last_value = pc.min(processed_column)
     else:
         raise Exception(f"Unsupported aggregate function for _get_incremental_field_value: {aggregate}")
 

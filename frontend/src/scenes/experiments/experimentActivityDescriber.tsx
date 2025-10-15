@@ -225,6 +225,9 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
             }
         })
         .with({ activity: 'updated' }, ({ item_id, detail: updateLogDetail }) => {
+            /**
+             * This is the catch all for all experiment updates
+             */
             const changes = updateLogDetail.changes || []
 
             const listParts =

@@ -38,18 +38,12 @@ impl RawJavaFrame {
 
 impl From<&RawJavaFrame> for Frame {
     fn from(raw: &RawJavaFrame) -> Self {
-        let source = raw
-            .filename
-            .as_ref()
-            .map(|s| format!("{}:{}", raw.module, s))
-            .unwrap_or_else(|| raw.module.clone());
-
         let mut f = Frame {
             raw_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno,
             column: None,
-            source: Some(source),
+            source: raw.filename.clone(),
             in_app: raw.meta.in_app,
             resolved_name: Some(raw.function.clone()),
             lang: "java".to_string(),
@@ -60,6 +54,7 @@ impl From<&RawJavaFrame> for Frame {
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,
+            module: Some(raw.module.clone()),
         };
 
         // Java frames will have a decent amount of processing, we're gonna want this

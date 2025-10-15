@@ -5284,11 +5284,13 @@ class UsageMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    change_from_previous_pct: Optional[float] = None
     display: UsageMetricDisplay
     format: UsageMetricFormat
     id: str
     interval: int
     name: str
+    previous: float
     value: float
 
 
