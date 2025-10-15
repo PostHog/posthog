@@ -407,6 +407,7 @@ export const GENERATED_DASHBOARD_PREFIX = 'Generated Dashboard'
 
 export const ACTIVITY_PAGE_SIZE = 20
 export const ADVANCED_ACTIVITY_PAGE_SIZE = 100
+// Testing Docker layer cache with frontend change
 export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
