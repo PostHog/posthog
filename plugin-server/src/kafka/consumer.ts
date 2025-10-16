@@ -21,6 +21,7 @@ import {
     HealthCheckResultDegraded,
     HealthCheckResultError,
     HealthCheckResultOk,
+    LogLevel,
 } from '~/types'
 import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
@@ -164,6 +165,7 @@ export class KafkaConsumer {
         rebalanceTimeoutMs: 20000,
         rebalanceStartTime: 0,
     }
+    private consumerLogStatsLevel: LogLevel
 
     constructor(
         private config: KafkaConsumerConfig,
@@ -183,6 +185,7 @@ export class KafkaConsumer {
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
         this.consumerLoopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS
+        this.consumerLogStatsLevel = defaultConfig.CONSUMER_LOG_STATS_LEVEL
 
         const rebalancecb: RebalanceCallback = this.config.waitForBackgroundTasksOnRebalance
             ? this.rebalanceCallback.bind(this)
@@ -529,6 +532,7 @@ export class KafkaConsumer {
                         rtt_avg: stats.rtt?.avg,
                         connects: stats.connects,
                         disconnects: stats.disconnects,
+                        buffer_bytes: stats.zbuf_grow,
                     })),
                 }
 
@@ -541,7 +545,7 @@ export class KafkaConsumer {
                     logData.assignment_size = parsedStats.cgrp.assignment_size
                 }
 
-                logger.debug('📊', 'Kafka consumer statistics', logData)
+                logger[this.consumerLogStatsLevel]('📊', 'Kafka consumer statistics', logData)
             } catch (error) {
                 logger.error('📊', 'Failed to parse consumer statistics', {
                     error: error instanceof Error ? error.message : String(error),
