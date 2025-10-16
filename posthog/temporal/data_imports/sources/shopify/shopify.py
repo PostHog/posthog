@@ -64,7 +64,6 @@ def _make_paginated_shopify_request(
         reraise=True,
     )
     def execute(vars: dict[str, Any]):
-        logger.debug(f"Shopify: reading from resource {graphql_object.name}")
         response = sess.post(url, json={"query": graphql_object.query, "variables": vars})
         if response.status_code >= 500:
             raise ShopifyRetryableError(
@@ -113,6 +112,8 @@ def shopify_source(
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS.get(graphql_object_name)
         if not graphql_object:
             raise Exception(f"Shopify object does not exist: {graphql_object_name}")
+
+        logger.debug(f"Shopify: reading from resource {graphql_object_name}")
 
         incremental_field_config = INCREMENTAL_FIELDS.get(graphql_object_name, [])
         _ = incremental_field_config[0]["field"] if incremental_field_config else "createdAt"
