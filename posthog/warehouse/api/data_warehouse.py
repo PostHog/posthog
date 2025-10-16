@@ -228,7 +228,6 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             breakdown = {}
             if days == 1:
-                # Group by hour using a single query for external jobs
                 external_by_hour = (
                     external_jobs.annotate(hour=TruncHour("created_at", tzinfo=project_tz))
                     .values("hour")
@@ -238,7 +237,6 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     )
                 )
 
-                # Group by hour using a single query for modeling jobs
                 modeling_by_hour = (
                     modeling_jobs.annotate(hour=TruncHour("created_at", tzinfo=project_tz))
                     .values("hour")
@@ -248,11 +246,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     )
                 )
 
-                # Combine results into lookup dictionaries
                 external_lookup = {result["hour"]: result for result in external_by_hour}
                 modeling_lookup = {result["hour"]: result for result in modeling_by_hour}
 
-                # Generate breakdown for all 24 hours
                 for i in range(24):
                     hour_start = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=i)
                     external_data = external_lookup.get(hour_start, {"successful": 0, "failed": 0})
@@ -263,7 +259,6 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "failed": external_data["failed"] + modeling_data["failed"],
                     }
             else:
-                # Group by day using a single query for external jobs
                 external_by_day = (
                     external_jobs.annotate(day=TruncDate("created_at", tzinfo=project_tz))
                     .values("day")
@@ -273,7 +268,6 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     )
                 )
 
-                # Group by day using a single query for modeling jobs
                 modeling_by_day = (
                     modeling_jobs.annotate(day=TruncDate("created_at", tzinfo=project_tz))
                     .values("day")
@@ -283,11 +277,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     )
                 )
 
-                # Combine results into lookup dictionaries
                 external_lookup = {result["day"]: result for result in external_by_day}
                 modeling_lookup = {result["day"]: result for result in modeling_by_day}
 
-                # Generate breakdown for all days
                 for i in range(days):
                     day_date = (now - timedelta(days=i)).date()
                     external_data = external_lookup.get(day_date, {"successful": 0, "failed": 0})
