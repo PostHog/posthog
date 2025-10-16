@@ -66,9 +66,9 @@ export function WithMoreThanOne(): JSX.Element {
 
 export function WithSeparateSelect(): JSX.Element {
     return (
-        <div>
-            <TZLabel time={now()} logicKey="storybook-with-separate-select" />
+        <div className="flex gap-4 items-center">
             <TZLabelFormatSelect logicKey="storybook-with-separate-select" />
+            <TZLabel time={now()} logicKey="storybook-with-separate-select" />
         </div>
     )
 }
