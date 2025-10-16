@@ -755,9 +755,9 @@
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.27
   '''
-  SELECT "posthog_managedviewset"."kind"
-  FROM "posthog_managedviewset"
-  WHERE "posthog_managedviewset"."team_id" = 99999
+  SELECT "posthog_datawarehousemanagedviewset"."kind"
+  FROM "posthog_datawarehousemanagedviewset"
+  WHERE "posthog_datawarehousemanagedviewset"."team_id" = 99999
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.28
@@ -3387,9 +3387,9 @@
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.27
   '''
-  SELECT "posthog_managedviewset"."kind"
-  FROM "posthog_managedviewset"
-  WHERE "posthog_managedviewset"."team_id" = 99999
+  SELECT "posthog_datawarehousemanagedviewset"."kind"
+  FROM "posthog_datawarehousemanagedviewset"
+  WHERE "posthog_datawarehousemanagedviewset"."team_id" = 99999
   '''
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.28
