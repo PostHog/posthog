@@ -136,7 +136,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     id: '',
                     name: '',
                     description: '',
-                    enabled: false,
+                    enabled: true,
                     prompt: '',
                     conditions: [
                         {
@@ -163,7 +163,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     id: '',
                     name: '',
                     description: '',
-                    enabled: false,
+                    enabled: true,
                     prompt: '',
                     conditions: [
                         {
