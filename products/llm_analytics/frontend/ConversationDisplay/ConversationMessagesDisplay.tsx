@@ -338,6 +338,80 @@ export const LLMMessageDisplay = React.memo(
                                 ) : item &&
                                   typeof item === 'object' &&
                                   'type' in item &&
+                                  item.type === 'reasoning' &&
+                                  'text' in item &&
+                                  typeof item.text === 'string' ? (
+                                    <div className="bg-[var(--bg-tertiary)] rounded p-2">
+                                        <div className="text-xs font-semibold mb-1 text-muted">Reasoning:</div>
+                                        {searchQuery?.trim() ? (
+                                            <SearchHighlight
+                                                string={item.text}
+                                                substring={searchQuery}
+                                                className="whitespace-pre-wrap"
+                                            />
+                                        ) : (
+                                            <span className="whitespace-pre-wrap">{item.text}</span>
+                                        )}
+                                    </div>
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
+                                  item.type === 'thinking' &&
+                                  'thinking' in item &&
+                                  typeof item.thinking === 'string' ? (
+                                    <div className="bg-[var(--bg-tertiary)] rounded p-2">
+                                        <div className="text-xs font-semibold mb-1 text-muted">Thinking:</div>
+                                        {searchQuery?.trim() ? (
+                                            <SearchHighlight
+                                                string={item.thinking}
+                                                substring={searchQuery}
+                                                className="whitespace-pre-wrap"
+                                            />
+                                        ) : (
+                                            <span className="whitespace-pre-wrap">{item.thinking}</span>
+                                        )}
+                                    </div>
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
+                                  item.type === 'tool-call' &&
+                                  'function' in item &&
+                                  typeof item.function === 'object' ? (
+                                    <div className="bg-[var(--bg-tertiary)] rounded p-2">
+                                        <div className="text-xs font-semibold mb-1 text-muted">Tool Call:</div>
+                                        <HighlightedJSONViewer
+                                            src={item}
+                                            name={null}
+                                            collapsed={3}
+                                            searchQuery={searchQuery}
+                                        />
+                                    </div>
+                                ) : item && typeof item === 'object' && 'type' in item && item.type === 'tool_use' ? (
+                                    <div className="bg-[var(--bg-tertiary)] rounded p-2">
+                                        <div className="text-xs font-semibold mb-1 text-muted">Tool Use:</div>
+                                        <HighlightedJSONViewer
+                                            src={item}
+                                            name={null}
+                                            collapsed={3}
+                                            searchQuery={searchQuery}
+                                        />
+                                    </div>
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
+                                  item.type === 'tool_result' ? (
+                                    <div className="bg-[var(--bg-tertiary)] rounded p-2">
+                                        <div className="text-xs font-semibold mb-1 text-muted">Tool Result:</div>
+                                        <HighlightedJSONViewer
+                                            src={item}
+                                            name={null}
+                                            collapsed={3}
+                                            searchQuery={searchQuery}
+                                        />
+                                    </div>
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
                                   item.type === 'image' &&
                                   'image' in item &&
                                   typeof item.image === 'string' ? (
