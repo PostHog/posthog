@@ -410,7 +410,7 @@ class Task(models.Model):
         team: Team,
         title: str,
         description: str,
-        origin_product: str,
+        origin_product: "Task.OriginProduct",
         user_id: int,  # Will be used to validate the feature flag and create a personal api key for interacting with PostHog.
         repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
     ) -> "Task":
