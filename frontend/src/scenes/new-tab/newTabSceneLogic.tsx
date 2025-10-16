@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { IconApps, IconDatabase, IconHogQL, IconPerson, IconToggle } from '@posthog/icons'
 
 import api from 'lib/api'
+import { Command } from 'lib/components/CommandInput'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
@@ -38,7 +39,26 @@ export type NEW_TAB_CATEGORY_ITEMS =
     | 'eventDefinitions'
     | 'propertyDefinitions'
 
-export type NEW_TAB_INCLUDE_ITEM = 'persons' | 'eventDefinitions' | 'propertyDefinitions'
+export type NEW_TAB_COMMANDS =
+    | 'all'
+    | 'create-new'
+    | 'apps'
+    | 'data-management'
+    | 'recents'
+    | 'persons'
+    | 'eventDefinitions'
+    | 'propertyDefinitions'
+
+export const NEW_TAB_COMMANDS_ITEMS: Command<NEW_TAB_COMMANDS>[] = [
+    { value: 'all', displayName: 'Show all results' },
+    { value: 'create-new', displayName: 'Show create new' },
+    { value: 'apps', displayName: 'Show apps' },
+    { value: 'data-management', displayName: 'Show data management' },
+    { value: 'recents', displayName: 'Show recents' },
+    { value: 'persons', displayName: 'Show persons data' },
+    { value: 'eventDefinitions', displayName: 'Show events data' },
+    { value: 'propertyDefinitions', displayName: 'Show properties data' },
+]
 
 export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
@@ -85,8 +105,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedEventDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedPropertyDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
-        setNewTabSceneDataInclude: (include: NEW_TAB_INCLUDE_ITEM[]) => ({ include }),
-        toggleNewTabSceneDataInclude: (item: NEW_TAB_INCLUDE_ITEM) => ({ item }),
+        setNewTabSceneDataInclude: (include: NEW_TAB_COMMANDS[]) => ({ include }),
+        toggleNewTabSceneDataInclude: (item: NEW_TAB_COMMANDS) => ({ item }),
         triggerSearchForIncludedItems: true,
     }),
     loaders(({ values }) => ({
@@ -224,7 +244,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         newTabSceneDataInclude: [
-            [] as NEW_TAB_INCLUDE_ITEM[],
+            [] as NEW_TAB_COMMANDS[],
             {
                 setNewTabSceneDataInclude: (_, { include }) => include,
                 toggleNewTabSceneDataInclude: (state, { item }) => {
@@ -884,10 +904,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
 
             // Update include array if URL param differs from current state
-            const includeFromUrl: NEW_TAB_INCLUDE_ITEM[] = searchParams.include
+            const includeFromUrl: NEW_TAB_COMMANDS[] = searchParams.include
                 ? (searchParams.include as string)
                       .split(',')
-                      .filter((item): item is NEW_TAB_INCLUDE_ITEM =>
+                      .filter((item): item is NEW_TAB_COMMANDS =>
                           ['persons', 'eventDefinitions', 'propertyDefinitions'].includes(item)
                       )
                 : []
