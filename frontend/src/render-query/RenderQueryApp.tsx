@@ -56,7 +56,7 @@ export function RenderQueryApp(): JSX.Element {
     }, [setState])
 
     return (
-        <div className="RenderQuery">
+        <div className="RenderQuery h-full w-full">
             {state.messages.length > 0 && (
                 <div className="RenderQuery__messages">
                     {state.messages.map((message, index) => (
