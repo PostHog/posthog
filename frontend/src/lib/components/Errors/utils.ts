@@ -203,13 +203,17 @@ export function stringify(value: any): string {
     return ''
 }
 
-export function formatResolvedName(frame: Pick<ErrorTrackingStackFrame, 'module' | 'resolved_name'>): string | null {
+export function formatResolvedName(
+    frame: Pick<ErrorTrackingStackFrame, 'module' | 'resolved_name' | 'lang'>
+): string | null {
     if (!frame.resolved_name || frame.resolved_name === '?') {
         return null
     }
-    return frame.module ? `${frame.module}.${frame.resolved_name}` : frame.resolved_name
+    return frame.module && frame.lang === 'java' ? `${frame.module}.${frame.resolved_name}` : frame.resolved_name
 }
 
-export function formatType(exception: Pick<ErrorTrackingException, 'module' | 'type'>): string {
-    return exception.module ? `${exception.module}.${exception.type}` : exception.type
+export function formatType(exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace'>): string {
+    const hasJavaFrames = exception.stacktrace?.frames?.some((frame) => frame.lang === 'java')
+
+    return exception.module && hasJavaFrames ? `${exception.module}.${exception.type}` : exception.type
 }
