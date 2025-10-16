@@ -11,7 +11,7 @@ from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowStageTemplate, WorkflowTemplate
-from products.tasks.backend.models import SandboxSnapshot, Task, TaskProgress, TaskWorkflow, WorkflowStage
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun, TaskWorkflow, WorkflowStage
 
 
 class TestTaskWorkflow(TestCase):
@@ -871,7 +871,7 @@ class TestTaskSlug(TestCase):
         self.assertEqual(task2.slug, "JON-0")
 
 
-class TestTaskProgress(TestCase):
+class TestTaskRun(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
@@ -884,14 +884,14 @@ class TestTaskProgress(TestCase):
 
     @parameterized.expand(
         [
-            (TaskProgress.Status.STARTED,),
-            (TaskProgress.Status.IN_PROGRESS,),
-            (TaskProgress.Status.COMPLETED,),
-            (TaskProgress.Status.FAILED,),
+            (TaskRun.Status.STARTED,),
+            (TaskRun.Status.IN_PROGRESS,),
+            (TaskRun.Status.COMPLETED,),
+            (TaskRun.Status.FAILED,),
         ]
     )
     def test_progress_creation_with_statuses(self, status):
-        progress = TaskProgress.objects.create(
+        progress = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=status,
@@ -907,15 +907,15 @@ class TestTaskProgress(TestCase):
         self.assertEqual(progress.completed_steps, 5)
 
     def test_str_representation(self):
-        progress = TaskProgress.objects.create(
+        progress = TaskRun.objects.create(
             task=self.task,
             team=self.team,
-            status=TaskProgress.Status.IN_PROGRESS,
+            status=TaskRun.Status.IN_PROGRESS,
         )
         self.assertEqual(str(progress), "Progress for Test Task - In Progress")
 
     def test_append_output(self):
-        progress = TaskProgress.objects.create(
+        progress = TaskRun.objects.create(
             task=self.task,
             team=self.team,
         )
@@ -929,7 +929,7 @@ class TestTaskProgress(TestCase):
         self.assertEqual(progress.output_log, "First line\nSecond line")
 
     def test_update_progress(self):
-        progress = TaskProgress.objects.create(
+        progress = TaskRun.objects.create(
             task=self.task,
             team=self.team,
         )
@@ -942,31 +942,31 @@ class TestTaskProgress(TestCase):
         self.assertEqual(progress.total_steps, 10)
 
     def test_mark_completed(self):
-        progress = TaskProgress.objects.create(
+        progress = TaskRun.objects.create(
             task=self.task,
             team=self.team,
-            status=TaskProgress.Status.IN_PROGRESS,
+            status=TaskRun.Status.IN_PROGRESS,
         )
 
         self.assertIsNone(progress.completed_at)
         progress.mark_completed()
 
         progress.refresh_from_db()
-        self.assertEqual(progress.status, TaskProgress.Status.COMPLETED)
+        self.assertEqual(progress.status, TaskRun.Status.COMPLETED)
         self.assertIsNotNone(progress.completed_at)
 
     def test_mark_failed(self):
-        progress = TaskProgress.objects.create(
+        progress = TaskRun.objects.create(
             task=self.task,
             team=self.team,
-            status=TaskProgress.Status.IN_PROGRESS,
+            status=TaskRun.Status.IN_PROGRESS,
         )
 
         error_msg = "Something went wrong"
         progress.mark_failed(error_msg)
 
         progress.refresh_from_db()
-        self.assertEqual(progress.status, TaskProgress.Status.FAILED)
+        self.assertEqual(progress.status, TaskRun.Status.FAILED)
         self.assertEqual(progress.error_message, error_msg)
         self.assertIsNotNone(progress.completed_at)
 
@@ -979,7 +979,7 @@ class TestTaskProgress(TestCase):
         ]
     )
     def test_progress_percentage(self, completed, total, expected):
-        progress = TaskProgress.objects.create(
+        progress = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             completed_steps=completed,
@@ -988,7 +988,7 @@ class TestTaskProgress(TestCase):
         self.assertEqual(progress.progress_percentage, expected)
 
     def test_workflow_metadata(self):
-        progress = TaskProgress.objects.create(
+        progress = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             workflow_id="workflow-123",
