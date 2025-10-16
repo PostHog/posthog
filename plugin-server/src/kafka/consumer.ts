@@ -527,12 +527,8 @@ export class KafkaConsumer {
                     topics: Object.keys(parsedStats.topics || {}),
                     broker_count: brokerStats.size,
                     brokers: Array.from(brokerStats.entries()).map(([name, stats]) => ({
+                        ...stats,
                         name,
-                        state: stats.state,
-                        rtt_avg: stats.rtt?.avg,
-                        connects: stats.connects,
-                        disconnects: stats.disconnects,
-                        buffer_bytes: stats.zbuf_grow,
                     })),
                 }
 
