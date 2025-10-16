@@ -67,7 +67,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                                                     type="secondary"
                                                     onClick={() => {
                                                         updateWeeklyDigestForAllTeams(
-                                                            currentOrganization?.teams.map((t) => t.id),
+                                                            (currentOrganization?.teams || []).map((t) => t.id),
                                                             true
                                                         )
                                                     }}
@@ -79,7 +79,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                                                     type="secondary"
                                                     onClick={() => {
                                                         updateWeeklyDigestForAllTeams(
-                                                            currentOrganization?.teams.map((t) => t.id),
+                                                            (currentOrganization?.teams || []).map((t) => t.id),
                                                             false
                                                         )
                                                     }}
