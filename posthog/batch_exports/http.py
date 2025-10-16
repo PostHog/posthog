@@ -432,7 +432,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             # validate the Integration is valid (this is mandatory for Databricks batch exports)
             integration: Integration | None = destination_attrs.get("integration")
             if integration is None:
-                raise serializers.ValidationError("integration is required for Databricks batch exports")
+                raise serializers.ValidationError("Integration is required for Databricks batch exports")
             if integration.team_id != team_id:
                 raise serializers.ValidationError("Integration does not belong to this team.")
             if integration.kind != Integration.IntegrationKind.DATABRICKS:
@@ -442,6 +442,41 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 DatabricksIntegration(integration)
             except DatabricksIntegrationError as e:
                 raise serializers.ValidationError(str(e))
+
+        if destination_type == BatchExportDestination.Destination.REDSHIFT:
+            config = destination_attrs["config"]
+            view = self.context.get("view")
+
+            if self.instance is not None:
+                existing_config = self.instance.destination.config
+            elif view is not None and "pk" in view.kwargs:
+                # Running validation for a `detail=True` action.
+                instance = view.get_object()
+                existing_config = instance.destination.config
+            else:
+                existing_config = {}
+            merged_config = {**existing_config, **config}
+
+            mode = merged_config.get("mode")
+
+            if mode == "COPY":
+                copy_inputs = merged_config.get("copy_inputs", {})
+                if not copy_inputs:
+                    raise serializers.ValidationError("Missing required inputs for 'COPY'")
+
+                required_inputs = {"s3_bucket", "region_name", "authorization", "bucket_credentials"}
+                if required_inputs - copy_inputs.keys():
+                    raise serializers.ValidationError("Missing required input for 'COPY'")
+
+                credential_keys = {"aws_access_key_id", "aws_secret_access_key"}
+                if credential_keys - copy_inputs["bucket_credentials"].keys():
+                    raise serializers.ValidationError("Missing required bucket credentials for 'COPY'")
+
+                authorization = copy_inputs.get("authorization")
+                if isinstance(authorization, dict):
+                    if credential_keys - authorization.keys():
+                        raise serializers.ValidationError("Missing required credentials for 'COPY'")
+
         return destination_attrs
 
     def create(self, validated_data: dict) -> BatchExport:
