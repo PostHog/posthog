@@ -12,7 +12,7 @@ import { FilterLogicalOperator } from '~/types'
 import { errorTrackingIssueBreakdownQuery } from '../../queries'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
 import { BreakdownSinglePropertyStat, breakdownPreviewLogic } from './breakdownPreviewLogic'
-import { BreakdownPreset, errorTrackingBreakdownsSceneLogic } from './errorTrackingBreakdownsSceneLogic'
+import { BreakdownPreset, errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
 
 const BREAKDOWN_COLORS = ['#3b82f6', '#22c55e', '#eab308', '#a855f7', '#ec4899', '#f97316', '#06b6d4', '#ef4444']
 
@@ -24,11 +24,11 @@ export const ERROR_TRACKING_BREAKDOWNS_DATA_COLLECTION_NODE_ID = 'error-tracking
 
 export function BreakdownTileButton({ item }: BreakdownTileButtonProps): JSX.Element {
     const { dateRange, filterTestAccounts } = useValues(breakdownFiltersLogic)
-    const { selectedBreakdownPreset } = useValues(errorTrackingBreakdownsSceneLogic)
-    const { setSelectedBreakdownPreset } = useActions(errorTrackingBreakdownsSceneLogic)
+    const { selectedBreakdownPreset } = useValues(errorTrackingBreakdownsLogic)
+    const { setSelectedBreakdownPreset } = useActions(errorTrackingBreakdownsLogic)
 
     const isSelected = selectedBreakdownPreset.property === item.property
-    const { issueId } = useValues(errorTrackingBreakdownsSceneLogic)
+    const { issueId } = useValues(errorTrackingBreakdownsLogic)
 
     const query = errorTrackingIssueBreakdownQuery({
         breakdownProperty: item.property,

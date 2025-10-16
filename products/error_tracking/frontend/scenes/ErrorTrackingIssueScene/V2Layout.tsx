@@ -1,6 +1,6 @@
 import './ErrorTrackingIssueScene.scss'
 
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconShare } from '@posthog/icons'
@@ -33,7 +33,7 @@ import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupProm
 import { isLastSeenException, useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { BreakdownChart } from '../ErrorTrackingIssueBreakdownsScene/BreakdownChart'
 import { BreakdownSearchBar } from '../ErrorTrackingIssueBreakdownsScene/BreakdownSearchBar'
-import { errorTrackingBreakdownsSceneLogic } from '../ErrorTrackingIssueBreakdownsScene/errorTrackingBreakdownsSceneLogic'
+import { errorTrackingBreakdownsLogic } from '../ErrorTrackingIssueBreakdownsScene/errorTrackingBreakdownsLogic'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import {
     ErrorTrackingIssueSceneCategory,
@@ -51,64 +51,61 @@ export function V2Layout(): JSX.Element {
     )
 
     return (
-        <BindLogic logic={errorTrackingBreakdownsSceneLogic} props={{ id: issue?.id ?? '' }}>
-            <ErrorTrackingSetupPrompt>
-                {isPostHogSDKIssue && (
-                    <LemonBanner
-                        type="error"
-                        action={{ to: 'https://status.posthog.com/incidents/l70cgmt7475m', children: 'Read more' }}
-                        className="mb-4"
-                    >
-                        This issue was captured because of a bug in the PostHog SDK. We've fixed the issue, and you
-                        won't be charged for any of these exception events. We recommend setting this issue's status to
-                        "Suppressed".
-                    </LemonBanner>
-                )}
+        <ErrorTrackingSetupPrompt>
+            {isPostHogSDKIssue && (
+                <LemonBanner
+                    type="error"
+                    action={{ to: 'https://status.posthog.com/incidents/l70cgmt7475m', children: 'Read more' }}
+                    className="mb-4"
+                >
+                    This issue was captured because of a bug in the PostHog SDK. We've fixed the issue, and you won't be
+                    charged for any of these exception events. We recommend setting this issue's status to "Suppressed".
+                </LemonBanner>
+            )}
 
-                <div className="ErrorTrackingIssue grid grid-cols-10 gap-6">
-                    <div className="col-span-3 border-r flex flex-col min-h-0">
-                        <div className="flex justify-between p-1">
-                            <SceneBreadcrumbBackButton />
-                            <div>
-                                <ButtonPrimitive
-                                    onClick={() => {
-                                        if (!hasDiscussions) {
-                                            posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
-                                        }
-                                        openSidePanel(SidePanelTab.Discussion)
-                                    }}
-                                    tooltip="Comment"
-                                >
-                                    <IconComment />
-                                </ButtonPrimitive>
+            <div className="ErrorTrackingIssue grid grid-cols-10 gap-6">
+                <div className="col-span-3 border-r flex flex-col min-h-0">
+                    <div className="flex justify-between p-1">
+                        <SceneBreadcrumbBackButton />
+                        <div>
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    if (!hasDiscussions) {
+                                        posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
+                                    }
+                                    openSidePanel(SidePanelTab.Discussion)
+                                }}
+                                tooltip="Comment"
+                            >
+                                <IconComment />
+                            </ButtonPrimitive>
 
-                                <ButtonPrimitive
-                                    onClick={() => {
-                                        if (issue) {
-                                            void copyToClipboard(
-                                                window.location.origin + urls.errorTrackingIssue(issue.id),
-                                                'issue link'
-                                            )
-                                        }
-                                    }}
-                                    tooltip="Share"
-                                >
-                                    <IconShare />
-                                </ButtonPrimitive>
-                            </div>
-                        </div>
-                        <LemonDivider className="my-0" />
-                        <div className="p-2 space-y-2">
-                            <ErrorTrackingIssueScenePanel showActions={false} />
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    if (issue) {
+                                        void copyToClipboard(
+                                            window.location.origin + urls.errorTrackingIssue(issue.id),
+                                            'issue link'
+                                        )
+                                    }
+                                }}
+                                tooltip="Share"
+                            >
+                                <IconShare />
+                            </ButtonPrimitive>
                         </div>
                     </div>
-                    <div className="flex col-span-7 gap-y-2 flex-col">
-                        <Breadcrumbs />
-                        <CategoryContent />
+                    <LemonDivider className="my-0" />
+                    <div className="p-2 space-y-2">
+                        <ErrorTrackingIssueScenePanel showActions={false} />
                     </div>
                 </div>
-            </ErrorTrackingSetupPrompt>
-        </BindLogic>
+                <div className="flex col-span-7 gap-y-2 flex-col">
+                    <Breadcrumbs />
+                    <CategoryContent />
+                </div>
+            </div>
+        </ErrorTrackingSetupPrompt>
     )
 }
 
@@ -277,7 +274,7 @@ const ExceptionsCategorySelect = (): JSX.Element => {
 }
 
 const BreakdownsContent = (): JSX.Element => {
-    const { selectedBreakdownPreset, breakdownQuery } = useValues(errorTrackingBreakdownsSceneLogic)
+    const { selectedBreakdownPreset, breakdownQuery } = useValues(errorTrackingBreakdownsLogic)
 
     return (
         <div className="flex flex-col gap-2">

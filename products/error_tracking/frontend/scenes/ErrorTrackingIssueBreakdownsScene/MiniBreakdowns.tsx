@@ -1,7 +1,7 @@
 import { BreakdownTileButton } from './BreakdownTileButton'
-import { BREAKDOWN_PRESETS } from './errorTrackingBreakdownsSceneLogic'
+import { BREAKDOWN_PRESETS } from './errorTrackingBreakdownsLogic'
 
-export function BreakdownPresets(): JSX.Element {
+export function MiniBreakdowns(): JSX.Element {
     return (
         <div className="border rounded bg-surface-primary overflow-hidden divide-y">
             {BREAKDOWN_PRESETS.map((item) => (

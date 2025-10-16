@@ -5,12 +5,12 @@ import { dateMapping } from 'lib/utils'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
-import { errorTrackingBreakdownsSceneLogic } from './errorTrackingBreakdownsSceneLogic'
+import { errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
 
 export function BreakdownSearchBar(): JSX.Element {
     const { dateRange, filterTestAccounts } = useValues(breakdownFiltersLogic)
     const { setDateRange, setFilterTestAccounts } = useActions(breakdownFiltersLogic)
-    const { selectedBreakdownPreset } = useValues(errorTrackingBreakdownsSceneLogic)
+    const { selectedBreakdownPreset } = useValues(errorTrackingBreakdownsLogic)
 
     return (
         <div className="border rounded bg-surface-primary p-3 flex flex-col gap-3">

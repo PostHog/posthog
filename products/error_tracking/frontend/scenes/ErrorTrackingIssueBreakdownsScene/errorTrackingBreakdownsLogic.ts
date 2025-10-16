@@ -5,14 +5,14 @@ import { FilterLogicalOperator } from '~/types'
 
 import { errorTrackingIssueBreakdownQuery } from '../../queries'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
-import type { errorTrackingBreakdownsSceneLogicType } from './errorTrackingBreakdownsSceneLogicType'
+import type { errorTrackingBreakdownsLogicType } from './errorTrackingBreakdownsLogicType'
 
 export interface BreakdownPreset {
     property: string
     title: string
 }
 
-export interface ErrorTrackingBreakdownsSceneLogicProps {
+export interface ErrorTrackingBreakdownsLogicProps {
     id: string
 }
 
@@ -25,16 +25,10 @@ export const BREAKDOWN_PRESETS: BreakdownPreset[] = [
     { property: '$ip', title: 'IP Address' },
 ]
 
-export const errorTrackingBreakdownsSceneLogic = kea<errorTrackingBreakdownsSceneLogicType>([
-    path([
-        'products',
-        'error_tracking',
-        'scenes',
-        'ErrorTrackingIssueBreakdownsScene',
-        'errorTrackingBreakdownsSceneLogic',
-    ]),
-    props({} as ErrorTrackingBreakdownsSceneLogicProps),
-    key(({ id }: ErrorTrackingBreakdownsSceneLogicProps) => id),
+export const errorTrackingBreakdownsLogic = kea<errorTrackingBreakdownsLogicType>([
+    path(['products', 'error_tracking', 'scenes', 'ErrorTrackingIssueBreakdownsScene', 'errorTrackingBreakdownsLogic']),
+    props({} as ErrorTrackingBreakdownsLogicProps),
+    key(({ id }: ErrorTrackingBreakdownsLogicProps) => id),
     connect({
         values: [breakdownFiltersLogic, ['dateRange', 'filterTestAccounts']],
     }),

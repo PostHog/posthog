@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
@@ -37,8 +37,7 @@ import { issueActionsLogic } from '../../components/IssueActions/issueActionsLog
 import { IssueTasks } from '../../components/IssueTasks'
 import { RuntimeIcon } from '../../components/RuntimeIcon'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { BreakdownPresets } from '../ErrorTrackingIssueBreakdownsScene/BreakdownPresets'
-import { errorTrackingBreakdownsSceneLogic } from '../ErrorTrackingIssueBreakdownsScene/errorTrackingBreakdownsSceneLogic'
+import { MiniBreakdowns } from '../ErrorTrackingIssueBreakdownsScene/MiniBreakdowns'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 const RESOURCE_TYPE = 'issue'
@@ -323,13 +322,9 @@ const IssueFingerprints = (): JSX.Element => {
 }
 
 const IssueBreakdowns = (): JSX.Element => {
-    const { issue } = useValues(errorTrackingIssueSceneLogic)
-
     return (
         <ScenePanelLabel title="Breakdowns">
-            <BindLogic logic={errorTrackingBreakdownsSceneLogic} props={{ id: issue?.id ?? '' }}>
-                <BreakdownPresets />
-            </BindLogic>
+            <MiniBreakdowns />
         </ScenePanelLabel>
     )
 }

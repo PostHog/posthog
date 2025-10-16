@@ -9,19 +9,19 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssueSceneLogicProps } from '../ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { BreakdownChart } from './BreakdownChart'
-import { BreakdownPresets } from './BreakdownPresets'
 import { BreakdownSearchBar } from './BreakdownSearchBar'
-import { errorTrackingBreakdownsSceneLogic } from './errorTrackingBreakdownsSceneLogic'
+import { MiniBreakdowns } from './MiniBreakdowns'
+import { errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
 
 export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueBreakdownsScene,
-    logic: errorTrackingBreakdownsSceneLogic,
+    logic: errorTrackingBreakdownsLogic,
     paramsToProps: ({ params: { id }, searchParams: { fingerprint, timestamp } }) => ({ id, fingerprint, timestamp }),
 }
 
 export function ErrorTrackingIssueBreakdownsScene({ id }: ErrorTrackingIssueSceneLogicProps): JSX.Element | null {
     const hasBreakdowns = useFeatureFlag('ERROR_TRACKING_BREAKDOWNS')
-    const { breakdownQuery, selectedBreakdownPreset } = useValues(errorTrackingBreakdownsSceneLogic)
+    const { breakdownQuery, selectedBreakdownPreset } = useValues(errorTrackingBreakdownsLogic)
 
     if (!hasBreakdowns) {
         return null
@@ -44,7 +44,7 @@ export function ErrorTrackingIssueBreakdownsScene({ id }: ErrorTrackingIssueScen
 
             <div className="flex gap-2">
                 <div className="w-[15%]">
-                    <BreakdownPresets />
+                    <MiniBreakdowns />
                 </div>
                 <div className="w-[70%] flex flex-col gap-2">
                     {selectedBreakdownPreset && breakdownQuery && (
