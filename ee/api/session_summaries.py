@@ -151,9 +151,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(
-                f"Failed to generate session group summary for sessions {logging_session_ids(session_ids)} from team {self.team.pk} by user {user.pk}: {err}",
-                team_id=self.team.pk,
-                user_id=user.pk,
+                f"Failed to generate session group summary for sessions {logging_session_ids(session_ids)} from team {self.team.id} by user {user.id}: {err}",
+                team_id=self.team.id,
+                user_id=user.id,
                 error=str(err),
             )
             raise exceptions.APIException(
@@ -227,8 +227,8 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response(summaries, status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(
-                f"Failed to generate individual session summaries for sessions {logging_session_ids(session_ids)} from team {self.team.pk} by user {user.pk}: {err}",
-                team_id=self.team.pk,
+                f"Failed to generate individual session summaries for sessions {logging_session_ids(session_ids)} from team {self.team.id} by user {user.id}: {err}",
+                team_id=self.team.id,
                 user_id=user.id,
                 error=str(err),
             )
