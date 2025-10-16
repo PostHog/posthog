@@ -2,8 +2,8 @@ import './CodeEditor.scss'
 
 import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
-import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import * as monaco from 'monaco-editor'
+import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -261,8 +261,7 @@ export function CodeEditor({
 
         // Monitor for suggestion widget creation and apply styling
         const observer = new MutationObserver(() => {
-            const editorDomNode = editor.getDomNode()
-            const suggestWidget = editorDomNode?.querySelector('.suggest-widget')
+            const suggestWidget = editor.getDomNode()?.querySelector('.suggest-widget')
             if (suggestWidget) {
                 overrideSuggestionWidgetStyling()
             }
