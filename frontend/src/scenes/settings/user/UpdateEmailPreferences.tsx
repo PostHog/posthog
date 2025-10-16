@@ -42,6 +42,26 @@ export function UpdateEmailPreferences(): JSX.Element {
         })
     }
 
+    const updateAllWeeklyDigestForProject = (enabled: boolean): void => {
+        if (!user?.notification_settings) {
+            return
+        }
+
+        const projectWeeklyDigestSettings = {
+            ...user.notification_settings.project_weekly_digest_disabled,
+        }
+        currentOrganization?.teams?.forEach((team) => {
+            projectWeeklyDigestSettings[team.id] = !enabled
+        })
+
+        updateUser({
+            notification_settings: {
+                ...user.notification_settings,
+                project_weekly_digest_disabled: projectWeeklyDigestSettings,
+            },
+        })
+    }
+
     return (
         <div className="deprecated-space-y-4">
             <h3>Email notifications</h3>
@@ -77,6 +97,27 @@ export function UpdateEmailPreferences(): JSX.Element {
                                 {weeklyDigestProjectsExpanded && (
                                     <div className="mt-3 ml-6 deprecated-space-y-2">
                                         <div className="flex flex-col gap-2">
+                                            <div className="flex flex-row items-center gap-4">
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        updateAllWeeklyDigestForProject(true)
+                                                    }}
+                                                >
+                                                    Enable for all teams
+                                                </LemonButton>
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        updateAllWeeklyDigestForProject(false)
+                                                    }}
+                                                >
+                                                    Disable for all teams
+                                                </LemonButton>
+                                            </div>
+
                                             {currentOrganization?.teams?.map((team) => (
                                                 <LemonCheckbox
                                                     key={`weekly-digest-${team.id}`}
