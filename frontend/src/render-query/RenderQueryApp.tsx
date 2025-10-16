@@ -21,8 +21,8 @@ interface RenderQueryState extends RenderQueryExternalPayload {
     messages: string[]
 }
 
-interface SanitizedPayload {
-    payload: RenderQueryExternalPayload
+interface ParsedPayload {
+    payload: Partial<RenderQueryExternalPayload>
     messages: string[]
 }
 
@@ -32,8 +32,9 @@ declare global {
     }
 }
 
-const EMPTY_PAYLOAD: SanitizedPayload = { payload: {}, messages: [] }
-const SUPPORTED_KEYS = new Set(['query', 'cachedResults', 'cached_results', 'context', 'insight'])
+const EMPTY_PAYLOAD: ParsedPayload = { payload: {}, messages: [] }
+const RAW_PAYLOAD_KEYS = ['query', 'cachedResults', 'cached_results', 'context', 'insight'] as const
+const PAYLOAD_KEYS = ['query', 'cachedResults', 'context', 'insight'] as const
 
 export function RenderQueryApp(): JSX.Element {
     const [state, setState] = useState<RenderQueryState>(() => initializeState())
@@ -42,11 +43,11 @@ export function RenderQueryApp(): JSX.Element {
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent): void => {
-            const sanitized = sanitizePayload(event.data, 'postMessage')
-            if (!hasSanitizedPayloadData(sanitized)) {
+            const parsed = parsePayload(event.data, 'postMessage')
+            if (!hasParsedPayloadData(parsed)) {
                 return
             }
-            setState((previous) => applySanitizedPayload(previous, sanitized))
+            setState((previous) => applyParsedPayload(previous, parsed))
         }
 
         window.addEventListener('message', handleMessage)
@@ -89,41 +90,30 @@ export function RenderQueryApp(): JSX.Element {
 }
 
 function initializeState(): RenderQueryState {
-    let state: RenderQueryState = {
+    return [
+        parsePayload(window.POSTHOG_RENDER_QUERY_PAYLOAD, 'initial payload'),
+        extractFromSearch(),
+        extractFromHash(),
+        extractFromFrameDataset(),
+    ].reduce<RenderQueryState>(applyParsedPayload, {
         query: null,
         cachedResults: null,
         context: null,
         insight: null,
         messages: [],
-    }
-
-    const sources: SanitizedPayload[] = [
-        sanitizePayload(window.POSTHOG_RENDER_QUERY_PAYLOAD, 'initial payload'),
-        extractFromSearch(),
-        extractFromHash(),
-        extractFromFrameDataset(),
-    ]
-
-    for (const sanitized of sources) {
-        state = applySanitizedPayload(state, sanitized)
-    }
-
-    return state
+    })
 }
 
-function applySanitizedPayload(previous: RenderQueryState, sanitized: SanitizedPayload): RenderQueryState {
-    const merged = mergeIntoState(previous, sanitized.payload)
-    const messages = sanitized.messages.length ? [...merged.messages, ...sanitized.messages] : merged.messages
-    return { ...merged, messages }
-}
-
-function mergeIntoState(previous: RenderQueryState, payload: RenderQueryExternalPayload): RenderQueryState {
-    if (!payload) {
-        return { ...previous }
+function applyParsedPayload(previous: RenderQueryState, parsed: ParsedPayload): RenderQueryState {
+    const { payload, messages } = parsed
+    const hasPayload = Object.keys(payload).length > 0
+    if (!hasPayload && messages.length === 0) {
+        return previous
     }
+
     const next: RenderQueryState = { ...previous }
-    const keys: (keyof RenderQueryExternalPayload)[] = ['query', 'cachedResults', 'context', 'insight']
-    for (const key of keys) {
+
+    for (const key of PAYLOAD_KEYS) {
         if (Object.prototype.hasOwnProperty.call(payload, key)) {
             const value = payload[key]
             if (value !== undefined) {
@@ -131,10 +121,15 @@ function mergeIntoState(previous: RenderQueryState, payload: RenderQueryExternal
             }
         }
     }
+
+    if (messages.length > 0) {
+        next.messages = [...next.messages, ...messages]
+    }
+
     return next
 }
 
-function sanitizePayload(raw: unknown, source: string): SanitizedPayload {
+function parsePayload(raw: unknown, source: string): ParsedPayload {
     if (!raw) {
         return EMPTY_PAYLOAD
     }
@@ -145,7 +140,7 @@ function sanitizePayload(raw: unknown, source: string): SanitizedPayload {
             return EMPTY_PAYLOAD
         }
         try {
-            return sanitizePayload(JSON.parse(trimmed), source)
+            return parsePayload(JSON.parse(trimmed), source)
         } catch (error) {
             return {
                 payload: {},
@@ -158,18 +153,18 @@ function sanitizePayload(raw: unknown, source: string): SanitizedPayload {
         return EMPTY_PAYLOAD
     }
 
-    const payload: RenderQueryExternalPayload = {}
+    const payload: Partial<RenderQueryExternalPayload> = {}
     const messages: string[] = []
 
     for (const [rawKey, rawValue] of Object.entries(raw)) {
-        if (!SUPPORTED_KEYS.has(rawKey)) {
+        if (!RAW_PAYLOAD_KEYS.includes(rawKey as (typeof RAW_PAYLOAD_KEYS)[number])) {
             continue
         }
         const key = rawKey === 'cached_results' ? 'cachedResults' : (rawKey as keyof RenderQueryExternalPayload)
 
         const normalized = normalizeValue(rawValue, String(key), source, messages)
         if (normalized !== undefined) {
-            ;(payload as any)[key] = normalized
+            payload[key] = normalized as any
         }
     }
 
@@ -201,44 +196,24 @@ function normalizeValue(value: unknown, key: string, source: string, messages: s
     return value
 }
 
-function extractFromSearch(): SanitizedPayload {
+function extractFromSearch(): ParsedPayload {
     const params = new URLSearchParams(window.location.search)
-    const raw: Record<string, unknown> = {}
-    let hasValue = false
-
-    for (const key of ['query', 'cachedResults', 'cached_results', 'context', 'insight']) {
-        if (params.has(key)) {
-            raw[key] = params.get(key)
-            hasValue = true
-        }
-    }
-
-    return hasValue ? sanitizePayload(raw, 'URL parameters') : EMPTY_PAYLOAD
+    return parsePayload(extractFromParams(params), 'URL parameters')
 }
 
-function extractFromHash(): SanitizedPayload {
+function extractFromHash(): ParsedPayload {
     const hash = window.location.hash?.replace(/^#/, '') ?? ''
     if (!hash) {
         return EMPTY_PAYLOAD
     }
 
     if (hash.startsWith('{') || hash.startsWith('[')) {
-        return sanitizePayload(hash, 'URL hash')
+        return parsePayload(hash, 'URL hash')
     }
 
     try {
         const params = new URLSearchParams(hash)
-        const raw: Record<string, unknown> = {}
-        let hasValue = false
-
-        for (const key of ['query', 'cachedResults', 'cached_results', 'context', 'insight']) {
-            if (params.has(key)) {
-                raw[key] = params.get(key)
-                hasValue = true
-            }
-        }
-
-        return hasValue ? sanitizePayload(raw, 'URL hash parameters') : EMPTY_PAYLOAD
+        return parsePayload(extractFromParams(params), 'URL hash parameters')
     } catch (error) {
         return {
             payload: {},
@@ -247,7 +222,7 @@ function extractFromHash(): SanitizedPayload {
     }
 }
 
-function extractFromFrameDataset(): SanitizedPayload {
+function extractFromFrameDataset(): ParsedPayload {
     try {
         const frame = window.frameElement as HTMLIFrameElement | null
         if (!frame) {
@@ -255,38 +230,32 @@ function extractFromFrameDataset(): SanitizedPayload {
         }
         const { dataset } = frame
         const raw: Record<string, unknown> = {}
-        let hasValue = false
 
-        if (dataset.query !== undefined) {
-            raw.query = dataset.query
-            hasValue = true
-        }
-        if (dataset.cachedResults !== undefined) {
-            raw.cachedResults = dataset.cachedResults
-            hasValue = true
-        }
-        if (dataset.cached_results !== undefined) {
-            raw.cached_results = dataset.cached_results
-            hasValue = true
-        }
-        if (dataset.context !== undefined) {
-            raw.context = dataset.context
-            hasValue = true
-        }
-        if (dataset.insight !== undefined) {
-            raw.insight = dataset.insight
-            hasValue = true
+        for (const key of RAW_PAYLOAD_KEYS) {
+            const value = (dataset as Record<string, string | undefined>)[key]
+            if (value !== undefined) {
+                raw[key] = value
+            }
         }
 
-        return hasValue ? sanitizePayload(raw, 'iframe dataset') : EMPTY_PAYLOAD
+        return Object.keys(raw).length ? parsePayload(raw, 'iframe dataset') : EMPTY_PAYLOAD
     } catch (error) {
         console.warn('PostHog render query: Unable to read iframe dataset.', error)
         return EMPTY_PAYLOAD
     }
 }
 
-function hasSanitizedPayloadData(sanitized: SanitizedPayload): boolean {
-    return Object.keys(sanitized.payload).length > 0 || sanitized.messages.length > 0
+function extractFromParams(params: URLSearchParams): Record<string, unknown> | null {
+    const rawEntries = RAW_PAYLOAD_KEYS.map((key) => {
+        const value = params.get(key)
+        return value === null ? null : [key, value]
+    }).filter((entry): entry is [string, string] => entry !== null)
+
+    return rawEntries.length > 0 ? Object.fromEntries(rawEntries) : null
+}
+
+function hasParsedPayloadData(parsed: ParsedPayload): boolean {
+    return Object.keys(parsed.payload).length > 0 || parsed.messages.length > 0
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
