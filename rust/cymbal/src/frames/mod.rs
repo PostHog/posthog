@@ -9,8 +9,9 @@ use crate::{
     error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
-        custom::CustomFrame, dart::RawDartFrame, go::RawGoFrame, hermes::RawHermesFrame, java::RawJavaFrame,
-        js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
+        custom::CustomFrame, dart::RawDartFrame, go::RawGoFrame, hermes::RawHermesFrame,
+        java::RawJavaFrame, js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame,
+        ruby::RawRubyFrame,
     },
     metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_string,
@@ -96,7 +97,11 @@ impl RawFrame {
             // TODO - Python and Go frames don't use symbol sets for frame resolution, but could still use "marker" symbol set
             // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
             // which we'd then use to do a join on the releases table to get release information)
-            RawFrame::Python(_) | RawFrame::Ruby(_) | RawFrame::Go(_) | RawFrame::Java(_) | RawFrame::Dart(_) => None,
+            RawFrame::Python(_)
+            | RawFrame::Ruby(_)
+            | RawFrame::Go(_)
+            | RawFrame::Java(_)
+            | RawFrame::Dart(_) => None,
             RawFrame::Custom(_) => None,
         }
     }
