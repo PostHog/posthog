@@ -155,9 +155,9 @@ class TestSCIMAPI(APILicensedTest):
         assert data["name"]["givenName"] == "Test"
         assert data["active"] is True
 
-    def test_patch_user(self):
+    def test_patch_replace_user_without_path(self):
         user = User.objects.create_user(
-            email="update@example.com", password=None, first_name="Old", last_name="Name", is_email_verified=True
+            email="old@example.com", password=None, first_name="Old", last_name="Name", is_email_verified=True
         )
         OrganizationMembership.objects.create(
             user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
@@ -165,7 +165,15 @@ class TestSCIMAPI(APILicensedTest):
 
         patch_data = {
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-            "Operations": [{"op": "replace", "value": {"name": {"givenName": "Updated", "familyName": "User"}}}],
+            "Operations": [
+                {
+                    "op": "replace",
+                    "value": {
+                        "name": {"givenName": "New", "familyName": "Name"},
+                        "emails": [{"value": "new@example.com", "primary": True}],
+                    },
+                }
+            ],
         }
 
         response = self.client.patch(
@@ -174,8 +182,105 @@ class TestSCIMAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         user.refresh_from_db()
-        assert user.first_name == "Updated"
-        assert user.last_name == "User"
+        assert user.first_name == "New"
+        assert user.last_name == "Name"
+        assert user.email == "new@example.com"
+
+    def test_patch_replace_user_name_with_simple_path(self):
+        user = User.objects.create_user(
+            email="pathtest@example.com", password=None, first_name="Path", last_name="Test", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {"op": "replace", "path": "name", "value": {"givenName": "NewFirst", "familyName": "NewLast"}}
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.first_name == "NewFirst"
+        assert user.last_name == "NewLast"
+
+    def test_patch_replace_user_emails_with_simple_path(self):
+        user = User.objects.create_user(
+            email="array@example.com", password=None, first_name="Array", last_name="Test", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {
+                    "op": "replace",
+                    "path": "emails",
+                    "value": [{"value": "newarray@example.com", "primary": True}],
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.email == "newarray@example.com"
+
+    def test_patch_replace_user_given_name_with_dotted_path(self):
+        user = User.objects.create_user(
+            email="dotpath@example.com", password=None, first_name="Dot", last_name="Path", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": "name.givenName", "value": "UpdatedFirst"}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.first_name == "UpdatedFirst"
+        assert user.last_name == "Path"
+
+    def test_patch_replace_user_email_with_filtered_path(self):
+        user = User.objects.create_user(
+            email="primary@example.com", password=None, first_name="Primary", last_name="Email", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {"op": "replace", "path": "emails[primary eq true].value", "value": "primaryemail@example.com"}
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.email == "primaryemail@example.com"
 
     def test_patch_user_not_found(self):
         patch_data = {
@@ -191,6 +296,203 @@ class TestSCIMAPI(APILicensedTest):
         assert (
             response.status_code == status.HTTP_404_NOT_FOUND
         ), f"Expected 404, got {response.status_code}: {response.content}"
+
+    def test_patch_add_user_without_path(self):
+        user = User.objects.create_user(
+            email="testuser@example.com", password=None, first_name="", last_name="", is_email_verified=True
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {
+                    "op": "add",
+                    "value": {
+                        "name": {"givenName": "New", "familyName": "User"},
+                        "emails": [{"value": "newuser@example.com", "primary": True}],
+                        "active": True,
+                    },
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.first_name == "New"
+        assert user.last_name == "User"
+        assert user.email == "newuser@example.com"
+        assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+
+    def test_patch_add_user_name_with_simple_path(self):
+        user = User.objects.create_user(
+            email="old@example.com", password=None, first_name="Old", last_name="Name", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "add", "path": "name", "value": {"givenName": "New", "familyName": "Name"}}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.first_name == "New"
+        assert user.last_name == "Name"
+
+    def test_patch_add_active_user_with_simple_path(self):
+        user = User.objects.create_user(
+            email="reactivate@example.com", password=None, first_name="Test", is_email_verified=True
+        )
+        assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "add", "path": "active", "value": True}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+
+    def test_patch_add_user_given_name_with_dotted_path(self):
+        user = User.objects.create_user(
+            email="addsubattr@example.com", password=None, first_name="", last_name="Existing", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "add", "path": "name.givenName", "value": "Ada"}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.first_name == "Ada"
+        assert user.last_name == "Existing"
+
+    def test_patch_add_user_email_with_filtered_path(self):
+        user = User.objects.create_user(
+            email="old@example.com", password=None, first_name="Test", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "add", "path": "emails[primary eq true].value", "value": "primary@example.com"}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.email == "primary@example.com"
+
+    def test_patch_remove_active_user_with_simple_path(self):
+        user = User.objects.create_user(
+            email="removeactive@example.com", password=None, first_name="Test", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "remove", "path": "active"}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+
+    def test_patch_remove_user_family_name_with_dotted_path(self):
+        user = User.objects.create_user(
+            email="removename@example.com", password=None, first_name="Remove", last_name="Me", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "remove", "path": "name.familyName"}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        user.refresh_from_db()
+        assert user.first_name == "Remove"
+        assert user.last_name == ""
+
+    def test_patch_remove_user_emails_should_fail(self):
+        user = User.objects.create_user(
+            email="email@example.com", password=None, first_name="Test", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "remove", "path": "emails"}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        user.refresh_from_db()
+        assert user.email == "email@example.com"
+
+    def test_patch_remove_user_email_with_filtered_path_should_fail(self):
+        user = User.objects.create_user(
+            email="primary@example.com", password=None, first_name="Test", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "remove", "path": "emails[primary eq true].value"}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        user.refresh_from_db()
+        assert user.email == "primary@example.com"
 
     def test_put_user(self):
         user = User.objects.create_user(
@@ -349,30 +651,6 @@ class TestSCIMAPI(APILicensedTest):
         # Members should be updated (removed in second POST)
         assert not RoleMembership.objects.filter(role=first_role, user=user).exists()
 
-    def test_add_user_to_group(self):
-        user = User.objects.create_user(
-            email="member@example.com", password=None, first_name="Member", is_email_verified=True
-        )
-        OrganizationMembership.objects.create(
-            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
-        )
-
-        role = Role.objects.create(name="Developers", organization=self.organization)
-
-        patch_data = {
-            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-            "Operations": [{"op": "replace", "value": {"members": [{"value": str(user.id)}]}}],
-        }
-
-        response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-
-        # Verify role membership
-        assert RoleMembership.objects.filter(role=role, user=user).exists()
-
     def test_put_group(self):
         user = User.objects.create_user(
             email="groupmember@example.com", password=None, first_name="Member", is_email_verified=True
@@ -414,6 +692,289 @@ class TestSCIMAPI(APILicensedTest):
             response.status_code == status.HTTP_404_NOT_FOUND
         ), f"Expected 404, got {response.status_code}: {response.content}"
         assert not Role.objects.filter(name="ShouldFail", organization=self.organization).exists()
+
+    def test_patch_replace_group_without_path(self):
+        user = User.objects.create_user(
+            email="groupreplace@example.com", password=None, first_name="Test", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="OldGroupName", organization=self.organization)
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {"op": "replace", "value": {"displayName": "NewGroupName", "members": [{"value": str(user.id)}]}}
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        role.refresh_from_db()
+        assert role.name == "NewGroupName"
+        assert RoleMembership.objects.filter(role=role, user=user).exists()
+
+    def test_patch_replace_group_display_name_with_simple_path(self):
+        role = Role.objects.create(name="OldName", organization=self.organization)
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": "displayName", "value": "UpdatedName"}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        role.refresh_from_db()
+        assert role.name == "UpdatedName"
+
+    def test_patch_replace_group_members_with_simple_path(self):
+        user = User.objects.create_user(
+            email="groupmembers@example.com", password=None, first_name="Member", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": "members", "value": [{"value": str(user.id)}]}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert RoleMembership.objects.filter(role=role, user=user).exists()
+
+    def test_patch_replace_group_member_with_filtered_path(self):
+        user1 = User.objects.create_user(
+            email="filteredmember1@example.com", password=None, first_name="Member1", is_email_verified=True
+        )
+        user2 = User.objects.create_user(
+            email="filteredmember2@example.com", password=None, first_name="Member2", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user1, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        OrganizationMembership.objects.create(
+            user=user2, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=user1,
+            organization_member=OrganizationMembership.objects.get(user=user1, organization=self.organization),
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "path": f'members[value eq "{user1.id}"].value', "value": str(user2.id)}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not RoleMembership.objects.filter(role=role, user=user1).exists()
+        assert RoleMembership.objects.filter(role=role, user=user2).exists()
+
+    def test_patch_add_group_members_without_path(self):
+        user = User.objects.create_user(
+            email="addgroup@example.com", password=None, first_name="Test", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="InitialName", organization=self.organization)
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "add", "value": {"members": [{"value": str(user.id)}]}}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        role.refresh_from_db()
+        assert role.name == "InitialName"
+        assert RoleMembership.objects.filter(role=role, user=user).exists()
+
+    def test_patch_add_group_display_name_with_simple_path(self):
+        role = Role.objects.create(name="OldName", organization=self.organization)
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "add", "path": "displayName", "value": "AddedName"}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        role.refresh_from_db()
+        assert role.name == "AddedName"
+
+    def test_patch_add_group_members_with_simple_path(self):
+        user1 = User.objects.create_user(
+            email="addmember1@example.com", password=None, first_name="Member1", is_email_verified=True
+        )
+        user2 = User.objects.create_user(
+            email="addmember2@example.com", password=None, first_name="Member2", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user1, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        OrganizationMembership.objects.create(
+            user=user2, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+
+        RoleMembership.objects.create(
+            role=role,
+            user=user1,
+            organization_member=OrganizationMembership.objects.get(user=user1, organization=self.organization),
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "add", "path": "members", "value": [{"value": str(user2.id)}]}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert RoleMembership.objects.filter(role=role, user=user1).exists()
+        assert RoleMembership.objects.filter(role=role, user=user2).exists()
+
+    def test_patch_add_group_member_with_filtered_path(self):
+        user1 = User.objects.create_user(
+            email="addfiltered1@example.com", password=None, first_name="Member1", is_email_verified=True
+        )
+        user2 = User.objects.create_user(
+            email="addfiltered2@example.com", password=None, first_name="Member2", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user1, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        OrganizationMembership.objects.create(
+            user=user2, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "add", "path": f'members[value eq "{user1.id}"]', "value": {"value": str(user1.id)}}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert RoleMembership.objects.filter(role=role, user=user1).exists()
+
+    def test_patch_remove_group_display_name_should_fail(self):
+        role = Role.objects.create(name="RemoveName", organization=self.organization)
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "remove", "path": "displayName"}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        role.refresh_from_db()
+        assert role.name == "RemoveName"
+
+    def test_patch_remove_group_members_with_simple_path(self):
+        user = User.objects.create_user(
+            email="removeallmembers@example.com", password=None, first_name="Member", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=user,
+            organization_member=OrganizationMembership.objects.get(user=user, organization=self.organization),
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "remove", "path": "members"}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not RoleMembership.objects.filter(role=role).exists()
+
+    def test_patch_remove_group_member_with_filtered_path(self):
+        user1 = User.objects.create_user(
+            email="removefiltered1@example.com", password=None, first_name="Member1", is_email_verified=True
+        )
+        user2 = User.objects.create_user(
+            email="removefiltered2@example.com", password=None, first_name="Member2", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user1, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        OrganizationMembership.objects.create(
+            user=user2, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=user1,
+            organization_member=OrganizationMembership.objects.get(user=user1, organization=self.organization),
+        )
+        RoleMembership.objects.create(
+            role=role,
+            user=user2,
+            organization_member=OrganizationMembership.objects.get(user=user2, organization=self.organization),
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "remove", "path": f'members[value eq "{user1.id}"]'}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not RoleMembership.objects.filter(role=role, user=user1).exists()
+        assert RoleMembership.objects.filter(role=role, user=user2).exists()
 
     def test_invalid_token(self):
         invalid_headers = {"HTTP_AUTHORIZATION": "Bearer invalid_token"}
