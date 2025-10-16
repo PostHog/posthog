@@ -106,8 +106,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     )
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext, hogQLVariables, insightQuery } =
-        useValues(insightDataLogic(insightProps))
+    const {
+        query,
+        queryChanged,
+        showQueryEditor,
+        showDebugPanel,
+        hogQL,
+        exportContext,
+        hogQLVariables,
+        insightQuery,
+        insightData,
+    } = useValues(insightDataLogic(insightProps))
     const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
     const { createStaticCohort } = useActions(exportsLogic)
 
@@ -174,6 +183,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
                         insight={insight}
+                        cachedResults={insightData}
                         previewIframe
                         userAccessLevel={insight.user_access_level}
                     />

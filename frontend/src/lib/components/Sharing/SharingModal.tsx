@@ -2,7 +2,7 @@ import './SharingModal.scss'
 
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 
@@ -32,6 +32,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
+import { AnyResponseType } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -69,6 +70,7 @@ export interface SharingModalBaseProps {
     dashboardId?: number
     insightShortId?: InsightShortId
     insight?: Partial<QueryBasedInsightModel>
+    cachedResults?: AnyResponseType
     recordingId?: string
 
     title?: string
@@ -91,6 +93,7 @@ export function SharingModalContent({
     dashboardId,
     insightShortId,
     insight,
+    cachedResults,
     recordingId,
     additionalParams,
     previewIframe = false,
@@ -388,6 +391,13 @@ export function SharingModalContent({
                     <TemplateLinkSection
                         templateLink={getInsightDefinitionUrl({ query: insight.query }, siteUrl)}
                         heading={TEMPLATE_LINK_HEADING}
+                        tooltip={TEMPLATE_LINK_TOOLTIP}
+                        piiWarning={TEMPLATE_LINK_PII_WARNING}
+                    />
+                    {/* TODO: convert this to a proper textarea. Also it's too much to have the insight in the URL, implement a window.postMessage system, and display the full script tag here */}
+                    <TemplateLinkSection
+                        templateLink={`<iframe src="${combineUrl(siteUrl + '/render_query', {}, { query: insight.query, cachedResults: cachedResults }).url}}" width="100%" height="100%" />`}
+                        heading="Share as template with results in the URL"
                         tooltip={TEMPLATE_LINK_TOOLTIP}
                         piiWarning={TEMPLATE_LINK_PII_WARNING}
                     />
