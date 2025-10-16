@@ -168,7 +168,10 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     <ButtonPrimitive
                                         size="sm"
                                         active={newTabSceneDataIncludePersons}
-                                        onClick={() => toggleNewTabSceneDataInclude('persons')}
+                                        onClick={() => {
+                                            toggleNewTabSceneDataInclude('persons')
+                                            inputRef.current?.focus()
+                                        }}
                                         className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                     >
                                         <IconPerson className="size-4" /> Persons
@@ -179,7 +182,10 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     <ButtonPrimitive
                                         size="sm"
                                         active={newTabSceneDataIncludeEventDefinitions}
-                                        onClick={() => toggleNewTabSceneDataInclude('eventDefinitions')}
+                                        onClick={() => {
+                                            toggleNewTabSceneDataInclude('eventDefinitions')
+                                            inputRef.current?.focus()
+                                        }}
                                         className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                     >
                                         <IconApps className="size-4" /> Events
@@ -192,7 +198,10 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     <ButtonPrimitive
                                         size="sm"
                                         active={newTabSceneDataIncludePropertyDefinitions}
-                                        onClick={() => toggleNewTabSceneDataInclude('propertyDefinitions')}
+                                        onClick={() => {
+                                            toggleNewTabSceneDataInclude('propertyDefinitions')
+                                            inputRef.current?.focus()
+                                        }}
                                         className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                     >
                                         <IconApps className="size-4" /> Properties

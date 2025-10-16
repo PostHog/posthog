@@ -146,19 +146,15 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         return []
                     }
 
-                    const url = api.persons.determineListUrl({
-                        search: searchTerm.trim(),
-                        limit: PAGINATION_LIMIT,
-                    })
+                    const url =
+                        api.persons.determineListUrl({ search: searchTerm.trim() }) + `&limit=${PAGINATION_LIMIT}`
                     const response = await api.get(url)
                     breakpoint()
 
                     return response.results
                 },
                 loadInitialPersons: async (_, breakpoint) => {
-                    const url = api.persons.determineListUrl({
-                        limit: PAGINATION_LIMIT,
-                    })
+                    const url = api.persons.determineListUrl() + `&limit=${PAGINATION_LIMIT}`
                     const response = await api.get(url)
                     breakpoint()
 
@@ -687,6 +683,15 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         } else if (item === 'propertyDefinitions') {
                             actions.debouncedPropertyDefinitionSearch(searchTerm)
                         }
+                    } else {
+                        // Load initial data when no search term
+                        if (item === 'persons') {
+                            actions.loadInitialPersons({})
+                        } else if (item === 'eventDefinitions') {
+                            actions.loadInitialEventDefinitions({})
+                        } else if (item === 'propertyDefinitions') {
+                            actions.loadInitialPropertyDefinitions({})
+                        }
                     }
                 })
             }
@@ -727,28 +732,49 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 })
             }
         },
-        toggleNewTabSceneDataInclude: async ({ item }) => {
-            const willBeIncluded = !values.newTabSceneDataInclude.includes(item)
+        toggleNewTabSceneDataInclude: ({ item }) => {
+            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
-            if (willBeIncluded) {
-                // When enabling an item, switch to its category
-                actions.setSelectedCategory(item as NEW_TAB_CATEGORY_ITEMS)
-            } else {
-                // When disabling an item, clear its search results and go to 'all'
-                actions.setSelectedCategory('all')
+            if (newTabSceneData) {
+                const willBeIncluded = !values.newTabSceneDataInclude.includes(item)
 
-                if (item === 'persons') {
-                    actions.loadPersonSearchResultsSuccess([])
-                } else if (item === 'eventDefinitions') {
-                    actions.loadEventDefinitionSearchResultsSuccess([])
-                } else if (item === 'propertyDefinitions') {
-                    actions.loadPropertyDefinitionSearchResultsSuccess([])
+                if (willBeIncluded) {
+                    // When enabling an item, switch to its category
+                    actions.setSelectedCategory(item as NEW_TAB_CATEGORY_ITEMS)
+
+                    // Always trigger data loading when enabling an item
+                    if (values.search.trim() !== '') {
+                        // If there's a search term, trigger search
+                        if (item === 'persons') {
+                            actions.debouncedPersonSearch(values.search.trim())
+                        } else if (item === 'eventDefinitions') {
+                            actions.debouncedEventDefinitionSearch(values.search.trim())
+                        } else if (item === 'propertyDefinitions') {
+                            actions.debouncedPropertyDefinitionSearch(values.search.trim())
+                        }
+                    } else {
+                        // Load initial data when no search term
+                        if (item === 'persons') {
+                            actions.loadInitialPersons({})
+                        } else if (item === 'eventDefinitions') {
+                            actions.loadInitialEventDefinitions({})
+                        } else if (item === 'propertyDefinitions') {
+                            actions.loadInitialPropertyDefinitions({})
+                        }
+                    }
+                } else {
+                    // When disabling an item, clear its search results and go to 'all'
+                    actions.setSelectedCategory('all')
+
+                    if (item === 'persons') {
+                        actions.loadPersonSearchResultsSuccess([])
+                    } else if (item === 'eventDefinitions') {
+                        actions.loadEventDefinitionSearchResultsSuccess([])
+                    } else if (item === 'propertyDefinitions') {
+                        actions.loadPropertyDefinitionSearchResultsSuccess([])
+                    }
                 }
             }
-
-            // Wait for state to update, then trigger search
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            actions.triggerSearchForIncludedItems()
         },
         debouncedPersonSearch: async ({ searchTerm }, breakpoint) => {
             // Debounce for 300ms
@@ -756,11 +782,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
             try {
                 // Manually trigger the search and handle the result
-                const url = api.persons.determineListUrl({
-                    search: searchTerm.trim(),
-                    limit: PAGINATION_LIMIT,
-                })
+                const url = api.persons.determineListUrl({ search: searchTerm.trim() }) + `&limit=${PAGINATION_LIMIT}`
                 const response = await api.get(url)
+                breakpoint()
 
                 // Manually set the results instead of relying on the loader
                 actions.loadPersonSearchResultsSuccess(response.results)
@@ -829,6 +853,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             router.values.location.pathname,
             {
                 search: values.search || undefined,
+                category: values.selectedCategory !== 'all' ? values.selectedCategory : undefined,
                 include: values.newTabSceneDataInclude.length > 0 ? values.newTabSceneDataInclude.join(',') : undefined,
             },
         ],
