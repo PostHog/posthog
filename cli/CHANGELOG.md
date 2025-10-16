@@ -2,7 +2,7 @@
 
 # 0.5.0
 
-- Sourcemap injection, upload and process commands made idempotent and retriable. Significant improvement to release creation.
+- Sourcemap injection, upload and process commands made retriable. Significant improvement to release creation.
 
 ## 0.4.8
 
