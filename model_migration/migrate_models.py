@@ -119,29 +119,30 @@ class ImportTransformer(cst.CSTTransformer):
             moved_stmt = cst.ImportFrom(module=moved_module, names=moved_names)
             self.imports_to_add.append(moved_stmt)
         else:
-            # No-merge mode: each model comes from its own file
+            # No-merge mode: each import (model or not) comes from its own file
             import re
 
-            for model_name in moved_imports:
+            # Process all imports (both models and non-models) for no-merge mode
+            all_imports = moved_imports + remaining_imports
+            for import_name in all_imports:
                 # Look up the actual filename from the mapping
-                # If mapping is available, use it; otherwise fall back to snake_case
-                if model_name in self.filename_to_model_mapping:
-                    filename = self.filename_to_model_mapping[model_name]
+                if import_name in self.filename_to_model_mapping:
+                    filename = self.filename_to_model_mapping[import_name]
                 else:
-                    # Fallback: convert model name to snake_case for filename
-                    filename = re.sub(r"(?<!^)(?=[A-Z])", "_", model_name).lower()
+                    # Fallback: convert import name to snake_case for filename
+                    filename = re.sub(r"(?<!^)(?=[A-Z])", "_", import_name).lower()
 
                 moved_module = cst.parse_expression(f"products.{self.target_app}.backend.models.{filename}")
-                moved_names = [cst.ImportAlias(name=cst.Name(model_name))]
+                moved_names = [cst.ImportAlias(name=cst.Name(import_name))]
                 moved_stmt = cst.ImportFrom(module=moved_module, names=moved_names)
                 self.imports_to_add.append(moved_stmt)
 
-        if remaining_imports:
-            # Keep original import with remaining models only
+        if self.merge_models and remaining_imports:
+            # Merge mode only: Keep original import with remaining models
             remaining_names = [cst.ImportAlias(name=cst.Name(name)) for name in remaining_imports]
             return node.with_changes(names=remaining_names)
         else:
-            # Remove this import entirely (moved import will be added separately)
+            # No-merge mode or no remaining imports: Remove this import entirely
             return cst.RemovalSentinel.REMOVE
 
     def _transform_direct_module_import(self, node: cst.ImportFrom) -> cst.ImportFrom:
