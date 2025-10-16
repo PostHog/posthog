@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("posthog", "0881_migrate_notebooks_models"),
+        ("posthog", "0885_migrate_notebooks_models"),
     ]
 
     database_operations: list[migrations.RunSQL] = [
