@@ -142,10 +142,10 @@ class Command(BaseCommand):
 
         # Check for conflicts
         errors = []
-        for prefix, name in duplicates:
-            errors.append(f"  Duplicate prefix {name}:")
-            for name in sorted(prefixes[prefix]):
-                errors.append(f"    - {name}")
+        for prefix, migration_name in duplicates:
+            errors.append(f"  Duplicate prefix {migration_name}:")
+            for conflict in sorted(prefixes[prefix]):
+                errors.append(f"    - {conflict}")
 
         if errors:
             message = "❌ Found migration prefix conflicts:\n\n" + "\n".join(errors)
