@@ -1,9 +1,10 @@
 from django import forms
 from django.contrib import admin, messages
 from django.core.management import call_command
-from django.db import models
 from django.shortcuts import redirect, render
 from django.urls import path
+
+from posthog.models.utils import UUIDModel
 
 
 class BehavioralCohortAnalysisForm(forms.Form):
@@ -47,7 +48,7 @@ class BehavioralCohortAnalysisForm(forms.Form):
     )
 
 
-class BehavioralCohortAnalysis(models.Model):
+class BehavioralCohortAnalysis(UUIDModel):
     """
     Admin-only model for behavioral cohort analysis interface.
     This model is not managed by Django (no database table).
