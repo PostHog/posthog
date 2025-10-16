@@ -111,16 +111,8 @@ class ManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                         saved_query.is_materialized = False
                         saved_query.save(update_fields=["is_materialized"])
 
-            orphaned_views = (
-                DataWarehouseSavedQuery.objects.filter(
-                    team=self.team,
-                    managed_viewset=self,
-                )
-                .exclude(name__in=expected_view_names)
-                .exclude(deleted=True)
-            )
-
             views_deleted = 0
+            orphaned_views = self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
             for orphaned_view in orphaned_views:
                 try:
                     orphaned_view.revert_materialization()
@@ -150,12 +142,7 @@ class ManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         Reverts materialization for each view before soft deletion.
         Returns the number of views deleted.
         """
-        from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
-        related_views = DataWarehouseSavedQuery.objects.filter(
-            team=self.team,
-            managed_viewset=self,
-        ).exclude(deleted=True)
+        related_views = self.saved_queries.exclude(deleted=True)
 
         views_deleted = 0
         with transaction.atomic():

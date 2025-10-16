@@ -38,7 +38,11 @@ class Migration(migrations.Migration):
             model_name="datawarehousesavedquery",
             name="managed_viewset",
             field=models.ForeignKey(
-                blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to="posthog.managedviewset"
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="saved_queries",
+                to="posthog.managedviewset",
             ),
         ),
         migrations.AddConstraint(

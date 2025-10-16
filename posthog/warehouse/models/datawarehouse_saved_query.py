@@ -90,6 +90,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        related_name="saved_queries",
     )
 
     class Meta:
