@@ -744,10 +744,10 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
 
     def validate_hash_id(self, hash_id: str, assert_new: bool) -> str:
         if len(hash_id) > 128:
-            raise ValueError("Hash id length cannot exceed 128 bytes")
+            raise ValidationError("Hash id length cannot exceed 128 bytes")
 
         if assert_new and ErrorTrackingRelease.objects.filter(team=self.team, hash_id=hash_id).exists():
-            raise ValueError(f"Hash id {hash_id} already in use")
+            raise ValidationError(f"Hash id {hash_id} already in use")
 
         return hash_id
 

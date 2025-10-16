@@ -1,11 +1,14 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use reqwest::blocking::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
-use crate::{invocation_context::context, utils::files::content_hash};
+use crate::{
+    invocation_context::context,
+    utils::{files::content_hash, raise_for_err},
+};
 
 const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
 
@@ -121,9 +124,7 @@ fn start_upload<'a>(symbol_sets: &[&SymbolSetUpload]) -> Result<BulkUploadStartR
         .send()
         .context(format!("While starting upload to {start_upload_url}"))?;
 
-    if !res.status().is_success() {
-        bail!("Failed to start upload: {:?}", res);
-    }
+    let res = raise_for_err(res)?;
 
     Ok(res.json()?)
 }
@@ -143,11 +144,8 @@ fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
         let res = client.post(&presigned_url.url).multipart(form).send();
 
         match res {
-            Result::Ok(resp) if resp.status().is_success() => {
-                return Ok(());
-            }
             Result::Ok(resp) => {
-                last_err = Some(anyhow!("Failed to upload chunk: {:?}", resp));
+                last_err = raise_for_err(resp).err();
             }
             Result::Err(e) => {
                 last_err = Some(anyhow!("Failed to upload chunk: {}", e));
@@ -185,13 +183,7 @@ fn finish_upload(content_hashes: HashMap<String, String>) -> Result<()> {
         .send()
         .context(format!("While finishing upload to {base_url}"))?;
 
-    if !res.status().is_success() {
-        error!("Failed to finish upload: {:?}", res);
-        if let Ok(text) = res.text() {
-            error!("Response text: {}", text);
-        }
-        bail!("Failed to finish upload");
-    }
+    raise_for_err(res)?;
 
     Ok(())
 }

@@ -5,7 +5,9 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::{Task, TaskWorkflow, WorkflowStage};
-use crate::{experimental::tasks::utils::select_task, invocation_context::context};
+use crate::{
+    experimental::tasks::utils::select_task, invocation_context::context, utils::raise_for_err,
+};
 
 struct StageChoice(WorkflowStage);
 
@@ -100,13 +102,7 @@ fn fetch_task(
         .send()
         .context("Failed to send request")?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .unwrap_or_else(|_| "No response body".to_string());
-        anyhow::bail!("Failed to fetch task: {} - {}", status, body);
-    }
+    let response = raise_for_err(response)?;
 
     let task: Task = response.json().context("Failed to parse task response")?;
 
@@ -130,13 +126,7 @@ fn fetch_workflow(
         .send()
         .context("Failed to send request")?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .unwrap_or_else(|_| "No response body".to_string());
-        anyhow::bail!("Failed to fetch workflow: {} - {}", status, body);
-    }
+    let response = raise_for_err(response)?;
 
     let workflow: TaskWorkflow = response
         .json()
@@ -169,13 +159,7 @@ fn update_task_stage(
         .send()
         .context("Failed to send request")?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .unwrap_or_else(|_| "No response body".to_string());
-        anyhow::bail!("Failed to update stage: {} - {}", status, body);
-    }
+    raise_for_err(response)?;
 
     Ok(())
 }

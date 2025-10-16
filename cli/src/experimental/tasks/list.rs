@@ -8,7 +8,7 @@ use crate::{
         Task,
     },
     invocation_context::context,
-    utils::auth::Token,
+    utils::{auth::Token, raise_for_err},
 };
 
 use super::{TaskListResponse, TaskWorkflow, WorkflowStage};
@@ -38,13 +38,7 @@ impl TaskIterator {
             .send()
             .context("Failed to send request")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .unwrap_or_else(|_| "No response body".to_string());
-            anyhow::bail!("Failed to fetch tasks: {} - {}", status, body);
-        }
+        let response = raise_for_err(response)?;
 
         let task_response: TaskListResponse = response
             .json()
@@ -75,13 +69,7 @@ impl TaskIterator {
             .send()
             .context("Failed to send request")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .unwrap_or_else(|_| "No response body".to_string());
-            anyhow::bail!("Failed to fetch tasks: {} - {}", status, body);
-        }
+        let response = raise_for_err(response)?;
 
         let task_response: TaskListResponse = response
             .json()

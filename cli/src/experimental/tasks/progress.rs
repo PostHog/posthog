@@ -3,7 +3,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{experimental::tasks::utils::select_task, invocation_context::context};
+use crate::{
+    experimental::tasks::utils::select_task, invocation_context::context, utils::raise_for_err,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TaskProgressResponse {
@@ -68,13 +70,7 @@ fn fetch_progress(task_id: &Uuid) -> Result<TaskProgressResponse> {
         .send()
         .context("Failed to send request")?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .unwrap_or_else(|_| "No response body".to_string());
-        anyhow::bail!("Failed to fetch progress: {} - {}", status, body);
-    }
+    let response = raise_for_err(response)?;
 
     let progress: TaskProgressResponse = response
         .json()
