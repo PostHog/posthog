@@ -285,15 +285,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.InternalEvents,
                         options: [
                             { name: 'All internal events', value: null },
-                            ...getInternalEventFilterOptions('standard'),
+                            ...getInternalEventFilterOptions('standard').map((item) => ({
+                                name: item.label,
+                                value: item.value,
+                            })),
                         ],
-                        endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
-                            event_type: EventDefinitionType.EventInternal,
-                            exclude_hidden: true,
-                            ordering: eventOrdering ?? undefined,
-                        }).url,
-                        excludedProperties:
-                            excludedProperties?.[TaxonomicFilterGroupType.InternalEvents]?.filter(isString) ?? [],
                         getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
                         getValue: (eventDefinition: Record<string, any>) =>
                             'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
