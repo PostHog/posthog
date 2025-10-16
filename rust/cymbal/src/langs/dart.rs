@@ -55,6 +55,7 @@ impl From<&RawDartFrame> for Frame {
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,
+            module: Some(raw.module.clone()),
         };
 
         add_raw_to_junk(&mut f, raw);
