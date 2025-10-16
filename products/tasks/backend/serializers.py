@@ -55,21 +55,9 @@ class TaskSerializer(serializers.ModelSerializer):
         return obj.primary_repository
 
     def get_latest_run(self, obj):
-        latest_run = obj.runs.order_by("-created_at").first()
+        latest_run = obj.latest_run
         if latest_run:
-            return {
-                "id": str(latest_run.id),
-                "branch": latest_run.branch,
-                "current_stage": str(latest_run.current_stage_id) if latest_run.current_stage_id else None,
-                "status": latest_run.status,
-                "log": latest_run.log,
-                "error_message": latest_run.error_message,
-                "output": latest_run.output,
-                "state": latest_run.state,
-                "created_at": latest_run.created_at,
-                "updated_at": latest_run.updated_at,
-                "completed_at": latest_run.completed_at,
-            }
+            return TaskRunDetailSerializer(latest_run, context=self.context).data
         return None
 
     def validate_github_integration(self, value):

@@ -376,6 +376,10 @@ class Task(models.Model):
         except TaskWorkflow.DoesNotExist:
             return None
 
+    @property
+    def latest_run(self) -> Optional["TaskRun"]:
+        return self.runs.order_by("-created_at").first()
+
     def _assign_task_number(self) -> None:
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
         self.task_number = (max_task_number if max_task_number is not None else -1) + 1
@@ -484,27 +488,14 @@ class TaskRun(models.Model):
     def __str__(self):
         return f"Run for {self.task.title} - {self.get_status_display()}"
 
-    def append_output(self, text: str):
-        """Append text to the output log and save."""
-        if self.output_log:
-            self.output_log += "\n" + text
+    def append_log(self, text: str):
+        """Append text to the log and save."""
+        if self.log:
+            self.log += "\n" + text
         else:
-            self.output_log = text
+            self.log = text
         self.updated_at = timezone.now()
-        self.save(update_fields=["output_log", "updated_at"])
-
-    def update_progress(
-        self, step: str | None = None, completed_steps: int | None = None, total_steps: int | None = None
-    ):
-        """Update progress information."""
-        if step:
-            self.current_step = step
-        if completed_steps is not None:
-            self.completed_steps = completed_steps
-        if total_steps is not None:
-            self.total_steps = total_steps
-        self.updated_at = timezone.now()
-        self.save(update_fields=["current_step", "completed_steps", "total_steps", "updated_at"])
+        self.save(update_fields=["log", "updated_at"])
 
     def mark_completed(self):
         """Mark the progress as completed."""
