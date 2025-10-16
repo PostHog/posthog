@@ -519,9 +519,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         current_batch_index = -1
         processing_error = None
         try:
-            from django.db import connections
+            from django.db import connections, router
 
-            persons_connection = connections[READ_DB_FOR_PERSONS]
+            write_db = router.db_for_write(CohortPeople) or "default"
+            persons_connection = connections[write_db]
             cursor = persons_connection.cursor()
             for batch_index, batch in batch_iterator:
                 current_batch_index = batch_index
