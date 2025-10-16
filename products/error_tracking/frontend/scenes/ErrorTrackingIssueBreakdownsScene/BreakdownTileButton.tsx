@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -12,6 +12,8 @@ import { errorTrackingIssueBreakdownQuery } from '../../queries'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
 import { BreakdownSinglePropertyStat, breakdownPreviewLogic } from './breakdownPreviewLogic'
 import { BreakdownPreset, errorTrackingBreakdownsSceneLogic } from './errorTrackingBreakdownsSceneLogic'
+
+const BREAKDOWN_COLORS = ['#3b82f6', '#22c55e', '#eab308', '#a855f7', '#ec4899', '#f97316', '#06b6d4', '#ef4444']
 
 interface BreakdownTileButtonProps {
     item: BreakdownPreset
@@ -39,7 +41,7 @@ export function BreakdownTileButton({ item }: BreakdownTileButtonProps): JSX.Ele
         <button
             onClick={() => setSelectedBreakdownPreset(item)}
             className={cn(
-                'w-full p-2.5 text-left transition-all cursor-pointer border-l-[3px] h-[100px]',
+                'w-full p-2.5 text-left transition-all cursor-pointer border-l-[3px]',
                 isSelected ? 'border-l-brand-yellow' : 'border-l-transparent'
             )}
         >
@@ -66,49 +68,52 @@ function BreakdownPreview({ query, title }: BreakdownPreviewProps): JSX.Element 
     const { properties, totalCount, responseLoading } = useValues(logic)
 
     return (
-        <div className="h-full flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
             <div className="font-semibold text-sm">{title}</div>
             {responseLoading ? (
-                <div className="flex items-center justify-center flex-1">
+                <div className="flex items-center justify-center h-6">
                     <Spinner className="text-xs" />
                 </div>
             ) : properties.length === 0 ? (
-                <div className="text-muted text-xs flex items-center justify-center flex-1">No data</div>
+                <div className="text-muted text-xs flex items-center justify-center h-6">No data</div>
             ) : (
-                <div className="flex flex-col gap-1 flex-1 overflow-hidden">
-                    {properties.map((item, index) => (
-                        <BreakdownPreviewLine key={index} item={item} maxCount={totalCount} />
-                    ))}
-                </div>
+                <StackedBar properties={properties} totalCount={totalCount} />
             )}
         </div>
     )
 }
 
-interface BreakdownPreviewLineProps {
-    item: BreakdownSinglePropertyStat
-    maxCount: number
+interface StackedBarProps {
+    properties: BreakdownSinglePropertyStat[]
+    totalCount: number
 }
 
-function BreakdownPreviewLine({ item, maxCount }: BreakdownPreviewLineProps): JSX.Element {
-    const percentage = ((item.count / maxCount) * 100).toFixed(0)
-
+function StackedBar({ properties, totalCount }: StackedBarProps): JSX.Element {
     return (
-        <div className="flex items-center gap-1.5">
-            <div className="flex items-center justify-between w-[60%]">
-                <span className="text-xs truncate min-w-0">{item.label}</span>
-                <span className="text-xs text-muted text-right flex-shrink-0 w-[5ch]">{percentage}%</span>
-            </div>
-            <div className="flex-1 min-w-0">
-                <div className="bg-fill-secondary rounded-sm overflow-hidden h-2">
-                    <div
-                        className="bg-muted h-full"
-                        style={{
-                            width: `${percentage}%`,
-                        }}
-                    />
-                </div>
-            </div>
+        <div className="flex w-full h-6 rounded overflow-hidden bg-fill-secondary">
+            {properties.map((item, index) => {
+                const percentage = (item.count / totalCount) * 100
+
+                return (
+                    <Tooltip
+                        key={index}
+                        title={
+                            <div className="text-xs">
+                                <div className="font-semibold">{item.label}</div>
+                                <div>{percentage.toFixed(1)}%</div>
+                            </div>
+                        }
+                    >
+                        <div
+                            className="h-full transition-all hover:opacity-80"
+                            style={{
+                                width: `${percentage}%`,
+                                backgroundColor: BREAKDOWN_COLORS[index % BREAKDOWN_COLORS.length],
+                            }}
+                        />
+                    </Tooltip>
+                )
+            })}
         </div>
     )
 }
