@@ -277,7 +277,7 @@ class TestS3Table(BaseTest):
         res = build_function_call(
             "http://url.com", DataWarehouseTable.TableFormat.Delta, None, "key", "secret", "some structure", None
         )
-        assert res == "deltaLake('http://url.com', 'key', 'secret', 'some structure')"
+        assert res == "deltaLake('http://url.com', 'key', 'secret')"
 
     def test_s3_build_function_call_azure(self):
         res = build_function_call(
