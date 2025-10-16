@@ -260,21 +260,21 @@ jobs:
                   EXIT_CODE=$?
                   set -e  # Re-enable exit on error
 
-                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
-                    # Get existing comments
-                    COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                  # Get existing comments
+                  COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+
+                  # Delete previous risk analysis comments
+                  echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
+                    echo "Deleting risk analysis comment $comment_id"
+                    curl -X DELETE \
+                      -H "Authorization: token $GITHUB_TOKEN" \
                       -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
+                  done
 
-                    # Delete previous risk analysis comments
-                    echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
-                      echo "Deleting risk analysis comment $comment_id"
-                      curl -X DELETE \
-                        -H "Authorization: token $GITHUB_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
-                    done
-
+                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
                     # Post risk analysis comment (output already contains markdown formatting with legend)
                     RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS"
                     RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
@@ -286,6 +286,8 @@ jobs:
                       -H "Accept: application/vnd.github.v3+json" \
                       "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
                       -d "$RISK_COMMENT_JSON"
+                  else
+                    echo "No migrations to analyze or risk analysis output empty - previous comments cleaned up"
                   fi
 
                   # Fail the job if there were blocked migrations

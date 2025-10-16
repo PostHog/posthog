@@ -24,9 +24,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         migrations = self.get_unapplied_migrations()
 
-        if not migrations:
-            # Return silently when no migrations to analyze (for CI)
+        # Check for missing migrations first
+        missing_migrations_warning = self.check_missing_migrations()
+
+        if not migrations and not missing_migrations_warning:
+            # Return silently when no migrations to analyze and no missing migrations (for CI)
             return
+
+        # Print missing migrations warning if present
+        if missing_migrations_warning:
+            print(missing_migrations_warning)
+            if not migrations:
+                # If only missing migrations, exit early
+                return
 
         # Check batch-level policies (e.g., multiple migrations per app)
         batch_policy_violations = self.check_batch_policies(migrations)
@@ -99,6 +109,28 @@ class Command(BaseCommand):
             results.append(risk)
 
         return results
+
+    def check_missing_migrations(self) -> str:
+        """Check if there are model changes that need migrations."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        try:
+            # Capture output from makemigrations --dry-run --check
+            out = StringIO()
+            call_command("makemigrations", "--dry-run", "--check", stdout=out, stderr=out)
+            return ""  # No missing migrations
+        except SystemExit:
+            # makemigrations --check exits with code 1 when migrations are needed
+            return (
+                "\n⚠️  MISSING MIGRATIONS DETECTED\n\n"
+                "Model changes have been detected that require new migrations.\n"
+                "Run `python manage.py makemigrations` to create them.\n"
+            )
+        except Exception:
+            # Ignore other errors (e.g., can't connect to DB)
+            return ""
 
     def print_report(self, results):
         """Print formatted risk report."""
