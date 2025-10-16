@@ -339,7 +339,12 @@ export function normalizeMessage(output: unknown, defaultRole: string): CompatMe
                 (item.type === 'text' ||
                     item.type === 'function' ||
                     item.type === 'image' ||
-                    item.type === 'output_text')
+                    item.type === 'output_text' ||
+                    item.type === 'reasoning' ||
+                    item.type === 'thinking' ||
+                    item.type === 'tool-call' ||
+                    item.type === 'tool_use' ||
+                    item.type === 'tool_result')
         )
     ) {
         return [
