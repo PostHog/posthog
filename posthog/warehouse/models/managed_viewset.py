@@ -19,7 +19,7 @@ from posthog.hogql.database.models import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
@@ -46,6 +46,11 @@ class ManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 name="unique_managed_viewset_team_kind",
             )
         ]
+
+    def __str__(self) -> str:
+        return f"ManagedViewSet({self.kind}) for Team {self.team.id}"
+
+    __repr__ = sane_repr("team", "kind")
 
     def sync_views(self) -> None:
         """
