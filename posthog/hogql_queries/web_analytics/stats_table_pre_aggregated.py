@@ -48,6 +48,9 @@ def _nullif_empty_decorator(func):
 
 
 class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
+    # Toggle this to switch between hybrid (False) and bounce-style (True) conversion query implementations
+    USE_BOUNCE_STYLE_CONVERSION_QUERY = False
+
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
         super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS)
 
@@ -412,10 +415,71 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return outer_query
 
+    def _conversion_goal_query_bounce_style(self) -> ast.SelectQuery:
+        """
+        Bounce-rate-style approach: Query stats table and LEFT JOIN conversion subquery.
+        Similar pattern to _path_query() which joins stats with bounce rate data.
+        """
+        previous_period_filter, current_period_filter = self.get_date_ranges(table_name=self.stats_table)
+
+        # Build conversion subquery from raw events (reuse existing method)
+        conversion_subquery = self._build_conversion_subquery()
+
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+            SELECT
+                {breakdown_value} as `context.columns.breakdown_value`,
+                {visitors_tuple} AS `context.columns.visitors`,
+                tuple(
+                    coalesce(any(conversions.total_conversions_current), 0),
+                    coalesce(any(conversions.total_conversions_previous), 0)
+                ) as `context.columns.total_conversions`,
+                tuple(
+                    coalesce(any(conversions.unique_conversions_current), 0),
+                    coalesce(any(conversions.unique_conversions_previous), 0)
+                ) as `context.columns.unique_conversions`,
+                tuple(
+                    if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(coalesce(any(conversions.unique_conversions_current), 0), `context.columns.visitors`.1)),
+                    if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(coalesce(any(conversions.unique_conversions_previous), 0), `context.columns.visitors`.2))
+                ) as `context.columns.conversion_rate`
+            FROM {stats_table}
+            LEFT JOIN ({conversion_subquery}) conversions
+                ON {join_condition}
+            WHERE and({filters}, {breakdown_value} IS NOT NULL)
+            GROUP BY `context.columns.breakdown_value`
+            """,
+                placeholders={
+                    "stats_table": ast.Field(chain=[self.stats_table]),
+                    "breakdown_value": self._get_breakdown_field(),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state",
+                        "uniqMergeIf",
+                        current_period_filter,
+                        previous_period_filter,
+                        table_prefix=self.stats_table,
+                    ),
+                    "conversion_subquery": conversion_subquery,
+                    "join_condition": ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=self._apply_path_cleaning(ast.Field(chain=[self.stats_table, "pathname"])),
+                        right=ast.Field(chain=["conversions", "breakdown_value"]),
+                    ),
+                    "filters": self._get_filters(table_name=self.stats_table),
+                },
+            ),
+        )
+
+        return query
+
     def get_query(self) -> ast.SelectQuery:
-        # For conversion goals, use the default breakdown query which supports conversions
+        # For conversion goals, choose implementation based on class flag
         if self.runner.query.conversionGoal:
-            query = self._default_breakdown_query()
+            if self.USE_BOUNCE_STYLE_CONVERSION_QUERY:
+                query = self._conversion_goal_query_bounce_style()
+            else:
+                query = self._default_breakdown_query()
         elif self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
             query = self._bounce_rate_query()
         elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
