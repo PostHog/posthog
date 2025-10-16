@@ -223,22 +223,6 @@ class RedshiftClient(PostgreSQLClient):
         else:
             select_stage_table_fields = sql.SQL(",".join(field[0] for field in final_table_fields))
 
-            merge_query = sql.SQL(
-                """\
-            MERGE INTO {final_table}
-            USING (SELECT {select_stage_table_fields} FROM {stage_table}) AS stage
-            ON {merge_condition}
-            REMOVE DUPLICATES
-            """
-            ).format(
-                final_table=final_table_identifier,
-                select_stage_table_fields=select_stage_table_fields,
-                stage_table=stage_table_identifier,
-                merge_condition=merge_condition,
-            )
-        else:
-            select_stage_table_fields = sql.SQL(",".join(field[0] for field in final_table_fields))
-
         merge_query = sql.SQL(
             """\
         MERGE INTO {final_table}
