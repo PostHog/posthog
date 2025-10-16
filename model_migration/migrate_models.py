@@ -20,11 +20,21 @@ logger = logging.getLogger(__name__)
 class ImportTransformer(cst.CSTTransformer):
     """LibCST transformer to update import statements for moved models"""
 
-    def __init__(self, model_names: set[str], target_app: str, module_name: str, merge_models: bool = True):
+    def __init__(
+        self,
+        model_names: set[str],
+        target_app: str,
+        module_name: str,
+        merge_models: bool = True,
+        import_base_path: str = "posthog.models",
+        filename_to_model_mapping: dict[str, str] | None = None,
+    ):
         self.model_names = model_names
         self.target_app = target_app
         self.module_name = module_name
         self.merge_models = merge_models
+        self.import_base_path = import_base_path
+        self.filename_to_model_mapping = filename_to_model_mapping or {}
         self.changed = False
         self.imports_to_add = []  # Store additional imports to add
 
@@ -44,15 +54,15 @@ class ImportTransformer(cst.CSTTransformer):
         return updated_node
 
     def _is_posthog_models_import(self, node: cst.ImportFrom) -> bool:
-        """Check if this is 'from posthog.models import ...'"""
+        """Check if this is 'from <import_base_path> import ...'"""
         if not node.module:
             return False
 
         module_str = self._get_module_string(node.module)
-        return module_str == "posthog.models"
+        return module_str == self.import_base_path
 
     def _is_direct_module_import(self, node: cst.ImportFrom) -> bool:
-        """Check if this is 'from posthog.models.experiment import ...' or 'from posthog.models.error_tracking import ...'"""
+        """Check if this is 'from <import_base_path>.module import ...' or similar"""
         if not node.module:
             return False
 
@@ -60,17 +70,17 @@ class ImportTransformer(cst.CSTTransformer):
 
         # Handle both cases:
         # 1. Direct file: 'from posthog.models.experiment import ...' (module_name = "experiment")
-        # 2. Subdirectory: 'from posthog.models.error_tracking import ...' (module_name = "error_tracking/error_tracking")
+        # 2. Subdirectory: 'from posthog.warehouse.models.table import ...' (module_name = "table")
         # 3. Sub-module: 'from posthog.models.error_tracking.sql import ...' (module_name = "error_tracking/error_tracking")
         if "/" in self.module_name:
             # For subdirectory case, check against subdirectory name and sub-modules
             subdirectory_name = self.module_name.split("/")[0]
-            return module_str == f"posthog.models.{subdirectory_name}" or module_str.startswith(
-                f"posthog.models.{subdirectory_name}."
+            return module_str == f"{self.import_base_path}.{subdirectory_name}" or module_str.startswith(
+                f"{self.import_base_path}.{subdirectory_name}."
             )
         else:
             # For direct file case, check against module name
-            return module_str == f"posthog.models.{self.module_name}"
+            return module_str == f"{self.import_base_path}.{self.module_name}"
 
     def _get_module_string(self, module: cst.CSTNode) -> str:
         """Convert module CST node to string"""
@@ -129,7 +139,7 @@ class ImportTransformer(cst.CSTTransformer):
             return cst.RemovalSentinel.REMOVE
 
     def _transform_direct_module_import(self, node: cst.ImportFrom) -> cst.ImportFrom:
-        """Transform 'from posthog.models.experiment import ...' statements"""
+        """Transform 'from <import_base_path>.module import ...' statements"""
         self.changed = True
 
         module_str = self._get_module_string(node.module)
@@ -137,7 +147,7 @@ class ImportTransformer(cst.CSTTransformer):
         # Handle sub-modules: preserve the sub-module part
         if "/" in self.module_name:
             subdirectory_name = self.module_name.split("/")[0]
-            base_path = f"posthog.models.{subdirectory_name}"
+            base_path = f"{self.import_base_path}.{subdirectory_name}"
 
             if module_str.startswith(base_path + "."):
                 sub_module = module_str[len(base_path) :]  # Gets ".error_tracking", ".sql", or ".hogvm_stl"
@@ -274,6 +284,17 @@ class ModelMigrator:
             if migration.get("status", "todo") == "todo":
                 pending.append((index, migration))
         return pending
+
+    @staticmethod
+    def _derive_import_base_path(source_base_path: str) -> str:
+        """Convert filesystem path to Python import path.
+
+        Examples:
+            posthog/models -> posthog.models
+            posthog/warehouse/models -> posthog.warehouse.models
+            posthog/hoql_queries -> posthog.hoql_queries
+        """
+        return source_base_path.replace("/", ".")
 
     def _ensure_model_db_tables(self, models_path: Path) -> None:
         """Ensure moved models keep referencing the original database tables."""
@@ -1247,13 +1268,13 @@ class {app_name.title()}Config(AppConfig):
             search_module_name = module_name
 
         relevant_patterns = [
-            f"posthog.models.{search_module_name}",  # Direct module imports
-            "posthog.models import",  # General posthog.models imports
+            f"{self.import_base_path}.{search_module_name}",  # Direct module imports
+            f"{self.import_base_path} import",  # General import_base_path imports
         ]
         # Add sub-module patterns for subdirectories
         if "/" in module_name:
             relevant_patterns.append(
-                f"posthog.models.{search_module_name}\\."
+                f"{self.import_base_path}.{search_module_name}\\."
             )  # Sub-module imports like .sql, .hogvm_stl
 
         candidate_files = set()
@@ -1284,7 +1305,13 @@ class {app_name.title()}Config(AppConfig):
                 tree = cst.parse_module(content)
 
                 # Transform the tree
-                transformer = ImportTransformer(model_names, target_app, module_name, self.merge_models)
+                transformer = ImportTransformer(
+                    model_names,
+                    target_app,
+                    module_name,
+                    self.merge_models,
+                    import_base_path=self.import_base_path,
+                )
                 new_tree = tree.visit(transformer)
 
                 # Write back if changed
@@ -1649,12 +1676,15 @@ class {app_name.title()}Config(AppConfig):
 
         # Store source_base_path for use in helper methods
         self.source_base_path = source_base_path
+        # Derive and store import_base_path (filesystem path -> Python import path)
+        self.import_base_path = self._derive_import_base_path(source_base_path)
 
         logger.info("\n🚀 Starting migration: %s", name)
         logger.info("   Source files: %s", source_files)
         logger.info("   Target app: %s", target_app)
         if source_base_path != "posthog/models":
             logger.info("   Source base path: %s", source_base_path)
+            logger.info("   Import base path: %s", self.import_base_path)
 
         try:
             return self._execute_migration(source_files, target_app, create_backend, migration_spec)
