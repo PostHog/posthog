@@ -107,7 +107,9 @@ class ImportTransformer(cst.CSTTransformer):
         remaining_imports = [name for name in current_imports if name not in self.model_names]
         moved_imports = [name for name in current_imports if name in self.model_names]
 
-        if not moved_imports:
+        # In no-merge mode, we need to transform all imports (even non-models)
+        # In merge mode, only transform if we have model imports
+        if not moved_imports and (self.merge_models or not remaining_imports):
             return node  # No changes needed
 
         self.changed = True
