@@ -352,26 +352,18 @@ class TaskRunProgressRequestSerializer(serializers.Serializer):
 
 
 class TaskRunDetailSerializer(serializers.ModelSerializer):
-    progress_percentage = serializers.SerializerMethodField(read_only=True)
-
     class Meta:
         model = TaskRun
         fields = [
             "id",
             "task",
             "current_stage",
+            "branch",
             "status",
-            "current_step",
-            "completed_steps",
-            "total_steps",
-            "progress_percentage",
-            "output_log",
+            "log",
             "error_message",
             "output",
             "state",
-            "workflow_id",
-            "workflow_run_id",
-            "activity_id",
             "created_at",
             "updated_at",
             "completed_at",
@@ -380,12 +372,8 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
             "id",
             "created_at",
             "updated_at",
-            "progress_percentage",
             "completed_at",
         ]
-
-    def get_progress_percentage(self, obj):
-        return obj.progress_percentage
 
     def validate_task(self, value):
         team = self.context.get("team")

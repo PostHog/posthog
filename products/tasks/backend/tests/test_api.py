@@ -88,11 +88,12 @@ class BaseTaskAPITest(TestCase):
             ),
         ]
 
-    def create_task(self, title="Test Task", workflow=None, stage=None):
+    def create_task(self, title="Test Task", workflow=None):
         if not workflow:
-            workflow = self.create_workflow()
-        if not stage:
-            stage = workflow.stages.first()
+            # Try to reuse an existing workflow for this team, or create a new one
+            workflow = TaskWorkflow.objects.filter(team=self.team, is_active=True).first()
+            if not workflow:
+                workflow = self.create_workflow()
 
         return Task.objects.create(
             team=self.team,
@@ -100,7 +101,6 @@ class BaseTaskAPITest(TestCase):
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
             workflow=workflow,
-            current_stage=stage,
             position=0,
         )
 
@@ -317,14 +317,12 @@ class TestTaskAPI(BaseTaskAPITest):
             task=task,
             team=self.team,
             status=TaskRun.Status.STARTED,
-            current_step="Step 1",
         )
 
         run2 = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            current_step="Step 2",
         )
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
@@ -348,7 +346,6 @@ class TestTaskAPI(BaseTaskAPITest):
 
     def test_create_task(self):
         workflow = self.create_workflow()
-        stage = workflow.stages.first()
 
         response = self.client.post(
             "/api/projects/@current/tasks/",
@@ -357,7 +354,6 @@ class TestTaskAPI(BaseTaskAPITest):
                 "description": "New Description",
                 "origin_product": "user_created",
                 "workflow": str(workflow.id),
-                "current_stage": str(stage.id),
             },
             format="json",
         )
@@ -386,21 +382,6 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertFalse(Task.objects.filter(id=task.id).exists())
 
-    def test_update_stage(self):
-        workflow = self.create_workflow()
-        task = self.create_task(workflow=workflow)
-        new_stage = workflow.stages.last()
-
-        response = self.client.patch(
-            f"/api/projects/@current/tasks/{task.id}/update_stage/",
-            {"current_stage": str(new_stage.id)},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        task.refresh_from_db()
-        self.assertEqual(task.current_stage, new_stage)
-
     def test_update_position(self):
         task = self.create_task()
 
@@ -413,48 +394,6 @@ class TestTaskAPI(BaseTaskAPITest):
 
         task.refresh_from_db()
         self.assertEqual(task.position, 5)
-
-    def test_bulk_reorder(self):
-        workflow = self.create_workflow()
-        stages = list(workflow.stages.all())
-        task1 = self.create_task(title="Task 1", workflow=workflow, stage=stages[0])
-        task2 = self.create_task(title="Task 2", workflow=workflow, stage=stages[0])
-
-        response = self.client.post(
-            "/api/projects/@current/tasks/bulk_reorder/",
-            {"columns": {"in_progress": [str(task1.id), str(task2.id)]}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(data["updated"], 2)
-
-        task1.refresh_from_db()
-        task2.refresh_from_db()
-        self.assertEqual(task1.current_stage.key, "in_progress")
-        self.assertEqual(task2.current_stage.key, "in_progress")
-        self.assertEqual(task1.position, 0)
-        self.assertEqual(task2.position, 1)
-
-    def test_progress(self):
-        task = self.create_task()
-
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/progress/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(data["has_progress"], False)
-
-    def test_progress_stream(self):
-        task = self.create_task()
-
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/progress_stream/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(len(data["progress_updates"]), 0)
-        self.assertIn("server_time", data)
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_triggers_workflow(self, mock_workflow):
@@ -488,120 +427,6 @@ class TestTaskAPI(BaseTaskAPITest):
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
-    def test_progress_with_no_progress_records(self):
-        task = self.create_task()
-
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/progress/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertFalse(data["has_progress"])
-        self.assertEqual(data["message"], "No execution progress found for this task")
-
-    def test_progress_with_existing_records(self):
-        task = self.create_task()
-
-        run = TaskRun.objects.create(
-            task=task,
-            team=self.team,
-            status=TaskRun.Status.IN_PROGRESS,
-            current_step="Processing data",
-            completed_steps=2,
-            total_steps=5,
-            output_log="Step 1 completed\nStep 2 in progress",
-            workflow_id="test-workflow-123",
-        )
-
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/progress/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertTrue(data["has_progress"])
-        self.assertEqual(data["id"], str(run.id))
-        self.assertEqual(data["status"], "in_progress")
-        self.assertEqual(data["current_step"], "Processing data")
-        self.assertEqual(data["completed_steps"], 2)
-        self.assertEqual(data["total_steps"], 5)
-        self.assertEqual(data["progress_percentage"], 40)
-        self.assertEqual(data["output_log"], "Step 1 completed\nStep 2 in progress")
-        self.assertEqual(data["workflow_id"], "test-workflow-123")
-
-    def test_progress_stream_with_no_updates(self):
-        task = self.create_task()
-
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/progress_stream/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(len(data["progress_updates"]), 0)
-        self.assertIn("server_time", data)
-
-    def test_progress_stream_with_updates(self):
-        task = self.create_task()
-
-        run1 = TaskRun.objects.create(
-            task=task,
-            team=self.team,
-            status=TaskRun.Status.STARTED,
-            current_step="Initializing",
-            completed_steps=0,
-            total_steps=3,
-        )
-
-        run2 = TaskRun.objects.create(
-            task=task,
-            team=self.team,
-            status=TaskRun.Status.COMPLETED,
-            current_step="Finished",
-            completed_steps=3,
-            total_steps=3,
-        )
-
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/progress_stream/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        self.assertEqual(len(data["progress_updates"]), 2)
-
-        # Most recent first
-        recent_update = data["progress_updates"][0]
-        self.assertEqual(recent_update["id"], str(run2.id))
-        self.assertEqual(recent_update["status"], "completed")
-        self.assertEqual(recent_update["completed_steps"], 3)
-
-        # Should include older run
-        self.assertEqual(len(data["progress_updates"]), 2)
-        older_update = data["progress_updates"][1]
-        self.assertEqual(older_update["id"], str(run1.id))
-        self.assertEqual(older_update["status"], "started")
-        self.assertEqual(older_update["completed_steps"], 0)
-
-    def test_progress_stream_with_since_parameter(self):
-        task = self.create_task()
-
-        old_run = TaskRun.objects.create(
-            task=task, team=self.team, status=TaskRun.Status.STARTED, current_step="Old step"
-        )
-
-        # Add some time gap
-        import datetime
-
-        from django.utils import timezone
-
-        since_time = timezone.now()
-
-        # Create newer run after the 'since' time
-        TaskRun.objects.filter(id=old_run.id).update(updated_at=timezone.now() + datetime.timedelta(seconds=1))
-
-        response = self.client.get(
-            f"/api/projects/@current/tasks/{task.id}/progress_stream/", {"since": since_time.isoformat()}
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        # Should include the updated run
-        self.assertEqual(len(data["progress_updates"]), 1)
-
     def test_list_runs_for_task(self):
         task = self.create_task()
 
@@ -609,14 +434,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
             task=task,
             team=self.team,
             status=TaskRun.Status.STARTED,
-            current_step="Step 1",
         )
 
         run2 = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
-            current_step="Step 2",
         )
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
@@ -635,11 +458,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            current_step="Processing",
-            completed_steps=3,
-            total_steps=10,
-            output_log="Test log output",
-            workflow_id="workflow-123",
+            log="Test log output",
         )
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
@@ -648,12 +467,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         data = response.json()
         self.assertEqual(data["id"], str(run.id))
         self.assertEqual(data["status"], "in_progress")
-        self.assertEqual(data["current_step"], "Processing")
-        self.assertEqual(data["completed_steps"], 3)
-        self.assertEqual(data["total_steps"], 10)
-        self.assertEqual(data["progress_percentage"], 30)
-        self.assertEqual(data["output_log"], "Test log output")
-        self.assertEqual(data["workflow_id"], "workflow-123")
+        self.assertEqual(data["log"], "Test log output")
 
     def test_list_runs_only_returns_task_runs(self):
         task1 = self.create_task("Task 1")
@@ -721,11 +535,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("/api/projects/@current/tasks/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/", "DELETE"),
-            (f"/api/projects/@current/tasks/{task.id}/update_stage/", "PATCH"),
             (f"/api/projects/@current/tasks/{task.id}/update_position/", "PATCH"),
-            ("/api/projects/@current/tasks/bulk_reorder/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/progress/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/progress_stream/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/run/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/runs/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "GET"),
@@ -754,7 +564,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
 
     def test_authentication_required(self):
-        workflow = self.create_workflow()
+        workflow = self.create_workflow("Auth Test Workflow")
         task = self.create_task(workflow=workflow)
 
         self.client.force_authenticate(None)
@@ -763,7 +573,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("/api/projects/@current/workflows/", "GET"),
             ("/api/projects/@current/tasks/", "GET"),
             (f"/api/projects/@current/workflows/{workflow.id}/stages/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/progress/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/", "GET"),
         ]
 
         for url, method in endpoints:
