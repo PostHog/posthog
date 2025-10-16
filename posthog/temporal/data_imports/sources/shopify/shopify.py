@@ -43,7 +43,7 @@ def _get_retryable_error(payload: Any) -> ShopifyRetryableError | None:
     if ok:
         serialized_errors = json.dumps(errors).lower()
         if "throttled" in serialized_errors:
-            return ShopifyRetryableError("Shopify: rate limite exceeded...")
+            return ShopifyRetryableError("Shopify: rate limit exceeded...")
         if "internal_server_error" in serialized_errors:
             return ShopifyRetryableError(f"Shopify: internal errors in payload {serialized_errors}")
     currently_available, ok = safe_unwrap(payload, path="extensions.cost.throttleStatus.currentlyAvailable")
