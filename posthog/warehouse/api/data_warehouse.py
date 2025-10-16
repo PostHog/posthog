@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import connection
 from django.db.models import Count, Q, Sum
+from django.db.models.functions import TruncDate, TruncHour
 
 import structlog
 from dateutil import parser
@@ -227,42 +228,74 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             breakdown = {}
             if days == 1:
+                # Group by hour using a single query for external jobs
+                external_by_hour = (
+                    external_jobs.annotate(hour=TruncHour("created_at", tzinfo=project_tz))
+                    .values("hour")
+                    .annotate(
+                        successful=Count("id", filter=Q(status=ExternalDataJob.Status.COMPLETED)),
+                        failed=Count("id", filter=Q(status=ExternalDataJob.Status.FAILED)),
+                    )
+                )
+
+                # Group by hour using a single query for modeling jobs
+                modeling_by_hour = (
+                    modeling_jobs.annotate(hour=TruncHour("created_at", tzinfo=project_tz))
+                    .values("hour")
+                    .annotate(
+                        successful=Count("id", filter=Q(status=DataModelingJob.Status.COMPLETED)),
+                        failed=Count("id", filter=Q(status=DataModelingJob.Status.FAILED)),
+                    )
+                )
+
+                # Combine results into lookup dictionaries
+                external_lookup = {result["hour"]: result for result in external_by_hour}
+                modeling_lookup = {result["hour"]: result for result in modeling_by_hour}
+
+                # Generate breakdown for all 24 hours
                 for i in range(24):
                     hour_start = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=i)
-                    hour_end = hour_start + timedelta(hours=1)
-
-                    hour_external = external_jobs.filter(created_at__gte=hour_start, created_at__lt=hour_end).aggregate(
-                        successful=Count("id", filter=Q(status=ExternalDataJob.Status.COMPLETED)),
-                        failed=Count("id", filter=Q(status=ExternalDataJob.Status.FAILED)),
-                    )
-
-                    hour_modeling = modeling_jobs.filter(created_at__gte=hour_start, created_at__lt=hour_end).aggregate(
-                        successful=Count("id", filter=Q(status=DataModelingJob.Status.COMPLETED)),
-                        failed=Count("id", filter=Q(status=DataModelingJob.Status.FAILED)),
-                    )
+                    external_data = external_lookup.get(hour_start, {"successful": 0, "failed": 0})
+                    modeling_data = modeling_lookup.get(hour_start, {"successful": 0, "failed": 0})
 
                     breakdown[hour_start.isoformat()] = {
-                        "successful": hour_external["successful"] + hour_modeling["successful"],
-                        "failed": hour_external["failed"] + hour_modeling["failed"],
+                        "successful": external_data["successful"] + modeling_data["successful"],
+                        "failed": external_data["failed"] + modeling_data["failed"],
                     }
             else:
-                for i in range(days):
-                    day_start = (now - timedelta(days=i)).date()
-                    day_end = day_start + timedelta(days=1)
-
-                    day_external = external_jobs.filter(created_at__gte=day_start, created_at__lt=day_end).aggregate(
+                # Group by day using a single query for external jobs
+                external_by_day = (
+                    external_jobs.annotate(day=TruncDate("created_at", tzinfo=project_tz))
+                    .values("day")
+                    .annotate(
                         successful=Count("id", filter=Q(status=ExternalDataJob.Status.COMPLETED)),
                         failed=Count("id", filter=Q(status=ExternalDataJob.Status.FAILED)),
                     )
+                )
 
-                    day_modeling = modeling_jobs.filter(created_at__gte=day_start, created_at__lt=day_end).aggregate(
+                # Group by day using a single query for modeling jobs
+                modeling_by_day = (
+                    modeling_jobs.annotate(day=TruncDate("created_at", tzinfo=project_tz))
+                    .values("day")
+                    .annotate(
                         successful=Count("id", filter=Q(status=DataModelingJob.Status.COMPLETED)),
                         failed=Count("id", filter=Q(status=DataModelingJob.Status.FAILED)),
                     )
+                )
 
-                    breakdown[str(day_start)] = {
-                        "successful": day_external["successful"] + day_modeling["successful"],
-                        "failed": day_external["failed"] + day_modeling["failed"],
+                # Combine results into lookup dictionaries
+                external_lookup = {result["day"]: result for result in external_by_day}
+                modeling_lookup = {result["day"]: result for result in modeling_by_day}
+
+                # Generate breakdown for all days
+                for i in range(days):
+                    day_date = (now - timedelta(days=i)).date()
+                    external_data = external_lookup.get(day_date, {"successful": 0, "failed": 0})
+                    modeling_data = modeling_lookup.get(day_date, {"successful": 0, "failed": 0})
+
+                    breakdown[str(day_date)] = {
+                        "successful": external_data["successful"] + modeling_data["successful"],
+                        "failed": external_data["failed"] + modeling_data["failed"],
                     }
 
             running_external_data_jobs = ExternalDataJob.objects.filter(

@@ -211,8 +211,9 @@ class TestDataWarehouseAPI(APIBaseTest):
         )
         ExternalDataJob.objects.filter(pk=job.pk).update(created_at=timezone.now() - timedelta(hours=2))
 
-        response = self.client.get(f"{endpoint}?days=1")
-        data = response.json()
+        with self.assertNumQueries(14):
+            response = self.client.get(f"{endpoint}?days=1")
+            data = response.json()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(data["days"], 1)
@@ -246,8 +247,9 @@ class TestDataWarehouseAPI(APIBaseTest):
         )
         ExternalDataJob.objects.filter(pk=job2.pk).update(created_at=timezone.now() - timedelta(days=10))
 
-        response = self.client.get(f"{endpoint}?days=30")
-        data = response.json()
+        with self.assertNumQueries(14):
+            response = self.client.get(f"{endpoint}?days=30")
+            data = response.json()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(data["days"], 30)
@@ -351,8 +353,9 @@ class TestDataWarehouseAPI(APIBaseTest):
         )
         DataModelingJob.objects.filter(pk=modeling_job.pk).update(created_at=today_start + timedelta(hours=4))
 
-        response = self.client.get(f"{endpoint}?days=7")
-        data = response.json()
+        with self.assertNumQueries(14):
+            response = self.client.get(f"{endpoint}?days=7")
+            data = response.json()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(data["total_jobs"], 3)
