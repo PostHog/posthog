@@ -10,7 +10,7 @@ from posthog.models.app_metrics.sql import (
 
 operations = [
     run_sql_with_exceptions(APP_METRICS_DATA_TABLE_SQL(), node_roles=NodeRole.DATA),
-    run_sql_with_exceptions(DISTRIBUTED_APP_METRICS_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
+    run_sql_with_exceptions(DISTRIBUTED_APP_METRICS_TABLE_SQL(), node_roles=NodeRole.DATA),
     run_sql_with_exceptions(KAFKA_APP_METRICS_TABLE_SQL(), node_roles=NodeRole.DATA),
     run_sql_with_exceptions(APP_METRICS_MV_TABLE_SQL(target_table=APP_METRICS_SHARDED_TABLE), node_roles=NodeRole.DATA),
 ]
