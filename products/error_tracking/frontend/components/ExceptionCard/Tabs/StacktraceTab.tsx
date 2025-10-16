@@ -97,8 +97,8 @@ function StacktraceIssueDisplay({
         renderLoading: (renderHeader: (props: ExceptionHeaderProps) => JSX.Element) =>
             renderHeader({
                 exception: {
-                    type: issue?.name ?? 'Unknown',
-                    value: issue?.description ?? '',
+                    type: issue?.name ?? undefined,
+                    value: issue?.description ?? undefined,
                 } as any,
                 loading: issueLoading,
             }),

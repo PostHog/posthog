@@ -61,7 +61,7 @@ export function StacktraceGenericExceptionHeader({
     loading,
     truncate,
 }: StacktraceBaseExceptionHeaderProps): JSX.Element {
-    const type = formatType(exception)
+    const type = exception.type
     const value = exception.value
     const isScriptError = value === 'Script error' && runtime === 'web' && type === 'Error'
 
@@ -73,7 +73,7 @@ export function StacktraceGenericExceptionHeader({
                 ) : (
                     <>
                         {runtime && <RuntimeIcon runtime={runtime} fontSize="0.9rem" className="ml-1" />}
-                        <div className="font-semibold text-[1rem]">{type || 'Unknown type'}</div>
+                        <div className="font-semibold text-[1rem]">{formatType(exception)}</div>
                         {part && <FingerprintRecordPartDisplay part={part} />}
                     </>
                 )}

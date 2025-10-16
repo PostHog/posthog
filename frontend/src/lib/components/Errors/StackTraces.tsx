@@ -42,9 +42,11 @@ function ExceptionHeader({ exception, part }: ExceptionHeaderProps): JSX.Element
                 {type}
                 {part && <FingerprintRecordPartDisplay className="ml-1" part={part} />}
             </h3>
-            <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs" title={value}>
-                {value}
-            </div>
+            {value && (
+                <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs" title={value}>
+                    {value}
+                </div>
+            )}
         </div>
     )
 }
