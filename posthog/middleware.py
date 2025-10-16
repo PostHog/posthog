@@ -32,13 +32,15 @@ from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, Team, User
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
 from posthog.rate_limit import DecideRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
+
+from products.notebooks.backend.models import Notebook
 
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response

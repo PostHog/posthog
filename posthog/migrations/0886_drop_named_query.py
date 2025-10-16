@@ -3,7 +3,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0884_experimenttimeseriesrecalculation_and_more"),
+        ("posthog", "0885_migrate_notebooks_models"),
     ]
 
     operations = [

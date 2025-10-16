@@ -308,6 +308,12 @@ def relative_date_parse(
     )[0]
 
 
+def pluralize(count: int, singular: str, plural: str | None = None) -> str:
+    if plural is None:
+        plural = singular + "s"
+    return f"{count} {singular if count == 1 else plural}"
+
+
 def human_list(items: Sequence[str]) -> str:
     """Join iterable of strings into a human-readable list ("a, b, and c").
     Uses the Oxford comma only when there are at least 3 items."""

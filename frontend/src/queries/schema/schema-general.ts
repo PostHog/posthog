@@ -155,6 +155,7 @@ export enum NodeKind {
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
+    DocumentSimilarityQuery = 'DocumentSimilarityQuery',
 
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
@@ -234,6 +235,7 @@ export type QuerySchema =
     | ExperimentTrendsQuery
     | ExperimentQuery
     | ExperimentExposureQuery
+    | DocumentSimilarityQuery
 
     // Web Analytics + Web Vitals
     | WebOverviewQuery
@@ -2307,6 +2309,64 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase {
     columns?: string[]
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
+
+export type EmbeddingModelName = 'text-embedding-3-small-1536' | 'text-embedding-3-large-3072'
+
+export interface DocumentSimilarityQuery extends DataNode<DocumentSimilarityQueryResponse> {
+    // Query metadata
+    kind: NodeKind.DocumentSimilarityQuery
+
+    // Standard
+    dateRange: DateRange
+    order_direction: 'asc' | 'desc'
+    order_by: 'distance' | 'timestamp'
+    limit?: integer
+    offset?: integer
+
+    // Embedding-specifics
+    // To what point are all distances being measured?
+    origin: EmbeddedDocument // | string -- TODO, we should support ad-hoc querying too, but it requires a modification of the cross join
+    distance_func: 'L1Distance' | 'L2Distance' | 'cosineDistance' // How is the distance being measured?
+    threshold?: number // Some distance under-or-over which results will be excluded - useful mainly if sorting by timestamp
+    model: string // Model to do the query with. Only documents embedded with this model will be considered.
+
+    // TODO - these are a hack, and we should expose them as proper HogQL filterables instead, but
+    // I don't want to go to war in the taxonomic filter mines right now
+    products: string[] // Limit the results to specific products. Empty means all.
+    document_types: string[] // Limit the results to specific document types. Empty means all.
+    renderings: string[] // Limit the results to specific renderings. Empty means all.
+}
+
+// A single embedded document, which is a collection of all the ways
+// the document has been embedded, across different models and renderings
+export interface EmbeddedDocument {
+    product: string
+    document_type: string
+    document_id: string
+    /**  @format date-time */
+    timestamp: string
+}
+
+// A specific embedding of a document, with a specific model and rendering
+export type EmbeddingRecord = EmbeddedDocument & {
+    model_name: EmbeddingModelName
+    rendering: string
+}
+
+export interface EmbeddingDistance {
+    result: EmbeddingRecord
+    origin?: EmbeddingRecord
+    distance: number // How far was this particular embedding from the query
+}
+
+export interface DocumentSimilarityQueryResponse extends AnalyticsQueryResponseBase {
+    results: EmbeddingDistance[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedDocumentSimilarityQueryResponse = CachedQueryResponse<DocumentSimilarityQueryResponse>
 
 export type LogSeverityLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
