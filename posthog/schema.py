@@ -3972,7 +3972,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
-    sharedMetricId: Optional[str] = None
+    sharedMetricId: Optional[float] = None
     uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -12362,7 +12362,7 @@ class ExperimentRatioMetric(BaseModel):
     name: Optional[str] = None
     numerator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     response: Optional[dict[str, Any]] = None
-    sharedMetricId: Optional[str] = None
+    sharedMetricId: Optional[float] = None
     uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -13283,7 +13283,7 @@ class ExperimentFunnelMetric(BaseModel):
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
     series: list[Union[EventsNode, ActionsNode]]
-    sharedMetricId: Optional[str] = None
+    sharedMetricId: Optional[float] = None
     uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -13303,7 +13303,7 @@ class ExperimentMeanMetric(BaseModel):
     metric_type: Literal["mean"] = "mean"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
-    sharedMetricId: Optional[str] = None
+    sharedMetricId: Optional[float] = None
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     upper_bound_percentile: Optional[float] = None
     uuid: Optional[str] = None

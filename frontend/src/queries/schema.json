@@ -12059,7 +12059,7 @@
                     "type": "array"
                 },
                 "sharedMetricId": {
-                    "type": "string"
+                    "type": "number"
                 },
                 "uuid": {
                     "type": "string"
@@ -12286,7 +12286,7 @@
                     "type": "object"
                 },
                 "sharedMetricId": {
-                    "type": "string"
+                    "type": "number"
                 },
                 "source": {
                     "$ref": "#/definitions/ExperimentMetricSource"
@@ -12370,7 +12370,7 @@
                     "type": "object"
                 },
                 "sharedMetricId": {
-                    "type": "string"
+                    "type": "number"
                 },
                 "uuid": {
                     "type": "string"
@@ -12653,7 +12653,7 @@
                     "type": "object"
                 },
                 "sharedMetricId": {
-                    "type": "string"
+                    "type": "number"
                 },
                 "uuid": {
                     "type": "string"
