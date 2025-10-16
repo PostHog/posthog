@@ -22,11 +22,10 @@ export function StacktraceTextDisplay({
     const { exceptionList, hasStacktrace } = useValues(errorPropertiesLogic)
     const { loading } = useValues(exceptionCardLogic)
     const renderExceptionHeader = useCallback(
-        ({ type, value, loading, part }: ExceptionHeaderProps): JSX.Element => {
+        ({ exception, loading, part }: ExceptionHeaderProps): JSX.Element => {
             return (
                 <StacktraceTextExceptionHeader
-                    type={type}
-                    value={value}
+                    exception={exception}
                     part={part}
                     loading={loading}
                     truncate={truncateMessage}
@@ -47,11 +46,7 @@ export function StacktraceTextDisplay({
     )
 }
 
-export function StacktraceTextExceptionHeader({
-    type,
-    value,
-    loading,
-}: StacktraceBaseExceptionHeaderProps): JSX.Element {
+export function StacktraceTextExceptionHeader({ exception, loading }: StacktraceBaseExceptionHeaderProps): JSX.Element {
     return (
         <div className={cn('font-mono')}>
             {loading ? (
@@ -59,10 +54,7 @@ export function StacktraceTextExceptionHeader({
                     <LemonSkeleton className="h-2 w-1/2" />
                 </div>
             ) : (
-                <>
-                    {type}
-                    {value ? `: ${value}` : ''}
-                </>
+                formatExceptionDisplay(exception)
             )}
         </div>
     )

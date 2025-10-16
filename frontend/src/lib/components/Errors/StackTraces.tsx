@@ -27,13 +27,15 @@ import { formatResolvedName, formatType, stacktraceHasInAppFrames } from './util
 
 export type ExceptionHeaderProps = {
     id?: string
-    type?: string
-    value?: string
+    exception: ErrorTrackingException
     loading: boolean
     part?: FingerprintRecordPart
 }
 
-function ExceptionHeader({ type, value, part }: ExceptionHeaderProps): JSX.Element {
+function ExceptionHeader({ exception, part }: ExceptionHeaderProps): JSX.Element {
+    const type = formatType(exception)
+    const value = exception.value
+
     return (
         <div className="flex flex-col gap-0.5 mb-2">
             <h3 className="StackTrace__type mb-0 flex items-center" title={type}>
@@ -78,10 +80,10 @@ export function ChainedStackTraces({
     return (
         <div className="flex flex-col gap-y-2">
             {exceptionList.map((exception, index) => {
-                const { stacktrace, value, id } = exception
+                const { stacktrace, id } = exception
                 const displayTrace = shouldDisplayTrace(stacktrace, showAllFrames)
                 const part = getExceptionFingerprint(id)
-                const traceHeaderProps = { id, type: formatType(exception), value, part, loading: false }
+                const traceHeaderProps = { id, exception, part, loading: false }
                 return (
                     <div
                         key={id ?? index}

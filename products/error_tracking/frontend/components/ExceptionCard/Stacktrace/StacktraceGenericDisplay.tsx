@@ -6,6 +6,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { FingerprintRecordPartDisplay } from 'lib/components/Errors/FingerprintRecordPartDisplay'
 import { ChainedStackTraces, ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { formatType } from 'lib/components/Errors/utils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
@@ -24,11 +25,10 @@ export function StacktraceGenericDisplay({
     const { loading, showAllFrames } = useValues(exceptionCardLogic)
     const { runtime } = exceptionAttributes || {}
     const renderExceptionHeader = useCallback(
-        ({ type, value, loading, part }: ExceptionHeaderProps): JSX.Element => {
+        ({ exception, loading, part }: ExceptionHeaderProps): JSX.Element => {
             return (
                 <StacktraceGenericExceptionHeader
-                    type={type}
-                    value={value}
+                    exception={exception}
                     part={part}
                     runtime={runtime}
                     loading={loading}
@@ -55,13 +55,14 @@ export function StacktraceGenericDisplay({
 }
 
 export function StacktraceGenericExceptionHeader({
-    type,
-    value,
+    exception,
     runtime,
     part,
     loading,
     truncate,
 }: StacktraceBaseExceptionHeaderProps): JSX.Element {
+    const type = formatType(exception)
+    const value = exception.value
     const isScriptError = value === 'Script error' && runtime === 'web' && type === 'Error'
 
     return (
