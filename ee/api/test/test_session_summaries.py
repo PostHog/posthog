@@ -303,3 +303,72 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         response = self.client.delete(self.url)
         self.assertEqual(response.status_code, 405)
+
+    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
+    @patch("ee.api.session_summaries.find_sessions_timestamps")
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_create_summaries_individually_success(
+        self,
+        mock_execute: Mock,
+        mock_find_sessions: Mock,
+        mock_feature_enabled: Mock,
+    ) -> None:
+        """Test successful creation of individual session summaries"""
+        # Setup mocks
+        mock_feature_enabled.return_value = True
+        mock_find_sessions.return_value = (
+            datetime(2024, 1, 1, 10, 0, 0),
+            datetime(2024, 1, 1, 11, 0, 0),
+        )
+        mock_execute.return_value = {
+            "session_id": "session1",
+            "summary": "Test summary",
+            "key_moments": [],
+        }
+
+        # Make request
+        url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
+        response = self.client.post(url, {"session_ids": ["session1", "session2"]}, format="json")
+
+        # Assertions
+        self.assertEqual(response.status_code, 200)
+        data: list[Any] = response.json()  # type: ignore[attr-defined]
+        self.assertEqual(len(data), 2)
+
+    @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
+    @patch("ee.api.session_summaries.find_sessions_timestamps")
+    @patch("ee.api.session_summaries.execute_summarize_session")
+    def test_create_summaries_individually_partial_failure(
+        self,
+        mock_execute: Mock,
+        mock_find_sessions: Mock,
+        mock_feature_enabled: Mock,
+    ) -> None:
+        """Test that partial failures return only successful summaries"""
+        # Setup mocks
+        mock_feature_enabled.return_value = True
+        mock_find_sessions.return_value = (
+            datetime(2024, 1, 1, 10, 0, 0),
+            datetime(2024, 1, 1, 11, 0, 0),
+        )
+
+        # Mock execute to succeed for first session, fail for second
+        def mock_execute_side_effect(session_id: str, **kwargs: Any) -> dict[str, Any]:
+            if session_id == "session1":
+                return {
+                    "session_id": session_id,
+                    "summary": "Test summary",
+                    "key_moments": [],
+                }
+            raise Exception("Failed to summarize session")
+
+        mock_execute.side_effect = mock_execute_side_effect
+
+        # Make request
+        url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
+        response = self.client.post(url, {"session_ids": ["session1", "session2"]}, format="json")
+
+        # Assertions - should succeed with only one summary
+        self.assertEqual(response.status_code, 200)
+        data: list[Any] = response.json()  # type: ignore[attr-defined]
+        self.assertEqual(len(data), 1)

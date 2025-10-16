@@ -224,7 +224,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 team=self.team,
                 extra_summary_context=extra_summary_context,
             )
-            return Response(summaries, status=status.HTTP_200_OK)
+            return Response([summary.data for summary in summaries], status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(
                 f"Failed to generate individual session summaries for sessions {logging_session_ids(session_ids)} from team {self.team.pk} by user {user.pk}: {err}",
