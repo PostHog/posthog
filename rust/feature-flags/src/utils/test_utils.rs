@@ -10,7 +10,7 @@ use crate::{
 };
 use anyhow::Error;
 use axum::async_trait;
-use common_database::{get_pool_with_config, PoolConfig, Client, CustomDatabaseError};
+use common_database::{get_pool_with_config, Client, CustomDatabaseError, PoolConfig};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};

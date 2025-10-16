@@ -2125,8 +2125,8 @@ mod tests {
                 cohort_cache.clone(),
                 None,
                 None,
-            Arc::new(context.config.clone()),
-        );
+                Arc::new(context.config.clone()),
+            );
 
             matcher
                 .prepare_flag_evaluation_state(&[&flag])

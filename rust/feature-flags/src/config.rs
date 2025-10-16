@@ -126,7 +126,7 @@ pub struct Config {
     pub max_concurrency: usize,
 
     // ==== DATABASE CONNECTION POOL CONFIGURATION ====
-    // 
+    //
     // KEY INSIGHT: With immediate connection release pattern, connections are held for
     // microseconds (query time only), not hundreds of milliseconds (full request time).
     // This dramatically reduces the number of connections needed.
@@ -399,8 +399,8 @@ impl Config {
             flag_query_slow_error_threshold_ms: 1000,
             flag_total_execution_warn_threshold_ms: 1000,
             flag_total_execution_error_threshold_ms: 2000,
-            min_pg_connections: 0,  // Set to 0 for tests to avoid connection pool exhaustion
-            min_pg_connections_write: 0,  // Set to 0 for tests to avoid connection pool exhaustion
+            min_pg_connections: 0, // Set to 0 for tests to avoid connection pool exhaustion
+            min_pg_connections_write: 0, // Set to 0 for tests to avoid connection pool exhaustion
         }
     }
 

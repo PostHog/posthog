@@ -224,7 +224,7 @@ impl FeatureFlagMatcher {
         cohort_cache: Arc<crate::cohorts::cohort_cache_manager::CohortCacheManager>,
     ) -> Self {
         use crate::config::test_config;
-        
+
         Self::new(
             distinct_id,
             team_id,
@@ -247,7 +247,7 @@ impl FeatureFlagMatcher {
         groups: HashMap<String, Value>,
     ) -> Self {
         use crate::config::test_config;
-        
+
         Self::new(
             distinct_id,
             team_id,
