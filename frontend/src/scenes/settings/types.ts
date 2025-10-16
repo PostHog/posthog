@@ -18,6 +18,7 @@ export type SettingLevelId = (typeof SettingLevelIds)[number]
 export type SettingSectionId =
     | 'environment-details'
     | 'environment-autocapture'
+    | 'environment-customer-analytics'
     | 'environment-product-analytics'
     | 'environment-revenue-analytics'
     | 'environment-marketing-analytics'
@@ -27,7 +28,6 @@ export type SettingSectionId =
     | 'environment-feature-flags'
     | 'environment-error-tracking'
     | 'environment-csp-reporting'
-    | 'environment-crm'
     | 'environment-max'
     | 'environment-integrations'
     | 'environment-activity-logs'
