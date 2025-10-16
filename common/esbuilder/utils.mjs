@@ -164,13 +164,17 @@ const { config: tsconfig } = ts.readConfigFile(
     ts.sys.readFile
 )
 
+// Custom config for publicPath vs sourcemap URL
+export const PUBLIC_PATH = '/static'
+export const SOURCEMAP_PATH = '' // relative path for sourcemap comments
+
 /** @type {import('esbuild').BuildOptions} */
 export const commonConfig = {
     sourcemap: true,
     minify: !isDev,
     target: tsconfig.compilerOptions.target, // We want the same target as tsconfig, should fail if tsconfig not found
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
-    publicPath: '/static',
+    publicPath: PUBLIC_PATH,
     assetNames: 'assets/[name]-[hash]',
     chunkNames: '[name]-[hash]',
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
@@ -192,6 +196,34 @@ export const commonConfig = {
                 crypto: true,
             },
         }),
+        // Plugin to rewrite sourceMappingURL to use custom path
+        {
+            name: 'rewrite-sourcemap-url',
+            setup(build) {
+                build.onEnd(async (result) => {
+                    if (!result.metafile) {
+                        return
+                    }
+
+                    const outputs = Object.keys(result.metafile.outputs).filter((f) => f.endsWith('.js'))
+
+                    for (const output of outputs) {
+                        const content = await fs.readFile(output, 'utf-8')
+                        const sourcemapFile = path.basename(output) + '.map'
+
+                        // Rewrite the sourceMappingURL comment
+                        const newContent = content.replace(
+                            /\/\/# sourceMappingURL=.*$/m,
+                            `//# sourceMappingURL=${SOURCEMAP_PATH ? SOURCEMAP_PATH + '/' : ''}${sourcemapFile}`
+                        )
+
+                        if (newContent !== content) {
+                            await fs.writeFile(output, newContent)
+                        }
+                    }
+                })
+            },
+        },
     ],
     tsconfig: tsconfigPath,
     define: {
