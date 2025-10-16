@@ -298,7 +298,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
             self.last_error_at = None
-        except Exception:
+        except Exception as e:
             self.errors_calculating = F("errors_calculating") + 1
             self.last_error_at = timezone.now()
 
@@ -308,6 +308,17 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 current_version=self.version,
                 new_version=pending_version,
                 exc_info=True,
+            )
+
+            capture_exception(
+                e,
+                additional_properties={
+                    "tag": "cohort_calculation",
+                    "exception_type": type(e).__name__,
+                    "cohort_id": self.pk,
+                    "team_id": self.team_id,
+                    "pending_version": pending_version,
+                },
             )
 
             raise

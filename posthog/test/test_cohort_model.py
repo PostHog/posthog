@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Cohort, Person, Team
@@ -370,3 +371,28 @@ class TestCohort(BaseTest):
 
         # Verify the cohort is not in calculating state
         self.assertFalse(cohort.is_calculating)
+
+    @patch("posthog.models.cohort.cohort.capture_exception")
+    @patch("posthog.models.cohort.util.recalculate_cohortpeople")
+    def test_cohort_calculation_failure_captures_exception(self, mock_recalculate, mock_capture_exception):
+        """Test that capture_exception is called when cohort calculation fails."""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="test_cohort",
+        )
+
+        test_error = ValueError("Test calculation failure")
+        mock_recalculate.side_effect = test_error
+
+        with self.assertRaises(ValueError):
+            cohort.calculate_people_ch(pending_version=1)
+
+        mock_capture_exception.assert_called_once()
+        call_args = mock_capture_exception.call_args
+        self.assertEqual(call_args[0][0], test_error)
+        self.assertEqual(call_args[1]["additional_properties"]["tag"], "cohort_calculation")
+        self.assertEqual(call_args[1]["additional_properties"]["exception_type"], "ValueError")
+        self.assertEqual(call_args[1]["additional_properties"]["cohort_id"], cohort.pk)
+        self.assertEqual(call_args[1]["additional_properties"]["team_id"], self.team.pk)
+        self.assertEqual(call_args[1]["additional_properties"]["pending_version"], 1)
