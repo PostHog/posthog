@@ -68,12 +68,10 @@ class ExperimentQueryRunner(QueryRunner):
         self,
         *args,
         override_end_date: Optional[datetime] = None,
-        use_new_query_builder: Optional[bool] = False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
-        self.use_new_query_builder = use_new_query_builder
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -117,6 +115,12 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Just to simplify access
         self.metric = self.query.metric
+
+        # NOTE: Temporary flag to control the usage of the new query builder
+        if self.experiment.stats_config is None:
+            self.use_new_query_builder = False
+        else:
+            self.use_new_query_builder = self.experiment.stats_config.get("use_new_query_builder", False)
 
     def _should_use_new_query_builder(self) -> bool:
         """

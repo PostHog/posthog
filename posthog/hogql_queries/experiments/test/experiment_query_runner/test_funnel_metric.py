@@ -47,6 +47,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_query_runner_funnel_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -134,9 +135,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -181,6 +180,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         # Create test groups with enough variance for Bayesian testing
@@ -272,9 +272,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -449,7 +447,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2020, 1, 1),
             end_date=datetime(2020, 1, 31),
         )
-        experiment.stats_config = {"method": "frequentist"}
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -598,9 +596,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             self.team.test_account_filters = [filters]
         self.team.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         if expected_results is None:
             with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
@@ -720,7 +716,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
-        experiment.stats_config = {"method": "frequentist"}
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -808,7 +804,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(
             query=experiment_query,
             team=self.team,
-            use_new_query_builder=use_new_query_builder,
         )
         result = query_runner.calculate()
 
@@ -833,7 +828,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
-        experiment.stats_config = {"method": "frequentist"}
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -934,9 +929,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -960,7 +953,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
-        experiment.stats_config = {"method": "frequentist"}
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -1045,9 +1038,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1069,8 +1060,8 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_duplicate_events(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
-        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -1159,7 +1150,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(
             query=experiment_query,
             team=self.team,
-            use_new_query_builder=use_new_query_builder,
         )
         result = query_runner.calculate()
 
@@ -1182,8 +1172,8 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_events_out_of_order(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
-        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -1271,7 +1261,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(
             query=experiment_query,
             team=self.team,
-            use_new_query_builder=use_new_query_builder,
         )
         result = query_runner.calculate()
 
@@ -1294,8 +1283,8 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_many_steps(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
-        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -1377,7 +1366,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(
             query=experiment_query,
             team=self.team,
-            use_new_query_builder=use_new_query_builder,
         )
         result = query_runner.calculate()
 
@@ -1400,8 +1388,8 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_step_property_filter(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
-        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -1504,9 +1492,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1528,8 +1514,8 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_multiple_similar_steps(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
-        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -1653,7 +1639,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         query_runner = ExperimentQueryRunner(
             query=experiment_query,
             team=self.team,
-            use_new_query_builder=use_new_query_builder,
         )
         result = query_runner.calculate()
 
@@ -1676,8 +1661,8 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
     def test_funnel_metric_with_unordered_steps(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
-        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -1763,9 +1748,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
@@ -1788,8 +1771,8 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         """Test that ordered and unordered funnels behave differently when events are out of order"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
-        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -1924,9 +1907,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [ordered_metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         ordered_result = query_runner.calculate()
 
         # Test with unordered funnel (should succeed)
@@ -1942,9 +1923,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [unordered_metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         unordered_result = query_runner.calculate()
 
         # With ordered funnel, the out-of-order events should not be counted as success
@@ -1987,8 +1966,8 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         other_flag = self.create_feature_flag(key="other-flag")
 
         experiment = self.create_experiment(feature_flag=experiment_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
-        experiment.stats_config = {"method": "frequentist"}
 
         experiment_ff_property = f"$feature/{experiment_flag.key}"
         other_ff_property = f"$feature/{other_flag.key}"
@@ -2143,9 +2122,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         assert result.variant_results is not None
