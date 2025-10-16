@@ -71,7 +71,7 @@ export function SimpleKeyValueList({
                             <PropertyKeyInfo value={key} />
                         </span>
                         {isComplexStructure ? (
-                            <JSONViewer src={value} collapsed={true} />
+                            <JSONViewer src={value} collapsed={false} />
                         ) : (
                             <pre className="text-primary-alt break-all mb-0">{String(value)}</pre>
                         )}
