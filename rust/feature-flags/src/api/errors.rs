@@ -53,6 +53,8 @@ pub enum FlagError {
     DatabaseError(sqlx::Error, Option<String>),
     #[error("Timed out while fetching data")]
     TimeoutError(Option<String>),
+    #[error("Query timeout: {0}")]
+    Timeout(&'static str),
     #[error("No group type mappings")]
     NoGroupTypeMappings,
     #[error("Dependency of type {0} with id {1} not found")]
@@ -91,7 +93,8 @@ impl FlagError {
             FlagError::RedisDataParsingError
             | FlagError::RedisUnavailable
             | FlagError::DatabaseUnavailable
-            | FlagError::TimeoutError(_) => StatusCode::SERVICE_UNAVAILABLE,
+            | FlagError::TimeoutError(_)
+            | FlagError::Timeout(_) => StatusCode::SERVICE_UNAVAILABLE,
 
             FlagError::CookielessError(
                 CookielessManagerError::HashError(_)
@@ -254,6 +257,13 @@ impl IntoResponse for FlagError {
                         (StatusCode::INTERNAL_SERVER_ERROR, "An internal error occurred while processing your request.".to_string())
                     }
                 }
+            }
+            FlagError::Timeout(msg) => {
+                tracing::error!("Query timeout: {}", msg);
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    format!("Query timeout: {}. The service is under high load. Please try again later.", msg),
+                )
             }
         }
         .into_response()

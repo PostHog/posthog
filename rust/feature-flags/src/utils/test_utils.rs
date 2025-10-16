@@ -763,6 +763,7 @@ pub struct TestContext {
     pub persons_writer: Arc<dyn Client + Send + Sync>,
     pub non_persons_reader: Arc<dyn Client + Send + Sync>,
     pub non_persons_writer: Arc<dyn Client + Send + Sync>,
+    pub config: Config,
 }
 
 impl TestContext {
@@ -777,6 +778,7 @@ impl TestContext {
             persons_writer,
             non_persons_reader,
             non_persons_writer,
+            config: config.clone(),
         }
     }
 
@@ -871,6 +873,7 @@ impl TestContext {
             self.persons_reader.clone(),
             team_id,
             distinct_ids,
+            &self.config,
         )
         .await
     }
