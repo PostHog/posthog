@@ -130,6 +130,17 @@ export function SharingModalContent({
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
+    const renderQueryUrl = insight?.query
+        ? combineUrl(siteUrl + '/render_query', {}, { query: insight.query }).url
+        : null
+    const renderQuerySnippet = renderQueryUrl
+        ? createRenderQuerySnippet({
+              renderQueryUrl,
+              iframeId: getRenderQueryIframeId(insightShortId),
+              cachedResults,
+          })
+        : null
+
     const resource = dashboardId ? 'dashboard' : insightShortId ? 'insight' : recordingId ? 'recording' : 'this'
     const hasEditAccess = userAccessLevel
         ? accessLevelSatisfied(resource as AccessControlResourceType, userAccessLevel, AccessControlLevel.Editor)
@@ -394,17 +405,62 @@ export function SharingModalContent({
                         tooltip={TEMPLATE_LINK_TOOLTIP}
                         piiWarning={TEMPLATE_LINK_PII_WARNING}
                     />
-                    {/* TODO: convert this to a proper textarea. Also it's too much to have the insight in the URL, implement a window.postMessage system, and display the full script tag here */}
-                    <TemplateLinkSection
-                        templateLink={`<iframe src="${combineUrl(siteUrl + '/render_query', {}, { query: insight.query, cachedResults: cachedResults }).url}}" width="100%" height="100%" />`}
-                        heading="Share as template with results in the URL"
-                        tooltip={TEMPLATE_LINK_TOOLTIP}
-                        piiWarning={TEMPLATE_LINK_PII_WARNING}
-                    />
+                    {renderQuerySnippet && (
+                        <TemplateLinkSection
+                            templateLink={renderQuerySnippet}
+                            heading="Share as template with cached results"
+                            tooltip="Use this snippet to embed the insight and send cached results via postMessage."
+                            piiWarning="This link shares the full insight, including all filters and the results, directly in the snippet. If any of these are sensitive, consider editing before sharing."
+                            copyButtonLabel="Copy snippet"
+                        />
+                    )}
                 </>
             )}
         </div>
     )
+}
+
+function getRenderQueryIframeId(insightShortId?: InsightShortId): string {
+    const suffix = (insightShortId || 'insight').replace(/[^a-zA-Z0-9_-]/g, '')
+    return `posthog-render-query-${suffix || 'embed'}`
+}
+
+function createRenderQuerySnippet({
+    renderQueryUrl,
+    iframeId,
+    cachedResults,
+}: {
+    renderQueryUrl: string
+    iframeId: string
+    cachedResults: AnyResponseType | Partial<QueryBasedInsightModel> | null | undefined
+}): string {
+    const serializedResults = escapeScriptJson(JSON.stringify(cachedResults ?? null, null, 2))
+
+    return `<iframe id="${iframeId}" src="${renderQueryUrl}" style="width: 100%; height: 600px; border: 0;" loading="lazy"></iframe>
+<script>
+  (function () {
+    const iframe = document.getElementById('${iframeId}')
+    if (!iframe) {
+      return
+    }
+    const payload = {
+      cachedResults: ${serializedResults}
+    }
+    const targetOrigin = new URL(${JSON.stringify(renderQueryUrl)}).origin
+    function send() {
+      if (!iframe.contentWindow) {
+        return
+      }
+      iframe.contentWindow.postMessage(payload, targetOrigin)
+    }
+    iframe.addEventListener('load', send)
+    send()
+  })()
+</script>`
+}
+
+function escapeScriptJson(value: string): string {
+    return value.replace(/</g, '\\u003C').replace(/>/g, '\\u003E').replace(/&/g, '\\u0026')
 }
 
 function DetailedResultsCheckbox({ insightShortId }: { insightShortId: InsightShortId }): JSX.Element | null {

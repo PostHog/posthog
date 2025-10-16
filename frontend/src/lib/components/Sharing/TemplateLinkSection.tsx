@@ -16,6 +16,7 @@ interface TemplateLinkSectionProps {
     heading?: string
     tooltip?: string
     piiWarning?: string
+    copyButtonLabel?: string
 }
 
 export function TemplateLinkSection({
@@ -25,8 +26,12 @@ export function TemplateLinkSection({
     heading,
     tooltip = 'Share this link to let others create a copy of this insight with the same configuration.',
     piiWarning = 'Be aware that you may be sharing sensitive data if contained in your event, property names or filters.',
+    copyButtonLabel = 'Copy link',
 }: TemplateLinkSectionProps): JSX.Element {
     const [copied, setCopied] = useState(false)
+
+    const isMultiline = templateLink.includes('\n')
+    const rows = Math.min(12, Math.max(3, templateLink.split('\n').length))
 
     const handleCopyLink = async (): Promise<void> => {
         try {
@@ -56,15 +61,25 @@ export function TemplateLinkSection({
                 </TitleWithIcon>
             )}
             {piiWarning && <p className="text-muted mb-1">{piiWarning}</p>}
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-start">
                 <div className="flex-1">
-                    <input
-                        type="text"
-                        value={templateLink}
-                        readOnly
-                        className="w-full px-3 py-2 text-sm border rounded bg-bg-light"
-                        onClick={(e) => (e.target as HTMLInputElement).select()}
-                    />
+                    {isMultiline ? (
+                        <textarea
+                            value={templateLink}
+                            readOnly
+                            rows={rows}
+                            className="w-full px-3 py-2 text-sm border rounded bg-bg-light font-mono"
+                            onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                        />
+                    ) : (
+                        <input
+                            type="text"
+                            value={templateLink}
+                            readOnly
+                            className="w-full px-3 py-2 text-sm border rounded bg-bg-light"
+                            onClick={(e) => (e.target as HTMLInputElement).select()}
+                        />
+                    )}
                 </div>
                 <LemonButton
                     type="secondary"
@@ -73,7 +88,7 @@ export function TemplateLinkSection({
                     }}
                     icon={<IconLink />}
                 >
-                    {copied ? 'Copied!' : 'Copy link'}
+                    {copied ? 'Copied!' : copyButtonLabel}
                 </LemonButton>
             </div>
 

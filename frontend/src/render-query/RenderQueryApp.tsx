@@ -1,6 +1,6 @@
 import './RenderQuery.scss'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 
@@ -36,9 +36,24 @@ const EMPTY_PAYLOAD: SanitizedPayload = { payload: {}, messages: [] }
 const SUPPORTED_KEYS = new Set(['query', 'cachedResults', 'cached_results', 'context', 'insight'])
 
 export function RenderQueryApp(): JSX.Element {
-    const [state] = useState<RenderQueryState>(() => initializeState())
+    const [state, setState] = useState<RenderQueryState>(() => initializeState())
 
     useThemedHtml(false)
+
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent): void => {
+            const sanitized = sanitizePayload(event.data, 'postMessage')
+            if (!hasSanitizedPayloadData(sanitized)) {
+                return
+            }
+            setState((previous) => applySanitizedPayload(previous, sanitized))
+        }
+
+        window.addEventListener('message', handleMessage)
+        return () => {
+            window.removeEventListener('message', handleMessage)
+        }
+    }, [setState])
 
     return (
         <div className="RenderQuery">
@@ -268,6 +283,10 @@ function extractFromFrameDataset(): SanitizedPayload {
         console.warn('PostHog render query: Unable to read iframe dataset.', error)
         return EMPTY_PAYLOAD
     }
+}
+
+function hasSanitizedPayloadData(sanitized: SanitizedPayload): boolean {
+    return Object.keys(sanitized.payload).length > 0 || sanitized.messages.length > 0
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
