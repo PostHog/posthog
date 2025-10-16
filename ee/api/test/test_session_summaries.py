@@ -314,26 +314,40 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_feature_enabled: Mock,
     ) -> None:
         """Test successful creation of individual session summaries"""
-        # Setup mocks
         mock_feature_enabled.return_value = True
         mock_find_sessions.return_value = (
             datetime(2024, 1, 1, 10, 0, 0),
             datetime(2024, 1, 1, 11, 0, 0),
         )
         mock_execute.return_value = {
-            "session_id": "session1",
-            "summary": "Test summary",
-            "key_moments": [],
+            "key_actions": None,
+            "segment_outcomes": None,
+            "segments": None,
+            "session_outcome": None,
         }
-
         # Make request
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
-        response = self.client.post(url, {"session_ids": ["session1", "session2"]}, format="json")
-
-        # Assertions
+        response = self.client.post(url, {"session_ids": ["session_1", "session_2"]}, format="json")
+        # Check the response - should return two summaries
         self.assertEqual(response.status_code, 200)
-        data: list[Any] = response.json()  # type: ignore[attr-defined]
-        self.assertEqual(len(data), 2)
+        data = response.json()
+        self.assertEqual(
+            data,
+            {
+                "session_1": {
+                    "key_actions": None,
+                    "segment_outcomes": None,
+                    "segments": None,
+                    "session_outcome": None,
+                },
+                "session_2": {
+                    "key_actions": None,
+                    "segment_outcomes": None,
+                    "segments": None,
+                    "session_outcome": None,
+                },
+            },
+        )
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
@@ -345,7 +359,6 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_feature_enabled: Mock,
     ) -> None:
         """Test that partial failures return only successful summaries"""
-        # Setup mocks
         mock_feature_enabled.return_value = True
         mock_find_sessions.return_value = (
             datetime(2024, 1, 1, 10, 0, 0),
@@ -354,11 +367,12 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         # Mock execute to succeed for first session, fail for second
         def mock_execute_side_effect(session_id: str, **kwargs: Any) -> dict[str, Any]:
-            if session_id == "session1":
+            if session_id == "session_1":
                 return {
-                    "session_id": session_id,
-                    "summary": "Test summary",
-                    "key_moments": [],
+                    "key_actions": None,
+                    "segment_outcomes": None,
+                    "segments": None,
+                    "session_outcome": None,
                 }
             raise Exception("Failed to summarize session")
 
@@ -366,9 +380,18 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         # Make request
         url = f"/api/environments/{self.team.id}/session_summaries/create_session_summaries_individually/"
-        response = self.client.post(url, {"session_ids": ["session1", "session2"]}, format="json")
-
-        # Assertions - should succeed with only one summary
+        response = self.client.post(url, {"session_ids": ["session_1", "session_2"]}, format="json")
+        # Check the response - should return one summary
         self.assertEqual(response.status_code, 200)
-        data: list[Any] = response.json()  # type: ignore[attr-defined]
-        self.assertEqual(len(data), 1)
+        data = response.json()
+        self.assertEqual(
+            data,
+            {
+                "session_1": {
+                    "key_actions": None,
+                    "segment_outcomes": None,
+                    "segments": None,
+                    "session_outcome": None,
+                }
+            },
+        )

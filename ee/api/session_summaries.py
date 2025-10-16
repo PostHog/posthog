@@ -1,7 +1,7 @@
 import os
 import asyncio
 from datetime import datetime
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 
@@ -184,7 +184,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         user_id: int,
         team: Team,
         extra_summary_context: ExtraSummaryContext | None = None,
-    ) -> list[SessionSummarySerializer]:
+    ) -> dict[str, dict[str, Any]]:
         tasks = {}
         async with asyncio.TaskGroup() as tg:
             for session_id in session_ids:
@@ -193,9 +193,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                         session_id=session_id, user_id=user_id, team=team, extra_summary_context=extra_summary_context
                     )
                 )
-        summaries: list[SessionSummarySerializer] = []
+        summaries: dict[str, dict[str, Any]] = {}
         for session_id, task in tasks.items():
-            res = task.result()
+            res: SessionSummarySerializer | Exception = task.result()
             if isinstance(res, Exception):
                 logger.exception(
                     f"Failed to generate individual session summary for session {session_id} from team {team.pk} by user {user_id}: {res}",
@@ -204,7 +204,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 )
             else:
                 # Return only successful summaries
-                summaries.append(res)
+                summaries[session_id] = res.data
         return summaries
 
     @extend_schema(
@@ -224,7 +224,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 team=self.team,
                 extra_summary_context=extra_summary_context,
             )
-            return Response([summary.data for summary in summaries], status=status.HTTP_200_OK)
+            return Response(summaries, status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(
                 f"Failed to generate individual session summaries for sessions {logging_session_ids(session_ids)} from team {self.team.pk} by user {user.pk}: {err}",
