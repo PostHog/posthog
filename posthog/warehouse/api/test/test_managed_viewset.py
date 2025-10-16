@@ -127,7 +127,7 @@ class TestManagedViewSetAPI(APIBaseTest):
             self.assertTrue(view.is_materialized)
             self.assertIsNotNone(view.query)
             self.assertIsNotNone(view.columns)
-            self.assertIn("HogQLQuery", view.query.get("kind", ""))
+            self.assertIn("HogQLQuery", view.query.get("kind", ""))  # type: ignore
 
         # TODO: There's a bug here, these shouldn't include the weird `no_property` bit
         # Will fix in a follow-up, not related to the changes that introduced this test
@@ -181,4 +181,4 @@ class TestManagedViewSetAPI(APIBaseTest):
         saved_query.refresh_from_db()
         self.assertNotEqual(saved_query.query, old_query)
         self.assertNotEqual(saved_query.columns, old_columns)
-        self.assertIn("HogQLQuery", saved_query.query.get("kind", ""))
+        self.assertIn("HogQLQuery", saved_query.query.get("kind", ""))  # type: ignore
