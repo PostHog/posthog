@@ -6,7 +6,7 @@
             "target_app": "notebooks",
             "create_backend_dir": true,
             "product_already_exists": true,
-            "status": "completed",
+            "status": "todo",
             "priority": 0,
             "notes": "Completed with soft reset technique, PR #39713"
         },
@@ -16,7 +16,7 @@
             "target_app": "error_tracking",
             "create_backend_dir": false,
             "product_already_exists": true,
-            "status": "completed",
+            "status": "todo",
             "notes": "Already migrated"
         },
         {

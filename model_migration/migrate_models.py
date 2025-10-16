@@ -14,6 +14,13 @@ from pathlib import Path
 
 import libcst as cst
 
+from model_migration.import_patterns import (
+    FileSpecificImport,
+    ImportTargetResolver,
+    MigrationContext,
+    PackageLevelImport,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,164 +45,76 @@ class ImportTransformer(cst.CSTTransformer):
         self.changed = False
         self.imports_to_add = []  # Store additional imports to add
 
+        # Set up pattern matchers and context
+        self.context = MigrationContext(
+            model_names=model_names,
+            import_base_path=import_base_path,
+            module_name=module_name,
+            target_app=target_app,
+            merge_models=merge_models,
+            filename_to_model_mapping=filename_to_model_mapping,
+        )
+        self.patterns = [
+            FileSpecificImport(),  # Try file-specific first (more specific)
+            PackageLevelImport(),  # Then package-level
+        ]
+        self.resolver = ImportTargetResolver(self.context)
+
     def leave_ImportFrom(
         self, original_node: cst.ImportFrom, updated_node: cst.ImportFrom
     ) -> cst.ImportFrom | cst.RemovalSentinel | cst.FlattenSentinel:
-        """Transform ImportFrom statements"""
+        """Transform ImportFrom statements using pattern matching"""
 
-        # Check if this is a posthog.models import
-        if self._is_posthog_models_import(updated_node):
-            return self._transform_posthog_models_import(updated_node)
+        # Try to match against our patterns
+        for pattern in self.patterns:
+            if pattern.matches(updated_node, self.context):
+                return self._transform_matched_import(updated_node, pattern)
 
-        # Check if this is a direct module import like posthog.models.experiment
-        if self._is_direct_module_import(updated_node):
-            return self._transform_direct_module_import(updated_node)
-
+        # No match - leave unchanged
         return updated_node
 
-    def _is_posthog_models_import(self, node: cst.ImportFrom) -> bool:
-        """Check if this is 'from <import_base_path> import ...'"""
-        if not node.module:
-            return False
+    def _transform_matched_import(
+        self, node: cst.ImportFrom, pattern: PackageLevelImport | FileSpecificImport
+    ) -> cst.ImportFrom | cst.RemovalSentinel | cst.FlattenSentinel:
+        """Transform an import that matched a pattern"""
+        # Extract the import parts
+        parts = pattern.extract_parts(node, self.context)
 
-        module_str = self._get_module_string(node.module)
-        return module_str == self.import_base_path
-
-    def _is_direct_module_import(self, node: cst.ImportFrom) -> bool:
-        """Check if this is 'from <import_base_path>.module import ...' or similar"""
-        if not node.module:
-            return False
-
-        module_str = self._get_module_string(node.module)
-
-        # Handle both cases:
-        # 1. Direct file: 'from posthog.models.experiment import ...' (module_name = "experiment")
-        # 2. Subdirectory: 'from posthog.warehouse.models.table import ...' (module_name = "table")
-        # 3. Sub-module: 'from posthog.models.error_tracking.sql import ...' (module_name = "error_tracking/error_tracking")
-        if "/" in self.module_name:
-            # For subdirectory case, check against subdirectory name and sub-modules
-            subdirectory_name = self.module_name.split("/")[0]
-            return module_str == f"{self.import_base_path}.{subdirectory_name}" or module_str.startswith(
-                f"{self.import_base_path}.{subdirectory_name}."
-            )
-        else:
-            # For direct file case, check against module name
-            return module_str == f"{self.import_base_path}.{self.module_name}"
-
-    def _get_module_string(self, module: cst.CSTNode) -> str:
-        """Convert module CST node to string"""
-        if isinstance(module, cst.Name):
-            return module.value
-        elif isinstance(module, cst.Attribute):
-            return f"{self._get_module_string(module.value)}.{module.attr.value}"
-        else:
-            # For other node types, generate the actual code
-            return cst.Module(body=[cst.SimpleStatementLine(body=[cst.Expr(value=module)])]).code.strip()
-
-    def _transform_posthog_models_import(self, node: cst.ImportFrom) -> cst.ImportFrom | cst.FlattenSentinel:
-        """Transform 'from posthog.models import ...' statements"""
+        # Handle star imports
         if not node.names or isinstance(node.names, cst.ImportStar):
             return node
 
-        # Extract import names
-        current_imports = []
-        for name in node.names:
-            if isinstance(name, cst.ImportAlias):
-                current_imports.append(name.name.value)
+        # Separate moved models from remaining items
+        moved_items = [name for name in parts.imported_names if name in self.model_names]
+        remaining_items = [name for name in parts.imported_names if name not in self.model_names]
 
-        # Separate moved models from remaining models
-        remaining_imports = [name for name in current_imports if name not in self.model_names]
-        moved_imports = [name for name in current_imports if name in self.model_names]
-
-        # In no-merge mode, we need to transform all imports (even non-models)
-        # In merge mode, only transform if we have model imports
-        if not moved_imports and (self.merge_models or not remaining_imports):
+        # Check if we need to transform anything
+        if not moved_items and (self.merge_models or not remaining_items):
             return node  # No changes needed
 
         self.changed = True
 
-        if self.merge_models:
-            # Merge mode: all models go to products.<app>.backend.models
-            moved_module = cst.parse_expression(f"products.{self.target_app}.backend.models")
-            moved_names = [cst.ImportAlias(name=cst.Name(name)) for name in moved_imports]
-            moved_stmt = cst.ImportFrom(module=moved_module, names=moved_names)
-            self.imports_to_add.append(moved_stmt)
+        # Transform each import name individually
+        all_items_to_transform = moved_items if self.merge_models else (moved_items + remaining_items)
+
+        for import_name in all_items_to_transform:
+            # Resolve the target path for this import
+            target_module_path = self.resolver.resolve_target(parts, import_name)
+
+            # Create new import statement
+            target_module = cst.parse_expression(target_module_path)
+            import_alias = cst.ImportAlias(name=cst.Name(import_name))
+            new_import = cst.ImportFrom(module=target_module, names=[import_alias])
+            self.imports_to_add.append(new_import)
+
+        # Handle remaining imports in merge mode
+        if self.merge_models and remaining_items:
+            # Keep original import with remaining items
+            remaining_aliases = [cst.ImportAlias(name=cst.Name(name)) for name in remaining_items]
+            return node.with_changes(names=remaining_aliases)
         else:
-            # No-merge mode: each import (model or not) comes from its own file
-            import re
-
-            # Process all imports (both models and non-models) for no-merge mode
-            all_imports = moved_imports + remaining_imports
-            for import_name in all_imports:
-                # Look up the actual filename from the mapping
-                if import_name in self.filename_to_model_mapping:
-                    filename = self.filename_to_model_mapping[import_name]
-                else:
-                    # Fallback: convert import name to snake_case for filename
-                    filename = re.sub(r"(?<!^)(?=[A-Z])", "_", import_name).lower()
-
-                moved_module = cst.parse_expression(f"products.{self.target_app}.backend.models.{filename}")
-                moved_names = [cst.ImportAlias(name=cst.Name(import_name))]
-                moved_stmt = cst.ImportFrom(module=moved_module, names=moved_names)
-                self.imports_to_add.append(moved_stmt)
-
-        if self.merge_models and remaining_imports:
-            # Merge mode only: Keep original import with remaining models
-            remaining_names = [cst.ImportAlias(name=cst.Name(name)) for name in remaining_imports]
-            return node.with_changes(names=remaining_names)
-        else:
-            # No-merge mode or no remaining imports: Remove this import entirely
+            # No-merge mode or no remaining items: Remove this import
             return cst.RemovalSentinel.REMOVE
-
-    def _transform_direct_module_import(self, node: cst.ImportFrom) -> cst.ImportFrom:
-        """Transform 'from <import_base_path>.module import ...' statements"""
-        self.changed = True
-
-        module_str = self._get_module_string(node.module)
-
-        # In no-merge mode, preserve the file-specific import path
-        # Example: posthog.warehouse.models.external_data_schema -> products.data_warehouse.backend.models.external_data_schema
-        if not self.merge_models:
-            # Extract the file-specific part after the base path
-            if "/" in self.module_name:
-                subdirectory_name = self.module_name.split("/")[0]
-                base_path = f"{self.import_base_path}.{subdirectory_name}"
-            else:
-                base_path = f"{self.import_base_path}.{self.module_name}"
-
-            if module_str.startswith(base_path + "."):
-                # Get the file-specific part (e.g., ".external_data_schema")
-                file_part = module_str[len(base_path) :]
-                new_module_str = f"products.{self.target_app}.backend.models{file_part}"
-            else:
-                # Fallback for exact match
-                new_module_str = f"products.{self.target_app}.backend.models"
-        else:
-            # Merge mode: all imports go to products.<app>.backend.models
-            # Handle sub-modules: preserve the sub-module part
-            if "/" in self.module_name:
-                subdirectory_name = self.module_name.split("/")[0]
-                base_path = f"{self.import_base_path}.{subdirectory_name}"
-
-                if module_str.startswith(base_path + "."):
-                    sub_module = module_str[len(base_path) :]  # Gets ".error_tracking", ".sql", or ".hogvm_stl"
-
-                    # Check if this is the main model file (same name as subdirectory)
-                    if sub_module == f".{subdirectory_name}":
-                        # Main model file - goes to models.py
-                        new_module_str = f"products.{self.target_app}.backend.models"
-                    else:
-                        # Real sub-module like .sql or .hogvm_stl - preserve the name
-                        new_module_str = f"products.{self.target_app}.backend{sub_module}"
-                else:
-                    # Just the base subdirectory import
-                    new_module_str = f"products.{self.target_app}.backend.models"
-            else:
-                # Direct file case
-                new_module_str = f"products.{self.target_app}.backend.models"
-
-        new_module = cst.parse_expression(new_module_str)
-        return node.with_changes(module=new_module)
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
         """Add collected imports at the end of import section"""
