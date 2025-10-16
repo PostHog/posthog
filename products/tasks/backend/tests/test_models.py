@@ -96,7 +96,6 @@ class TestTaskWorkflow(TestCase):
             description="Description 1",
             origin_product=Task.OriginProduct.USER_CREATED,
             workflow=self.workflow,
-            current_stage=self.stage1,
         )
         task2 = Task.objects.create(
             team=self.team,
@@ -104,17 +103,22 @@ class TestTaskWorkflow(TestCase):
             description="Description 2",
             origin_product=Task.OriginProduct.USER_CREATED,
             workflow=self.workflow,
-            current_stage=self.stage2,
         )
+
+        run1 = TaskRun.objects.create(task=task1, team=self.team, current_stage=self.stage1)
+        run2 = TaskRun.objects.create(task=task2, team=self.team, current_stage=self.stage2)
 
         migrated_count = self.workflow.migrate_tasks_to_workflow(target_workflow)
 
         self.assertEqual(migrated_count, 2)
         task1.refresh_from_db()
         task2.refresh_from_db()
+        run1.refresh_from_db()
+        run2.refresh_from_db()
         self.assertEqual(task1.workflow, target_workflow)
-        self.assertEqual(task1.current_stage, target_stage)
         self.assertEqual(task2.workflow, target_workflow)
+        self.assertEqual(run1.current_stage, target_stage)
+        self.assertEqual(run2.current_stage, target_stage)
 
     def test_migrate_tasks_same_workflow_returns_zero(self):
         result = self.workflow.migrate_tasks_to_workflow(self.workflow)
@@ -135,7 +139,6 @@ class TestTaskWorkflow(TestCase):
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
             workflow=self.workflow,
-            current_stage=self.stage1,
         )
         task2 = Task.objects.create(
             team=self.team,
@@ -143,17 +146,21 @@ class TestTaskWorkflow(TestCase):
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
             workflow=self.workflow,
-            current_stage=self.stage2,
         )
+
+        run1 = TaskRun.objects.create(task=task1, team=self.team, current_stage=self.stage1)
+        run2 = TaskRun.objects.create(task=task2, team=self.team, current_stage=self.stage2)
 
         self.workflow.unassign_tasks()
 
         task1.refresh_from_db()
         task2.refresh_from_db()
+        run1.refresh_from_db()
+        run2.refresh_from_db()
         self.assertIsNone(task1.workflow)
-        self.assertIsNone(task1.current_stage)
         self.assertIsNone(task2.workflow)
-        self.assertIsNone(task2.current_stage)
+        self.assertIsNone(run1.current_stage)
+        self.assertIsNone(run2.current_stage)
 
     def test_deactivate_safely(self):
         default_workflow = TaskWorkflow.objects.create(
@@ -162,7 +169,7 @@ class TestTaskWorkflow(TestCase):
             is_default=True,
         )
 
-        WorkflowStage.objects.create(
+        default_stage = WorkflowStage.objects.create(
             workflow=default_workflow,
             name="Default Stage",
             key="default",
@@ -175,8 +182,9 @@ class TestTaskWorkflow(TestCase):
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
             workflow=self.workflow,
-            current_stage=self.stage1,
         )
+
+        run = TaskRun.objects.create(task=task, team=self.team, current_stage=self.stage1)
 
         self.workflow.deactivate_safely()
 
@@ -184,7 +192,9 @@ class TestTaskWorkflow(TestCase):
         self.assertFalse(self.workflow.is_active)
 
         task.refresh_from_db()
+        run.refresh_from_db()
         self.assertEqual(task.workflow, default_workflow)
+        self.assertEqual(run.current_stage, default_stage)
 
     def test_deactivate_default_workflow_raises_error(self):
         self.workflow.is_default = True
@@ -334,15 +344,16 @@ class TestWorkflowStage(TestCase):
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
             workflow=self.workflow,
-            current_stage=self.stage1,
         )
+
+        run = TaskRun.objects.create(task=task, team=self.team, current_stage=self.stage1)
 
         self.stage1.fallback_stage = self.stage2
         self.stage1.save()
         self.stage1.delete()
 
-        task.refresh_from_db()
-        self.assertEqual(task.current_stage, self.stage2)
+        run.refresh_from_db()
+        self.assertEqual(run.current_stage, self.stage2)
 
     def test_delete_without_fallback(self):
         task = Task.objects.create(
@@ -351,13 +362,14 @@ class TestWorkflowStage(TestCase):
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
             workflow=self.workflow,
-            current_stage=self.stage1,
         )
+
+        run = TaskRun.objects.create(task=task, team=self.team, current_stage=self.stage1)
 
         self.stage1.delete()
 
-        task.refresh_from_db()
-        self.assertEqual(task.current_stage, self.stage2)
+        run.refresh_from_db()
+        self.assertEqual(run.current_stage, self.stage2)
 
     def test_delete_last_stage(self):
         self.stage2.delete()
@@ -367,14 +379,14 @@ class TestWorkflowStage(TestCase):
             description="Description",
             origin_product=Task.OriginProduct.USER_CREATED,
             workflow=self.workflow,
-            current_stage=self.stage1,
         )
+
+        run = TaskRun.objects.create(task=task, team=self.team, current_stage=self.stage1)
 
         self.stage1.delete()
 
-        task.refresh_from_db()
-        self.assertIsNone(task.current_stage)
-        self.assertIsNone(task.workflow)
+        run.refresh_from_db()
+        self.assertIsNone(run.current_stage)
 
     @patch("products.tasks.backend.models.get_agent_by_id")
     def test_agent_definition_property(self, mock_get_agent):
@@ -440,60 +452,6 @@ class TestTask(TestCase):
         self.assertEqual(task.description, "Test Description")
         self.assertEqual(task.origin_product, origin_product)
         self.assertEqual(task.position, 0)
-
-    def test_str_representation_with_workflow(self):
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            workflow=self.workflow,
-            current_stage=self.stage1,
-        )
-        self.assertEqual(str(task), "Test Task (backlog)")
-
-    def test_str_representation_with_auto_assigned_workflow(self):
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-        # Task gets auto-assigned to default workflow and first stage
-        self.assertEqual(str(task), "Test Task (backlog)")
-
-    def test_save_auto_assigns_first_stage(self):
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            workflow=self.workflow,
-        )
-        self.assertEqual(task.current_stage, self.stage1)
-
-    def test_save_clears_mismatched_stage(self):
-        other_workflow = TaskWorkflow.objects.create(
-            team=self.team,
-            name="Other Workflow",
-        )
-        other_stage = WorkflowStage.objects.create(
-            workflow=other_workflow,
-            name="Other Stage",
-            key="other",
-            position=0,
-        )
-
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            workflow=self.workflow,
-            current_stage=other_stage,
-        )
-
-        self.assertIsNone(task.current_stage)
 
     def test_repository_list_with_config(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={})
@@ -636,23 +594,6 @@ class TestTask(TestCase):
         )
 
         self.assertIsNone(task.effective_workflow)
-
-    def test_get_next_stage(self):
-        task = Task.objects.create(
-            team=self.team,
-            title="Test Task",
-            description="Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            workflow=self.workflow,
-            current_stage=self.stage1,
-        )
-
-        self.assertEqual(task.get_next_stage(), self.stage2)
-
-        task.current_stage = self.stage2
-        task.save()
-
-        self.assertIsNone(task.get_next_stage())
 
     def test_no_workflow_gets_default_workflow(self):
         task = Task.objects.create(
@@ -895,16 +836,10 @@ class TestTaskRun(TestCase):
             task=self.task,
             team=self.team,
             status=status,
-            current_step="Test Step",
-            total_steps=10,
-            completed_steps=5,
         )
         self.assertEqual(run.task, self.task)
         self.assertEqual(run.team, self.team)
         self.assertEqual(run.status, status)
-        self.assertEqual(run.current_step, "Test Step")
-        self.assertEqual(run.total_steps, 10)
-        self.assertEqual(run.completed_steps, 5)
 
     def test_str_representation(self):
         run = TaskRun.objects.create(
@@ -912,7 +847,7 @@ class TestTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
         )
-        self.assertEqual(str(run), "Progress for Test Task - In Progress")
+        self.assertEqual(str(run), "Run for Test Task - In Progress")
 
     def test_append_log(self):
         run = TaskRun.objects.create(
@@ -927,19 +862,6 @@ class TestTaskRun(TestCase):
         run.append_log("Second line")
         run.refresh_from_db()
         self.assertEqual(run.log, "First line\nSecond line")
-
-    def test_update_progress(self):
-        run = TaskRun.objects.create(
-            task=self.task,
-            team=self.team,
-        )
-
-        run.update_progress(step="New Step", completed_steps=3, total_steps=10)
-
-        run.refresh_from_db()
-        self.assertEqual(run.current_step, "New Step")
-        self.assertEqual(run.completed_steps, 3)
-        self.assertEqual(run.total_steps, 10)
 
     def test_mark_completed(self):
         run = TaskRun.objects.create(
@@ -969,36 +891,6 @@ class TestTaskRun(TestCase):
         self.assertEqual(run.status, TaskRun.Status.FAILED)
         self.assertEqual(run.error_message, error_msg)
         self.assertIsNotNone(run.completed_at)
-
-    @parameterized.expand(
-        [
-            (0, 10, 0),
-            (5, 10, 50),
-            (15, 10, 100),
-            (5, None, 0),
-        ]
-    )
-    def test_progress_percentage(self, completed, total, expected):
-        run = TaskRun.objects.create(
-            task=self.task,
-            team=self.team,
-            completed_steps=completed,
-            total_steps=total if total is not None else 0,
-        )
-        self.assertEqual(run.progress_percentage, expected)
-
-    def test_workflow_metadata(self):
-        run = TaskRun.objects.create(
-            task=self.task,
-            team=self.team,
-            workflow_id="workflow-123",
-            workflow_run_id="run-456",
-            activity_id="activity-789",
-        )
-
-        self.assertEqual(run.workflow_id, "workflow-123")
-        self.assertEqual(run.workflow_run_id, "run-456")
-        self.assertEqual(run.activity_id, "activity-789")
 
     def test_output_jsonfield(self):
         run = TaskRun.objects.create(
