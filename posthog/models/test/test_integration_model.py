@@ -5,21 +5,27 @@ from typing import Optional
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, override_settings
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
     DatabricksIntegration,
     DatabricksIntegrationError,
+    EmailIntegration,
     GitHubIntegration,
     GoogleCloudIntegration,
     Integration,
     OauthIntegration,
     SlackIntegration,
 )
+from posthog.models.team.team import Team
+
+from products.workflows.backend.providers.constants import UNSUPPORTED_EMAIL_DOMAINS
 
 
 def get_db_field_value(field, model_id):
@@ -601,3 +607,28 @@ class TestDatabricksIntegrationModel(BaseTest):
                 client_secret="client_secret",
                 created_by=self.user,
             )
+
+
+class TestEmailIntegrationDomainValidation(BaseTest):
+    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
+    def test_duplicate_domain_in_another_team(self):
+        # Create an integration with a domain in another team
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        config = {"email": "user@example.com", "name": "Test User"}
+        EmailIntegration.create_native_integration(config, team_id=other_team.id, created_by=self.user)
+
+        # Attempt to create the same domain in this team should raise ValidationError
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+        assert "already exists in another project" in str(exc.value)
+
+    @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
+    def test_unsupported_email_domain(self):
+        # Use a domain from the unsupported list
+        unsupported_domain = next(iter(UNSUPPORTED_EMAIL_DOMAINS))
+        config = {"email": f"user@{unsupported_domain}", "name": "Test User"}
+
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+        assert unsupported_domain in str(exc.value)
+        assert "not supported" in str(exc.value)

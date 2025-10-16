@@ -35,6 +35,7 @@ from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
 
 from products.workflows.backend.providers import MailjetProvider, SESProvider, TwilioProvider
+from products.workflows.backend.providers.constants import UNSUPPORTED_EMAIL_DOMAINS
 
 logger = structlog.get_logger(__name__)
 
@@ -1149,6 +1150,15 @@ class EmailIntegration:
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
         provider: str = config.get("provider", "mailjet")  # Default to mailjet for backward compatibility
+
+        if domain in UNSUPPORTED_EMAIL_DOMAINS:
+            raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
+
+        # Check if any other integration already exists in a different team with the same domain
+        if Integration.objects.filter(kind="email", config__domain=domain).exclude(team_id=team_id).exists():
+            raise ValidationError(
+                f"An email integration with domain {domain} already exists in another project. Try a different domain or contact support if you believe this is a mistake."
+            )
 
         # Create domain in the appropriate provider
         if provider == "ses":
