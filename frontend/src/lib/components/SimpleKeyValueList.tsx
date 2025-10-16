@@ -73,7 +73,7 @@ export function SimpleKeyValueList({
                         {isComplexStructure ? (
                             <JSONViewer src={value} collapsed={true} />
                         ) : (
-                            <pre className="text-primary-alt break-all mb-0">{value}</pre>
+                            <pre className="text-primary-alt break-all mb-0">{String(value)}</pre>
                         )}
                     </div>
                 )
