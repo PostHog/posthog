@@ -205,9 +205,8 @@ export const FEATURE_FLAGS = {
     WEB_EXPERIMENTS: 'web-experiments', // owner: @team-feature-success
     ENVIRONMENTS: 'environments', // owner: #team-platform-features
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
-    MESSAGING: 'messaging', // owner @haven #team-messaging
-    MESSAGING_EARLY_ACCESS: 'messaging-product', // owner @haven #team-messaging
-    MESSAGING_SES: 'messaging-ses', // owner #team-messaging
+    WORKFLOWS: 'messaging', // owner @haven #team-workflows
+    MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen-posthog #team-platform-features
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
@@ -217,7 +216,7 @@ export const FEATURE_FLAGS = {
     REPLAY_GROUPS_FILTERS: 'replay-groups-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
-    CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-messaging-cdp
+    CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-workflows-cdp
     BATCH_EXPORT_NEW_METRICS: 'batch-export-new-metrics', // owner: #team-batch-exports
     BATCH_EXPORT_NEW_LOGS: 'batch-export-new-logs', // owner: #team-batch-exports
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: @robbie-c #team-web-analytics
@@ -264,14 +263,15 @@ export const FEATURE_FLAGS = {
     LINKS: 'links', // owner: @marconlp #team-link
     GAME_CENTER: 'game-center', // owner: everybody
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
-    LOGS: 'logs', // owner: @david @frank @olly @ross
+    LOGS: 'logs', // owner: #team-logs
+    LOGS_PRE_EARLY_ACCESS: 'logs-internal', // owner: #team-logs
     CSP_REPORTING: 'mexicspo', // owner @pauldambra @lricoy @robbiec
     LLM_OBSERVABILITY_PLAYGROUND: 'llm-observability-playground', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS: 'llm-analytics-evaluations', // owner: #team-llm-analytics
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
-    CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-messaging-cdp
+    CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-workflows-cdp
     PERSON_READ_TEST_FLAG: 'person-read-test-flag', // owner: @nickbest - #team-ingestion
-    CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-messaging-cdp
+    CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-workflows-cdp
     ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-warehouse
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay
@@ -285,8 +285,9 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_AI_SUMMARY: 'experiments-ai-summary', // owner: @rodrigoi #team-experiments
     WEB_ANALYTICS_API: 'web-analytics-api', // owner: #team-web-analytics
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
-    FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dylan #team-feature-flags
-    FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dylan #team-feature-flags
+    FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dmarticus #team-feature-flags
+    FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
+    DEFAULT_EVALUATION_ENVIRONMENTS: 'default-evaluation-environments', // owner: @dmarticus #team-feature-flags
     PATH_CLEANING_FILTER_TABLE_UI: 'path-cleaning-filter-table-ui', // owner: @lricoy #team-web-analytics
     REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-warehouse
@@ -297,13 +298,12 @@ export const FEATURE_FLAGS = {
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-max-ai
     TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
     EXPERIMENTS_RATIO_METRIC: 'experiments-ratio-metric', // owner: @andehen #team-experiments
-    CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-messaging
+    CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-workflows
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
     REPLAY_EXPORT_FULL_VIDEO: 'replay-export-full-video', // owner: @veryayskiy #team-replay
     PLATFORM_PAYGATE_CTA: 'platform-paygate-cta', // owner: @a-lider #team-platform-features
     SWITCH_SUBSCRIPTION_PLAN: 'switch-subscription-plan', // owner: @a-lider #team-platform-features
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-llm-analytics #team-max-ai
-    LLM_ANALYTICS_TRACES_QUERY_V2: 'llma-traces-query-v2', // owner: #team-llm-analytics
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-max-ai
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
@@ -321,6 +321,7 @@ export const FEATURE_FLAGS = {
     TARGETED_PRODUCT_UPSELL: 'targeted-product-upsell', // owner: @raquelmsmith
     COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
     EXPERIMENTS_HIDE_STOP_BUTTON: 'experiments-hide-stop-button', // owner: @jurajmajerik #team-experiments
+    REPLAY_CLIENT_SIDE_DECOMPRESSION: 'replay-client-side-decompression', // owner: @pauldambra #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -341,7 +342,7 @@ export const PRODUCT_VISUAL_ORDER = {
     sqlEditor: 135,
     dataPipeline: 140,
     // alphas
-    messaging: 300,
+    workflows: 300,
     heatmaps: 310,
     links: 320,
     logs: 330,

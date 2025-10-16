@@ -228,7 +228,7 @@
   
   SELECT session_id, $entry_current_url 
   FROM sessions 
-  WHERE equals(sessions.$entry_current_url, 'https://example.com/1') 
+  WHERE and(equals(sessions.$entry_current_url, 'https://example.com/1'), 1) 
   LIMIT 100
   '''
 # ---
@@ -237,7 +237,7 @@
   
   SELECT session_id, $entry_current_url 
   FROM sessions 
-  WHERE equals(sessions.$entry_current_url, 'https://example.com/1') 
+  WHERE and(equals(sessions.$entry_current_url, 'https://example.com/1'), 1) 
   LIMIT 100
   '''
 # ---

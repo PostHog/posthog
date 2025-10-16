@@ -23,11 +23,13 @@ class Product(StrEnum):
     FEATURE_FLAGS = "feature_flags"
     MAX_AI = "max_ai"
     MESSAGING = "messaging"
+    WORKFLOWS = "workflows"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     SESSION_SUMMARY = "session_summary"
     WAREHOUSE = "warehouse"
     EXPERIMENTS = "experiments"
+    SDK_DOCTOR = "sdk_doctor"
 
 
 class Feature(StrEnum):

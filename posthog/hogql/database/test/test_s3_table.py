@@ -232,28 +232,32 @@ class TestS3Table(BaseTest):
             )
 
     def test_s3_build_function_call_without_context(self):
-        res = build_function_call("http://url.com", DataWarehouseTable.TableFormat.Parquet, "key", "secret", None, None)
+        res = build_function_call(
+            "http://url.com", DataWarehouseTable.TableFormat.Parquet, None, "key", "secret", None, None
+        )
         assert res == "s3('http://url.com', 'key', 'secret', 'Parquet')"
 
     def test_s3_build_function_call_without_context_with_structure(self):
         res = build_function_call(
-            "http://url.com", DataWarehouseTable.TableFormat.Parquet, "key", "secret", "some structure", None
+            "http://url.com", DataWarehouseTable.TableFormat.Parquet, None, "key", "secret", "some structure", None
         )
         assert res == "s3('http://url.com', 'key', 'secret', 'Parquet', 'some structure')"
 
     def test_s3_build_function_call_without_context_and_delta_format(self):
-        res = build_function_call("http://url.com", DataWarehouseTable.TableFormat.Delta, "key", "secret", None, None)
+        res = build_function_call(
+            "http://url.com", DataWarehouseTable.TableFormat.Delta, None, "key", "secret", None, None
+        )
         assert res == "deltaLake('http://url.com', 'key', 'secret')"
 
     def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format(self):
         res = build_function_call(
-            "http://url.com/folder", DataWarehouseTable.TableFormat.DeltaS3Wrapper, "key", "secret", None, None
+            "http://url.com/folder", DataWarehouseTable.TableFormat.DeltaS3Wrapper, None, "key", "secret", None, None
         )
         assert res == "s3('http://url.com/folder__query/**.parquet', 'key', 'secret', 'Parquet')"
 
     def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format_with_slash(self):
         res = build_function_call(
-            "http://url.com/folder/", DataWarehouseTable.TableFormat.DeltaS3Wrapper, "key", "secret", None, None
+            "http://url.com/folder/", DataWarehouseTable.TableFormat.DeltaS3Wrapper, None, "key", "secret", None, None
         )
         assert res == "s3('http://url.com/folder__query/**.parquet', 'key', 'secret', 'Parquet')"
 
@@ -261,6 +265,7 @@ class TestS3Table(BaseTest):
         res = build_function_call(
             "http://url.com/folder",
             DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            None,
             "key",
             "secret",
             "some structure",
@@ -270,7 +275,7 @@ class TestS3Table(BaseTest):
 
     def test_s3_build_function_call_without_context_and_delta_format_and_with_structure(self):
         res = build_function_call(
-            "http://url.com", DataWarehouseTable.TableFormat.Delta, "key", "secret", "some structure", None
+            "http://url.com", DataWarehouseTable.TableFormat.Delta, None, "key", "secret", "some structure", None
         )
         assert res == "deltaLake('http://url.com', 'key', 'secret', 'some structure')"
 
@@ -278,6 +283,7 @@ class TestS3Table(BaseTest):
         res = build_function_call(
             "https://tomposthogtest.blob.core.windows.net/somecontainer/path/to/file.parquet",
             DataWarehouseTable.TableFormat.Parquet,
+            None,
             "tomposthogtest",
             "blah",
             "some structure",
@@ -293,6 +299,7 @@ class TestS3Table(BaseTest):
         res = build_function_call(
             "https://tomposthogtest.blob.core.windows.net/somecontainer/path/to/file.parquet",
             DataWarehouseTable.TableFormat.Parquet,
+            None,
             "tomposthogtest",
             "blah",
             None,
@@ -310,6 +317,7 @@ class TestS3Table(BaseTest):
         res = build_function_call(
             "https://tomposthogtest.blob.core.windows.net/somecontainer/path/to/file.parquet",
             DataWarehouseTable.TableFormat.Parquet,
+            None,
             "tomposthogtest",
             "blah",
             None,
@@ -323,6 +331,45 @@ class TestS3Table(BaseTest):
 
     def test_s3_build_function_call_with_large_table(self):
         res = build_function_call(
-            "http://url.com", DataWarehouseTable.TableFormat.Parquet, "key", "secret", "some structure", None, 4000.0
+            "http://url.com",
+            DataWarehouseTable.TableFormat.Parquet,
+            None,
+            "key",
+            "secret",
+            "some structure",
+            None,
+            4000.0,
         )
         assert res == "s3Cluster('posthog', 'http://url.com', 'key', 'secret', 'Parquet', 'some structure')"
+
+    def test_s3_build_function_call_with_queryable_folder(self):
+        res = build_function_call(
+            "http://url.com/path/to/table_name",
+            DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            "table_name__query_12345",
+            "key",
+            "secret",
+            "some structure",
+            None,
+            10,
+        )
+        assert (
+            res
+            == "s3('http://url.com/path/to/table_name__query_12345/**.parquet', 'key', 'secret', 'Parquet', 'some structure')"
+        )
+
+    def test_s3_build_function_call_with_queryable_folder_and_cluster(self):
+        res = build_function_call(
+            "http://url.com/path/to/table_name",
+            DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            "table_name__query_12345",
+            "key",
+            "secret",
+            "some structure",
+            None,
+            4000,
+        )
+        assert (
+            res
+            == "s3Cluster('posthog', 'http://url.com/path/to/table_name__query_12345/**.parquet', 'key', 'secret', 'Parquet', 'some structure')"
+        )

@@ -38,8 +38,6 @@ class TaxonomyAgentState(BaseStateWithIntermediateSteps, Generic[OutputType]):
     The messages with tool calls to collect tool progress.
     """
 
-    messages: Sequence[AssistantMessageUnion] = Field(default=[])
-
     iteration_count: int = Field(default=0)
     """
     The number of iterations the taxonomy agent has gone through.

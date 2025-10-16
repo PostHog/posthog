@@ -1,5 +1,5 @@
 from .cohort import cohort
-from .config import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS, SURVEY_FUNCTIONS
+from .config import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from .core import HogQLFunctionMeta, validate_function_args
 from .explain_csp_report import explain_csp_report
 from .mapping import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
@@ -17,6 +17,5 @@ __all__ = [
     "cohort",
     "sparkline",
     "recording_button",
-    "SURVEY_FUNCTIONS",
     "explain_csp_report",
 ]
