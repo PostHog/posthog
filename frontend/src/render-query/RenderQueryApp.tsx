@@ -7,13 +7,14 @@ import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { Query } from '~/queries/Query/Query'
 import { AnyResponseType, Node } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { QueryBasedInsightModel } from '~/types'
+import { DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 interface RenderQueryExternalPayload {
     query?: Node | string | null
     cachedResults?: AnyResponseType | Partial<QueryBasedInsightModel> | null
     context?: QueryContext<any> | null
     insight?: Partial<QueryBasedInsightModel> | null
+    themes?: DataColorThemeModel[]
 }
 
 interface RenderQueryState extends RenderQueryExternalPayload {
@@ -27,7 +28,7 @@ interface SanitizedPayload {
 
 declare global {
     interface Window {
-        POSTHOG_RENDER_QUERY_PAYLOAD?: unknown
+        POSTHOG_RENDER_QUERY_PAYLOAD?: RenderQueryExternalPayload
     }
 }
 
