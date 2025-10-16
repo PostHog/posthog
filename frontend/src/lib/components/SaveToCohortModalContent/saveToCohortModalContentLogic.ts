@@ -111,9 +111,10 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
                         action: () => router.actions.push(urls.cohort(cohort.id)),
                     },
                 })
-            } catch {
+            } catch (error) {
+                console.error('Save to cohort failed:', error)
                 lemonToast.dismiss(toastId)
-                lemonToast.error('Cohort save failed')
+                lemonToast.error('Save to cohort failed')
             }
         },
     })),
