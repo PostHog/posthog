@@ -467,7 +467,7 @@ class ExperimentQueryRunner(QueryRunner):
         Returns the main experiment query.
         """
         if self._should_use_new_query_builder():
-            assert isinstance(self.metric, ExperimentMeanMetric | ExperimentFunnelMetric)
+            assert isinstance(self.metric, ExperimentFunnelMetric)
 
             # Get the "missing" (not directly accessible) parameters required for the builder
             exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
