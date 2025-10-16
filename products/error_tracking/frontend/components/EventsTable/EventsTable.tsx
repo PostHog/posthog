@@ -1,14 +1,13 @@
 import clsx from 'clsx'
 
-import { IconAI, IconExpand45, IconEye } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { IconAI } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes, getRecordingStatus, getSessionId } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
-import ViewRecordingButton, { useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { IconLink, IconOpenInApp, IconOpenInNew, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { IconLink, IconOpenInNew, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { isString } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -29,61 +28,6 @@ export interface EventsTableProps {
     queryKey: string
     selectedEvent: ErrorEventType | null
     onEventSelect: (event: ErrorEventType | null) => void
-}
-
-function renderViewRecordingButton(event: ErrorEventType): JSX.Element {
-    return (
-        <span onClick={cancelEvent}>
-            <ViewRecordingButton
-                sessionId={getSessionId(event.properties)}
-                recordingStatus={getRecordingStatus(event.properties)}
-                timestamp={event.timestamp ?? undefined}
-                inModal={true}
-                size="xsmall"
-                type="secondary"
-            />
-        </span>
-    )
-}
-
-function renderMoreButton(event: ErrorEventType): JSX.Element {
-    return (
-        <More
-            size="xsmall"
-            overlay={
-                <>
-                    <LemonButton
-                        fullWidth
-                        size="small"
-                        sideIcon={<IconLink />}
-                        data-attr="events-table-event-link"
-                        onClick={() =>
-                            void copyToClipboard(
-                                urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
-                                'link to event'
-                            )
-                        }
-                    >
-                        Copy link to event
-                    </LemonButton>
-                    <LemonButton
-                        fullWidth
-                        size="small"
-                        sideIcon={<IconAI />}
-                        to={urls.llmAnalyticsTrace(event.properties.$ai_trace_id, {
-                            event: event.uuid,
-                            timestamp: event.timestamp,
-                        })}
-                        disabledReason={
-                            !event.properties.$ai_trace_id ? 'There is no LLM Trace ID on this event' : undefined
-                        }
-                    >
-                        View LLM Trace
-                    </LemonButton>
-                </>
-            }
-        />
-    )
 }
 
 export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: EventsTableProps): JSX.Element {
