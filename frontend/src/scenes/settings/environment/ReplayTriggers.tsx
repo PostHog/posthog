@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useState } from 'react'
@@ -34,6 +33,7 @@ import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { isNumeric } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { isStringWithLength, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
@@ -292,7 +292,7 @@ function UrlConfigRow({
 
     return (
         <div
-            className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary', {
+            className={cn('border rounded flex items-center p-2 pl-4 bg-surface-primary', {
                 'border-success': checkUrlResult === true,
                 'border-danger': checkUrlResult === false,
             })}
@@ -302,7 +302,7 @@ function UrlConfigRow({
                 <span>{trigger.url}</span>
                 {checkUrlResult !== undefined && (
                     <span
-                        className={clsx('ml-2 text-xs', {
+                        className={cn('ml-2 text-xs', {
                             'text-success': checkUrlResult === true,
                             'text-danger': checkUrlResult === false,
                         })}
