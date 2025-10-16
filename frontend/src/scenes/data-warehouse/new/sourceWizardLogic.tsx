@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { IconWarning } from '@posthog/icons'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -562,55 +563,132 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
-                const unconfiguredTables = values.databaseSchema.filter((schema) => schema.sync_type === null)
-                const fullRefreshTables = values.databaseSchema.filter((schema) => schema.sync_type === 'full_refresh')
-                let confirmMessage: JSX.Element
-                if (unconfiguredTables.length > 0 || fullRefreshTables.length > 0) {
-                    confirmMessage = (
-                        <>
-                            {unconfiguredTables.length > 0 && (
-                                <>
-                                    <h4 className="mt-2">Unconfigured tables</h4>
-                                    <div>You have no sync method setup for the following tables:</div>
-                                    <ul className="px-4 space-y-1 my-4">
-                                        {unconfiguredTables.map((table) => (
-                                            <li
+                const maxTablesShownPerSection = 4
+                const ignoredTables = values.databaseSchema.filter(
+                    (schema) => !schema.should_sync || schema.sync_type === null
+                )
+                const appendOnlyTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'append'
+                )
+                const incrementalTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'incremental'
+                )
+                const fullRefreshTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'full_refresh'
+                )
+                const confirmation = (
+                    <>
+                        <h4 className="mt-2">Full refresh tables</h4>
+                        <div className={fullRefreshTables.length > 0 ? 'text-warning' : ''}>
+                            {fullRefreshTables.length > 0 && <IconWarning />}
+                            <span className={fullRefreshTables.length > 0 ? 'pl-2' : ''}>
+                                Full refresh syncs can dramatically increase your spend if you aren't mindful of them.{' '}
+                                {fullRefreshTables.length > 0 ? (
+                                    <>You have the following tables setup for full refresh syncs:</>
+                                ) : (
+                                    <>None of your tables are setup for full refresh syncs. Yay!</>
+                                )}
+                            </span>
+                        </div>
+                        {fullRefreshTables.length > 0 && (
+                            <>
+                                <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
+                                    {fullRefreshTables
+                                        .slice(0, Math.min(fullRefreshTables.length, maxTablesShownPerSection))
+                                        .map((table) => (
+                                            <div
                                                 key={table.table}
                                                 className="font-mono px-2 rounded bg-surface-secondary w-min"
                                             >
                                                 {table.table}
-                                            </li>
+                                            </div>
                                         ))}
-                                    </ul>
-                                </>
+                                </div>
+                                <div>
+                                    {fullRefreshTables.length > maxTablesShownPerSection && (
+                                        <div className="my-4">
+                                            and{' '}
+                                            <span className="text-warning font-bold">
+                                                {fullRefreshTables.length - maxTablesShownPerSection}
+                                            </span>{' '}
+                                            more...
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                        <h4 className="mt-2">Append-only tables</h4>
+                        <div>
+                            Append-only syncs, while preferrable to full refresh syncs, still need to be configured with
+                            care. The field you select for append-only syncing should not change when a row is updated
+                            &ndash; for example, <span className="font-mono">created_at</span>.{' '}
+                            {appendOnlyTables.length > 0 ? (
+                                <>You have the following tables setup for append-only syncs:</>
+                            ) : (
+                                <>None of your tables are setup for append-only syncs. Sick!</>
                             )}
-                            {fullRefreshTables.length > 0 && (
-                                <>
-                                    <h4 className="mt-2">Full refresh tables</h4>
-                                    <div>
-                                        Full refresh syncs can dramatically increase your spend if you aren't mindful of
-                                        them. You have the following tables setup for full refresh syncs:
-                                    </div>
-                                    <ul className="px-4 space-y-1 my-4">
-                                        {fullRefreshTables.map((table) => (
-                                            <li
+                        </div>
+                        {appendOnlyTables.length > 0 && (
+                            <>
+                                <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
+                                    {appendOnlyTables
+                                        .slice(0, Math.min(appendOnlyTables.length, maxTablesShownPerSection))
+                                        .map((table) => (
+                                            <div
                                                 key={table.table}
                                                 className="font-mono px-2 rounded bg-surface-secondary w-min"
                                             >
                                                 {table.table}
-                                            </li>
+                                            </div>
                                         ))}
-                                    </ul>
+                                </div>
+                                <div>
+                                    {appendOnlyTables.length > maxTablesShownPerSection && (
+                                        <div className="my-4">
+                                            and{' '}
+                                            <span className="text-warning font-bold">
+                                                {appendOnlyTables.length - maxTablesShownPerSection}
+                                            </span>{' '}
+                                            more...
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                        <h4 className="mt-2">Ignored tables</h4>
+                        <div>
+                            If you do not enable the checkbox for a table or configure its sync method, it will be
+                            ignored.{' '}
+                            {ignoredTables.length > 0 ? (
+                                <>
+                                    You currently have{' '}
+                                    <span className="text-warning font-bold">{ignoredTables.length}</span> table(s) set
+                                    to be ignored from future syncs.
+                                </>
+                            ) : (
+                                <>You are syncing all of your tables. You'll be bathing in data soon.</>
+                            )}
+                        </div>
+                        <h4 className="mt-2">Incremental tables</h4>
+                        <div>
+                            The remainder of your tables are setup for incremental syncs, which are typically ideal. The
+                            field you select for syncing incrementally should change each time the row is updated - for
+                            example, <span className="font-mono">updated_at</span>.{' '}
+                            {incrementalTables.length > 0 && (
+                                <>
+                                    You currently have{' '}
+                                    <span className="text-warning font-bold">
+                                        {incrementalTables.length} {incrementalTables.length === 69 && ' (nice)'}
+                                    </span>{' '}
+                                    table(s) set to sync incrementally.
                                 </>
                             )}
-                        </>
-                    )
-                } else {
-                    confirmMessage = <>Everything looks good to us if it looks good to you!</>
-                }
+                        </div>
+                    </>
+                )
                 LemonDialog.open({
                     title: 'Confirm your table configurations',
-                    description: confirmMessage,
+                    description: confirmation,
                     primaryButton: {
                         children: 'Confirm',
                         type: 'primary',
