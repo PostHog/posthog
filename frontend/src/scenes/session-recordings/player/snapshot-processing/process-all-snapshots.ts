@@ -231,15 +231,20 @@ function hashSnapshot(snapshot: RecordingSnapshot): number {
 function coerceToEventWithTime(
     d: unknown,
     sessionRecordingId: string,
-    isFirstEvent: boolean = false,
+    hasSeenAnyFullSnapshot: boolean = false,
     isMobile: boolean = false
 ): eventWithTime[] {
     // we decompress first so that we could support partial compression on mobile in the future
     const currentEvent = decompressEvent(d, sessionRecordingId) as eventWithTime
     const transformedEvent = postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || currentEvent
 
-    // If this is the first event and it's not a full snapshot, and it's mobile, create a synthetic full snapshot first
-    if (isFirstEvent && isMobile && currentEvent.type !== EventType.FullSnapshot && postHogEEModule?.mobileReplay) {
+    // If we haven't seen any full snapshot yet and this is mobile, synthesize one before the first incremental
+    if (
+        !hasSeenAnyFullSnapshot &&
+        isMobile &&
+        currentEvent.type !== EventType.FullSnapshot &&
+        postHogEEModule?.mobileReplay
+    ) {
         // Create synthetic mobile full snapshot using the proper transformer
         const syntheticMobileFullSnapshot = {
             type: EventType.FullSnapshot,
@@ -332,8 +337,9 @@ export const parseEncodedSnapshots = async (
     const lineCount = items.length
     const unparseableLines: string[] = []
     let isMobileSnapshots = false
+    let hasSeenAnyFullSnapshot = false
 
-    const parsedLines: RecordingSnapshot[] = items.flatMap((l, index) => {
+    const parsedLines: RecordingSnapshot[] = items.flatMap((l) => {
         if (!l) {
             // blob files have an empty line at the end
             return []
@@ -366,10 +372,13 @@ export const parseEncodedSnapshots = async (
                 isMobileSnapshots = hasAnyWireframes(snapshotData)
             }
 
-            return snapshotData.flatMap((d: unknown, dataIndex: number) => {
-                // Check if this is the very first event in the entire recording
-                const isFirstEvent = index === 0 && dataIndex === 0
-                const snapResult = coerceToEventWithTime(d, sessionId, isFirstEvent, isMobileSnapshots)
+            return snapshotData.flatMap((d: unknown) => {
+                const snapResult = coerceToEventWithTime(d, sessionId, hasSeenAnyFullSnapshot, isMobileSnapshots)
+
+                // If we emitted or encountered a full snapshot, flip the flag so we don't synthesize again
+                if (!hasSeenAnyFullSnapshot && snapResult.some((e) => e.type === EventType.FullSnapshot)) {
+                    hasSeenAnyFullSnapshot = true
+                }
 
                 return snapResult.flatMap((snap) => {
                     const baseSnapshot: RecordingSnapshot = {
