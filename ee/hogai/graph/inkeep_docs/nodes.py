@@ -55,19 +55,15 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         tool_calls_count: int | None = None,
     ) -> list[BaseMessage]:
         conversation_window = self._window_manager.get_messages_in_window(messages, window_start_id)[-28:]
-        converted_messages = self._convert_to_langchain_messages(
+        langchain_messages = self._convert_to_langchain_messages(
             conversation_window, self._get_tool_map(conversation_window)
         )
 
-        langchain_messages: list[BaseMessage] = []
-
         # Inkeep doesn't support AIMessages without content.
         # Add some content that won't reflect in the final response.
-        for msg in converted_messages:
+        for msg in langchain_messages:
             if isinstance(msg, LangchainAIMessage) and not msg.content:
                 msg.content = "..."  # Patch until Inkeep supports empty AI messages
-                continue
-            langchain_messages.append(msg)
 
         # Only keep the messages up to the last human or system message,
         # as Inkeep doesn't like the last message being an AI one
