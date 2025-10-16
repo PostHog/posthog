@@ -1044,10 +1044,14 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     def bulk_finish_upload(self, request, **kwargs):
         # Get the map of symbol_set_id:content_hashes
         content_hashes = request.data.get("content_hashes", {})
-        if not content_hashes:
-            return Response(
-                {"detail": "content_hashes query parameter is required"}, status=status.HTTP_400_BAD_REQUEST
-            )
+        if content_hashes is None:
+            return Response({"detail": "content_hashes are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(content_hashes) == 0:
+            # This can happen if someone re-runs an upload against a directory that's already been
+            # uploaded - we'll return no new upload keys, they'll upload nothing, and then
+            # we can early exit here.
+            return Response({"success": True}, status=status.HTTP_201_CREATED)
 
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
@@ -1357,8 +1361,8 @@ def bulk_create_symbol_sets(
         )
 
     # Check we're using all valid release IDs
-    release_ids = (ss.release_id for ss in new_symbol_sets if ss.release_id)
-    fetched_releases = (str(r.id) for r in ErrorTrackingRelease.objects.all().filter(team=team, pk__in=release_ids))
+    release_ids = {ss.release_id for ss in new_symbol_sets if ss.release_id}
+    fetched_releases = {str(r.id) for r in ErrorTrackingRelease.objects.all().filter(team=team, pk__in=release_ids)}
     for release_id in release_ids:
         if release_id not in fetched_releases:
             raise ValidationError(
@@ -1409,7 +1413,10 @@ def bulk_create_symbol_sets(
                     existing.release_id = upload.release_id
                     dirty = True
                 elif str(existing.release_id) != upload.release_id:
-                    raise ValueError(f"Symbol set {existing.ref} already has a release ID")
+                    raise ValidationError(
+                        code="release_id_mismatch",
+                        detail=f"Symbol set {existing.ref} already has a release ID",
+                    )
 
             if existing.content_hash is not None and existing.content_hash != upload.content_hash:
                 # If this symbol set already has a content hash, and they differ, raise. We do not support changing
@@ -1418,7 +1425,10 @@ def bulk_create_symbol_sets(
                 # intentional - we can't tell whether its safe to overwrite the existing content hash
                 # here. This will only be the case for older CLI versions, which we expect to misbehave
                 # in this code path anyway.
-                raise ValueError(f"Symbol set {existing.ref} already exists, with different content.")
+                raise ValidationError(
+                    code="content_hash_mismatch",
+                    detail=f"Symbol set {existing.ref} already exists, with different content.",
+                )
             elif existing.content_hash is None:
                 # If the existing set doesn't have a content hash, we can set it up for an upload, and return it
                 # so the CLI will send the data to s3

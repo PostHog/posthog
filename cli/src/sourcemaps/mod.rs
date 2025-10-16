@@ -32,10 +32,6 @@ pub struct ProcessArgs {
     #[arg(long)]
     pub version: Option<String>,
 
-    /// Force injection. This will override any existing chunk or release information already in the sourcemaps.
-    #[arg(long, default_value = "false")]
-    pub force: bool,
-
     /// Whether to delete the source map files after uploading them
     #[arg(long, default_value = "false")]
     pub delete_after: bool,
@@ -67,7 +63,6 @@ impl From<ProcessArgs> for (InjectArgs, UploadArgs) {
             ignore: args.ignore.clone(),
             project: args.project,
             version: args.version,
-            force: args.force,
         };
 
         let upload_args = UploadArgs {

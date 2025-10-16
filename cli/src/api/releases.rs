@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -56,10 +56,12 @@ impl Release {
             .send()?;
 
         if response.status().as_u16() == 404 {
+            warn!("Release {} of project {} not found", version, project);
             return Ok(None);
         }
 
         if response.status().is_success() {
+            info!("Found release {} of project {}", version, project);
             Ok(Some(response.json()?))
         } else {
             response.error_for_status()?;

@@ -3,7 +3,7 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use reqwest::blocking::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::{invocation_context::context, utils::files::content_hash};
 
@@ -58,13 +58,20 @@ pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
         })
         .collect();
 
-    for batch in upload_requests.chunks(batch_size) {
+    for (i, batch) in upload_requests.chunks(batch_size).enumerate() {
+        info!("Starting upload of batch {i}, {} symbol sets", batch.len());
         let start_response = start_upload(batch)?;
 
         let id_map: HashMap<_, _> = batch
             .into_iter()
             .map(|u| (u.chunk_id.as_str(), u))
             .collect();
+
+        info!(
+            "Server returned {} upload keys ({} skipped as already present)",
+            start_response.id_map.len(),
+            batch.len() - start_response.id_map.len()
+        );
 
         let res: Result<HashMap<String, String>> = start_response
             .id_map
@@ -179,7 +186,11 @@ fn finish_upload(content_hashes: HashMap<String, String>) -> Result<()> {
         .context(format!("While finishing upload to {base_url}"))?;
 
     if !res.status().is_success() {
-        bail!("Failed to finish upload: {:?}", res);
+        error!("Failed to finish upload: {:?}", res);
+        if let Ok(text) = res.text() {
+            error!("Response text: {}", text);
+        }
+        bail!("Failed to finish upload");
     }
 
     Ok(())

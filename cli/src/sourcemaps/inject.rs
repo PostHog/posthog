@@ -29,10 +29,6 @@ pub struct InjectArgs {
     /// injection. Strongly prefer setting release information during injection.
     #[arg(long)]
     pub version: Option<String>,
-
-    /// Force injection. This will override any existing chunk or release information already in the sourcemaps.
-    #[arg(long, default_value = "false")]
-    pub force: bool,
 }
 
 pub fn inject(args: &InjectArgs) -> Result<()> {
@@ -41,7 +37,6 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
         ignore,
         project,
         version,
-        force,
     } = args;
 
     context().capture_command_invoked("sourcemap_inject");
@@ -63,10 +58,8 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
 
     // We need to fetch or create a release if: the user specified one, any pair is missing one, or the user
     // forced release overriding
-    let needs_release = project.is_some()
-        || version.is_some()
-        || pairs.iter().any(|p| !p.has_release_id())
-        || *force;
+    let needs_release =
+        project.is_some() || version.is_some() || pairs.iter().any(|p| !p.has_release_id());
 
     let mut created_release = None;
     if needs_release {
@@ -88,7 +81,7 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
 
     let mut skipped_pairs = 0;
     for pair in &mut pairs {
-        if pair.has_chunk_id() && !force {
+        if pair.has_chunk_id() {
             skipped_pairs += 1;
             continue;
         }
@@ -97,7 +90,7 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
 
         // If we've got a release, and the user asked us to, or a set is missing one,
         // put the release ID on the pair
-        if created_release.is_some() && (*force || !pair.has_release_id()) {
+        if created_release.is_some() && !pair.has_release_id() {
             pair.set_release_id(created_release.as_ref().unwrap().id.to_string());
         }
     }
