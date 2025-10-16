@@ -182,3 +182,124 @@ class TestManagedViewSetAPI(APIBaseTest):
         self.assertNotEqual(saved_query.query, old_query)
         self.assertNotEqual(saved_query.columns, old_columns)
         self.assertIn("HogQLQuery", saved_query.query.get("kind", ""))  # type: ignore
+
+    def test_retrieve_managed_viewset_with_views(self):
+        """Test retrieving a managed viewset that exists with views"""
+        # Create a managed viewset
+        managed_viewset = ManagedViewSet.objects.create(
+            team=self.team,
+            kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+        )
+
+        # Create some saved queries associated with the managed viewset
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_view_1",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            managed_viewset=managed_viewset,
+            created_by=self.user,
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="test_view_2",
+            query={"kind": "HogQLQuery", "query": "SELECT 2"},
+            managed_viewset=managed_viewset,
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+
+        self.assertIn("views", data)
+        self.assertIn("count", data)
+        self.assertEqual(data["count"], 2)
+
+        # Check that both views are returned with expected fields
+        view_names = [view["name"] for view in data["views"]]
+        self.assertIn("test_view_1", view_names)
+        self.assertIn("test_view_2", view_names)
+
+        # Check that each view has the expected fields
+        for view in data["views"]:
+            self.assertIn("id", view)
+            self.assertIn("name", view)
+            self.assertIn("created_at", view)
+            self.assertIn("created_by_id", view)
+
+    def test_retrieve_managed_viewset_without_views(self):
+        """Test retrieving a managed viewset that exists but has no views"""
+        # Create a managed viewset but no associated views
+        ManagedViewSet.objects.create(
+            team=self.team,
+            kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+
+        self.assertIn("views", data)
+        self.assertIn("count", data)
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(data["views"], [])
+
+    def test_retrieve_managed_viewset_does_not_exist(self):
+        """Test retrieving a managed viewset that doesn't exist"""
+        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+
+        self.assertIn("views", data)
+        self.assertIn("count", data)
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(data["views"], [])
+
+    def test_retrieve_managed_viewset_excludes_deleted_views(self):
+        """Test that deleted views are excluded from the response"""
+        # Create a managed viewset
+        managed_viewset = ManagedViewSet.objects.create(
+            team=self.team,
+            kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+        )
+
+        # Create a non-deleted view
+        active_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="active_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            managed_viewset=managed_viewset,
+            created_by=self.user,
+        )
+
+        # Create a deleted view
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="deleted_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 2"},
+            managed_viewset=managed_viewset,
+            created_by=self.user,
+            deleted=True,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(len(data["views"]), 1)
+        self.assertEqual(data["views"][0]["name"], "active_view")
+        self.assertEqual(str(data["views"][0]["id"]), str(active_view.id))
+
+    def test_retrieve_managed_viewset_invalid_kind(self):
+        """Test retrieving with an invalid kind returns 400"""
+        response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/invalid_kind/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        data = response.json()
+        self.assertIn("detail", data)
+        self.assertIn("Invalid kind", data["detail"])

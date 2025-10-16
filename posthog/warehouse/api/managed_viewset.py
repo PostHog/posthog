@@ -17,33 +17,13 @@ class ManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
     lookup_field = "kind"
     lookup_url_kwarg = "kind"
+    queryset = ManagedViewSet.objects.all()
 
-    def list(self, request: Request, *args, **kwargs) -> Response:
-        """
-        Get all views associated with managed viewsets.
-        GET /api/environments/{team_id}/managed_viewsets/
-        """
-        from posthog.warehouse.models import DataWarehouseSavedQuery
-
-        managed_viewsets = ManagedViewSet.objects.filter(team_id=self.team_id)
-
-        views = (
-            DataWarehouseSavedQuery.objects.filter(
-                team_id=self.team_id,
-                managed_viewset__in=managed_viewsets,
-            )
-            .exclude(deleted=True)
-            .values("id", "name", "created_at", "created_by_id", "managed_viewset__kind")
-        )
-
-        return Response({"views": list(views), "count": len(views)}, status=status.HTTP_200_OK)
-
-    def retrieve(self, request: Request, kind: str, *args, **kwargs) -> Response:
+    def retrieve(self, _request: Request, kind: str, *args, **kwargs) -> Response:
         """
         Get all views associated with a specific managed viewset.
         GET /api/environments/{team_id}/managed_viewsets/{kind}/
         """
-        from posthog.warehouse.models import DataWarehouseSavedQuery
 
         if kind not in dict(ManagedViewSet.Kind.choices):
             return Response(
@@ -52,18 +32,13 @@ class ManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
 
         try:
-            managed_viewset = ManagedViewSet.objects.get(
+            managed_viewset = self.queryset.get(
                 team_id=self.team_id,
                 kind=kind,
             )
 
-            views = (
-                DataWarehouseSavedQuery.objects.filter(
-                    team_id=self.team_id,
-                    managed_viewset=managed_viewset,
-                )
-                .exclude(deleted=True)
-                .values("id", "name", "created_at", "created_by_id")
+            views = managed_viewset.saved_queries.exclude(deleted=True).values(
+                "id", "name", "created_at", "created_by_id"
             )
 
             return Response({"views": list(views), "count": len(views)}, status=status.HTTP_200_OK)
