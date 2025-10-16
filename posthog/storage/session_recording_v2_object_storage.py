@@ -7,9 +7,9 @@ from urllib.parse import parse_qs, urlparse
 from django.conf import settings
 
 import snappy
+import aioboto3
 import structlog
 import posthoganalytics
-from aiobotocore.session import get_session
 from boto3 import client as boto3_client
 from botocore.client import Config
 
@@ -25,6 +25,14 @@ class BlockFetchError(Exception):
 
 
 class FileFetchError(Exception):
+    pass
+
+
+class FileDownloadError(Exception):
+    pass
+
+
+class FileUploadError(Exception):
     pass
 
 
@@ -79,6 +87,14 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
     def is_lts_enabled(self) -> bool:
         pass
 
+    @abc.abstractmethod
+    def download_file(self, key: str, filename: str) -> None:
+        pass
+
+    @abc.abstractmethod
+    def upload_file(self, key: str, filename: str) -> None:
+        pass
+
 
 class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
     def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
@@ -113,6 +129,12 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
 
     def is_lts_enabled(self) -> bool:
         return False
+
+    def download_file(self, key: str, filename: str) -> None:
+        raise FileDownloadError("Storage not available")
+
+    def upload_file(self, key: str, filename: str) -> None:
+        raise FileUploadError("Storage not available")
 
 
 class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
@@ -339,6 +361,38 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
     def is_lts_enabled(self) -> bool:
         return bool(settings.SESSION_RECORDING_V2_S3_LTS_PREFIX)
 
+    def download_file(self, key: str, filename: str) -> None:
+        try:
+            self.aws_client.download_file(
+                Bucket=self.bucket,
+                Key=key,
+                Filename=filename,
+            )
+        except Exception as e:
+            logger.exception(
+                "session_recording_v2_object_storage.download_file_failed",
+                bucket=self.bucket,
+                key=key,
+                error=e,
+            )
+            raise FileDownloadError(f"Failed to download file: {str(e)}")
+
+    def upload_file(self, key: str, filename: str) -> None:
+        try:
+            self.aws_client.upload_file(
+                Bucket=self.bucket,
+                Key=key,
+                Filename=filename,
+            )
+        except Exception as e:
+            logger.exception(
+                "session_recording_v2_object_storage.upload_file_failed",
+                bucket=self.bucket,
+                key=key,
+                error=e,
+            )
+            raise FileUploadError(f"Failed to upload file: {str(e)}")
+
 
 class AsyncSessionRecordingV2ObjectStorage:
     def __init__(self, aws_client, bucket: str) -> None:
@@ -563,6 +617,38 @@ class AsyncSessionRecordingV2ObjectStorage:
     def is_lts_enabled(self) -> bool:
         return bool(settings.SESSION_RECORDING_V2_S3_LTS_PREFIX)
 
+    async def download_file(self, key: str, filename: str) -> None:
+        try:
+            await self.aws_client.download_file(
+                Bucket=self.bucket,
+                Key=key,
+                Filename=filename,
+            )
+        except Exception as e:
+            logger.exception(
+                "async_session_recording_v2_object_storage.download_file_failed",
+                bucket=self.bucket,
+                key=key,
+                error=e,
+            )
+            raise FileDownloadError(f"Failed to download file: {str(e)}")
+
+    async def upload_file(self, key: str, filename: str) -> None:
+        try:
+            await self.aws_client.upload_file(
+                Bucket=self.bucket,
+                Key=key,
+                Filename=filename,
+            )
+        except Exception as e:
+            logger.exception(
+                "async_session_recording_v2_object_storage.upload_file_failed",
+                bucket=self.bucket,
+                key=key,
+                error=e,
+            )
+            raise FileUploadError(f"Failed to upload file: {str(e)}")
+
 
 _client: SessionRecordingV2ObjectStorageBase = UnavailableSessionRecordingV2ObjectStorage()
 
@@ -609,8 +695,8 @@ async def async_client() -> AsyncIterator[AsyncSessionRecordingV2ObjectStorage]:
     if not all(required_settings):
         raise RuntimeError("Missing required settings for object storage client")
     else:
-        session = get_session()
-        async with session.create_client(  # type: ignore[call-overload]
+        session = aioboto3.Session()
+        async with session.client(  # type: ignore[call-overload]
             "s3",
             endpoint_url=settings.SESSION_RECORDING_V2_S3_ENDPOINT,
             aws_access_key_id=settings.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,

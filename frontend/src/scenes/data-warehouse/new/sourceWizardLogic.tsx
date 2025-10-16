@@ -170,11 +170,16 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     azure: 'Azure',
 }
 
+const isTimestampType = (field: IncrementalField): boolean => {
+    const type = field.field_type || field.type
+    return type === 'timestamp' || type === 'datetime' || type === 'date'
+}
+
 const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
     // check for timestamp field matching "updated_at" or "updatedAt" case insensitive
     const updatedAt = fields.find((field) => {
         const regex = /^updated/i
-        return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
+        return regex.test(field.field) && isTimestampType(field)
     })
     if (updatedAt) {
         return updatedAt
@@ -182,15 +187,13 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     // fallback to timestamp field matching "created_at" or "createdAt" case insensitive
     const createdAt = fields.find((field) => {
         const regex = /^created/i
-        return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
+        return regex.test(field.field) && isTimestampType(field)
     })
     if (createdAt) {
         return createdAt
     }
     // fallback to any timestamp or datetime field
-    const timestamp = fields.find((field) => {
-        return field.field_type === 'timestamp' || field.type === 'datetime'
-    })
+    const timestamp = fields.find((field) => isTimestampType(field))
     if (timestamp) {
         return timestamp
     }
