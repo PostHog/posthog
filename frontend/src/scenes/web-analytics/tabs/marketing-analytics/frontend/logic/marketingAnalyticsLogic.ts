@@ -37,6 +37,53 @@ import {
     validColumnsForTiles,
 } from './utils'
 
+function getSourceStatus(
+    source: { id: string; name: string; type: string; prefix?: string },
+    nativeSources: ExternalDataSource[],
+    validExternalTables: ExternalTable[]
+): { status: 'Completed' | 'Failed' | 'Running' | 'warning' | 'error'; message: string } {
+    const nativeSource = nativeSources.find((s) => s.id === source.id)
+    if (nativeSource) {
+        const requiredFields =
+            NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[
+                nativeSource.source_type as keyof typeof NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS
+            ] || []
+        const schemaStatuses = requiredFields
+            .map((fieldName) => {
+                const schema = nativeSource.schemas?.find((schema) => schema.name === fieldName)
+                return schema?.status
+            })
+            .filter(Boolean)
+
+        if (schemaStatuses.includes('Failed')) {
+            return { status: 'Failed', message: 'One or more required tables failed to sync' }
+        }
+        if (schemaStatuses.includes('Running')) {
+            return { status: 'Running', message: 'One or more required tables are still syncing' }
+        }
+        if (schemaStatuses.includes('Completed')) {
+            return { status: 'Completed', message: 'Ready to use! All required fields are syncing.' }
+        }
+        return { status: 'warning', message: 'Some required tables need to be synced' }
+    }
+
+    const externalTable = validExternalTables.find((t) => t.source_map_id === source.id)
+    if (externalTable) {
+        if (externalTable.schema_status === 'Completed') {
+            return { status: 'Completed', message: 'Table sync completed' }
+        }
+        if (externalTable.schema_status === 'Failed') {
+            return { status: 'Failed', message: 'Table sync failed' }
+        }
+        if (externalTable.schema_status === 'Running') {
+            return { status: 'Running', message: 'Table is syncing' }
+        }
+        return { status: 'warning', message: 'Table needs configuration' }
+    }
+
+    return { status: 'error', message: 'Unknown source status' }
+}
+
 export type ExternalTable = {
     name: string
     source_type: string
@@ -50,6 +97,7 @@ export type ExternalTable = {
     source_map: SourceMap | null
     schema_name: string
     dw_source_type: string
+    schema_status?: string
 }
 
 export type NativeSource = {
@@ -277,6 +325,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             source_map: sourceMap,
                             schema_name: table.schema?.name || table.name,
                             dw_source_type: tableType,
+                            schema_status: table.schema?.status,
                         })
                     })
                 }
@@ -374,6 +423,58 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 })
 
                 return sources
+            },
+        ],
+        allAvailableSourcesWithStatus: [
+            (s) => [s.allAvailableSources, s.nativeSources, s.validExternalTables],
+            (allAvailableSources, nativeSources, validExternalTables) => {
+                return allAvailableSources.map((source) => {
+                    const status = getSourceStatus(source, nativeSources, validExternalTables)
+                    return {
+                        ...source,
+                        status: status.status,
+                        statusMessage: status.message,
+                    }
+                })
+            },
+        ],
+        nativeSourcesWithStatus: [
+            (s) => [s.nativeSources],
+            (nativeSources) => {
+                return nativeSources.map((source) => {
+                    const status = getSourceStatus(
+                        { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix },
+                        nativeSources,
+                        [] // No external tables for native sources
+                    )
+                    return {
+                        ...source,
+                        status: status.status,
+                        statusMessage: status.message,
+                    }
+                })
+            },
+        ],
+        externalTablesWithStatus: [
+            (s) => [s.validExternalTables],
+            (validExternalTables) => {
+                return validExternalTables.map((table) => {
+                    const status = getSourceStatus(
+                        {
+                            id: table.source_map_id,
+                            name: table.schema_name,
+                            type: table.external_type,
+                            prefix: table.source_prefix,
+                        },
+                        [], // No native sources for external tables
+                        validExternalTables
+                    )
+                    return {
+                        ...table,
+                        status: status.status,
+                        statusMessage: status.message,
+                    }
+                })
             },
         ],
         createMarketingDataWarehouseNodes: [
