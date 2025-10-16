@@ -42,7 +42,7 @@ export function BreakdownTileButton({ item }: BreakdownTileButtonProps): JSX.Ele
         <button
             onClick={() => setSelectedBreakdownPreset(item)}
             className={cn(
-                'w-full p-2.5 text-left transition-all cursor-pointer border-l-[3px]',
+                'w-full px-2.5 py-2 text-left transition-all cursor-pointer border-l-[3px]',
                 isSelected ? 'border-l-brand-yellow' : 'border-l-transparent'
             )}
         >
@@ -69,17 +69,19 @@ function BreakdownPreview({ query, title }: BreakdownPreviewProps): JSX.Element 
     const { properties, totalCount, responseLoading } = useValues(logic)
 
     return (
-        <div className="flex flex-col gap-2">
-            <div className="font-semibold text-sm">{title}</div>
-            {responseLoading ? (
-                <div className="flex items-center justify-center h-6">
-                    <Spinner className="text-xs" />
-                </div>
-            ) : properties.length === 0 ? (
-                <div className="text-muted text-xs flex items-center justify-center h-6">No data</div>
-            ) : (
-                <StackedBar properties={properties} totalCount={totalCount} />
-            )}
+        <div className="flex items-center gap-2">
+            <div className="font-semibold text-xs w-[30%]">{title}</div>
+            <div className="w-[70%]">
+                {responseLoading ? (
+                    <div className="flex items-center justify-center h-6">
+                        <Spinner className="text-xs" />
+                    </div>
+                ) : properties.length === 0 ? (
+                    <div className="text-muted text-xs flex items-center justify-center">No data</div>
+                ) : (
+                    <StackedBar properties={properties} totalCount={totalCount} />
+                )}
+            </div>
         </div>
     )
 }
@@ -104,7 +106,8 @@ function StackedBar({ properties, totalCount }: StackedBarProps): JSX.Element {
 
     return (
         <div className="relative">
-            <div className="flex w-full h-6 rounded overflow-hidden bg-fill-secondary">
+            {/* Bar itself */}
+            <div className="flex w-full h-3 rounded overflow-hidden bg-fill-secondary">
                 {properties.map((item, index) => {
                     const percentage = (item.count / totalCount) * 100
 
@@ -122,6 +125,7 @@ function StackedBar({ properties, totalCount }: StackedBarProps): JSX.Element {
                     )
                 })}
             </div>
+            {/* Tooltip */}
             {hoveredIndex !== null && (
                 <div
                     className="fixed px-2 py-1 bg-bg-3000 border border-border rounded shadow-lg whitespace-nowrap z-[9999] text-xs pointer-events-none"
