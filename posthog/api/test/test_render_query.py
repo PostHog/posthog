@@ -5,8 +5,9 @@ from django.http import HttpResponse
 
 
 class TestRenderQueryView(APIBaseTest):
+    @patch("posthog.api.sharing.get_global_themes", return_value=[{"id": 1}])
     @patch("posthog.views.render_template")
-    def test_render_query_page_renders_template(self, mock_render_template) -> None:
+    def test_render_query_page_renders_template(self, mock_render_template, mock_get_global_themes) -> None:
         mock_render_template.return_value = HttpResponse("<html></html>")
 
         response = self.client.get("/render_query")
@@ -19,6 +20,8 @@ class TestRenderQueryView(APIBaseTest):
         assert template_name == "render_query.html"
         assert request.path == "/render_query"
 
+        mock_get_global_themes.assert_called_once_with()
+
         context = mock_render_template.call_args.kwargs.get("context")
         assert context == {
             "render_query_payload": {
@@ -26,5 +29,6 @@ class TestRenderQueryView(APIBaseTest):
                 "cachedResults": None,
                 "context": None,
                 "insight": None,
+                "themes": [{"id": 1}],
             }
         }
