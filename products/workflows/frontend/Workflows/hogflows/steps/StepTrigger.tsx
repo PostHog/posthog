@@ -466,19 +466,19 @@ function ExitConditionSection(): JSX.Element {
                     options={[
                         {
                             value: 'exit_only_at_end',
-                            label: 'Exit at end of workflow',
+                            label: 'Exit only once workflow reaches the end',
                         },
                         {
                             value: 'exit_on_trigger_not_matched',
-                            label: 'Exit when trigger filter(s) no longer match',
+                            label: 'Exit when trigger filters no longer match',
                         },
                         {
                             value: 'exit_on_conversion',
-                            label: 'Exit when conversion condition is met',
+                            label: 'Exit when conversion goal is met',
                         },
                         {
                             value: 'exit_on_trigger_not_matched_or_conversion',
-                            label: 'Exit when trigger filter(s) no longer match or when conversion condition is met',
+                            label: 'Exit when trigger filters no longer match, or when conversion goal is met',
                         },
                     ]}
                 />
