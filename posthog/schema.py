@@ -92,6 +92,10 @@ class AssistantContextualTool(StrEnum):
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
+    READ_TAXONOMY = "read_taxonomy"
+    SEARCH = "search"
+    READ_DATA = "read_data"
+    TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
 
 
@@ -1207,6 +1211,8 @@ class EventType(BaseModel):
     event: str
     id: str
     person: Optional[Person] = None
+    person_id: Optional[str] = None
+    person_mode: Optional[str] = None
     properties: dict[str, Any]
     timestamp: str
     uuid: Optional[str] = None
@@ -3968,9 +3974,11 @@ class ExperimentMetricBaseProperties(BaseModel):
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
+    isSharedMetric: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
+    sharedMetricId: Optional[float] = None
     uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -12354,11 +12362,13 @@ class ExperimentRatioMetric(BaseModel):
     denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
+    isSharedMetric: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["ratio"] = "ratio"
     name: Optional[str] = None
     numerator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     response: Optional[dict[str, Any]] = None
+    sharedMetricId: Optional[float] = None
     uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -13273,11 +13283,13 @@ class ExperimentFunnelMetric(BaseModel):
     fingerprint: Optional[str] = None
     funnel_order_type: Optional[StepOrderValue] = None
     goal: Optional[ExperimentMetricGoal] = None
+    isSharedMetric: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
     series: list[Union[EventsNode, ActionsNode]]
+    sharedMetricId: Optional[float] = None
     uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -13291,11 +13303,13 @@ class ExperimentMeanMetric(BaseModel):
     fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
     ignore_zeros: Optional[bool] = None
+    isSharedMetric: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
+    sharedMetricId: Optional[float] = None
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     upper_bound_percentile: Optional[float] = None
     uuid: Optional[str] = None
