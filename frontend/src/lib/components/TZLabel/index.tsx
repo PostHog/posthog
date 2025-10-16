@@ -45,7 +45,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     const { currentTeam } = useValues(teamLogic)
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
     const { timestampFormat } = useValues(tzLabelLogic)
-    const { setTimestampFormat } = useActions(tzLabelLogic)
+    const { setTimestampFormatChoice } = useActions(tzLabelLogic)
 
     const copyDateTime = (dateTime: dayjs.Dayjs, label: string): void => {
         void copyToClipboard(dateTime.toDate().toISOString(), label)
@@ -116,7 +116,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                 <LemonSelect
                     value={timestampFormat}
                     icon={<IconClock />}
-                    onChange={(value) => setTimestampFormat(value)}
+                    onChange={(value) => setTimestampFormatChoice(value)}
                     size="xsmall"
                     fullWidth
                     options={[

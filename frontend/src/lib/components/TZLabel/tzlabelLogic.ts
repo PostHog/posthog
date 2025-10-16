@@ -1,11 +1,13 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 
+import type { tzLabelLogicType } from './tzlabelLogicType'
+
 export type TimestampFormat = 'absolute' | 'relative'
 export type TZLabelLogicProps = {
     logicKey?: string
     defaultTimestampFormat?: TimestampFormat
 }
-export const tzLabelLogic = kea([
+export const tzLabelLogic = kea<tzLabelLogicType>([
     props({ defaultTimestampFormat: 'relative' as TimestampFormat } as TZLabelLogicProps),
     key(({ logicKey }: TZLabelLogicProps) => logicKey ?? 'global'),
     path((key) => ['src', 'lib', 'components', 'tzLabelLogic', key]),
@@ -18,7 +20,7 @@ export const tzLabelLogic = kea([
             null as TimestampFormat | null,
             { persist: true },
             {
-                setTimestampFormat: (_, { timestampFormat }) => timestampFormat,
+                setTimestampFormatChoice: (_, { timestampFormatChoice }) => timestampFormatChoice,
             },
         ],
     }),
