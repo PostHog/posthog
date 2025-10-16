@@ -14,8 +14,6 @@ from posthog.models.utils import (
 )
 from posthog.utils import generate_short_id
 
-# === From notebook/notebook.py ===
-
 
 class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Visibility(models.TextChoices):
@@ -60,9 +58,6 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             meta={"created_at": str(self.created_at), "created_by": self.created_by_id},
             should_delete=self.deleted or self.visibility == self.Visibility.INTERNAL,
         )
-
-
-# === From notebook/resource_notebook.py ===
 
 
 RELATED_OBJECTS = ("group",)
