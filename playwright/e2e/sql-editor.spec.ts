@@ -19,7 +19,7 @@ test.describe('SQL Editor', () => {
     test('Run query', async ({ page }) => {
         await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).toBeVisible()
         await page.locator('[data-attr=hogql-query-editor]').click()
-        await page.locator('textarea[aria-roledescription="editor"]').fill('SELECT 1')
+        await page.locator('[aria-roledescription="editor"]').fill('SELECT 1')
         await page.locator('[data-attr=sql-editor-run-button]').click()
 
         // query run
@@ -28,7 +28,7 @@ test.describe('SQL Editor', () => {
 
     test('Save view', async ({ page }) => {
         await page.locator('[data-attr=hogql-query-editor]').click()
-        await page.locator('textarea[aria-roledescription="editor"]').fill('SELECT 1')
+        await page.locator('[aria-roledescription="editor"]').fill('SELECT 1')
 
         await page.locator('[data-attr=sql-editor-save-view-button]').click()
         await page.locator('[data-attr=sql-editor-input-save-view-name]').fill('test_view')
