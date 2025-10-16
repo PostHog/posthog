@@ -477,7 +477,6 @@ export const redirects: Record<
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
     '/me/settings': urls.settings('user'),
-    '/messaging': urls.messaging('campaigns'),
     '/new': urls.newTab(),
     '/organization/members': urls.settings('organization'),
     '/organization/settings': urls.settings('organization'),

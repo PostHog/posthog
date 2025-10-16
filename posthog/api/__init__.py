@@ -37,8 +37,8 @@ from products.llm_analytics.backend.api import (
     EvaluationViewSet,
     LLMProxyViewSet,
 )
-from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
+from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
 from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
 
