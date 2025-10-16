@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import base64
+import socket
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -33,7 +34,7 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
 
-from products.messaging.backend.providers import MailjetProvider, TwilioProvider
+from products.workflows.backend.providers import MailjetProvider, SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -69,6 +70,7 @@ class Integration(models.Model):
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
         REDDIT_ADS = "reddit-ads"
+        TIKTOK_ADS = "tiktok-ads"
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
@@ -77,6 +79,7 @@ class Integration(models.Model):
         TWILIO = "twilio"
         CLICKUP = "clickup"
         VERCEL = "vercel"
+        DATABRICKS = "databricks"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -113,6 +116,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
+        if self.kind == "databricks":
+            return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
 
@@ -157,6 +162,7 @@ class OauthIntegration:
         "snapchat",
         "linkedin-ads",
         "reddit-ads",
+        "tiktok-ads",
         "meta-ads",
         "intercom",
         "linear",
@@ -368,6 +374,19 @@ class OauthIntegration:
                 name_path="reddit_user_id",  # Same as ID for Reddit
                 additional_authorize_params={"duration": "permanent"},
             )
+        elif kind == "tiktok-ads":
+            if not settings.TIKTOK_ADS_CLIENT_ID or not settings.TIKTOK_ADS_CLIENT_SECRET:
+                raise NotImplementedError("TikTok Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://business-api.tiktok.com/portal/auth",
+                token_url="https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/",
+                client_id=settings.TIKTOK_ADS_CLIENT_ID,
+                client_secret=settings.TIKTOK_ADS_CLIENT_SECRET,
+                scope="",
+                id_path="data.advertiser_ids",
+                name_path="data.advertiser_ids",
+            )
         elif kind == "clickup":
             if not settings.CLICKUP_APP_CLIENT_ID or not settings.CLICKUP_APP_CLIENT_SECRET:
                 raise NotImplementedError("ClickUp app not configured")
@@ -395,14 +414,22 @@ class OauthIntegration:
     def authorize_url(cls, kind: str, token: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
-        query_params = {
-            "client_id": oauth_config.client_id,
-            "scope": oauth_config.scope,
-            "redirect_uri": cls.redirect_uri(kind),
-            "response_type": "code",
-            "state": urlencode({"next": next, "token": token}),
-            **(oauth_config.additional_authorize_params or {}),
-        }
+        if kind == "tiktok-ads":
+            # TikTok uses different parameter names
+            query_params = {
+                "app_id": oauth_config.client_id,
+                "redirect_uri": cls.redirect_uri(kind),
+                "state": urlencode({"next": next, "token": token}),
+            }
+        else:
+            query_params = {
+                "client_id": oauth_config.client_id,
+                "scope": oauth_config.scope,
+                "redirect_uri": cls.redirect_uri(kind),
+                "response_type": "code",
+                "state": urlencode({"next": next, "token": token}),
+                **(oauth_config.additional_authorize_params or {}),
+            }
 
         return f"{oauth_config.authorize_url}?{urlencode(query_params)}"
 
@@ -424,6 +451,17 @@ class OauthIntegration:
                 },
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
             )
+        elif kind == "tiktok-ads":
+            # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
+            res = requests.post(
+                oauth_config.token_url,
+                json={
+                    "app_id": oauth_config.client_id,
+                    "secret": oauth_config.client_secret,
+                    "auth_code": params["code"],
+                },
+                headers={"Content-Type": "application/json"},
+            )
         else:
             res = requests.post(
                 oauth_config.token_url,
@@ -438,7 +476,14 @@ class OauthIntegration:
 
         config: dict = res.json()
 
-        if res.status_code != 200 or not config.get("access_token"):
+        access_token = None
+        if kind == "tiktok-ads":
+            # TikTok has a different response format - access_token is nested under 'data'
+            access_token = config.get("data", {}).get("access_token")
+        else:
+            access_token = config.get("access_token")
+
+        if res.status_code != 200 or not access_token:
             # Hack to try getting sandbox auth token instead of their salesforce production account
             if kind == "salesforce":
                 oauth_config = cls.oauth_config_for_kind("salesforce-sandbox")
@@ -507,9 +552,17 @@ class OauthIntegration:
 
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
+        elif isinstance(integration_id, list) and len(integration_id) > 0:
+            integration_id = ",".join(str(item) for item in integration_id)
 
         if not isinstance(integration_id, str):
             raise Exception("Oauth error")
+
+        # Handle TikTok's nested response format
+        if kind == "tiktok-ads":
+            data = config.pop("data", {})
+            # Move other data fields to main config for TikTok
+            config.update(data)
 
         sensitive_config: dict = {
             "access_token": config.pop("access_token"),
@@ -583,6 +636,17 @@ class OauthIntegration:
                 },
                 # If I use a standard User-Agent, it will throw a 429 too many requests error
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+            )
+        elif self.integration.kind == "tiktok-ads":
+            res = requests.post(
+                "https://open.tiktokapis.com/v2/oauth/token/",
+                data={
+                    "client_key": oauth_config.client_id,  # TikTok uses client_key instead of client_id
+                    "client_secret": oauth_config.client_secret,
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         else:
             res = requests.post(
@@ -1075,16 +1139,28 @@ class EmailIntegration:
     def mailjet_provider(self) -> MailjetProvider:
         return MailjetProvider()
 
+    @property
+    def ses_provider(self) -> SESProvider:
+        return SESProvider()
+
     @classmethod
     def create_native_integration(cls, config: dict, team_id: int, created_by: User | None = None) -> Integration:
         email_address: str = config["email"]
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
+        provider: str = config.get("provider", "mailjet")  # Default to mailjet for backward compatibility
 
-        mailjet = MailjetProvider()
-
-        # TODO: Look for integration belonging to the team with the same domain
-        mailjet.create_email_domain(domain, team_id=team_id)
+        # Create domain in the appropriate provider
+        if provider == "ses":
+            ses = SESProvider()
+            ses.create_email_domain(domain, team_id=team_id)
+        elif provider == "mailjet":
+            mailjet = MailjetProvider()
+            mailjet.create_email_domain(domain, team_id=team_id)
+        elif provider == "maildev" and settings.DEBUG:
+            pass
+        else:
+            raise ValueError(f"Invalid provider: must be either 'ses' or 'mailjet'")
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -1095,8 +1171,8 @@ class EmailIntegration:
                     "email": email_address,
                     "domain": domain,
                     "name": name,
-                    "mailjet_verified": False,
-                    "aws_ses_verified": False,
+                    "provider": provider,
+                    "verified": True if provider == "maildev" else False,
                 },
                 "created_by": created_by,
             },
@@ -1135,19 +1211,36 @@ class EmailIntegration:
 
     def verify(self):
         domain = self.integration.config.get("domain")
+        provider = self.integration.config.get("provider", "mailjet")
 
-        verification_result = self.mailjet_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+        # Use the appropriate provider for verification
+        if provider == "ses":
+            verification_result = self.ses_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+        elif provider == "mailjet":
+            verification_result = self.mailjet_provider.verify_email_domain(domain)
+        elif provider == "maildev":
+            verification_result = {
+                "status": "success",
+                "dnsRecords": [],
+            }
+        else:
+            raise ValueError(f"Invalid provider: {provider}")
 
         if verification_result.get("status") == "success":
-            # We can validate all other integrations with the same domain
-            other_integrations = Integration.objects.filter(
+            # We can validate all other integrations with the same domain and provider
+            all_integrations_for_domain = Integration.objects.filter(
                 team_id=self.integration.team_id,
                 kind="email",
                 config__domain=domain,
+                config__provider=provider,
             )
-            for integration in other_integrations:
-                integration.config["mailjet_verified"] = True
+            for integration in all_integrations_for_domain:
+                integration.config["verified"] = True
                 integration.save()
+
+            reload_integrations_on_workers(
+                self.integration.team_id, [integration.id for integration in all_integrations_for_domain]
+            )
 
         return verification_result
 
@@ -1736,3 +1829,103 @@ class TwilioIntegration:
             integration.save()
 
         return integration
+
+
+class DatabricksIntegrationError(Exception):
+    """Error raised when the Databricks integration is not valid."""
+
+    pass
+
+
+class DatabricksIntegration:
+    """A Databricks integration.
+
+    The recommended way to connect to Databricks is via OAuth machine-to-machine (M2M) authentication.
+    See: https://docs.databricks.com/aws/en/dev-tools/python-sql-connector#oauth-machine-to-machine-m2m-authentication
+
+    This works quite differently to regular user-to-machine OAuth as it does not require a real-time user sign in and
+    consent flow: Instead, the user creates a service principal and provided us with the client ID and client secret to authenticate.
+
+    Attributes:
+        integration: The integration object.
+        server_hostname: the Server Hostname value for user's all-purpose compute or SQL warehouse.
+        client_id: the service principal's UUID or Application ID value.
+        client_secret: the Secret value for the service principal's OAuth secret.
+    """
+
+    integration: Integration
+    server_hostname: str
+    client_id: str
+    client_secret: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.DATABRICKS.value:
+            raise DatabricksIntegrationError("Integration provided is not a Databricks integration")
+        self.integration = integration
+
+        try:
+            self.server_hostname = self.integration.config["server_hostname"]
+            self.client_id = self.integration.sensitive_config["client_id"]
+            self.client_secret = self.integration.sensitive_config["client_secret"]
+        except KeyError as e:
+            raise DatabricksIntegrationError(f"Databricks integration is not valid: {str(e)} missing")
+
+    @classmethod
+    def integration_from_config(
+        cls, team_id: int, server_hostname: str, client_id: str, client_secret: str, created_by: User | None = None
+    ) -> Integration:
+        # first, validate the host
+        cls.validate_host(server_hostname)
+
+        config = {
+            "server_hostname": server_hostname,
+        }
+        sensitive_config = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.DATABRICKS.value,
+            integration_id=server_hostname,  # Use server_hostname as unique identifier
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    @staticmethod
+    def validate_host(server_hostname: str):
+        """Validate the Databricks host.
+
+        This is a quick check to ensure the host is valid and that we can connect to it (testing connectivity to a SQL
+        warehouse requires a warehouse http_path in addition to these parameters so it not possible to perform a full
+        test here)
+        """
+        # we expect a hostname, not a full URL
+        if server_hostname.startswith("http"):
+            raise DatabricksIntegrationError(
+                f"Databricks integration is not valid: 'server_hostname' should not be a full URL"
+            )
+        # TCP connectivity check
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(3.0)
+            # we only support https
+            port = 443
+            sock.connect((server_hostname, port))
+            sock.close()
+        except OSError:
+            raise DatabricksIntegrationError(
+                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
+            )
+        except Exception:
+            raise DatabricksIntegrationError(
+                f"Databricks integration error: could not connect to hostname '{server_hostname}'"
+            )

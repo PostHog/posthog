@@ -115,6 +115,7 @@ export function EventDefinitionsTable(): JSX.Element {
                                     fullWidth
                                     sideIcon={<IconPlayCircle />}
                                     data-attr="event-definitions-table-view-recordings"
+                                    targetBlank
                                 >
                                     View recordings
                                 </LemonButton>

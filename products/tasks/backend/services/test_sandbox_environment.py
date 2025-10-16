@@ -21,7 +21,7 @@ class TestSandboxEnvironmentIntegration:
     async def test_create_execute_destroy_lifecycle(self):
         config = SandboxEnvironmentConfig(
             name="posthog-test-lifecycle",
-            template=SandboxEnvironmentTemplate.UBUNTU_LATEST_X86_64,
+            template=SandboxEnvironmentTemplate.DEFAULT_BASE,
         )
 
         sandbox = await SandboxEnvironment.create(config)

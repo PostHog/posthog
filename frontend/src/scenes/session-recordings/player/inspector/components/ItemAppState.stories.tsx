@@ -49,9 +49,49 @@ AppStateItem.args = {
         type: 'app-state',
         action: 'USER_LOGGED_IN',
         stateEvent: {
+            prevState: { user: null, nestedJson: { a: 1, b: { c: 2 } } },
+            payload: { user: { id: 1, name: 'John Doe' }, nestedJson: { a: 1, b: { c: 3 } } },
+            changedState: { user: { id: 1, name: 'John Doe' }, nestedJson: { b: { c: 3 } } },
+        },
+        key: 'id',
+    },
+}
+
+/** keep support for these until Oct 2026 */
+export const OGFormatAppStateItem: Story = BasicTemplate.bind({})
+OGFormatAppStateItem.args = {
+    item: {
+        timestamp: dayjs('2019-01-30'),
+        timeInRecording: 123,
+        search: 'some text',
+        type: 'app-state',
+        action: 'USER_LOGGED_IN',
+        stateEvent: {
             prevState: { user: null },
             payload: { user: { id: 1, name: 'John Doe' } },
             nextState: { user: { id: 1, name: 'John Doe' } },
         },
+        key: 'id',
+    },
+}
+
+/** keep support for these until Oct 2026
+ * mixed format is "impossible" in practice, but this is just to ensure backwards compatibility
+ * */
+export const MixedFormatAppStateItem: Story = BasicTemplate.bind({})
+MixedFormatAppStateItem.args = {
+    item: {
+        timestamp: dayjs('2019-01-30'),
+        timeInRecording: 123,
+        search: 'some text',
+        type: 'app-state',
+        action: 'USER_LOGGED_IN',
+        stateEvent: {
+            prevState: { user: null },
+            payload: { user: { id: 1, name: 'John Doe' } },
+            nextState: { user: { id: 1, name: 'John Doe' } },
+            changedState: { user: { id: 1, name: 'John Doe' } },
+        },
+        key: 'id',
     },
 }

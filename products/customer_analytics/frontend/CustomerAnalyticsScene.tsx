@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 
 import { IconPeople } from '@posthog/icons'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -33,7 +32,6 @@ export function CustomerAnalyticsScene(): JSX.Element {
 const Header = (): JSX.Element => {
     return (
         <>
-            <PageHeader />
             <SceneTitleSection
                 name="Customer analytics"
                 description="Analyze your customers"

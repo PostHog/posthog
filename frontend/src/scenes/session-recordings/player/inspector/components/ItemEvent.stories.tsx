@@ -2,6 +2,7 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { now } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { uuid } from 'lib/utils'
 import {
     ItemEvent,
     ItemEventDetail,
@@ -21,6 +22,9 @@ const meta: Meta<typeof ItemEvent> = {
             get: {},
         }),
     ],
+    parameters: {
+        mockDate: '2025-09-23',
+    },
 }
 export default meta
 
@@ -49,6 +53,7 @@ function makeItem(
         timeInRecording: 0,
         timestamp: now(),
         type: 'events',
+        key: `some-key-${uuid()}`,
         ...itemOverrides,
     }
 }

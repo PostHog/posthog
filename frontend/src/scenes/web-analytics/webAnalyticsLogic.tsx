@@ -597,6 +597,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         key: Scene.WebAnalytics,
                         name: `Web analytics`,
                         path: urls.webAnalytics(),
+                        iconType: 'web_analytics',
                     },
                 ]
             },

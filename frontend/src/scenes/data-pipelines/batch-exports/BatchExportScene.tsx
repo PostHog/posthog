@@ -1,11 +1,12 @@
-import { BindLogic, actions, kea, key, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { actions, kea, key, path, props, reducers, selectors, useActions, useMountedLogic, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { BatchExportBackfills } from 'scenes/data-pipelines/batch-exports/BatchExportBackfills'
 import { BatchExportRuns } from 'scenes/data-pipelines/batch-exports/BatchExportRuns'
@@ -60,16 +61,18 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
                         key: Scene.DataPipelines,
                         name: 'Data pipelines',
                         path: urls.dataPipelines(),
+                        iconType: 'data_pipeline',
                     },
                     {
                         key: [Scene.DataPipelines, 'destinations'],
                         name: 'Destinations',
                         path: urls.dataPipelines('destinations'),
+                        iconType: 'data_pipeline',
                     },
-
                     {
                         key: Scene.BatchExport,
                         name: 'Batch export',
+                        iconType: 'data_pipeline',
                     },
                 ]
             },
@@ -100,6 +103,7 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
         return {
             // All possible routes for this scene need to be listed here
             [urls.batchExport(':id')]: reactToTabChange,
+            [urls.batchExportNew(':service')]: reactToTabChange,
         }
     }),
 ])
@@ -113,20 +117,12 @@ export const scene: SceneExport = {
     }),
 }
 
-function BatchExportSceneHeader(): JSX.Element {
-    const { configuration, batchExportConfigLoading } = useValues(batchExportConfigurationLogic)
-    const { setConfigurationValue } = useActions(batchExportConfigurationLogic)
+function BatchExportSceneHeader({ logicProps }: { logicProps: BatchExportConfigurationLogicProps }): JSX.Element {
+    const { configuration, batchExportConfigLoading } = useValues(batchExportConfigurationLogic(logicProps))
+    const { setConfigurationValue, deleteBatchExport } = useActions(batchExportConfigurationLogic(logicProps))
 
     return (
         <>
-            <PageHeader
-                buttons={
-                    <>
-                        <BatchExportConfigurationClearChangesButton />
-                        <BatchExportConfigurationSaveButton />
-                    </>
-                }
-            />
             <SceneTitleSection
                 name={configuration.name}
                 description={null}
@@ -142,26 +138,52 @@ function BatchExportSceneHeader(): JSX.Element {
                 onNameChange={(value) => setConfigurationValue('name', value)}
                 onDescriptionChange={(value) => setConfigurationValue('description', value)}
                 canEdit
+                actions={
+                    <>
+                        <More
+                            size="small"
+                            overlay={
+                                <>
+                                    <LemonButton status="danger" fullWidth onClick={() => deleteBatchExport()}>
+                                        Delete
+                                    </LemonButton>
+                                </>
+                            }
+                        />
+                        <LemonDivider vertical />
+                        <BatchExportConfigurationClearChangesButton />
+                        <BatchExportConfigurationSaveButton />
+                    </>
+                }
             />
         </>
     )
 }
 
-export function BatchExportScene(): JSX.Element {
-    const { logicProps } = useValues(batchExportSceneLogic)
-    return (
-        <BindLogic logic={batchExportConfigurationLogic} props={logicProps}>
-            <BatchExportSceneContent />
-        </BindLogic>
-    )
+export function BatchExportScene(componentProps: any): JSX.Element {
+    const { id, service: serviceParam } = componentProps
+    const logicProps: BatchExportConfigurationLogicProps = {
+        id: id ?? null,
+        service: serviceParam ? normalizeBatchExportService(serviceParam) : null,
+    }
+
+    const logic = useMountedLogic(batchExportSceneLogic(logicProps))
+
+    return <BatchExportSceneContent logic={logic} logicProps={logicProps} />
 }
 
-export function BatchExportSceneContent(): JSX.Element {
-    const { currentTab, logicProps } = useValues(batchExportSceneLogic)
-    const { setCurrentTab } = useActions(batchExportSceneLogic)
+export function BatchExportSceneContent({
+    logic,
+    logicProps,
+}: {
+    logic: any
+    logicProps: BatchExportConfigurationLogicProps
+}): JSX.Element {
+    const { currentTab } = useValues(logic)
+    const { setCurrentTab } = useActions(logic)
     const { id, service } = logicProps
 
-    const { batchExportConfig, loading } = useValues(batchExportConfigurationLogic)
+    const { batchExportConfig, loading } = useValues(batchExportConfigurationLogic(logicProps))
 
     if (loading && !batchExportConfig) {
         return (
@@ -226,7 +248,7 @@ export function BatchExportSceneContent(): JSX.Element {
 
     return (
         <SceneContent>
-            <BatchExportSceneHeader />
+            <BatchExportSceneHeader logicProps={logicProps} />
             <SceneDivider />
             <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>

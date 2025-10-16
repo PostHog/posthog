@@ -53,6 +53,9 @@ export default defineConfig({
         screenshot: 'only-on-failure',
     },
 
+    /* Configure centralized screenshot directory */
+    snapshotDir: './__snapshots__',
+
     /* Configure projects for major browsers */
     projects: [
         {

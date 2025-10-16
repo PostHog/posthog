@@ -41,7 +41,8 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             (): Breadcrumb[] => [
                 {
                     key: Scene.ExploreEvents,
-                    name: 'Explore',
+                    name: 'Explore events',
+                    iconType: 'apps',
                 },
             ],
         ],

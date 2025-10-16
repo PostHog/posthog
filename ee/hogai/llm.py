@@ -1,6 +1,8 @@
 import datetime
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
+
 import pytz
 from asgiref.sync import sync_to_async
 from langchain_core.messages import BaseMessage, SystemMessage
@@ -20,6 +22,9 @@ The user is accessing the PostHog App from the "{{{deployment_region}}}" region,
 Current time in the project's timezone, {{{project_timezone}}}: {{{project_datetime}}}.
 """.strip()
 
+# https://platform.openai.com/docs/guides/flex-processing
+OPENAI_FLEX_MODELS = ["o3", "o4-mini", "gpt5", "gpt5-mini", "gpt5-nano"]
+
 
 class MaxChatOpenAI(ChatOpenAI):
     """PostHog-tuned subclass of ChatOpenAI.
@@ -33,6 +38,8 @@ class MaxChatOpenAI(ChatOpenAI):
             kwargs["max_retries"] = 3
         if "stream_usage" not in kwargs:
             kwargs["stream_usage"] = True
+        if settings.IN_EVAL_TESTING and "service_tier" not in kwargs and kwargs["model"] in OPENAI_FLEX_MODELS:
+            kwargs["service_tier"] = "flex"  # 50% cheaper than default tier, but slower
         super().__init__(*args, **kwargs)
         self._user = user
         self._team = team

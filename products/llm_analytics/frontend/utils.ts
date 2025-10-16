@@ -1,7 +1,10 @@
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 
+import type { EvaluationRun } from './evaluations/types'
 import type { SpanAggregation } from './llmAnalyticsTraceDataLogic'
 import {
     AnthropicInputMessage,
@@ -76,27 +79,50 @@ export function formatLLMCost(cost: number): string {
     return usdFormatter.format(cost)
 }
 
-export function isLLMTraceEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
+export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
     return 'properties' in item
 }
 
-export function hasSessionID(event: LLMTrace | LLMTraceEvent): boolean {
-    if (isLLMTraceEvent(event)) {
-        return 'properties' in event && typeof event.properties.$session_id === 'string'
-    }
-    return '$session_id' in event
+function normalizeSessionId(value: unknown): string | null {
+    return typeof value === 'string' && value.length > 0 ? value : null
 }
 
-export function getSessionID(event: LLMTrace | LLMTraceEvent): string | null {
-    if (isLLMTraceEvent(event)) {
-        return event.properties.$session_id || null
+function sessionIdFromEvents(events?: LLMTraceEvent[] | null): string | null {
+    if (!events || events.length === 0) {
+        return null
     }
 
-    return event.events.find((e) => e.properties.$session_id !== null)?.properties.$session_id || null
+    const uniqueSessionIds = events.reduce((acc, current) => {
+        const candidate = normalizeSessionId(current.properties?.$session_id)
+        if (candidate) {
+            acc.add(candidate)
+        }
+        return acc
+    }, new Set<string>())
+
+    if (uniqueSessionIds.size !== 1) {
+        return null
+    }
+
+    return Array.from(uniqueSessionIds)[0]
+}
+
+export function getSessionID(event: LLMTrace | LLMTraceEvent, childEvents?: LLMTraceEvent[]): string | null {
+    if (isLLMEvent(event)) {
+        if (event.event === '$ai_trace') {
+            const directSessionId = normalizeSessionId(event.properties?.$session_id)
+
+            return directSessionId ?? sessionIdFromEvents(childEvents)
+        }
+
+        return normalizeSessionId(event.properties?.$session_id)
+    }
+
+    return sessionIdFromEvents(childEvents ?? event.events)
 }
 
 export function getEventType(event: LLMTrace | LLMTraceEvent): string {
-    if (isLLMTraceEvent(event)) {
+    if (isLLMEvent(event)) {
         switch (event.event) {
             case '$ai_generation':
                 return 'generation'
@@ -112,7 +138,7 @@ export function getEventType(event: LLMTrace | LLMTraceEvent): string {
 }
 
 export function getRecordingStatus(event: LLMTrace | LLMTraceEvent): string | null {
-    if (isLLMTraceEvent(event)) {
+    if (isLLMEvent(event)) {
         return event.properties.$recording_status || null
     }
 
@@ -146,16 +172,27 @@ export function isOpenAICompatMessage(output: unknown): output is OpenAICompleti
 }
 
 export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCall[] {
-    const toolsWithParsedArguments = toolCalls.map((toolCall) => ({
-        ...toolCall,
-        function: {
-            ...toolCall.function,
-            arguments:
-                typeof toolCall.function.arguments === 'string'
-                    ? JSON.parse(toolCall.function.arguments)
-                    : toolCall.function.arguments,
-        },
-    }))
+    const toolsWithParsedArguments = toolCalls.map((toolCall) => {
+        let parsedArguments = toolCall.function.arguments
+
+        if (typeof toolCall.function.arguments === 'string') {
+            try {
+                parsedArguments = JSON.parse(toolCall.function.arguments)
+            } catch (e) {
+                console.warn('Failed to parse tool call arguments as JSON:', toolCall.function.arguments, e)
+                // Keep the original string if parsing fails
+                parsedArguments = toolCall.function.arguments
+            }
+        }
+
+        return {
+            ...toolCall,
+            function: {
+                ...toolCall.function,
+                arguments: parsedArguments,
+            },
+        }
+    })
 
     return toolsWithParsedArguments
 }
@@ -254,16 +291,36 @@ export function isLiteLLMResponse(input: unknown): input is LiteLLMResponse {
         input.choices.every(isLiteLLMChoice)
     )
 }
+
+export const roleMap: Record<string, string> = {
+    user: 'user',
+    human: 'user',
+
+    assistant: 'assistant',
+    model: 'assistant',
+    ai: 'assistant',
+    bot: 'assistant',
+
+    system: 'system',
+    instructions: 'system',
+}
+
+export function normalizeRole(rawRole: unknown, fallback: string): string {
+    if (typeof rawRole !== 'string') {
+        return fallback
+    }
+    const lowercased = rawRole.toLowerCase()
+    return roleMap[lowercased] || lowercased
+}
+
 /**
  * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Analytics schema.
  *
  * @param output - Original message from an LLM provider.
- * @param defaultRole - Optional default role to use if the message doesn't have one.
+ * @param defaultRole - The default role to use if the message doesn't have one.
  * @returns The normalized message.
  */
-export function normalizeMessage(output: unknown, defaultRole?: string): CompatMessage[] {
-    const role = defaultRole || 'user'
-
+export function normalizeMessage(output: unknown, defaultRole: string): CompatMessage[] {
     // Handle new array-based content format (unified format with structured objects)
     // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
     if (
@@ -284,7 +341,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     ) {
         return [
             {
-                role: output.role === 'user' ? 'user' : 'assistant',
+                role: normalizeRole(output.role, defaultRole),
                 content: output.content,
             },
         ]
@@ -298,7 +355,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isVercelSDKTextMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: output.content,
             },
         ]
@@ -308,7 +365,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isVercelSDKInputImageMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: [
                     {
                         type: 'image',
@@ -323,7 +380,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isVercelSDKInputTextMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: output.text,
             },
         ]
@@ -334,7 +391,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         return [
             {
                 ...output,
-                role: output.role,
+                role: normalizeRole(output.role, defaultRole),
                 content: output.content,
                 tool_calls: isOpenAICompatToolCallsArray(output.tool_calls)
                     ? parseOpenAIToolCalls(output.tool_calls)
@@ -349,7 +406,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicTextMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: output.text,
             },
         ]
@@ -358,7 +415,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicToolCallMessage(output)) {
         return [
             {
-                role,
+                role: defaultRole,
                 content: '',
                 tool_calls: [
                     {
@@ -377,7 +434,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicThinkingMessage(output)) {
         return [
             {
-                role: 'assistant (thinking)',
+                role: normalizeRole('assistant (thinking)', defaultRole),
                 content: output.thinking,
             },
         ]
@@ -386,7 +443,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicToolResultMessage(output)) {
         if (Array.isArray(output.content)) {
             return output.content
-                .map((content) => normalizeMessage(content, role))
+                .map((content) => normalizeMessage(content, defaultRole))
                 .flat()
                 .map((message) => ({
                     ...message,
@@ -395,7 +452,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         }
         return [
             {
-                role,
+                role: defaultRole,
                 content: output.content,
                 tool_call_id: output.tool_use_id,
             },
@@ -406,12 +463,12 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     if (isAnthropicRoleBasedMessage(output)) {
         // Content is a nested array (tool responses, etc.)
         if (Array.isArray(output.content)) {
-            return output.content.map((content) => normalizeMessage(content, output.role)).flat()
+            return output.content.map((content) => normalizeMessage(content, defaultRole)).flat()
         }
 
         return [
             {
-                role: output.role,
+                role: normalizeRole(output.role, defaultRole),
                 content: output.content,
             },
         ]
@@ -431,10 +488,10 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     } else {
         cajoledContent = JSON.stringify(output)
     }
-    return [{ role, content: cajoledContent }]
+    return [{ role: defaultRole, content: cajoledContent }]
 }
 
-export function normalizeMessages(messages: unknown, defaultRole?: string, tools?: unknown): CompatMessage[] {
+export function normalizeMessages(messages: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
     const normalizedMessages: CompatMessage[] = []
 
     if (tools) {
@@ -455,7 +512,7 @@ export function normalizeMessages(messages: unknown, defaultRole?: string, tools
         normalizedMessages.push(...messages.choices.map((message) => normalizeMessage(message, defaultRole)).flat())
     } else if (typeof messages === 'string') {
         normalizedMessages.push({
-            role: defaultRole || 'user',
+            role: defaultRole,
             content: messages,
         })
     } else if (typeof messages === 'object' && messages !== null) {
@@ -469,8 +526,12 @@ export function removeMilliseconds(timestamp: string): string {
     return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
 }
 
+export function getTraceTimestamp(timestamp: string): string {
+    return dayjs(timestamp).utc().subtract(5, 'minutes').format('YYYY-MM-DDTHH:mm:ss[Z]')
+}
+
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
-    if (isLLMTraceEvent(event)) {
+    if (isLLMEvent(event)) {
         if (event.event === '$ai_generation') {
             const spanName = event.properties.$ai_span_name
             if (spanName) {
@@ -548,4 +609,68 @@ export function truncateValue(value: unknown): string {
     }
 
     return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
+}
+
+type RawEvaluationRunRow = [
+    id: string,
+    timestamp: string,
+    evaluation_id: string,
+    evaluation_name: string | null,
+    generation_id: string,
+    trace_id: string,
+    result: boolean | string,
+    reasoning: string | null,
+]
+
+export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
+    return {
+        id: row[0],
+        timestamp: row[1],
+        evaluation_id: row[2],
+        evaluation_name: row[3] || 'Unknown Evaluation',
+        generation_id: row[4],
+        trace_id: row[5],
+        result: row[6] === true || row[6] === 'true',
+        reasoning: row[7] || 'No reasoning provided',
+        status: 'completed' as const,
+    }
+}
+
+export async function queryEvaluationRuns(params: {
+    evaluationId?: string
+    generationEventId?: string
+    forceRefresh?: boolean
+}): Promise<EvaluationRun[]> {
+    const { evaluationId, generationEventId, forceRefresh } = params
+
+    if (!evaluationId && !generationEventId) {
+        throw new Error('Either evaluationId or generationEventId must be provided')
+    }
+
+    const propertyName = evaluationId ? '$ai_evaluation_id' : '$ai_target_event_id'
+    const propertyValue = evaluationId || generationEventId
+
+    const query = hogql`
+        SELECT
+            uuid,
+            timestamp,
+            properties.$ai_evaluation_id as evaluation_id,
+            properties.$ai_evaluation_name as evaluation_name,
+            properties.$ai_target_event_id as generation_id,
+            properties.$ai_trace_id as trace_id,
+            properties.$ai_evaluation_result as result,
+            properties.$ai_evaluation_reasoning as reasoning
+        FROM events
+        WHERE
+            event = '$ai_evaluation'
+            AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+        ORDER BY timestamp DESC
+        LIMIT 100
+    `
+
+    const response = await api.queryHogQL(query, {
+        ...(forceRefresh && { refresh: 'force_blocking' }),
+    })
+
+    return (response.results || []).map(mapEvaluationRunRow)
 }

@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import ReasoningMessage
+from posthog.schema import CurrencyCode, ReasoningMessage
 
 from posthog.event_usage import groups
 from posthog.models import Team
@@ -86,6 +86,13 @@ class AssistantContextMixin(ABC):
         Returns the timezone of the project, e.g. "PST" or "UTC".
         """
         return self._team.timezone_info.tzname(self._utc_now_datetime)
+
+    @property
+    def project_currency(self) -> str:
+        """
+        Returns the currency of the project, e.g. "USD" or "EUR".
+        """
+        return self._team.base_currency or CurrencyCode.USD.value
 
     def _get_debug_props(self, config: RunnableConfig) -> dict[str, Any]:
         """Properties to be sent to PostHog SDK (error tracking, etc)."""

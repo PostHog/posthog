@@ -34,16 +34,15 @@ import {
     AccessControlResourceType,
     PropertyOperator,
     RecordingUniversalFilters,
-    ReplayTabs,
     SidePanelTab,
     UniversalFiltersGroup,
 } from '~/types'
 
+import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
 import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
-import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
@@ -224,9 +223,8 @@ export const RecordingsUniversalFiltersEmbed = ({
         taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
-    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
-    const { savedFilters, appliedSavedFilter } = useValues(savedFiltersLogic)
-    const { loadSavedFilters, setAppliedSavedFilter } = useActions(savedFiltersLogic)
+    const { savedFilters, appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
+    const { loadSavedFilters, setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
 
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 

@@ -34,8 +34,9 @@ export const scene: SceneExport = {
 }
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, pagination, cohortFilters, shouldShowEmptyState } = useValues(cohortsSceneLogic)
-    const { deleteCohort, exportCohortPersons, setCohortFilters } = useActions(cohortsSceneLogic)
+    const { cohorts, cohortsLoading, pagination, cohortFilters, shouldShowEmptyState, cohortSorting } =
+        useValues(cohortsSceneLogic)
+    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting } = useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
 
     const columns: LemonTableColumns<CohortType> = [
@@ -110,6 +111,7 @@ export function Cohorts(): JSX.Element {
                                         }).url
                                     }
                                     fullWidth
+                                    targetBlank
                                 >
                                     View session recordings
                                 </LemonButton>
@@ -211,25 +213,23 @@ export function Cohorts(): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs
-                tabKey="cohorts"
-                buttons={
+            <PersonsManagementSceneTabs tabKey="cohorts" />
+
+            <SceneTitleSection
+                name="Cohorts"
+                resourceType={{
+                    type: RESOURCE_TYPE,
+                }}
+                actions={
                     <LemonButton
                         type="primary"
+                        size="small"
                         data-attr="new-cohort"
                         onClick={() => router.actions.push(urls.cohort('new'))}
                     >
                         New cohort
                     </LemonButton>
                 }
-            />
-
-            <SceneTitleSection
-                name="Cohorts"
-                description="A catalog of identified persons and your created cohorts."
-                resourceType={{
-                    type: RESOURCE_TYPE,
-                }}
             />
             <SceneDivider />
 
@@ -253,6 +253,11 @@ export function Cohorts(): JSX.Element {
                 dataSource={cohorts.results}
                 nouns={['cohort', 'cohorts']}
                 data-attr="cohorts-table"
+                sorting={cohortSorting}
+                onSort={(sorting) => {
+                    setCohortSorting(sorting)
+                }}
+                useURLForSorting={false}
             />
         </SceneContent>
     )

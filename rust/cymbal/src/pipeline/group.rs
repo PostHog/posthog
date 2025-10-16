@@ -35,7 +35,7 @@ pub async fn map_group_types(
 
         let group_type_mappings = context
             .team_manager
-            .get_group_types(&context.pool, event.team_id)
+            .get_group_types(&context.persons_pool, event.team_id)
             .await
             .map_err(|e| (i, e))?;
 

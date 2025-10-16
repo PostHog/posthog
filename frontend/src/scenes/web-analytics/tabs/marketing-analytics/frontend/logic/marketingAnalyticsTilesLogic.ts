@@ -1,19 +1,21 @@
 import { connect, kea, path, selectors } from 'kea'
 
 import { isNotNil } from 'lib/utils'
-import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
+import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
 import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
 
 import {
     CompareFilter,
     ConversionGoalFilter,
     DataTableNode,
+    EventsNode,
     MARKETING_ANALYTICS_SCHEMA,
+    MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsTableQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, InsightLogicProps, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
 
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
@@ -49,14 +51,20 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.campaignCostsBreakdown,
                 s.chartDisplayType,
                 s.tileColumnSelection,
+                s.draftConversionGoal,
             ],
             (
-                compareFilter,
-                dateFilter,
-                createMarketingDataWarehouseNodes,
-                campaignCostsBreakdown,
-                chartDisplayType,
-                tileColumnSelection
+                compareFilter: CompareFilter | null,
+                dateFilter: {
+                    dateFrom: string | null
+                    dateTo: string | null
+                    interval: IntervalType
+                },
+                createMarketingDataWarehouseNodes: EventsNode[],
+                campaignCostsBreakdown: DataTableNode,
+                chartDisplayType: ChartDisplayType,
+                tileColumnSelection: MarketingAnalyticsColumnsSchemaNames | null,
+                draftConversionGoal: ConversionGoalFilter | null
             ) => {
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
@@ -71,7 +79,28 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     : false
 
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
-                return [
+
+                const tiles: QueryTile[] = [
+                    {
+                        kind: 'query',
+                        tileId: TileId.MARKETING_OVERVIEW,
+                        layout: {
+                            colSpanClassName: 'md:col-span-2 xxl:col-span-3' as `md:col-span-${number}`,
+                            orderWhenLargeClassName: 'xxl:order-0',
+                        },
+                        query: {
+                            kind: NodeKind.MarketingAnalyticsAggregatedQuery,
+                            dateRange: {
+                                date_from: dateFilter.dateFrom,
+                                date_to: dateFilter.dateTo,
+                            },
+                            compareFilter: compareFilter || undefined,
+                            properties: [],
+                            draftConversionGoal: draftConversionGoal || undefined,
+                        },
+                        insightProps: createInsightProps(TileId.MARKETING_OVERVIEW),
+                        canOpenInsight: false,
+                    },
                     {
                         kind: 'query',
                         tileId: TileId.MARKETING,
@@ -87,7 +116,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             hideTooltipOnScroll: true,
                             source: {
                                 kind: NodeKind.TrendsQuery,
-                                compareFilter: compareFilter,
+                                compareFilter: compareFilter || undefined,
                                 series:
                                     createMarketingDataWarehouseNodes.length > 0
                                         ? createMarketingDataWarehouseNodes
@@ -108,7 +137,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                                 trendsFilter: {
                                     display: chartDisplayType,
                                     aggregationAxisFormat: 'numeric',
-                                    aggregationAxisPrefix: isCurrency ? '$' : '',
+                                    aggregationAxisPrefix: isCurrency ? '$' : undefined,
                                 },
                             },
                         },
@@ -144,7 +173,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                               },
                           }
                         : null,
-                ].filter(isNotNil)
+                ].filter(isNotNil) as QueryTile[]
+
+                return tiles
             },
         ],
         campaignCostsBreakdown: [
@@ -160,7 +191,6 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 if (loading) {
                     return null
                 }
-
                 const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
                 const columnsWithDraftConversionGoal = [
                     ...(marketingQuery?.select?.length ? marketingQuery.select : defaultColumns).filter(
@@ -192,7 +222,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         orderBy,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                         select: orderedColumns,
-                        compareFilter: compareFilter,
+                        compareFilter: compareFilter || undefined,
                     },
                     full: true,
                     embedded: false,

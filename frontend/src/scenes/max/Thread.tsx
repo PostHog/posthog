@@ -36,8 +36,7 @@ import {
     SeriesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { NotFound } from 'lib/components/NotFound'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -66,7 +65,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { InsightShortId, ProductKey } from '~/types'
+import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -122,15 +121,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
             ) : (
                 conversationId && (
                     <div className="flex flex-1 items-center justify-center">
-                        <ProductIntroduction
-                            isEmpty
-                            productName="Max"
-                            productKey={ProductKey.MAX}
-                            thingName="message"
-                            titleOverride="Start chatting with Max"
-                            description="Max is an AI product analyst in PostHog that answers data questions, gets things done in UI, and provides insights from PostHog's documentation."
-                            docsURL="https://posthog.com/docs/data/max-ai"
-                        />
+                        <NotFound object="conversation" className="m-0" />
                     </div>
                 )
             )}
@@ -801,7 +792,6 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                                       }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"
-                                      targetBlank
                                       tooltip={message.short_id ? 'Open insight' : 'Open as new insight'}
                                   />
                               )}
@@ -993,7 +983,6 @@ function RetriableFailureActions(): JSX.Element {
 function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
-    const { submitZendeskTicket } = useActions(supportLogic)
     const { user } = useValues(userLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
@@ -1012,24 +1001,11 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     }
 
     function submitFeedback(): void {
-        if (!feedback || !traceId || !user) {
+        if (!feedback || !traceId) {
             return // Input is empty
         }
         posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
-        // Also create a support ticket for thumbs down feedback, for the support hero to see
-        submitZendeskTicket({
-            name: user.first_name,
-            email: user.email,
-            kind: 'feedback',
-            target_area: 'max-ai',
-            severity_level: 'medium',
-            message: [
-                feedback,
-                '\nℹ️ This ticket was created automatically when a user gave thumbs down feedback to Max AI.',
-                `Trace: https://us.posthog.com/project/2/llm-analytics/traces/${traceId}`,
-            ].join('\n'),
-        })
     }
 
     return (

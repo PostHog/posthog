@@ -9,7 +9,15 @@ from posthog.schema import (
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     FailureMessage,
+    FunnelsQuery,
     FunnelVizType,
+    HogQLQuery,
+    RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsTopCustomersQuery,
+    TrendsQuery,
     VisualizationMessage,
 )
 
@@ -26,6 +34,10 @@ from .prompts import (
     FUNNEL_TRENDS_EXAMPLE_PROMPT,
     QUERY_RESULTS_PROMPT,
     RETENTION_EXAMPLE_PROMPT,
+    REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT,
+    REVENUE_ANALYTICS_METRICS_EXAMPLE_PROMPT,
+    REVENUE_ANALYTICS_MRR_EXAMPLE_PROMPT,
+    REVENUE_ANALYTICS_TOP_CUSTOMERS_EXAMPLE_PROMPT,
     SQL_EXAMPLE_PROMPT,
     SQL_QUERY_PROMPT,
     TRENDS_EXAMPLE_PROMPT,
@@ -67,6 +79,7 @@ class QueryExecutorNode(AssistantNode):
             utc_datetime_display=self.utc_now,
             project_datetime_display=self.project_now,
             project_timezone=self.project_timezone,
+            currency=self.project_currency,
         )
 
         formatted_query_result = f"{example_prompt}\n\n{query_result}"
@@ -84,9 +97,9 @@ class QueryExecutorNode(AssistantNode):
         )
 
     def _get_example_prompt(self, viz_message: VisualizationMessage) -> str:
-        if isinstance(viz_message.answer, AssistantTrendsQuery):
+        if isinstance(viz_message.answer, AssistantTrendsQuery | TrendsQuery):
             return TRENDS_EXAMPLE_PROMPT
-        if isinstance(viz_message.answer, AssistantFunnelsQuery):
+        if isinstance(viz_message.answer, AssistantFunnelsQuery | FunnelsQuery):
             if (
                 not viz_message.answer.funnelsFilter
                 or not viz_message.answer.funnelsFilter.funnelVizType
@@ -96,8 +109,16 @@ class QueryExecutorNode(AssistantNode):
             if viz_message.answer.funnelsFilter.funnelVizType == FunnelVizType.TIME_TO_CONVERT:
                 return FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT
             return FUNNEL_TRENDS_EXAMPLE_PROMPT
-        if isinstance(viz_message.answer, AssistantRetentionQuery):
+        if isinstance(viz_message.answer, AssistantRetentionQuery | RetentionQuery):
             return RETENTION_EXAMPLE_PROMPT
-        if isinstance(viz_message.answer, AssistantHogQLQuery):
+        if isinstance(viz_message.answer, AssistantHogQLQuery | HogQLQuery):
             return SQL_EXAMPLE_PROMPT
+        if isinstance(viz_message.answer, RevenueAnalyticsGrossRevenueQuery):
+            return REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT
+        if isinstance(viz_message.answer, RevenueAnalyticsMetricsQuery):
+            return REVENUE_ANALYTICS_METRICS_EXAMPLE_PROMPT
+        if isinstance(viz_message.answer, RevenueAnalyticsMRRQuery):
+            return REVENUE_ANALYTICS_MRR_EXAMPLE_PROMPT
+        if isinstance(viz_message.answer, RevenueAnalyticsTopCustomersQuery):
+            return REVENUE_ANALYTICS_TOP_CUSTOMERS_EXAMPLE_PROMPT
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")

@@ -1,0 +1,77 @@
+name: Tasks Sandbox Container Image CD
+
+on:
+    push:
+        branches:
+            - master
+    pull_request:
+    workflow_dispatch:
+
+jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+        name: Determine if sandbox image needs to be built
+        permissions:
+            contents: read
+        outputs:
+            sandbox_image: ${{ steps.filter.outputs.sandbox_image }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+              id: filter
+              with:
+                  filters: |
+                      sandbox_image:
+                        - 'products/tasks/backend/sandbox/images/**'
+
+    sandbox_base_build:
+        needs: changes
+        name: Build and push Tasks Sandbox container image
+        if: |
+            github.repository == 'PostHog/posthog' && (
+                needs.changes.outputs.sandbox_image == 'true' ||
+                github.event_name == 'workflow_dispatch' ||
+                contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
+            )
+        runs-on: depot-ubuntu-latest
+        permissions:
+            id-token: write # allow issuing OIDC tokens for this workflow run
+            contents: read # allow at least reading the repo contents, add other permissions if necessary
+            packages: write # allow push to ghcr.io
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+              with:
+                  fetch-depth: 2
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
+
+            - name: Login to ghcr.io
+              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+                  logout: false
+
+            - name: Build and push container image
+              id: build
+              uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
+              with:
+                  file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-base:master,ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: COMMIT_HASH=${{ github.sha }}

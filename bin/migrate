@@ -11,6 +11,20 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
         echo "Error in rust/bin/migrate-cyclotron, exiting."
         exit 1
     fi
+
+    echo "Running persons migrations via external non-django migrator..."
+    bash $SCRIPT_DIR/../rust/bin/migrate-persons
+    if [ $? -ne 0 ]; then
+        echo "Error in rust/bin/migrate-persons, exiting."
+        exit 1
+    fi
+
+    echo "Running behavioral cohorts migrations via external non-django migrator..."
+    bash $SCRIPT_DIR/../rust/bin/migrate-behavioral-cohorts
+    if [ $? -ne 0 ]; then
+        echo "Error in rust/bin/migrate-behavioral-cohorts, exiting."
+        exit 1
+    fi
 fi
 
 # Create a temporary file for background process status
@@ -22,14 +36,14 @@ echo "0" > $CLICKHOUSE_STATUS
 # Run ClickHouse migrations in the background but track their status
 (
     # Run migrations and capture status
-    python manage.py migrate_clickhouse 
+    python manage.py migrate_clickhouse
     CH_MIGRATE_STATUS=$?
     if [ $CH_MIGRATE_STATUS -ne 0 ]; then
         echo "Error in migrate_clickhouse, setting error status."
         echo "1" > $CLICKHOUSE_STATUS
         exit $CH_MIGRATE_STATUS
     fi
-    
+
     python manage.py sync_replicated_schema
     SYNC_STATUS=$?
     if [ $SYNC_STATUS -ne 0 ]; then

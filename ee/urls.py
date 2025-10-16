@@ -10,12 +10,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
-from posthog.utils import opt_slash_path
 from posthog.views import api_key_search_view, redis_values_view
 
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
-from ee.api.mcp.http import mcp_view
 from ee.api.vercel import vercel_sso
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
@@ -26,14 +24,12 @@ from .api import (
     conversation,
     core_memory,
     dashboard_collaborator,
-    explicit_team_member,
-    feature_flag_role_access,
     hooks,
     license,
     sentry_stats,
     subscription,
 )
-from .api.rbac import organization_resource_access, role
+from .api.rbac import role
 
 
 def extend_api_router() -> None:
@@ -42,7 +38,6 @@ def extend_api_router() -> None:
         environments_router,
         legacy_project_dashboards_router,
         organizations_router,
-        project_feature_flags_router,
         register_grandfathered_environment_nested_viewset,
         router as root_router,
     )
@@ -64,27 +59,7 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
-    # Start: routes to be deprecated
-    project_feature_flags_router.register(
-        r"role_access",
-        feature_flag_role_access.FeatureFlagRoleAccessViewSet,
-        "project_feature_flag_role_access",
-        ["project_id", "feature_flag_id"],
-    )
-    organizations_router.register(
-        r"resource_access",
-        organization_resource_access.OrganizationResourceAccessViewSet,
-        "organization_resource_access",
-        ["organization_id"],
-    )
-    # End: routes to be deprecated
     register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
-    register_grandfathered_environment_nested_viewset(
-        r"explicit_members",
-        explicit_team_member.ExplicitTeamMemberViewSet,
-        "environment_explicit_members",
-        ["team_id"],
-    )
 
     environment_dashboards_router.register(
         r"collaborators",
@@ -146,6 +121,5 @@ urlpatterns: list[Any] = [
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     path("login/vercel/", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     path("login/vercel/continue", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
-    opt_slash_path("mcp", csrf_exempt(mcp_view)),
     *admin_urlpatterns,
 ]

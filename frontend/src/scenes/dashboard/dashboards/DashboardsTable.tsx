@@ -6,7 +6,6 @@ import { LemonInput } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -16,6 +15,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardsFilters, DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
@@ -90,9 +90,13 @@ export function DashboardsTable({
             title: 'Name',
             dataIndex: 'name',
             width: '40%',
-            render: function Render(_, { id, name, description, is_shared, effective_privilege_level }) {
+            render: function Render(_, { id, name, description, is_shared, user_access_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
-                const canEditDashboard = effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+                const canEditDashboard = accessLevelSatisfied(
+                    AccessControlResourceType.Dashboard,
+                    user_access_level,
+                    AccessControlLevel.Editor
+                )
                 return (
                     <LemonTableLink
                         to={urls.dashboard(id)}

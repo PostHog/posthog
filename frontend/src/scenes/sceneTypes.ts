@@ -1,5 +1,6 @@
 import { LogicWrapper } from 'kea'
 
+import type { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
 import { SettingSectionId } from './settings/types'
@@ -19,6 +20,7 @@ export enum Scene {
     BillingSection = 'BillingSection',
     Canvas = 'Canvas',
     Cohort = 'Cohort',
+    CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
@@ -68,8 +70,6 @@ export enum Scene {
     Login = 'Login',
     Login2FA = 'Login2FA',
     Max = 'Max',
-    Messaging = 'Messaging',
-    MessagingCampaign = 'MessagingCampaign',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     NewTab = 'NewTab',
     Notebook = 'Notebook',
@@ -117,14 +117,17 @@ export enum Scene {
     WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
+    Workflow = 'Workflow',
+    Workflows = 'Workflows',
     EmbeddedAnalytics = 'EmbeddedAnalytics',
     QueryEndpoints = 'QueryEndpoints',
     Wizard = 'Wizard',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
+export type SceneProps = Record<string, any>
 
-export interface SceneExport<T = {}> {
+export interface SceneExport<T = SceneProps> {
     /** component to render for this scene */
     component: SceneComponent<T>
     /** logic to mount for this scene */
@@ -136,8 +139,6 @@ export interface SceneExport<T = {}> {
     /** when was the scene last touched, unix timestamp for sortability */
     lastTouch?: number
 }
-
-type SceneProps = Record<string, any>
 
 // KLUDGE: LoadedScene is used in a logic and therefore cannot accept generics
 // we use an untyped SceneProps to satisfy the types
@@ -155,6 +156,7 @@ export interface SceneTab {
     title: string
     active: boolean
     customTitle?: string
+    iconType: FileSystemIconType | 'loading' | 'blank'
 
     sceneId?: string
     sceneKey?: string
@@ -174,6 +176,8 @@ export interface Params {
 export interface SceneConfig {
     /** Custom name for the scene */
     name?: string
+    /** Optional static description of the scene or product. Used both in the UI and by Max AI as context on what the scene is for */
+    description?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
@@ -205,10 +209,18 @@ export interface SceneConfig {
     defaultDocsPath?: string | (() => string) | (() => Promise<string>)
     /** Component import, used only in manifests */
     import?: () => Promise<any>
+    /** Custom icon for the tabs */
+    iconType?: FileSystemIconType
+    /** If true, uses canvas background (--color-bg-surface-primary) for the scene and its tab */
+    canvasBackground?: boolean
 }
 
 // Map scenes to their access control resource types
 export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
+    // Actions
+    [Scene.Action]: AccessControlResourceType.Action,
+    [Scene.Actions]: AccessControlResourceType.Action,
+
     // Feature flags
     [Scene.FeatureFlag]: AccessControlResourceType.FeatureFlag,
     [Scene.FeatureFlags]: AccessControlResourceType.FeatureFlag,
@@ -232,4 +244,19 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Revenue analytics
     [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
+
+    // Web Analytics
+    [Scene.WebAnalytics]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsMarketing]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsWebVitals]: AccessControlResourceType.WebAnalytics,
+
+    // Surveys
+    [Scene.Survey]: AccessControlResourceType.Survey,
+    [Scene.Surveys]: AccessControlResourceType.Survey,
+    [Scene.SurveyTemplates]: AccessControlResourceType.Survey,
+
+    // Experiments
+    [Scene.Experiment]: AccessControlResourceType.Experiment,
+    [Scene.Experiments]: AccessControlResourceType.Experiment,
 }

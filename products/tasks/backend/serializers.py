@@ -1,8 +1,12 @@
+from django.db import IntegrityError, transaction
+from django.utils import timezone
+
 from rest_framework import serializers
 
 from posthog.models.integration import Integration
 
-from .models import Task, TaskWorkflow, WorkflowStage
+from .agents import get_agent_dict_by_id
+from .models import Task, TaskProgress, TaskWorkflow, WorkflowStage
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -14,6 +18,8 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = [
             "id",
+            "task_number",
+            "slug",
             "title",
             "description",
             "origin_product",
@@ -35,6 +41,8 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "task_number",
+            "slug",
             "created_at",
             "updated_at",
             "github_branch",
@@ -44,11 +52,9 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
 
     def get_repository_list(self, obj):
-        """Get the list of repositories this task can work with"""
         return obj.repository_list
 
     def get_primary_repository(self, obj):
-        """Get the primary repository for this task"""
         return obj.primary_repository
 
     def validate_github_integration(self, value):
@@ -79,6 +85,9 @@ class TaskSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
+
+        if "request" in self.context and hasattr(self.context["request"], "user"):
+            validated_data["created_by"] = self.context["request"].user
 
         # Set default GitHub integration if not provided
         if not validated_data.get("github_integration"):
@@ -141,8 +150,6 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
     def get_agent(self, obj):
         """Get the agent object for this stage"""
         if hasattr(obj, "agent_name") and obj.agent_name:
-            from .agents import get_agent_dict_by_id
-
             return get_agent_dict_by_id(obj.agent_name)
         return None
 
@@ -200,7 +207,7 @@ class TaskWorkflowSerializer(serializers.ModelSerializer):
 
     def get_task_count(self, obj):
         """Get number of tasks using this workflow"""
-        return obj.get_tasks_in_workflow().count()
+        return obj.tasks.count()
 
     def get_can_delete(self, obj):
         """Check if workflow can be safely deleted"""
@@ -208,8 +215,6 @@ class TaskWorkflowSerializer(serializers.ModelSerializer):
         return {"can_delete": can_delete, "reason": reason}
 
     def create(self, validated_data):
-        from django.db import IntegrityError
-
         validated_data["team"] = self.context["team"]
         try:
             return super().create(validated_data)
@@ -244,7 +249,6 @@ class WorkflowConfigurationSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         """Create a complete workflow with stages"""
-        from django.db import IntegrityError, transaction
 
         try:
             with transaction.atomic():
@@ -270,3 +274,152 @@ class WorkflowConfigurationSerializer(serializers.Serializer):
                     {"workflow": {"name": "A workflow with this name already exists for this team."}}
                 )
             raise
+
+
+class TaskUpdateStageRequestSerializer(serializers.Serializer):
+    current_stage = serializers.UUIDField(help_text="UUID of the workflow stage to move the task to")
+
+
+class TaskUpdatePositionRequestSerializer(serializers.Serializer):
+    position = serializers.IntegerField(help_text="New position for the task")
+
+
+class TaskBulkReorderRequestSerializer(serializers.Serializer):
+    columns = serializers.DictField(
+        child=serializers.ListField(child=serializers.UUIDField()),
+        help_text="Object mapping stage keys to arrays of task UUIDs in the desired order",
+    )
+
+
+class TaskBulkReorderResponseSerializer(serializers.Serializer):
+    updated = serializers.IntegerField(help_text="Number of tasks that were updated")
+    tasks = serializers.ListField(
+        child=serializers.DictField(), help_text="Array of updated tasks with their new positions and stages"
+    )
+
+
+class TaskProgressResponseSerializer(serializers.Serializer):
+    has_progress = serializers.BooleanField(help_text="Whether progress information is available")
+    id = serializers.UUIDField(required=False, help_text="Progress record ID")
+    status = serializers.ChoiceField(
+        choices=["started", "in_progress", "completed", "failed"],
+        required=False,
+        help_text="Current execution status",
+    )
+    current_step = serializers.CharField(required=False, help_text="Description of current step being executed")
+    completed_steps = serializers.IntegerField(required=False, help_text="Number of completed steps")
+    total_steps = serializers.IntegerField(required=False, help_text="Total number of steps")
+    progress_percentage = serializers.FloatField(required=False, help_text="Progress percentage (0-100)")
+    output_log = serializers.CharField(required=False, help_text="Live output from Claude Code execution")
+    error_message = serializers.CharField(required=False, help_text="Error message if execution failed")
+    created_at = serializers.DateTimeField(required=False, help_text="When progress tracking started")
+    updated_at = serializers.DateTimeField(required=False, help_text="When progress was last updated")
+    completed_at = serializers.DateTimeField(required=False, help_text="When execution completed")
+    workflow_id = serializers.CharField(required=False, help_text="Temporal workflow ID")
+    workflow_run_id = serializers.CharField(required=False, help_text="Temporal workflow run ID")
+    message = serializers.CharField(required=False, help_text="Message when no progress is available")
+
+
+class TaskProgressUpdateSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Progress record ID")
+    status = serializers.ChoiceField(
+        choices=["started", "in_progress", "completed", "failed"], help_text="Current execution status"
+    )
+    current_step = serializers.CharField(help_text="Description of current step being executed")
+    completed_steps = serializers.IntegerField(help_text="Number of completed steps")
+    total_steps = serializers.IntegerField(help_text="Total number of steps")
+    progress_percentage = serializers.FloatField(help_text="Progress percentage (0-100)")
+    output_log = serializers.CharField(help_text="Live output from Claude Code execution")
+    error_message = serializers.CharField(help_text="Error message if execution failed")
+    updated_at = serializers.DateTimeField(help_text="When progress was last updated")
+    workflow_id = serializers.CharField(help_text="Temporal workflow ID")
+
+
+class TaskProgressStreamResponseSerializer(serializers.Serializer):
+    progress_updates = TaskProgressUpdateSerializer(many=True, help_text="Array of recent progress updates")
+    server_time = serializers.DateTimeField(help_text="Current server time in ISO format")
+
+
+class TaskSetBranchRequestSerializer(serializers.Serializer):
+    branch = serializers.CharField(help_text="Git branch name to associate with the task")
+
+
+class TaskAttachPullRequestRequestSerializer(serializers.Serializer):
+    pr_url = serializers.URLField(help_text="Pull request URL")
+    branch = serializers.CharField(required=False, allow_blank=True, help_text="Optional branch name")
+
+
+class TaskProgressTaskRequestSerializer(serializers.Serializer):
+    next_stage_id = serializers.UUIDField(required=False, help_text="UUID of the next workflow stage")
+    auto = serializers.BooleanField(required=False, default=False, help_text="Automatically progress to next stage")
+
+
+class TaskProgressDetailSerializer(serializers.ModelSerializer):
+    progress_percentage = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = TaskProgress
+        fields = [
+            "id",
+            "task",
+            "status",
+            "current_step",
+            "completed_steps",
+            "total_steps",
+            "progress_percentage",
+            "output_log",
+            "error_message",
+            "workflow_id",
+            "workflow_run_id",
+            "activity_id",
+            "created_at",
+            "updated_at",
+            "completed_at",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "progress_percentage",
+            "completed_at",
+        ]
+
+    def get_progress_percentage(self, obj):
+        return obj.progress_percentage
+
+    def validate_task(self, value):
+        team = self.context.get("team")
+        if team and value.team_id != team.id:
+            raise serializers.ValidationError("Task must belong to the same team")
+        return value
+
+    def create(self, validated_data):
+        validated_data["team"] = self.context["team"]
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        # Never allow task reassignment through updates
+        validated_data.pop("task", None)
+
+        status = validated_data.get("status")
+        if status in [TaskProgress.Status.COMPLETED, TaskProgress.Status.FAILED] and not validated_data.get(
+            "completed_at"
+        ):
+            validated_data["completed_at"] = timezone.now()
+        return super().update(instance, validated_data)
+
+
+class WorkflowStageArchiveResponseSerializer(serializers.Serializer):
+    message = serializers.CharField(help_text="Success message")
+
+
+class WorkflowDeactivateResponseSerializer(serializers.Serializer):
+    message = serializers.CharField(help_text="Success message")
+
+
+class ErrorResponseSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Error message")
+
+
+class AgentListResponseSerializer(serializers.Serializer):
+    results = AgentDefinitionSerializer(many=True, help_text="Array of available agent definitions")

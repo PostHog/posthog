@@ -27,7 +27,7 @@ Each section should be concise and use bullet points for clarity. Do not repeat 
 Spend the most time on product details.
 
 IMPORTANT: DO NOT INCLUDE CITATION TOKENS. CITATION LINKS ARE PROHIBITED.
-DO NOT OFFER THE USER ANY INSTRUCTIONS. AVOID FOLLOW-UP SUGGESTIONS AND PROPOSALS.
+IMPORTANT: DO NOT OFFER THE USER ANY INSTRUCTIONS. DO NOT OFFER FOLLOW-UP SUGGESTIONS OR PROPOSALS.
 
 If the given domain doesn't exist OR no relevant data was found, then answer a single sentence:
 "{SCRAPING_TERMINATION_MESSAGE}"
@@ -36,11 +36,13 @@ Do NOT make speculative or assumptive statements, just output that sentence 1:1 
 """.strip()
 
 INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT = """
-Provide an analysis of my product based on the following domain(s): {{domains}}.
+Provide an analysis of my product based on the following domain(s): {{{domains}}}.
+Search them individually.
 """.strip()
 
 INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT = """
-Provide an analysis of my product based on the following app bundle ID(s): {{#bundle_ids}}{{.}}{{^last}}, {{/last}}{{/bundle_ids}}
+Provide an analysis of my product based on the following app bundle ID(s): {{{bundle_ids}}}
+Search them individually.
 """.strip()
 
 
@@ -123,10 +125,14 @@ When new information is provided, follow these steps:
 Ignore phrases that:
 - Are too vague or generic without specific details (e.g., "pageview trend").
 - Do not describe actions, attributes, or implications related to the company or product.
+- EXCEPTION: Always save information when explicitly requested by the user, even if vague or not product-related.
 </instructions>
 
 <examples>
 Here are some few shot examples:
+
+Output: The user's favorite treat is chocolate.
+Reasoning: The user explicitly asked to save it.
 
 Input: Track a churn rate by using `cancel_subscription` divided by `subscription_paid` event.
 Output: To track a churn rate, use the `cancel_subscription` divided by `subscription_paid` events.
