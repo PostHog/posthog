@@ -13,7 +13,7 @@ import { dataWarehouseSceneLogic } from '../dataWarehouseSceneLogic'
 import { JobStatsChart } from './components/JobStatsChart'
 import { StatusIcon, StatusTag } from './components/StatusComponents'
 
-const LIST_SIZE = 10
+const LIST_SIZE = 8
 
 export function OverviewTab(): JSX.Element {
     const { activityPaginationState, totalRowsStats, tablesLoading, jobStats, jobStatsLoading } =
