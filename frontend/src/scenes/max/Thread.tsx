@@ -90,7 +90,7 @@ import {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
 
     return (
         <div
@@ -116,6 +116,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         key={`${conversationId}-${index}`}
                         messages={group}
                         isFinal={index === threadGrouped.length - 1}
+                        streamingActive={streamingActive}
                     />
                 ))
             ) : (
@@ -154,9 +155,10 @@ function MessageGroupContainer({
 interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
+    streamingActive: boolean
 }
 
-function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
+function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { editInsightToolRegistered } = useValues(maxGlobalLogic)
 
@@ -254,16 +256,23 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         return (
                             <MessageTemplate key={key} type="ai">
                                 <div className="flex items-center gap-2">
-                                    {messageIndex === messages.length - 1 ? (
+                                    {messageIndex < messages.length - 1 ? (
+                                        <IconCheck className="size-4 m-0.5 animate-[scale-in_0.3s_ease-out]" />
+                                    ) : streamingActive ? (
                                         <img
                                             src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
                                             className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
                                         />
                                     ) : (
-                                        <IconCheck className="size-4 m-0.5 animate-[scale-in_0.3s_ease-out]" />
+                                        <IconX className="size-4 m-0.5" />
                                     )}
                                     <span className="font-medium">
-                                        {message.content}…{messageIndex < messages.length - 1 ? ' Done.' : ''}
+                                        {message.content}…
+                                        {messageIndex < messages.length - 1
+                                            ? ' Done.'
+                                            : !streamingActive
+                                              ? ' Canceled.'
+                                              : ''}
                                     </span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
