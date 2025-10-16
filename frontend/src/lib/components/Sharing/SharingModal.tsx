@@ -11,6 +11,11 @@ import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, Lemo
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
+import {
+    TEMPLATE_LINK_HEADING,
+    TEMPLATE_LINK_PII_WARNING,
+    TEMPLATE_LINK_TOOLTIP,
+} from 'lib/components/Sharing/templateLinkMessages'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -131,7 +136,7 @@ export function SharingModalContent({
               renderQueryUrl,
               iframeId: getRenderQueryIframeId(insightShortId),
               cachedResults,
-              query: insight.query,
+              query: insight?.query,
           })
         : null
 
@@ -410,9 +415,9 @@ export function SharingModalContent({
                     <TemplateLinkSection
                         collapsible
                         templateLink={getInsightDefinitionUrl({ query: insight.query }, siteUrl)}
-                        heading="Share as template"
-                        tooltip="Share this link to let others create a copy of this insight with the same configuration."
-                        piiWarning="This link shares the full insight definition, including event and property names and filters. If any of these are sensitive, consider editing before sharing."
+                        heading={TEMPLATE_LINK_HEADING}
+                        tooltip={TEMPLATE_LINK_TOOLTIP}
+                        piiWarning={TEMPLATE_LINK_PII_WARNING}
                     />
                     {renderQuerySnippet && (
                         <TemplateLinkSection
@@ -429,8 +434,8 @@ export function SharingModalContent({
                         <TemplateLinkSection
                             templateLink={apiQuerySnippet}
                             heading="Fetch latest results for shared template"
-                            tooltip="Use this snippet to call the Query API directly and retrieve the freshest results for this insight."
-                            piiWarning="This request shares the full insight query, including filters and properties. Review it before sharing."
+                            piiWarning="Use this snippet to call the Query API directly and retrieve the freshest results for this insight."
+                            tooltip="This request shares the full insight query, including filters and properties. Review it before sharing."
                             copyButtonLabel="Copy fetch example"
                             collapsible
                             defaultExpanded={false}

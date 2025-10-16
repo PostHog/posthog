@@ -64,7 +64,7 @@ export function TemplateLinkSection({
                 (collapsible ? (
                     <button
                         type="button"
-                        className="flex w-full items-center gap-2 rounded bg-transparent p-0 text-left"
+                        className="flex w-full items-center gap-2 rounded bg-transparent p-0 text-left cursor-pointer"
                         onClick={() => setIsExpanded((value) => !value)}
                         aria-expanded={isExpanded}
                     >
