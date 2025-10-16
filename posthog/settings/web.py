@@ -106,7 +106,7 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
-    "posthog.middleware.AdminCSPMiddleware",
+    "posthog.middleware.CSPMiddleware",
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
 

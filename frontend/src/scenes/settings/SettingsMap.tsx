@@ -33,7 +33,6 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
-import { CRMUsageMetricsConfig } from './environment/CRMUsageMetricsConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
@@ -73,6 +72,7 @@ import {
     WebSnippet,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
@@ -163,6 +163,25 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'dead-clicks-autocapture',
                 title: 'Dead clicks autocapture',
                 component: <DeadClicksAutocaptureSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-customer-analytics',
+        title: 'Customer analytics',
+        flag: 'CRM_ITERATION_ONE',
+        settings: [
+            {
+                id: 'group-analytics',
+                title: 'Group analytics',
+                component: <GroupAnalyticsConfig />,
+            },
+            {
+                id: 'crm-usage-metrics',
+                title: 'Usage metrics',
+                component: <UsageMetricsConfig />,
+                flag: 'CRM_USAGE_METRICS',
             },
         ],
     },
@@ -354,25 +373,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'New query engine',
                 component: <WebAnalyticsEnablePreAggregatedTables />,
                 flag: 'WEB_ANALYTICS_API',
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-crm',
-        title: 'CRM',
-        flag: 'CRM_ITERATION_ONE',
-        settings: [
-            {
-                id: 'group-analytics',
-                title: 'Group analytics',
-                component: <GroupAnalyticsConfig />,
-            },
-            {
-                id: 'crm-usage-metrics',
-                title: 'Usage metrics',
-                component: <CRMUsageMetricsConfig />,
-                flag: 'CRM_USAGE_METRICS',
             },
         ],
     },
