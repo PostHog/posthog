@@ -1,7 +1,10 @@
+from typing import Literal
+from uuid import uuid4
+
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
 
-from posthog.schema import AssistantMessage, AssistantMessageType, AssistantToolCallMessage
+from posthog.schema import AssistantMessageType, AssistantToolCallMessage
 
 from posthog.api.search import ENTITY_MAP, class_queryset
 from posthog.rbac.user_access_control import UserAccessControl
@@ -16,6 +19,7 @@ from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLA
 
 class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
     REASONING_MESSAGE = "Searching for entities..."
+    MAX_ENTITY_RESULTS = 10
 
     @property
     def node_name(self) -> MaxNodeName:
@@ -23,34 +27,35 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
 
     @property
     def user_access_control(self) -> UserAccessControl:
-        return UserAccessControl(user=self._user, team=self._team)
+        return UserAccessControl(user=self._user, team=self._team, organization_id=self._team.organization.id)
 
     def build_url(self, result: dict) -> str:
         entity_type = result["type"]
         result_id = result["result_id"]
+        base_url = f"/project/{self._team.id}"
         match entity_type:
             case "insight":
-                return f"/project/{self._team.id}/insights/{result_id}"
+                return f"{base_url}/insights/{result_id}"
             case "dashboard":
-                return f"/project/{self._team.id}/dashboard/{result_id}"
+                return f"{base_url}/dashboard/{result_id}"
             case "experiment":
-                return f"/project/{self._team.id}/experiments/{result_id}"
+                return f"{base_url}/experiments/{result_id}"
             case "feature_flag":
-                return f"/project/{self._team.id}/feature_flags/{result_id}"
+                return f"{base_url}/feature_flags/{result_id}"
             case "notebook":
-                return f"/project/{self._team.id}/notebooks/{result_id}"
+                return f"{base_url}/notebooks/{result_id}"
             case "action":
-                return f"/project/{self._team.id}/data-management/actions/{result_id}"
+                return f"{base_url}/data-management/actions/{result_id}"
             case "cohort":
-                return f"/project/{self._team.id}/cohorts/{result_id}"
+                return f"{base_url}/cohorts/{result_id}"
             case "event_definition":
-                return f"/project/{self._team.id}/data-management/events/{result_id}"
+                return f"{base_url}/data-management/events/{result_id}"
             case "survey":
-                return f"/project/{self._team.id}/surveys/{result_id}"
+                return f"{base_url}/surveys/{result_id}"
             case _:
-                return f"/project/{self._team.id}/{entity_type}/{result_id}"
+                return f"{base_url}/{entity_type}/{result_id}"
 
-    def get_formatted_entity_result(self, result: dict) -> list[str]:
+    def _get_formatted_entity_result(self, result: dict) -> list[str]:
         result_summary = []
         entity_type = result["type"]
         result_id = result["result_id"]
@@ -78,16 +83,15 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
                     AssistantToolCallMessage(
                         content="No search query provided.",
                         type=AssistantMessageType.Assistant,
+                        tool_call_id=state.root_tool_call_id,
+                        id=str(uuid4()),
                     )
                 ]
             )
 
         try:
             entity_types = state.entity_search_types or list(ENTITY_MAP.keys())
-
-            # Validate entity types
             content = ""
-            # Build search results using the existing search infrastructure
             results = []
             counts = {}
 
@@ -96,6 +100,7 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
                 if not entity_meta:
                     content += f"Invalid entity type: {entity_type}. Will not search for this entity type."
                     continue
+                await self._write_reasoning(f"Searching through the {entity_type}s")
                 klass_qs, _ = await database_sync_to_async(class_queryset)(
                     view=self,
                     klass=entity_meta["klass"],
@@ -105,38 +110,30 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
                     extra_fields=entity_meta["extra_fields"],
                 )
 
-                # Get results for this entity type - wrap queryset evaluation
                 def evaluate_queryset(klass_qs=klass_qs):
-                    return list(klass_qs[:10])
+                    return list(klass_qs[: self.MAX_ENTITY_RESULTS])
 
                 entity_results = await database_sync_to_async(evaluate_queryset)()
 
                 results.extend(entity_results)
                 counts[entity_type] = len(entity_results)
 
-            # Sort by rank if we have search results
             if results and "rank" in results[0]:
                 results.sort(key=lambda x: x.get("rank", 0), reverse=True)
 
             # Format results for display
             if not results:
-                content += (
-                    f"\n\n No entities found matching '{state.entity_search_query}' for entity types {entity_type}"
-                )
+                content += f"No entities found matching the query '{state.entity_search_query}' for entity types {entity_types}"
             else:
-                # Create a summary of results
                 result_summary = []
                 for result in results:
-                    # Format the result based on entity type
-                    result_summary.extend(self.get_formatted_entity_result(result))
+                    result_summary.extend(self._get_formatted_entity_result(result))
 
-                # Create summary text
                 total_results = len(results)
                 content += FOUND_ENTITIES_MESSAGE_TEMPLATE.format(
                     total_results=total_results, entities_list="\n".join(result_summary)
                 )
 
-                # Add counts summary
                 if counts:
                     content += ENTITY_TYPE_SUMMARY_TEMPLATE.format(
                         entity_type_summary="\n".join(
@@ -147,16 +144,29 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
 
             return PartialAssistantState(
                 messages=[
-                    AssistantToolCallMessage(
-                        content=content,
-                        tool_call_id=state.root_tool_call_id,
-                        visible=True,
-                    ),
-                ]
+                    AssistantToolCallMessage(content=content, tool_call_id=state.root_tool_call_id, id=str(uuid4())),
+                ],
+                entity_search_query=None,
+                entity_search_types=None,
+                root_tool_call_id=None,
             )
 
         except Exception as e:
             capture_exception(
                 e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
             )
-            return PartialAssistantState(messages=[AssistantMessage(content=f"Error searching entities: {str(e)}")])
+            return PartialAssistantState(
+                messages=[
+                    AssistantToolCallMessage(
+                        content=f"Error searching entities: {str(e)}",
+                        tool_call_id=state.root_tool_call_id,
+                        id=str(uuid4()),
+                    ),
+                ],
+                entity_search_query=None,
+                entity_search_types=None,
+                root_tool_call_id=None,
+            )
+
+    def router(self, state: AssistantState) -> Literal["root"]:
+        return "root"

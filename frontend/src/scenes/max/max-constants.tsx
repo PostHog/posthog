@@ -152,7 +152,8 @@ export const TOOL_DEFINITIONS: Omit<
     },
     search_entity: {
         name: 'Search entities',
-        description: 'Search for insights, dashboards, cohorts, actions, and other entities by name or description',
+        description:
+            'Search entities like insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, surveys, and event definitions by name or description',
         product: null,
     },
 }
