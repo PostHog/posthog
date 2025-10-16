@@ -202,3 +202,27 @@ class TestBytecodePlaceholders(BaseTest):
         finder = find_placeholders(expr)
         self.assertTrue(len(finder.placeholder_expressions) > 0)
         self.assertEqual(finder.placeholder_fields, [])
+
+    def test_replace_placeholders_with_variables_prefix(self):
+        """
+        `{variables.dateyyyymmdd}` should work with nested dict placeholders.
+        """
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                "SELECT event FROM events WHERE period_end >= parseDateTime({variables.dateyyyymmdd}, '%Y-%m-%d')"
+            ),
+        )
+        replaced = cast(
+            ast.SelectQuery,
+            replace_placeholders(query, {}),
+        )
+
+        # Should successfully replace the placeholder with the constant value
+        where_clause = cast(ast.CompareOperation, replaced.where)
+        self.assertIsInstance(where_clause, ast.CompareOperation)
+        parse_date_call = cast(ast.Call, where_clause.right)
+        self.assertIsInstance(parse_date_call, ast.Call)
+        # The first argument to parseDateTime should be the replaced constant
+        self.assertIsInstance(parse_date_call.args[0], ast.Constant)
+        self.assertEqual(parse_date_call.args[0].value, "2024-01-15")

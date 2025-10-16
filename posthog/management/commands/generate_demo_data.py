@@ -184,7 +184,7 @@ class Command(BaseCommand):
                 try:
                     sync_feature_flags_from_api(distinct_id="generate_demo_data", output_fn=self.stdout.write)
                 except Exception as e:
-                    print(f"Feature flag sync failed: {e}")
+                    print(f"Feature flag sync failed: {e.with_traceback()}")
                     print("Continuing anyway...")
             else:
                 print("Skipping feature flag sync.")

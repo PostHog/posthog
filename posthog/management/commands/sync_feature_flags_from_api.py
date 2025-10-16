@@ -53,47 +53,49 @@ def sync_feature_flags_from_api(
         output_fn(f"\nProcessing project {project.id} - {project.name or ''}")
         output_fn("=" * 50)
 
-        existing_flags = FeatureFlag.objects.filter(team__project_id=project.id).values_list("key", flat=True)
-        deleted_flags = FeatureFlag.objects.filter(team__project_id=project.id, deleted=True).values_list(
+        existing_flags = FeatureFlag.objects.filter(team__project_id=project.id).all()
+        deleted_flag_keys = FeatureFlag.objects.filter(team__project_id=project.id, deleted=True).values_list(
             "key", flat=True
         )
 
         enabled_flags = sum(1 for flag_data in data["flags"].values() if flag_data.get("enabled", False))
         total_flags = enabled_flags
         undeleted_count = 0
-        created_count = 0
         activated_count = 0
         deactivated_count = 0
         unchanged_count = 0
 
+        existing_flags_map: dict[str, FeatureFlag] = {ff.key: ff for ff in existing_flags}
+        flags_to_create: list[FeatureFlag] = []
         for flag_key, flag_data in data["flags"].items():
             is_enabled = flag_data.get("enabled", False)
-            if flag_key in deleted_flags and is_enabled:
-                ff = FeatureFlag.objects.get(team__project_id=project.id, key=flag_key)
-                ff.deleted = False
-                ff.active = True
-                ff.save()
+            if flag_key in deleted_flag_keys and is_enabled:
+                existing_flag = existing_flags_map[flag_key]
+                existing_flag.deleted = False
+                existing_flag.active = True
+                existing_flag.save()
                 output_fn(f"Undeleted feature flag '{flag_key}'")
                 undeleted_count += 1
 
-            elif flag_key not in existing_flags and is_enabled:
-                FeatureFlag.objects.create(
-                    team=project.teams.first(),
-                    rollout_percentage=100,
-                    name=flag_key,
-                    key=flag_key,
-                    created_by=first_user,
-                    active=True,
-                    filters={"groups": [{"properties": [], "rollout_percentage": 100}], "payloads": {}},
+            elif flag_key not in existing_flags_map and is_enabled:
+                flags_to_create.append(
+                    FeatureFlag(
+                        team=project.teams.first(),
+                        rollout_percentage=100,
+                        name=flag_key,
+                        key=flag_key,
+                        created_by=first_user,
+                        active=True,
+                        filters={"groups": [{"properties": [], "rollout_percentage": 100}], "payloads": {}},
+                    )
                 )
                 output_fn(f"Created feature flag '{flag_key}'")
-                created_count += 1
 
             else:
-                ff = FeatureFlag.objects.filter(team__project_id=project.id, key=flag_key).first()
-                if ff and ff.active != is_enabled:
-                    ff.active = is_enabled
-                    ff.save()
+                existing_flag = existing_flags_map[flag_key]
+                if existing_flag and existing_flag.active != is_enabled:
+                    existing_flag.active = is_enabled
+                    existing_flag.save()
                     if is_enabled:
                         output_fn(f"Activated feature flag '{flag_key}'")
                         activated_count += 1
@@ -103,16 +105,18 @@ def sync_feature_flags_from_api(
                 else:
                     unchanged_count += 1
 
+        FeatureFlag.objects.bulk_create(flags_to_create)  # Create in bulk for a quick sync experience
+
         output_fn("\nProject Summary")
         output_fn("-" * 20)
         output_fn(f"Enabled flags from API: {total_flags}")
         output_fn(f"Existing: {len(existing_flags)}")
         output_fn(f"Undeleted: {undeleted_count}")
-        output_fn(f"Created: {created_count}")
+        output_fn(f"Created: {len(flags_to_create)}")
         output_fn(f"Activated: {activated_count}")
         output_fn(f"Deactivated: {deactivated_count}")
         output_fn(f"Unchanged: {unchanged_count}")
-        output_fn(f"Total after sync: {len(existing_flags) + created_count}")
+        output_fn(f"Total after sync: {len(existing_flags) + len(flags_to_create)}")
 
 
 class Command(BaseCommand):
