@@ -2,7 +2,7 @@ import './SharingModal.scss'
 
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 
@@ -32,7 +32,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
-import { AnyResponseType } from '~/queries/schema/schema-general'
+import { AnyResponseType, Node } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -130,14 +130,13 @@ export function SharingModalContent({
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
-    const renderQueryUrl = insight?.query
-        ? combineUrl(siteUrl + '/render_query', {}, { query: insight.query }).url
-        : null
+    const renderQueryUrl = insight?.query ? new URL('render_query', siteUrl).toString() : null
     const renderQuerySnippet = renderQueryUrl
         ? createRenderQuerySnippet({
               renderQueryUrl,
               iframeId: getRenderQueryIframeId(insightShortId),
               cachedResults,
+              query: insight.query,
           })
         : null
 
@@ -412,6 +411,8 @@ export function SharingModalContent({
                             tooltip="Use this snippet to embed the insight and send cached results via postMessage."
                             piiWarning="This link shares the full insight, including all filters and the results, directly in the snippet. If any of these are sensitive, consider editing before sharing."
                             copyButtonLabel="Copy snippet"
+                            collapsible
+                            defaultExpanded={false}
                         />
                     )}
                 </>
@@ -429,12 +430,16 @@ function createRenderQuerySnippet({
     renderQueryUrl,
     iframeId,
     cachedResults,
+    query,
 }: {
     renderQueryUrl: string
     iframeId: string
     cachedResults: AnyResponseType | Partial<QueryBasedInsightModel> | null | undefined
+    query: Node | null | undefined
 }): string {
-    const serializedResults = escapeScriptJson(JSON.stringify(cachedResults ?? null, null, 2))
+    const preparedResults = prepareCachedResultsForSnippet(cachedResults)
+    const serializedResults = escapeScriptJson(JSON.stringify(preparedResults, null, 2))
+    const serializedQuery = escapeScriptJson(JSON.stringify(query ?? null, null, 2))
 
     return `<iframe id="${iframeId}" src="${renderQueryUrl}" style="width: 100%; height: 600px; border: 0;" loading="lazy"></iframe>
 <script>
@@ -444,6 +449,7 @@ function createRenderQuerySnippet({
       return
     }
     const payload = {
+      query: ${serializedQuery},
       cachedResults: ${serializedResults}
     }
     const targetOrigin = new URL(${JSON.stringify(renderQueryUrl)}).origin
@@ -461,6 +467,52 @@ function createRenderQuerySnippet({
 
 function escapeScriptJson(value: string): string {
     return value.replace(/</g, '\\u003C').replace(/>/g, '\\u003E').replace(/&/g, '\\u0026')
+}
+
+function prepareCachedResultsForSnippet(
+    cachedResults: AnyResponseType | Partial<QueryBasedInsightModel> | null | undefined
+): AnyResponseType | Partial<QueryBasedInsightModel> | null {
+    if (!cachedResults) {
+        return null
+    }
+
+    if (Array.isArray(cachedResults)) {
+        return cachedResults
+    }
+
+    if (typeof cachedResults !== 'object') {
+        return cachedResults
+    }
+
+    const source = cachedResults as Record<string, any>
+    const allowedKeys = [
+        'cache_key',
+        'error',
+        'results',
+        'last_refresh',
+        'next_allowed_client_refresh',
+        'timezone',
+        'query_metadata',
+    ]
+    const trimmed: Record<string, any> = {}
+
+    for (const key of allowedKeys) {
+        if (Object.prototype.hasOwnProperty.call(source, key)) {
+            const value = source[key]
+            if (value !== undefined) {
+                trimmed[key] = value
+            }
+        }
+    }
+
+    if (trimmed.results === undefined && Object.prototype.hasOwnProperty.call(source, 'result')) {
+        const value = source.result
+        if (value !== undefined) {
+            trimmed.results = value
+        }
+    }
+
+    return Object.keys(trimmed).length > 0 ? trimmed : null
 }
 
 function DetailedResultsCheckbox({ insightShortId }: { insightShortId: InsightShortId }): JSX.Element | null {
