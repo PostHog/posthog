@@ -49,6 +49,7 @@ class MessageSerializer(serializers.Serializer):
     trace_id = serializers.UUIDField(required=True)
     session_id = serializers.CharField(required=False)
     deep_research_mode = serializers.BooleanField(required=False, default=False)
+    deep_research_template = serializers.JSONField(required=False)
 
     def validate(self, data):
         if data["content"] is not None:
@@ -146,8 +147,10 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                     {"error": "Cannot access other users' conversations"}, status=status.HTTP_400_BAD_REQUEST
                 )
         except Conversation.DoesNotExist:
-            # Conversation doesn't exist, create it if we have a message
-            if not has_message:
+            # Allow creation with either a message or a deep research template
+            if not has_message and not (
+                is_deep_research and serializer.validated_data.get("deep_research_template") is not None
+            ):
                 return Response(
                     {"error": "Cannot stream from non-existent conversation"}, status=status.HTTP_400_BAD_REQUEST
                 )
@@ -164,6 +167,10 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if has_message and not is_idle:
             raise Conflict("Cannot resume streaming with a new message")
 
+        deep_research_template = None
+        if is_deep_research:
+            deep_research_template = serializer.validated_data.get("deep_research_template")
+
         workflow_inputs = AssistantConversationRunnerWorkflowInputs(
             team_id=self.team_id,
             user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
@@ -175,6 +182,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
             billing_context=serializer.validated_data.get("billing_context"),
             mode=mode,
+            deep_research_template=deep_research_template,
         )
 
         async def async_stream(

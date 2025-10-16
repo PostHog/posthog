@@ -46,6 +46,7 @@ class AssistantConversationRunnerWorkflowInputs:
     session_id: Optional[str] = None
     mode: AssistantMode = AssistantMode.ASSISTANT
     billing_context: Optional[MaxBillingContext] = None
+    deep_research_template: Optional[dict[str, Any]] = None
 
 
 @workflow.defn(name="conversation-processing")
@@ -90,6 +91,8 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
 
     human_message = HumanMessage.model_validate(inputs.message) if inputs.message else None
 
+    deep_research_template = inputs.deep_research_template if inputs.mode == AssistantMode.DEEP_RESEARCH else None
+
     assistant = Assistant.create(
         team,
         conversation,
@@ -101,6 +104,7 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
         session_id=inputs.session_id,
         mode=inputs.mode,
         billing_context=inputs.billing_context,
+        deep_research_template=deep_research_template,
     )
 
     stream_key = get_conversation_stream_key(inputs.conversation_id)
