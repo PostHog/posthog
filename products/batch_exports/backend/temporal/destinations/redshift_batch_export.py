@@ -267,7 +267,10 @@ class RedshiftClient(PostgreSQLClient):
             )
 
         else:
-            credentials = sql.SQL("IAM_ROLE {iam_role}").format(iam_role=sql.Literal(authorization))
+            if authorization == "default":
+                credentials = sql.SQL("IAM_ROLE default")
+            else:
+                credentials = sql.SQL("IAM_ROLE {iam_role}").format(iam_role=sql.Literal(authorization))
 
         copy_query = sql.SQL(
             """
