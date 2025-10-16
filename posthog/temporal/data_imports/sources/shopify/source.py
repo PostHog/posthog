@@ -12,7 +12,8 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldT
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import ShopifySourceConfig
-from posthog.temporal.data_imports.sources.shopify.constants import SHOPIFY_RESOURCES
+from posthog.temporal.data_imports.sources.shopify.constants import SHOPIFY_GRAPHQL_OBJECTS
+from posthog.temporal.data_imports.sources.shopify.settings import INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     ShopifyPermissionError,
     shopify_source,
@@ -79,8 +80,13 @@ The simplest setup for permissions is to only allow **read** permissions for the
 
     def get_schemas(self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
-            SourceSchema(name=resource_name, supports_incremental=False, supports_append=False, incremental_fields=[])
-            for resource_name in SHOPIFY_RESOURCES
+            SourceSchema(
+                name=object_name,
+                supports_incremental=True,
+                supports_append=True,
+                incremental_fields=INCREMENTAL_FIELDS.get(object_name, []),
+            )
+            for object_name in SHOPIFY_GRAPHQL_OBJECTS
         ]
 
     def source_for_pipeline(self, config: ShopifySourceConfig, inputs: SourceInputs) -> SourceResponse:

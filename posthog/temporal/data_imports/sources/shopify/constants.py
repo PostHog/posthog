@@ -59,7 +59,7 @@ TRANSACTIONS = "transactions"
 
 # NOTE: some of the permissions queries may seem random. not every field on a given graphql object
 # have the same access requirements
-SHOPIFY_RESOURCES = {
+SHOPIFY_GRAPHQL_OBJECTS = {
     ABANDONED_CHECKOUTS: ShopifyGraphQLObject(
         name=ABANDONED_CHECKOUTS,
         query=ABANDONED_CHECKOUTS_QUERY,

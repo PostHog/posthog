@@ -1,4 +1,5 @@
 import os
+import json
 from typing import Any, Optional
 
 import requests
@@ -7,6 +8,7 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.shopify.settings import INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.shopify.utils import ShopifyGraphQLObject, safe_unwrap, unwrap
 
 from .constants import (
@@ -14,7 +16,7 @@ from .constants import (
     SHOPIFY_API_URL,
     SHOPIFY_API_VERSION,
     SHOPIFY_DEFAULT_PAGE_SIZE,
-    SHOPIFY_RESOURCES,
+    SHOPIFY_GRAPHQL_OBJECTS,
 )
 
 
@@ -29,32 +31,34 @@ class ShopifyPermissionError(Exception):
         super().__init__(message)
 
 
-class ShopifyRateLimitError(Exception):
-    """Exception raised when Shopify API rate limit is exceeded."""
+class ShopifyRetryableError(Exception):
+    """Exception raised when Shopify issues a retryable error (e.g. rate limit, 5xx)."""
 
     pass
 
 
-def _is_rate_limited(payload: Any) -> bool:
-    """Check if the response indicates a rate limit has been hit."""
+def _get_retryable_error(payload: Any) -> ShopifyRetryableError | None:
+    """Check if the response indicates a retryable error in the payload (e.g. rate limit, 5xx)"""
     errors, ok = safe_unwrap(payload, path="errors")
-    if ok and isinstance(errors, list):
-        for error in errors:
-            if "throttled" in str(error).lower():
-                return True
+    if ok:
+        serialized_errors = json.dumps(errors).lower()
+        if "throttled" in serialized_errors:
+            return ShopifyRetryableError("Shopify: rate limite exceeded...")
+        if "internal_server_error" in serialized_errors:
+            return ShopifyRetryableError(f"Shopify: internal errors in payload {serialized_errors}")
     currently_available, ok = safe_unwrap(payload, path="extensions.cost.throttleStatus.currentlyAvailable")
     if ok and isinstance(currently_available, int | float):
         # this check is a little liberal. if we find that we are getting rate limited
         # too often might be worth it to check against the requestedCost instead
-        return currently_available <= 0
-    return False
+        if currently_available <= 0:
+            return ShopifyRetryableError("Shopify: rate limit exceeded...")
 
 
 def _make_paginated_shopify_request(
     url: str, sess: Session, graphql_object: ShopifyGraphQLObject, logger: FilteringBoundLogger
 ):
     @retry(
-        retry=retry_if_exception_type(ShopifyRateLimitError),
+        retry=retry_if_exception_type(ShopifyRetryableError),
         stop=stop_after_attempt(5),
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
@@ -62,10 +66,16 @@ def _make_paginated_shopify_request(
     def execute(vars: dict[str, Any]):
         logger.debug(f"Shopify: reading from resource {graphql_object.name}")
         response = sess.post(url, json={"query": graphql_object.query, "variables": vars})
-        response.raise_for_status()
+        if response.status_code >= 500:
+            raise ShopifyRetryableError(
+                f"Shopify: internal error from request {response.status_code} {response.reason}"
+            )
+        else:
+            response.raise_for_status()
         payload = response.json()
-        if _is_rate_limited(payload):
-            raise ShopifyRateLimitError("Shopify rate limit exceeded...")
+        retryable_error = _get_retryable_error(payload)
+        if retryable_error:
+            raise retryable_error
         if "data" in payload:
             return payload
         elif "errors" in payload:
@@ -89,7 +99,7 @@ def _make_paginated_shopify_request(
 def shopify_source(
     shopify_store_id: str,
     shopify_access_token: str,
-    resource_name: str,
+    graphql_object_name: str,
     db_incremental_field_last_value: Optional[Any],
     db_incremental_field_earliest_value: Optional[Any],
     logger: FilteringBoundLogger,
@@ -100,23 +110,45 @@ def shopify_source(
     def get_rows():
         sess = requests.Session()
         sess.headers.update({"X-Shopify-Access-Token": shopify_access_token, "Content-Type": "application/json"})
-        resource = SHOPIFY_RESOURCES.get(resource_name)
-        if not resource:
-            raise Exception(f"Shopify resource does not exist: {resource_name}")
-        yield from _make_paginated_shopify_request(api_url, sess, resource, logger)
+        graphql_object = SHOPIFY_GRAPHQL_OBJECTS.get(graphql_object_name)
+        if not graphql_object:
+            raise Exception(f"Shopify object does not exist: {graphql_object_name}")
+
+        incremental_field_config = INCREMENTAL_FIELDS.get(graphql_object_name, [])
+        _ = incremental_field_config[0]["field"] if incremental_field_config else "createdAt"
+
+        if not should_use_incremental_field or (
+            db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
+        ):
+            logger.debug(f"Shopify: iterating all objects from source")
+            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger)
+            return
+
+        if db_incremental_field_earliest_value is not None:
+            logger.debug(
+                f"Shopify: iterating earliest objects from source: createdAt < {db_incremental_field_earliest_value}"
+            )
+            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger)
+
+        if db_incremental_field_last_value is not None:
+            logger.debug(
+                f"Shopify: iterating latest objects from source: createdAt >= {db_incremental_field_last_value}"
+            )
+            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger)
+
+    incremental_field_config = INCREMENTAL_FIELDS.get(graphql_object_name, [])
+    incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "createdAt"
 
     return SourceResponse(
         items=get_rows(),
         primary_keys=["id"],
-        name=resource_name,
-        # column_hints=column_hints,
-        # Shopify data is returned in descending timestamp order
+        name=graphql_object_name,
         sort_mode="desc",
-        # partition_count=1,  # this enables partitioning
-        # partition_size=1,  # this enables partitioning
-        # partition_mode="datetime",
-        # partition_format="month",
-        # partition_keys=[incremental_field_name],
+        partition_count=1,  # this enables partitioning
+        partition_size=1,  # this enables partitioning
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=[incremental_field_name],
     )
 
 
@@ -149,7 +181,7 @@ def validate_credentials(shopify_store_id: str, shopify_access_token: str) -> bo
 
     # test fine grained permissions
     missing_permissions: dict[str, str] = {}
-    for resource_name, resource in SHOPIFY_RESOURCES.items():
+    for resource_name, resource in SHOPIFY_GRAPHQL_OBJECTS.items():
         try:
             res = sess.post(api_url, json={"query": resource.permissions_query})
             res.raise_for_status()
