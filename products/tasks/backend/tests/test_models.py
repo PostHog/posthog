@@ -914,19 +914,19 @@ class TestTaskRun(TestCase):
         )
         self.assertEqual(str(run), "Progress for Test Task - In Progress")
 
-    def test_append_output(self):
+    def test_append_log(self):
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
         )
 
-        run.append_output("First line")
+        run.append_log("First line")
         run.refresh_from_db()
-        self.assertEqual(run.output_log, "First line")
+        self.assertEqual(run.log, "First line")
 
-        run.append_output("Second line")
+        run.append_log("Second line")
         run.refresh_from_db()
-        self.assertEqual(run.output_log, "First line\nSecond line")
+        self.assertEqual(run.log, "First line\nSecond line")
 
     def test_update_progress(self):
         run = TaskRun.objects.create(
