@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 
 
 class BehavioralCohortAnalysisForm(forms.Form):
@@ -92,6 +92,8 @@ def analyze_behavioral_cohorts_view(request):
                     )
             except Exception as e:
                 messages.error(request, f"Failed to start behavioral cohorts analysis: {str(e)}")
+
+            return redirect("behavioral-cohort-analysis")
     else:
         form = BehavioralCohortAnalysisForm()
 
