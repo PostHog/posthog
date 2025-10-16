@@ -2,6 +2,7 @@ from typing import Any, Literal
 
 from django.conf import settings
 
+import posthoganalytics
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -116,9 +117,20 @@ class SearchTool(MaxTool):
         if kind == "docs":
             if not settings.INKEEP_API_KEY:
                 return "This tool is not available in this environment.", None
-            return await self._search_docs(query), None
+            if self._has_docs_search_feature_flag():
+                return await self._search_docs(query), None
+
         # Used for routing
         return "Search tool executed", SearchToolArgs(kind=kind, query=query).model_dump()
+
+    def _has_docs_search_feature_flag(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "max-inkeep-rag-docs-search",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
 
     async def _search_docs(self, query: str) -> str:
         model = MaxChatOpenAI(
