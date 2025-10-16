@@ -29,6 +29,7 @@ import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/se
 import type { dataManagementSceneLogicType } from './DataManagementSceneType'
 import { EventDefinitionsTable } from './events/EventDefinitionsTable'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
+import { ManagedViewsetsScene } from './managed-viewsets/ManagedViewsetsScene'
 import { PropertyDefinitionsTable } from './properties/PropertyDefinitionsTable'
 
 export enum DataManagementTab {
@@ -41,6 +42,7 @@ export enum DataManagementTab {
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
     MarketingAnalytics = 'marketing-analytics',
+    ManagedViewsets = 'managed-viewsets',
 }
 
 type TabConfig = {
@@ -156,6 +158,12 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         ),
         content: <MarketingAnalyticsSettings />,
         flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
+    },
+    [DataManagementTab.ManagedViewsets]: {
+        url: urls.managedViewsets(),
+        label: 'Managed viewsets',
+        content: <ManagedViewsetsScene />,
+        flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
     },
 }
 

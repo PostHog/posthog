@@ -2428,6 +2428,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
+    | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
     | 'web_analytics'
@@ -2468,6 +2469,7 @@ export type FileSystemIconType =
     | 'home'
     | 'apps'
     | 'live'
+
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2492,6 +2494,8 @@ export interface PersistedFolder {
     created_at: string
     updated_at: string
 }
+
+export type ManagedViewsetKind = 'revenue_analytics'
 
 export type InsightQueryNode =
     | TrendsQuery

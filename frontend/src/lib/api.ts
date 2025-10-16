@@ -32,6 +32,7 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    ManagedViewsetKind,
     Node,
     NodeKind,
     PersistedFolder,
@@ -71,6 +72,7 @@ import {
     DataColorThemeModel,
     DataModelingJob,
     DataWarehouseActivityRecord,
+    DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSourceRowCount,
@@ -1259,7 +1261,7 @@ export class ApiRequest {
         return this.featureFlag(flagId).addPathComponent('role_access')
     }
 
-    // # Queries
+    // Queries
     public query(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('query')
     }
@@ -1280,7 +1282,7 @@ export class ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
     }
 
-    // # Endpoints
+    // Endpoints
     public endpoint(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('endpoints')
     }
@@ -1291,6 +1293,11 @@ export class ApiRequest {
 
     public lastExecutionTimes(): ApiRequest {
         return this.addPathComponent('last_execution_times')
+    }
+
+    // Managed Viewsets
+    public managedViewset(kind: ManagedViewsetKind, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
     }
 
     // Conversations
@@ -4383,6 +4390,17 @@ const api = {
     sessionSummaries: {
         async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
             return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
+        },
+    },
+
+    managedViewsets: {
+        async toggle(kind: ManagedViewsetKind, enabled: boolean): Promise<void> {
+            return await new ApiRequest().managedViewset(kind).put({ data: { enabled } })
+        },
+        async getViews(
+            kind: ManagedViewsetKind
+        ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
+            return await new ApiRequest().managedViewset(kind).get()
         },
     },
 }

@@ -78,6 +78,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     marketing_settings: {
         icon: <IconMegaphone />,
     },
+    managed_viewsets: {
+        icon: <IconDatabase />,
+    },
     web_analytics: {
         icon: <IconPieChart />,
         iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
@@ -400,6 +403,13 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('destinations'),
     } as FileSystemImport,
+    {
+        path: 'Managed viewsets',
+        category: 'Unreleased',
+        iconType: 'managed_viewsets',
+        href: urls.managedViewsets(),
+        flag: FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION,
+    },
 ]
 
 export const getDefaultTreeProducts = (): FileSystemImport[] =>

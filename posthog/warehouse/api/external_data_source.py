@@ -467,6 +467,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
 
+        if new_source_model.revenue_analytics_config_safe.enabled:
+            from posthog.warehouse.models import ManagedViewSet
+
+            managed_viewset, _ = ManagedViewSet.objects.get_or_create(
+                team=self.team,
+                kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+            )
+            managed_viewset.sync_views()
+
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
     def prefix_required(self, source_type: str) -> bool:
@@ -649,12 +658,31 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["PATCH"], detail=True)
     def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update the revenue analytics configuration and return the full external data source."""
+        from posthog.warehouse.models import ManagedViewSet
+
         external_data_source = self.get_object()
         config = external_data_source.revenue_analytics_config_safe
 
         config_serializer = ExternalDataSourceRevenueAnalyticsConfigSerializer(config, data=request.data, partial=True)
         config_serializer.is_valid(raise_exception=True)
         config_serializer.save()
+
+        if config.enabled:
+            managed_viewset, _ = ManagedViewSet.objects.get_or_create(
+                team=self.team,
+                kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+            )
+            managed_viewset.sync_views()
+        else:
+            try:
+                managed_viewset = ManagedViewSet.objects.get(
+                    team=self.team,
+                    kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+                )
+                managed_viewset.delete_with_views()
+
+            except ManagedViewSet.DoesNotExist:
+                pass
 
         # Return the full external data source with updated config
         source_serializer = self.get_serializer(external_data_source, context=self.get_serializer_context())
