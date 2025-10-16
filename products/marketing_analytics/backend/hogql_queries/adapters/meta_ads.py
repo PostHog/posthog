@@ -30,6 +30,10 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
             ]
         }
 
+    def get_source_type(self) -> str:
+        """Return unique identifier for this source type"""
+        return "MetaAds"
+
     def validate(self) -> ValidationResult:
         """Validate Meta Ads tables and required fields"""
         errors: list[str] = []

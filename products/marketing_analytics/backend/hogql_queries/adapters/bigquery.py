@@ -31,6 +31,10 @@ class BigQueryAdapter(MarketingSourceAdapter[ExternalConfig]):
         """
         return {}
 
+    def get_source_type(self) -> str:
+        """Return unique identifier for this source type"""
+        return "BigQuery"
+
     def validate(self) -> ValidationResult:
         """Validate BigQuery table and required field mappings"""
         errors: list[str] = []

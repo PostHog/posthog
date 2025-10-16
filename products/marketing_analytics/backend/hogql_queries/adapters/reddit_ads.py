@@ -18,6 +18,10 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
         """Reddit Ads campaigns typically use 'reddit' as the UTM source"""
         return {"reddit": ["reddit"]}
 
+    def get_source_type(self) -> str:
+        """Return unique identifier for this source type"""
+        return "RedditAds"
+
     def validate(self) -> ValidationResult:
         """Validate Reddit Ads tables and required fields"""
         errors: list[str] = []

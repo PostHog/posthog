@@ -163,7 +163,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             )
         assert len(mapping) > 0, "Should have at least one source identifier mapping"
         primary_source = next(iter(mapping.keys()))
-        return ast.Constant(value=primary_source)
+        return ast.Call(name="toString", args=[ast.Constant(value=primary_source)])
 
     @abstractmethod
     def _get_impressions_field(self) -> ast.Expr:

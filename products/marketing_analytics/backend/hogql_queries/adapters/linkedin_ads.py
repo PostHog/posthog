@@ -18,6 +18,10 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
         """LinkedIn Ads campaigns typically use 'linkedin' as the UTM source"""
         return {"linkedin": ["linkedin", "li"]}
 
+    def get_source_type(self) -> str:
+        """Return unique identifier for this source type"""
+        return "LinkedinAds"
+
     def validate(self) -> ValidationResult:
         """Validate LinkedIn Ads tables and required fields"""
         errors: list[str] = []

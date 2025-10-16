@@ -133,7 +133,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         Build a flexible source join condition that handles source identifier mappings.
         Case-insensitive matching for alternative sources.
         """
-        conditions = []
+        conditions: list[ast.Expr] = []
 
         # Add exact match condition first
         conditions.append(
