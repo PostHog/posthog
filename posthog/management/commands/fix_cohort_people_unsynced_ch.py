@@ -4,6 +4,7 @@ from django.db import connections
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.cohort.cohort import Cohort
 
 logger = structlog.get_logger(__name__)
 
@@ -12,7 +13,9 @@ PROD_US_CUTOFF = "2025-10-01 00:00:00"
 
 
 class Command(BaseCommand):
-    help = "Sync cohort people records from ClickHouse person_static_cohort table to PostgreSQL posthog_cohortpeople table for records inserted after Oct 9, 2025 00:00 UTC"
+    help = (
+        "Sync cohort people records from ClickHouse person_static_cohort table to PostgreSQL posthog_cohortpeople table"
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -51,27 +54,51 @@ class Command(BaseCommand):
             # Process ClickHouse data in batches and handle each batch completely
             total_inserted = 0
             cohorts_with_insertions = set()
-            offset = 0
+            last_timestamp = start_date
+            last_person_id = None
+            last_cohort_id = 0
+            first_batch = True
 
             while True:
-                batch_query = """
-                    SELECT DISTINCT person_id, cohort_id, team_id, _timestamp
-                    FROM person_static_cohort
-                    WHERE _timestamp >= %(cutoff_timestamp)s
-                    ORDER BY _timestamp, person_id, cohort_id
-                    LIMIT %(batch_size)s OFFSET %(offset)s
-                """
+                # Use keyset pagination for better performance
+                if first_batch:
+                    batch_query = """
+                        SELECT DISTINCT person_id, cohort_id, team_id, _timestamp
+                        FROM person_static_cohort
+                        WHERE _timestamp >= %(cutoff_timestamp)s
+                        ORDER BY _timestamp, person_id, cohort_id
+                        LIMIT %(batch_size)s
+                    """
+                    params = {
+                        "cutoff_timestamp": start_date,
+                        "batch_size": batch_size,
+                    }
+                else:
+                    batch_query = """
+                        SELECT DISTINCT person_id, cohort_id, team_id, _timestamp
+                        FROM person_static_cohort
+                        WHERE (_timestamp > %(last_timestamp)s)
+                           OR (_timestamp = %(last_timestamp)s AND person_id > %(last_person_id)s)
+                           OR (_timestamp = %(last_timestamp)s AND person_id = %(last_person_id)s AND cohort_id > %(last_cohort_id)s)
+                        ORDER BY _timestamp, person_id, cohort_id
+                        LIMIT %(batch_size)s
+                    """
+                    params = {
+                        "last_timestamp": last_timestamp,
+                        "last_person_id": last_person_id,
+                        "last_cohort_id": last_cohort_id,
+                        "batch_size": batch_size,
+                    }
 
-                clickhouse_batch = sync_execute(
-                    batch_query, {"cutoff_timestamp": start_date, "batch_size": batch_size, "offset": offset}
-                )
+                clickhouse_batch = sync_execute(batch_query, params)
+                first_batch = False
 
                 if not clickhouse_batch:
                     break
 
                 self.stdout.write(
                     self.style.SUCCESS(
-                        f"Processing ClickHouse batch: {len(clickhouse_batch)} records (offset: {offset})"
+                        f"Processing ClickHouse batch: {len(clickhouse_batch)} records (last: {last_timestamp})"
                     )
                 )
 
@@ -79,7 +106,11 @@ class Command(BaseCommand):
                 ch_person_uuids = list({str(record[0]) for record in clickhouse_batch})
 
                 if not ch_person_uuids:
-                    offset += batch_size
+                    # Update keyset pagination cursor even if no UUIDs found
+                    last_record = clickhouse_batch[-1]
+                    last_timestamp = last_record[3]
+                    last_person_id = str(last_record[0])
+                    last_cohort_id = last_record[1]
                     continue
 
                 # Use the correct database connection
@@ -93,8 +124,12 @@ class Command(BaseCommand):
                         person_uuid_to_id[str(uuid)] = person_id
 
                 if not person_uuid_to_id:
-                    self.stdout.write(f"No matching persons found for batch at offset {offset}")
-                    offset += batch_size
+                    self.stdout.write(f"No matching persons found for batch")
+                    # Update keyset pagination cursor
+                    last_record = clickhouse_batch[-1]
+                    last_timestamp = last_record[3]
+                    last_person_id = str(last_record[0])
+                    last_cohort_id = last_record[1]
                     continue
 
                 self.stdout.write(f"Found {len(person_uuid_to_id)} person ID mappings for batch")
@@ -108,31 +143,13 @@ class Command(BaseCommand):
                         cohort_data[record_person_uuid] = set()
                     cohort_data[record_person_uuid].add(cohort_id)
 
-                # Get existing cohortpeople records to avoid duplicates for this batch
-                existing_pairs = set()
-                with person_connection.cursor() as cursor:
-                    person_ids = list(person_uuid_to_id.values())
-                    if person_ids:
-                        cursor.execute(
-                            """
-                            SELECT cohort_id, person_id
-                            FROM posthog_cohortpeople
-                            WHERE person_id = ANY(%s)
-                        """,
-                            [person_ids],
-                        )
-                        for cohort_id, person_id in cursor.fetchall():
-                            existing_pairs.add((cohort_id, person_id))
-
-                # Prepare bulk insert data for this batch, excluding existing records
                 insert_values = []
                 for person_uuid, cohort_ids in cohort_data.items():
                     if person_uuid not in person_uuid_to_id:
                         continue
                     person_id = person_uuid_to_id[person_uuid]
                     for cohort_id in cohort_ids:
-                        if (cohort_id, person_id) not in existing_pairs:
-                            insert_values.append((cohort_id, person_id))
+                        insert_values.append((cohort_id, person_id))
 
                 if insert_values:
                     if dry_run:
@@ -148,29 +165,48 @@ class Command(BaseCommand):
                         cohorts_in_batch = {cohort_id for cohort_id, _ in insert_values}
                         cohorts_with_insertions.update(cohorts_in_batch)
                     else:
-                        # Insert this batch using Django ORM
-                        from posthog.models.cohort.cohort import CohortPeople
+                        # Group by cohort_id and collect person UUIDs
+                        cohort_to_uuids: dict[int, list[str]] = {}
+                        for cohort_id, person_id in insert_values:
+                            # Find the person_uuid for this person_id
+                            person_uuid: str | None = None
+                            for uuid, pid in person_uuid_to_id.items():
+                                if pid == person_id:
+                                    person_uuid = uuid
+                                    break
 
-                        # Create CohortPeople objects for bulk_create
-                        cohort_people_objects = [
-                            CohortPeople(cohort_id=cohort_id, person_id=person_id, version=0)
-                            for cohort_id, person_id in insert_values
-                        ]
+                            if person_uuid is not None:
+                                if cohort_id not in cohort_to_uuids:
+                                    cohort_to_uuids[cohort_id] = []
+                                cohort_to_uuids[cohort_id].append(person_uuid)
 
-                        created_objects = CohortPeople.objects.bulk_create(cohort_people_objects)
-                        batch_inserted = len(created_objects)
+                        batch_inserted = 0
+                        team_id = clickhouse_batch[0][2]  # Get team_id from first record
+
+                        for cohort_id, person_uuids in cohort_to_uuids.items():
+                            try:
+                                cohort = Cohort.objects.get(id=cohort_id)
+                                cohort.insert_users_list_by_uuid_into_pg_only(items=person_uuids, team_id=team_id)
+                                batch_inserted += len(person_uuids)
+                            except Exception as e:
+                                self.stdout.write(self.style.ERROR(f"Error inserting into cohort {cohort_id}: {e}"))
+
                         total_inserted += batch_inserted
 
                         # Only track cohorts that actually had records inserted
                         if batch_inserted > 0:
-                            cohorts_in_batch = {cohort_id for cohort_id, _ in insert_values}
+                            cohorts_in_batch = set(cohort_to_uuids.keys())
                             cohorts_with_insertions.update(cohorts_in_batch)
 
                         self.stdout.write(self.style.SUCCESS(f"Batch successful: {batch_inserted} records inserted"))
                 else:
-                    self.stdout.write(f"No new records to insert for batch at offset {offset}")
+                    self.stdout.write(f"No new records to insert for batch")
 
-                offset += batch_size
+                # Update keyset pagination cursor to last record in batch
+                last_record = clickhouse_batch[-1]
+                last_timestamp = last_record[3]
+                last_person_id = str(last_record[0])
+                last_cohort_id = last_record[1]
 
             if dry_run:
                 self.stdout.write(
@@ -189,7 +225,6 @@ class Command(BaseCommand):
                         f"Triggering recalculation for {len(cohorts_with_insertions)} cohorts: {list(cohorts_with_insertions)}"
                     )
                     try:
-                        from posthog.models.cohort.cohort import Cohort
                         from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
 
                         for cohort in Cohort.objects.filter(id__in=cohorts_with_insertions).iterator():
