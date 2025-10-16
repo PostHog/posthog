@@ -45,6 +45,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataNodeLogicKey?: string
     /** Override the maximum pagination limit for Data Tables. */
     dataTableMaxPaginationLimit?: number
+    /** Custom expandable config for DataTable rows */
+    expandable?: any // Will be typed as ExpandableConfig<DataTableRow> when used
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{
