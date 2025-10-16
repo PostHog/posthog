@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
+import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { cn } from 'lib/utils/css-classes'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -46,19 +47,22 @@ export function BreakdownTileButton({ item }: BreakdownTileButtonProps): JSX.Ele
                 isSelected ? 'border-l-brand-yellow' : 'border-l-transparent'
             )}
         >
-            <BreakdownPreview query={query.source} title={item.title} />
+            <BreakdownPreview query={query.source} title={item.title} property={item.property} />
         </button>
     )
 }
 
-interface BreakdownPreviewProps {
-    query: InsightQueryNode
-    title: string
-}
-
 const LIMIT_ITEMS = 3
 
-function BreakdownPreview({ query, title }: BreakdownPreviewProps): JSX.Element {
+function BreakdownPreview({
+    query,
+    title,
+    property,
+}: {
+    query: InsightQueryNode
+    title: string
+    property: string
+}): JSX.Element {
     const key = `BreakdownPreview.${title}`
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query,
@@ -79,19 +83,22 @@ function BreakdownPreview({ query, title }: BreakdownPreviewProps): JSX.Element 
                 ) : properties.length === 0 ? (
                     <div className="text-muted text-xs flex items-center justify-center">No data</div>
                 ) : (
-                    <StackedBar properties={properties} totalCount={totalCount} />
+                    <StackedBar properties={properties} totalCount={totalCount} propertyName={property} />
                 )}
             </div>
         </div>
     )
 }
 
-interface StackedBarProps {
+function StackedBar({
+    properties,
+    totalCount,
+    propertyName,
+}: {
     properties: BreakdownSinglePropertyStat[]
     totalCount: number
-}
-
-function StackedBar({ properties, totalCount }: StackedBarProps): JSX.Element {
+    propertyName: string
+}): JSX.Element {
     const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
 
@@ -107,21 +114,29 @@ function StackedBar({ properties, totalCount }: StackedBarProps): JSX.Element {
     return (
         <div className="relative">
             {/* Bar itself */}
-            <div className="flex w-full h-3 rounded overflow-hidden bg-fill-secondary">
+            <div className="flex w-full h-6 rounded overflow-hidden bg-fill-secondary">
                 {properties.map((item, index) => {
                     const percentage = (item.count / totalCount) * 100
 
                     return (
                         <div
                             key={index}
-                            className="h-full transition-all hover:opacity-80 cursor-pointer"
+                            className="h-full transition-all hover:opacity-80 cursor-pointer flex items-center justify-center"
                             style={{
                                 width: `${percentage}%`,
                                 backgroundColor: BREAKDOWN_COLORS[index % BREAKDOWN_COLORS.length],
                             }}
                             onMouseEnter={(e) => handleMouseEnter(index, e)}
                             onMouseLeave={() => setHoveredIndex(null)}
-                        />
+                        >
+                            {percentage > 8 && (
+                                <PropertyIcon
+                                    property={propertyName}
+                                    value={item.label}
+                                    className="text-white text-xs opacity-90"
+                                />
+                            )}
+                        </div>
                     )
                 })}
             </div>
@@ -135,7 +150,10 @@ function StackedBar({ properties, totalCount }: StackedBarProps): JSX.Element {
                         transform: 'translate(-50%, -100%)',
                     }}
                 >
-                    <div className="font-semibold">{properties[hoveredIndex].label}</div>
+                    <div className="flex items-center gap-1.5 font-semibold">
+                        <PropertyIcon property={propertyName} value={properties[hoveredIndex].label} />
+                        <span>{properties[hoveredIndex].label}</span>
+                    </div>
                     <div className="text-muted">
                         {((properties[hoveredIndex].count / totalCount) * 100).toFixed(1)}%
                     </div>
