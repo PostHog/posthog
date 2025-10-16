@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { IconChevronRight, IconInfo } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -89,13 +90,9 @@ export function TemplateLinkSection({
                     <div className="flex items-start gap-2">
                         <div className="flex-1">
                             {isMultiline ? (
-                                <textarea
-                                    value={templateLink}
-                                    readOnly
-                                    rows={6}
-                                    className="w-full px-3 py-2 text-sm border rounded bg-bg-light font-mono"
-                                    onClick={(e) => (e.target as HTMLTextAreaElement).select()}
-                                />
+                                <CodeSnippet language={Language.JavaScript} maxLinesWithoutExpansion={3} wrap>
+                                    {templateLink}
+                                </CodeSnippet>
                             ) : (
                                 <input
                                     type="text"
