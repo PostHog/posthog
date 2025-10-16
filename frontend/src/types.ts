@@ -5840,11 +5840,13 @@ export interface DataWarehouseJobStats {
     failed_jobs: number
     external_data_jobs: {
         total: number
+        running: number
         successful: number
         failed: number
     }
     modeling_jobs: {
         total: number
+        running: number
         successful: number
         failed: number
     }

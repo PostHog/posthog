@@ -16,7 +16,7 @@ import { StatusIcon, StatusTag } from './components/StatusComponents'
 const LIST_SIZE = 10
 
 export function OverviewTab(): JSX.Element {
-    const { materializedViews, activityPaginationState, totalRowsStats, tablesLoading, jobStats, jobStatsLoading } =
+    const { activityPaginationState, totalRowsStats, tablesLoading, jobStats, jobStatsLoading } =
         useValues(dataWarehouseSceneLogic)
     const { setActivityCurrentPage, loadJobStats } = useActions(dataWarehouseSceneLogic)
 
@@ -66,12 +66,9 @@ export function OverviewTab(): JSX.Element {
         },
     ]
 
-    const materializedCount = materializedViews.length
-    const runningCount = materializedViews.filter((v: any) => v.status?.toLowerCase() === 'running').length
-
     return (
         <>
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-6 gap-4">
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="space-y-6">
                         <div>
@@ -89,14 +86,19 @@ export function OverviewTab(): JSX.Element {
                             </div>
                         </div>
                         <div>
-                            <div className="text-sm text-muted">Materialized Views</div>
-                            <div className="text-2xl font-semibold mt-1">{materializedCount}</div>
-                            {runningCount > 0 && <div className="text-xs text-muted">{runningCount} running</div>}
+                            <div className="text-sm text-muted">Currently running source syncs</div>
+                            <div className="text-2xl font-semibold mt-1">
+                                {jobStats?.external_data_jobs.running ?? 0}
+                            </div>
+                        </div>
+                        <div>
+                            <div className="text-sm text-muted">Currently running materialized views</div>
+                            <div className="text-2xl font-semibold mt-1">{jobStats?.modeling_jobs.running ?? 0}</div>
                         </div>
                     </div>
                 </LemonCard>
 
-                <LemonCard className="p-4 hover:transform-none lg:col-span-3">
+                <LemonCard className="p-4 hover:transform-none lg:col-span-5">
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
                             <div className="flex items-start gap-1">

@@ -265,6 +265,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "failed": day_external["failed"] + day_modeling["failed"],
                     }
 
+            running_external_data_jobs = ExternalDataJob.objects.filter(
+                team_id=self.team_id, status=ExternalDataJob.Status.RUNNING
+            ).count()
+            running_modeling_jobs = DataModelingJob.objects.filter(
+                team_id=self.team_id, status=DataModelingJob.Status.RUNNING
+            ).count()
+
             return Response(
                 {
                     "days": days,
@@ -274,11 +281,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "failed_jobs": total_failed,
                     "external_data_jobs": {
                         "total": external_stats["total"],
+                        "running": running_external_data_jobs,
                         "successful": external_stats["successful"],
                         "failed": external_stats["failed"],
                     },
                     "modeling_jobs": {
                         "total": modeling_stats["total"],
+                        "running": running_modeling_jobs,
                         "successful": modeling_stats["successful"],
                         "failed": modeling_stats["failed"],
                     },
