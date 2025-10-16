@@ -106,6 +106,7 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
     group_type_indexes = ?group_type_indexes,
     group_keys = ?group_keys
 ))]
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch_and_locally_cache_all_relevant_properties(
     flag_evaluation_state: &mut FlagEvaluationState,
     reader: PostgresReader,
@@ -586,7 +587,7 @@ pub async fn get_feature_flag_hash_key_overrides(
             &reader,
             team_id,
             &distinct_id_and_hash_key_override,
-            &config,
+            config,
         )
         .await;
 

@@ -262,7 +262,7 @@ impl IntoResponse for FlagError {
                 tracing::error!("Query timeout: {}", msg);
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
-                    format!("Query timeout: {}. The service is under high load. Please try again later.", msg),
+                    format!("Query timeout: {msg}. The service is under high load. Please try again later."),
                 )
             }
         }
