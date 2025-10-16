@@ -1,6 +1,6 @@
 from datetime import timedelta
 from functools import cached_property
-from typing import Optional, Union
+from typing import Optional, Union, cast
 
 from django.utils.timezone import now
 
@@ -42,7 +42,7 @@ class RelatedActorsQuery:
         results: list[SerializedActor] = []
         results.extend(self._query_related_people())
         for group_type_mapping in GroupTypeMapping.objects.filter(project_id=self.team.project_id):
-            results.extend(self._query_related_groups(group_type_mapping.group_type_index))
+            results.extend(self._query_related_groups(cast(GroupTypeIndex, group_type_mapping.group_type_index)))
         return results
 
     @property
