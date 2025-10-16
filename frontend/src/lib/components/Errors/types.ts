@@ -2,7 +2,7 @@ import { EventType, PersonType } from '~/types'
 
 export interface ErrorTrackingException {
     stacktrace?: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace
-    module: string
+    module?: string
     id: string
     type: string
     value: string
@@ -70,6 +70,7 @@ export interface ErrorTrackingStackFrame {
     lang: string
     resolved: boolean
     resolve_failure: string | null
+    module: string | null
 }
 
 export interface ErrorTrackingFingerprint {
