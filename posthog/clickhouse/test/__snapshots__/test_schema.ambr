@@ -1162,6 +1162,7 @@
   '''
   
   CREATE TABLE IF NOT EXISTS heatmaps
+  (
       session_id VARCHAR,
       team_id Int64,
       distinct_id VARCHAR,
@@ -3551,6 +3552,7 @@
   '''
   
   CREATE TABLE IF NOT EXISTS sharded_heatmaps
+  (
       session_id VARCHAR,
       team_id Int64,
       distinct_id VARCHAR,
@@ -4674,6 +4676,7 @@
   '''
   
   CREATE TABLE IF NOT EXISTS writable_heatmaps
+  (
       session_id VARCHAR,
       team_id Int64,
       distinct_id VARCHAR,
@@ -5972,6 +5975,7 @@
   '''
   
   CREATE TABLE IF NOT EXISTS sharded_heatmaps
+  (
       session_id VARCHAR,
       team_id Int64,
       distinct_id VARCHAR,
