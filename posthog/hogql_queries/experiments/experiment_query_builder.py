@@ -17,8 +17,35 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     funnel_evaluation_expr,
     funnel_steps_to_filter,
 )
+from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models import Experiment
 from posthog.models.team.team import Team
+
+
+def get_exposure_config_params_for_builder(
+    experiment: Experiment,
+) -> tuple[ExperimentEventExposureConfig | ActionsNode, MultipleVariantHandling, bool]:
+    """A helper function that takes an experiment and returns some of the required parameters for the query builder.
+
+    This is to decouple the relation a bit between experiments and the builder it self. The builder shouldn't need to know this
+    experiment specific stuff.
+    """
+    criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
+    exposure_config: ExperimentEventExposureConfig | ActionsNode
+    if criteria is None:
+        exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+        filter_test_accounts = False
+        multiple_variant_handling = MultipleVariantHandling.EXCLUDE
+    else:
+        if criteria.exposure_config is None:
+            exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+        else:
+            exposure_config = criteria.exposure_config
+        filter_test_accounts = bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else False
+        multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.EXCLUDE
+
+    return (exposure_config, multiple_variant_handling, filter_test_accounts)
 
 
 class ExperimentQueryBuilder:
