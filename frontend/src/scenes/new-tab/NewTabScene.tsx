@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconCheck, IconInfo, IconPerson, IconSearch } from '@posthog/icons'
+import { IconApps, IconCheck, IconInfo, IconPerson, IconSearch, IconToggle } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
@@ -35,6 +35,8 @@ export const getCategoryDisplayName = (category: string): string => {
         'data-management': 'Data management',
         recents: 'Recents',
         persons: 'Persons',
+        eventDefinitions: 'Events',
+        propertyDefinitions: 'Properties',
     }
     return displayNames[category] || category
 }
@@ -54,11 +56,19 @@ export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
 export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
-    const { filteredItemsGrid, search, selectedItem, categories, selectedCategory, newTabSceneDataIncludePersons } =
-        useValues(newTabSceneLogic({ tabId }))
+    const {
+        filteredItemsGrid,
+        search,
+        selectedItem,
+        categories,
+        selectedCategory,
+        newTabSceneDataIncludePersons,
+        newTabSceneDataIncludeEventDefinitions,
+        newTabSceneDataIncludePropertyDefinitions,
+    } = useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
     const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic)
-    const { setSearch, setSelectedCategory, setNewTabSceneDataIncludePersons } = useActions(newTabSceneLogic({ tabId }))
+    const { setSearch, setSelectedCategory, toggleNewTabSceneDataInclude } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
@@ -156,10 +166,34 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     <ButtonPrimitive
                                         size="sm"
                                         active={newTabSceneDataIncludePersons}
-                                        onClick={() => setNewTabSceneDataIncludePersons(!newTabSceneDataIncludePersons)}
+                                        onClick={() => toggleNewTabSceneDataInclude('persons')}
                                     >
                                         <IconPerson className="size-4" /> Persons
                                         {newTabSceneDataIncludePersons && <IconCheck className="size-3 text-success" />}
+                                    </ButtonPrimitive>
+                                </ListBox.Item>
+                                <ListBox.Item asChild>
+                                    <ButtonPrimitive
+                                        size="sm"
+                                        active={newTabSceneDataIncludeEventDefinitions}
+                                        onClick={() => toggleNewTabSceneDataInclude('eventDefinitions')}
+                                    >
+                                        <IconToggle className="size-4" /> Events
+                                        {newTabSceneDataIncludeEventDefinitions && (
+                                            <IconCheck className="size-3 text-success" />
+                                        )}
+                                    </ButtonPrimitive>
+                                </ListBox.Item>
+                                <ListBox.Item asChild>
+                                    <ButtonPrimitive
+                                        size="sm"
+                                        active={newTabSceneDataIncludePropertyDefinitions}
+                                        onClick={() => toggleNewTabSceneDataInclude('propertyDefinitions')}
+                                    >
+                                        <IconApps className="size-4" /> Properties
+                                        {newTabSceneDataIncludePropertyDefinitions && (
+                                            <IconCheck className="size-3 text-success" />
+                                        )}
                                     </ButtonPrimitive>
                                 </ListBox.Item>
                             </div>

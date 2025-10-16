@@ -231,7 +231,12 @@ export function Results({
                   .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
                   .filter(([section, items]) => {
                       // Always show persons section if filter is enabled (even when empty)
-                      if (section === 'persons' && newTabSceneDataIncludePersons) {
+                      if (
+                          (section === 'persons' ||
+                              section === 'eventDefinitions' ||
+                              section === 'propertyDefinitions') &&
+                          newTabSceneDataIncludePersons
+                      ) {
                           return true
                       }
                       // Hide empty categories for other sections
