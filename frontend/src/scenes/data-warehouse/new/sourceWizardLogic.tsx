@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { IconWarning } from '@posthog/icons'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -562,55 +563,70 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
-                const unconfiguredTables = values.databaseSchema.filter((schema) => schema.sync_type === null)
-                const fullRefreshTables = values.databaseSchema.filter((schema) => schema.sync_type === 'full_refresh')
-                let confirmMessage: JSX.Element
-                if (unconfiguredTables.length > 0 || fullRefreshTables.length > 0) {
-                    confirmMessage = (
-                        <>
-                            {unconfiguredTables.length > 0 && (
-                                <>
-                                    <h4 className="mt-2">Unconfigured tables</h4>
-                                    <div>You have no sync method setup for the following tables:</div>
-                                    <ul className="px-4 space-y-1 my-4">
-                                        {unconfiguredTables.map((table) => (
-                                            <li
-                                                key={table.table}
-                                                className="font-mono px-2 rounded bg-surface-secondary w-min"
-                                            >
-                                                {table.table}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </>
-                            )}
-                            {fullRefreshTables.length > 0 && (
-                                <>
-                                    <h4 className="mt-2">Full refresh tables</h4>
-                                    <div>
-                                        Full refresh syncs can dramatically increase your spend if you aren't mindful of
-                                        them. You have the following tables setup for full refresh syncs:
-                                    </div>
-                                    <ul className="px-4 space-y-1 my-4">
-                                        {fullRefreshTables.map((table) => (
-                                            <li
-                                                key={table.table}
-                                                className="font-mono px-2 rounded bg-surface-secondary w-min"
-                                            >
-                                                {table.table}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </>
-                            )}
-                        </>
-                    )
-                } else {
-                    confirmMessage = <>Everything looks good to us if it looks good to you!</>
-                }
+                const noopTables = values.databaseSchema.filter(
+                    (schema) => !schema.should_sync || schema.sync_type === null
+                )
+                const appendOnlyTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'append'
+                )
+                const fullRefreshTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'full_refresh'
+                )
+                const confirmation = (
+                    <>
+                        <h4 className="mt-2">Full refresh tables</h4>
+                        <div className="text-warning">
+                            <IconWarning />
+                            <span className="pl-2">
+                                Full refresh syncs can dramatically increase your spend if you aren't mindful of them.
+                                You have the following tables setup for full refresh syncs:
+                            </span>
+                        </div>
+                        <div className="px-4 space-y-2 my-4 lg:grid lg:grid-cols-2">
+                            {fullRefreshTables.map((table) => (
+                                <div key={table.table} className="font-mono px-2 rounded bg-surface-secondary w-min">
+                                    {table.table}
+                                </div>
+                            ))}
+                        </div>
+                        <h4 className="mt-2">Append-only tables</h4>
+                        <div>
+                            Append-only syncs, while preferrable to full refresh syncs, still need to be configured with
+                            care. The field you select for append-only syncing should not change when a row is udpated
+                            &ndash; for example, <span className="font-mono">created_at</span>. You have the following
+                            tables setup for append-only syncs:
+                        </div>
+                        <div className="px-4 space-y-2 my-4 lg:grid lg:grid-cols-2">
+                            {appendOnlyTables.map((table) => (
+                                <div key={table.table} className="font-mono px-2 rounded bg-surface-secondary w-min">
+                                    {table.table}
+                                </div>
+                            ))}
+                        </div>
+                        <h4 className="mt-2">Ignored tables</h4>
+                        <div>The following tables will not be synchronized:</div>
+                        <div className="px-4 space-y-2 my-4 lg:grid lg:grid-cols-2">
+                            {noopTables.map((table) => (
+                                <div key={table.table} className="font-mono px-2 rounded bg-surface-secondary w-min">
+                                    {table.table}
+                                </div>
+                            ))}
+                        </div>
+                        <div>
+                            If you would like them to stay synchronized with your source, close this modal and configure
+                            a sync method for each.
+                        </div>
+                        <h4 className="mt-2">Incremental tables</h4>
+                        <div>
+                            The remainder of your tables are setup for incremental syncs, which are typically ideal. The
+                            field you select for syncing incrementally should change each time the row is updated - for
+                            example, <span className="font-mono">updated_at</span>.
+                        </div>
+                    </>
+                )
                 LemonDialog.open({
                     title: 'Confirm your table configurations',
-                    description: confirmMessage,
+                    description: confirmation,
                     primaryButton: {
                         children: 'Confirm',
                         type: 'primary',
