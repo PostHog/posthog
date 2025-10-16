@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -89,31 +90,53 @@ interface StackedBarProps {
 }
 
 function StackedBar({ properties, totalCount }: StackedBarProps): JSX.Element {
-    return (
-        <div className="flex w-full h-6 rounded overflow-hidden bg-fill-secondary">
-            {properties.map((item, index) => {
-                const percentage = (item.count / totalCount) * 100
+    const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
+    const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
 
-                return (
-                    <Tooltip
-                        key={index}
-                        title={
-                            <div className="text-xs">
-                                <div className="font-semibold">{item.label}</div>
-                                <div>{percentage.toFixed(1)}%</div>
-                            </div>
-                        }
-                    >
+    const handleMouseEnter = (index: number, event: React.MouseEvent<HTMLDivElement>): void => {
+        setHoveredIndex(index)
+        const rect = event.currentTarget.getBoundingClientRect()
+        setTooltipPosition({
+            x: rect.left + rect.width / 2,
+            y: rect.top,
+        })
+    }
+
+    return (
+        <div className="relative">
+            <div className="flex w-full h-6 rounded overflow-hidden bg-fill-secondary">
+                {properties.map((item, index) => {
+                    const percentage = (item.count / totalCount) * 100
+
+                    return (
                         <div
-                            className="h-full transition-all hover:opacity-80"
+                            key={index}
+                            className="h-full transition-all hover:opacity-80 cursor-pointer"
                             style={{
                                 width: `${percentage}%`,
                                 backgroundColor: BREAKDOWN_COLORS[index % BREAKDOWN_COLORS.length],
                             }}
+                            onMouseEnter={(e) => handleMouseEnter(index, e)}
+                            onMouseLeave={() => setHoveredIndex(null)}
                         />
-                    </Tooltip>
-                )
-            })}
+                    )
+                })}
+            </div>
+            {hoveredIndex !== null && (
+                <div
+                    className="fixed px-2 py-1 bg-bg-3000 border border-border rounded shadow-lg whitespace-nowrap z-[9999] text-xs pointer-events-none"
+                    style={{
+                        left: `${tooltipPosition.x}px`,
+                        top: `${tooltipPosition.y - 8}px`,
+                        transform: 'translate(-50%, -100%)',
+                    }}
+                >
+                    <div className="font-semibold">{properties[hoveredIndex].label}</div>
+                    <div className="text-muted">
+                        {((properties[hoveredIndex].count / totalCount) * 100).toFixed(1)}%
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
