@@ -12,7 +12,7 @@ class GraphQLResource:
         # from a graphql response.
         self.accessor: str = accessor or f"data.{self.name}"
 
-    def unwrap(self, payload: GraphQLResponse, accessor: str | None = None) -> Any:
+    def unwrap(self, payload: Any, accessor: str | None = None) -> Any:
         """Drill down into a graphql response payload with intentionally unsafe key lookup."""
         if accessor is None:
             accessor = self.accessor
@@ -22,7 +22,7 @@ class GraphQLResource:
             ref = ref[key]
         return ref
 
-    def safe_unwrap(self, payload: GraphQLResponse, accessor: str | None = None) -> tuple[Any, bool]:
+    def safe_unwrap(self, payload: Any, accessor: str | None = None) -> tuple[Any, bool]:
         """Drill down into a graphql response payload with safe key lookup.
 
         Returns data from within the payload and a boolean indicating whether the lookup succeeded.
