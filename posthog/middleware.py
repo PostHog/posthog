@@ -32,13 +32,15 @@ from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, Team, User
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
 from posthog.rate_limit import DecideRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
+
+from products.notebooks.backend.models import Notebook
 
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
@@ -693,6 +695,7 @@ class CSPMiddleware:
                 "default-src 'self'",
                 "style-src 'self' 'unsafe-inline'",
                 f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}'",
+                "font-src data: https://fonts.gstatic.com",
                 "worker-src 'none'",
                 "child-src 'none'",
                 "object-src 'none'",
@@ -708,19 +711,24 @@ class CSPMiddleware:
             )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
         else:
-            debug_url = "http://localhost:8234" if settings.DEBUG or settings.TEST else ""
-            connect_debug_url = "http://localhost:8234 ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            resource_url = "https://*.posthog.com"
+            if settings.DEBUG or settings.TEST:
+                resource_url = "http://localhost:8234"
+            elif settings.SITE_URL.endswith(".dev.posthog.dev"):
+                resource_url = "https://*.dev.posthog.dev"
+
+            connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             csp_parts = [
                 "default-src 'self'",
-                "style-src 'self' 'unsafe-inline' https://*.posthog.com",
-                f"script-src 'self' 'nonce-{nonce}' {debug_url} https://*.posthog.com https://*.i.posthog.com",
-                f"font-src 'self' {debug_url} https://d1sdjtjk6xzm7.cloudfront.net",
+                f"style-src 'self' 'unsafe-inline' {resource_url}",
+                f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com",
+                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://d1sdjtjk6xzm7.cloudfront.net",
                 "worker-src 'self'",
                 "child-src 'none'",
                 "object-src 'none'",
-                f"img-src 'self' data: {debug_url} https://www.gravatar.com",
+                f"img-src 'self' data: {resource_url} https://www.gravatar.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com",
-                f"connect-src 'self' https://status.posthog.com {connect_debug_url} https://*.posthog.com",
+                f"connect-src 'self' https://status.posthog.com {resource_url} {connect_debug_url}",
                 # allow all sites for displaying heatmaps
                 "frame-src https:",
                 "manifest-src 'none'",

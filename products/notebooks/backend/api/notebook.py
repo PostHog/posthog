@@ -24,11 +24,12 @@ from posthog.exceptions import Conflict
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.notebook.notebook import Notebook
 from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse
+
+from products.notebooks.backend.models import Notebook
 
 logger = structlog.get_logger(__name__)
 
