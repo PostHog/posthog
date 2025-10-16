@@ -1,7 +1,14 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
-import { formatLLMEventTitle, looksLikeXml, normalizeMessage, normalizeMessages, parseOpenAIToolCalls } from './utils'
+import {
+    formatLLMEventTitle,
+    getSessionID,
+    looksLikeXml,
+    normalizeMessage,
+    normalizeMessages,
+    parseOpenAIToolCalls,
+} from './utils'
 
 describe('LLM Analytics utils', () => {
     it('normalizeOutputMessage: parses OpenAI message', () => {
@@ -736,6 +743,97 @@ describe('LLM Analytics utils', () => {
                     },
                 },
             ])
+        })
+    })
+
+    describe('getSessionID', () => {
+        const baseEvent = (overrides: Partial<LLMTraceEvent> = {}): LLMTraceEvent => ({
+            id: 'event-id',
+            event: '$ai_span',
+            properties: {},
+            createdAt: '2024-01-01T00:00:00Z',
+            ...overrides,
+        })
+
+        const baseTrace = (events: LLMTraceEvent[]): LLMTrace => ({
+            id: 'trace-id',
+            createdAt: '2024-01-01T00:00:00Z',
+            person: {
+                uuid: 'person-id',
+                created_at: '2024-01-01T00:00:00Z',
+                properties: {},
+                distinct_id: 'distinct-id',
+            },
+            events,
+        })
+
+        it('returns the direct session id when the event has one', () => {
+            const event = baseEvent({
+                properties: {
+                    $session_id: 'session-123',
+                },
+            })
+
+            expect(getSessionID(event)).toEqual('session-123')
+        })
+
+        it('derives session id from children when $ai_trace lacks direct value', () => {
+            const traceEvent = baseEvent({
+                id: 'trace-event',
+                event: '$ai_trace',
+                properties: {},
+            })
+            const childEvents = [
+                baseEvent({
+                    id: 'child-1',
+                    properties: { $session_id: 'session-abc' },
+                }),
+                baseEvent({
+                    id: 'child-2',
+                    properties: { $session_id: 'session-abc' },
+                }),
+            ]
+
+            expect(getSessionID(traceEvent, childEvents)).toEqual('session-abc')
+        })
+
+        it('returns null when child session ids conflict', () => {
+            const traceEvent = baseEvent({
+                id: 'trace-event',
+                event: '$ai_trace',
+            })
+            const childEvents = [
+                baseEvent({
+                    id: 'child-1',
+                    properties: { $session_id: 'session-abc' },
+                }),
+                baseEvent({
+                    id: 'child-2',
+                    properties: { $session_id: 'session-def' },
+                }),
+            ]
+
+            expect(getSessionID(traceEvent, childEvents)).toBeNull()
+        })
+
+        it('uses consistent child session id for pseudo traces', () => {
+            const childEvents = [
+                baseEvent({ id: 'child-1', properties: { $session_id: 'session-xyz' } }),
+                baseEvent({ id: 'child-2', properties: { $session_id: 'session-xyz' } }),
+            ]
+            const trace = baseTrace(childEvents)
+
+            expect(getSessionID(trace)).toEqual('session-xyz')
+        })
+
+        it('returns null for pseudo traces with mixed session ids', () => {
+            const childEvents = [
+                baseEvent({ id: 'child-1', properties: { $session_id: 'session-xyz' } }),
+                baseEvent({ id: 'child-2', properties: { $session_id: 'session-abc' } }),
+            ]
+            const trace = baseTrace(childEvents)
+
+            expect(getSessionID(trace)).toBeNull()
         })
     })
 })

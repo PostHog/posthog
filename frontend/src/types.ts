@@ -72,8 +72,8 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { CyclotronInputType } from 'products/messaging/frontend/Campaigns/hogflows/steps/types'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
+import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
+import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -682,6 +682,7 @@ export interface TeamType extends TeamBasicType {
     flags_persistence_default: boolean
     feature_flag_confirmation_enabled: boolean
     feature_flag_confirmation_message: string
+    default_evaluation_environments_enabled: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
     experiment_recalculation_time?: string | null
