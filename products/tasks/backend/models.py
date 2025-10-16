@@ -443,6 +443,8 @@ class TaskRun(models.Model):
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
+    branch = models.CharField(max_length=255, blank=True, help_text="Branch name for the run")
+
     current_stage = models.ForeignKey(
         WorkflowStage,
         on_delete=models.SET_NULL,
@@ -454,7 +456,7 @@ class TaskRun(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
 
     # Claude Code output
-    output_log = models.TextField(blank=True, help_text="Live output from Claude Code execution")
+    log = models.TextField(blank=True, help_text="Live output from Claude Code execution")
     error_message = models.TextField(blank=True, help_text="Error message if execution failed")
 
     # This is a structured output of the run. This is used to store the PR URL, commit SHA, etc.

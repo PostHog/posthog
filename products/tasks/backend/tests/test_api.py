@@ -310,6 +310,42 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["title"], "Test Task")
         self.assertEqual(data["description"], "Test Description")
 
+    def test_retrieve_task_with_latest_run(self):
+        task = self.create_task("Test Task")
+
+        _run1 = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.STARTED,
+            current_step="Step 1",
+        )
+
+        run2 = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            current_step="Step 2",
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertIn("latest_run", data)
+        self.assertIsNotNone(data["latest_run"])
+        self.assertEqual(data["latest_run"]["id"], str(run2.id))
+        self.assertEqual(data["latest_run"]["status"], "in_progress")
+
+    def test_retrieve_task_without_runs(self):
+        task = self.create_task("Test Task")
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertIn("latest_run", data)
+        self.assertIsNone(data["latest_run"])
+
     def test_create_task(self):
         workflow = self.create_workflow()
         stage = workflow.stages.first()
@@ -438,15 +474,11 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["title"], task.title)
 
     def test_run_endpoint_without_workflow_fails(self):
-        workflow = self.create_workflow()
-        stage = workflow.stages.first()
-
         task = Task.objects.create(
             team=self.team,
             title="Task without workflow",
             description="Test",
             origin_product=Task.OriginProduct.USER_CREATED,
-            current_stage=stage,
             position=0,
         )
 
@@ -469,7 +501,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
     def test_progress_with_existing_records(self):
         task = self.create_task()
 
-        progress = TaskRun.objects.create(
+        run = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
@@ -485,7 +517,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         data = response.json()
         self.assertTrue(data["has_progress"])
-        self.assertEqual(data["id"], str(progress.id))
+        self.assertEqual(data["id"], str(run.id))
         self.assertEqual(data["status"], "in_progress")
         self.assertEqual(data["current_step"], "Processing data")
         self.assertEqual(data["completed_steps"], 2)
@@ -507,7 +539,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
     def test_progress_stream_with_updates(self):
         task = self.create_task()
 
-        progress1 = TaskRun.objects.create(
+        run1 = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.STARTED,
@@ -516,7 +548,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             total_steps=3,
         )
 
-        progress2 = TaskRun.objects.create(
+        run2 = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
@@ -533,21 +565,21 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         # Most recent first
         recent_update = data["progress_updates"][0]
-        self.assertEqual(recent_update["id"], str(progress2.id))
+        self.assertEqual(recent_update["id"], str(run2.id))
         self.assertEqual(recent_update["status"], "completed")
         self.assertEqual(recent_update["completed_steps"], 3)
 
-        # Should include older progress
+        # Should include older run
         self.assertEqual(len(data["progress_updates"]), 2)
         older_update = data["progress_updates"][1]
-        self.assertEqual(older_update["id"], str(progress1.id))
+        self.assertEqual(older_update["id"], str(run1.id))
         self.assertEqual(older_update["status"], "started")
         self.assertEqual(older_update["completed_steps"], 0)
 
     def test_progress_stream_with_since_parameter(self):
         task = self.create_task()
 
-        old_progress = TaskRun.objects.create(
+        old_run = TaskRun.objects.create(
             task=task, team=self.team, status=TaskRun.Status.STARTED, current_step="Old step"
         )
 
@@ -558,10 +590,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         since_time = timezone.now()
 
-        # Create newer progress after the 'since' time
-        TaskProgress.objects.filter(id=old_progress.id).update(
-            updated_at=timezone.now() + datetime.timedelta(seconds=1)
-        )
+        # Create newer run after the 'since' time
+        TaskRun.objects.filter(id=old_run.id).update(updated_at=timezone.now() + datetime.timedelta(seconds=1))
 
         response = self.client.get(
             f"/api/projects/@current/tasks/{task.id}/progress_stream/", {"since": since_time.isoformat()}
@@ -569,8 +599,84 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
-        # Should include the updated progress
+        # Should include the updated run
         self.assertEqual(len(data["progress_updates"]), 1)
+
+    def test_list_runs_for_task(self):
+        task = self.create_task()
+
+        run1 = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.STARTED,
+            current_step="Step 1",
+        )
+
+        run2 = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            current_step="Step 2",
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data["results"]), 2)
+        run_ids = [r["id"] for r in data["results"]]
+        self.assertIn(str(run1.id), run_ids)
+        self.assertIn(str(run2.id), run_ids)
+
+    def test_retrieve_specific_run(self):
+        task = self.create_task()
+
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            current_step="Processing",
+            completed_steps=3,
+            total_steps=10,
+            output_log="Test log output",
+            workflow_id="workflow-123",
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data["id"], str(run.id))
+        self.assertEqual(data["status"], "in_progress")
+        self.assertEqual(data["current_step"], "Processing")
+        self.assertEqual(data["completed_steps"], 3)
+        self.assertEqual(data["total_steps"], 10)
+        self.assertEqual(data["progress_percentage"], 30)
+        self.assertEqual(data["output_log"], "Test log output")
+        self.assertEqual(data["workflow_id"], "workflow-123")
+
+    def test_list_runs_only_returns_task_runs(self):
+        task1 = self.create_task("Task 1")
+        task2 = self.create_task("Task 2")
+
+        run1 = TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.STARTED)
+        _run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.STARTED)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task1.id}/runs/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["id"], str(run1.id))
+
+    def test_retrieve_run_from_different_task_fails(self):
+        task1 = self.create_task("Task 1")
+        task2 = self.create_task("Task 2")
+
+        run2 = TaskRun.objects.create(task=task2, team=self.team, status=TaskRun.Status.STARTED)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task1.id}/runs/{run2.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestTasksAPIPermissions(BaseTaskAPITest):
@@ -607,6 +713,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
     def test_tasks_feature_flag_required(self):
         self.set_tasks_feature_flag(False)
         task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.STARTED)
 
         endpoints = [
             ("/api/projects/@current/tasks/", "GET"),
@@ -620,6 +727,8 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             (f"/api/projects/@current/tasks/{task.id}/progress/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/progress_stream/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/run/", "POST"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "GET"),
         ]
 
         for url, method in endpoints:
@@ -763,6 +872,8 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:read", "GET", "/api/projects/@current/workflows/", True),
             ("task:read", "GET", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
+            ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
+            ("task:read", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
             ("no_scope", "GET", "/api/projects/@current/agents/", False),
             ("task:read", "POST", "/api/projects/@current/tasks/", False),
             ("task:read", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", False),
@@ -777,16 +888,21 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:write", "POST", "/api/projects/@current/workflows/", True),
             ("task:write", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
             ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
+            ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
+            ("task:write", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
             ("other_scope:read", "GET", "/api/projects/@current/tasks/", False),
             ("other_scope:write", "POST", "/api/projects/@current/tasks/", False),
             ("*", "GET", "/api/projects/@current/tasks/", True),
             ("*", "POST", "/api/projects/@current/tasks/", True),
             ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
+            ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/", True),
+            ("*", "GET", f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/", True),
         ]
     )
     def test_scoped_api_key_permissions(self, scope, method, url_template, should_have_access):
         task = self.create_task()
         workflow = task.workflow
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.STARTED)
 
         api_key_value = generate_random_token_personal()
 
@@ -797,7 +913,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             scopes=[scope],
         )
 
-        url = url_template.format(task_id=task.id, workflow_id=workflow.id)
+        url = url_template.format(task_id=task.id, workflow_id=workflow.id, run_id=run.id)
 
         self.client.force_authenticate(None)
 

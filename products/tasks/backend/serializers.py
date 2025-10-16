@@ -13,6 +13,7 @@ class TaskSerializer(serializers.ModelSerializer):
     # Computed fields for repository information
     repository_list = serializers.SerializerMethodField()
     primary_repository = serializers.SerializerMethodField()
+    latest_run = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
@@ -32,6 +33,7 @@ class TaskSerializer(serializers.ModelSerializer):
             # Computed fields
             "repository_list",
             "primary_repository",
+            "latest_run",
             "created_at",
             "updated_at",
         ]
@@ -43,6 +45,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "updated_at",
             "repository_list",
             "primary_repository",
+            "latest_run",
         ]
 
     def get_repository_list(self, obj):
@@ -50,6 +53,24 @@ class TaskSerializer(serializers.ModelSerializer):
 
     def get_primary_repository(self, obj):
         return obj.primary_repository
+
+    def get_latest_run(self, obj):
+        latest_run = obj.runs.order_by("-created_at").first()
+        if latest_run:
+            return {
+                "id": str(latest_run.id),
+                "branch": latest_run.branch,
+                "current_stage": str(latest_run.current_stage_id) if latest_run.current_stage_id else None,
+                "status": latest_run.status,
+                "log": latest_run.log,
+                "error_message": latest_run.error_message,
+                "output": latest_run.output,
+                "state": latest_run.state,
+                "created_at": latest_run.created_at,
+                "updated_at": latest_run.updated_at,
+                "completed_at": latest_run.completed_at,
+            }
+        return None
 
     def validate_github_integration(self, value):
         """Validate that the GitHub integration belongs to the same team"""
@@ -293,40 +314,34 @@ class TaskBulkReorderResponseSerializer(serializers.Serializer):
 
 
 class TaskRunResponseSerializer(serializers.Serializer):
-    has_progress = serializers.BooleanField(help_text="Whether progress information is available")
-    id = serializers.UUIDField(required=False, help_text="Progress record ID")
+    has_run = serializers.BooleanField(help_text="Whether run information is available")
+    id = serializers.UUIDField(required=False, help_text="Run ID")
     status = serializers.ChoiceField(
         choices=["started", "in_progress", "completed", "failed"],
         required=False,
         help_text="Current execution status",
     )
-    current_step = serializers.CharField(required=False, help_text="Description of current step being executed")
-    completed_steps = serializers.IntegerField(required=False, help_text="Number of completed steps")
-    total_steps = serializers.IntegerField(required=False, help_text="Total number of steps")
-    progress_percentage = serializers.FloatField(required=False, help_text="Progress percentage (0-100)")
-    output_log = serializers.CharField(required=False, help_text="Live output from Claude Code execution")
-    error_message = serializers.CharField(required=False, help_text="Error message if execution failed")
-    created_at = serializers.DateTimeField(required=False, help_text="When progress tracking started")
-    updated_at = serializers.DateTimeField(required=False, help_text="When progress was last updated")
-    completed_at = serializers.DateTimeField(required=False, help_text="When execution completed")
-    workflow_id = serializers.CharField(required=False, help_text="Temporal workflow ID")
-    workflow_run_id = serializers.CharField(required=False, help_text="Temporal workflow run ID")
-    message = serializers.CharField(required=False, help_text="Message when no progress is available")
+    current_stage = serializers.UUIDField(required=False, help_text="Current stage of the run")
+    branch = serializers.CharField(required=False, help_text="Branch name for the run")
+    created_at = serializers.DateTimeField(required=False, help_text="When run was created")
+    updated_at = serializers.DateTimeField(required=False, help_text="When run was last updated")
+    completed_at = serializers.DateTimeField(required=False, help_text="When run was completed")
+    log = serializers.CharField(required=False, help_text="Live output from Claude Code execution")
+    error_message = serializers.CharField(required=False, help_text="Error message if run failed")
+    output = serializers.JSONField(required=False, help_text="Output from the run")
+    state = serializers.JSONField(required=False, help_text="State of the run")
 
 
 class TaskRunUpdateSerializer(serializers.Serializer):
-    id = serializers.UUIDField(help_text="Progress record ID")
+    id = serializers.UUIDField(help_text="Run ID")
     status = serializers.ChoiceField(
         choices=["started", "in_progress", "completed", "failed"], help_text="Current execution status"
     )
-    current_step = serializers.CharField(help_text="Description of current step being executed")
-    completed_steps = serializers.IntegerField(help_text="Number of completed steps")
-    total_steps = serializers.IntegerField(help_text="Total number of steps")
-    progress_percentage = serializers.FloatField(help_text="Progress percentage (0-100)")
-    output_log = serializers.CharField(help_text="Live output from Claude Code execution")
-    error_message = serializers.CharField(help_text="Error message if execution failed")
-    updated_at = serializers.DateTimeField(help_text="When progress was last updated")
-    workflow_id = serializers.CharField(help_text="Temporal workflow ID")
+    log = serializers.CharField(help_text="Live output from Claude Code execution")
+    error_message = serializers.CharField(help_text="Error message if run failed")
+    output = serializers.JSONField(help_text="Output from the run")
+    state = serializers.JSONField(help_text="State of the run")
+    updated_at = serializers.DateTimeField(help_text="When run was last updated")
 
 
 class TaskRunStreamResponseSerializer(serializers.Serializer):

@@ -4,11 +4,8 @@ from typing import cast
 
 from django.db import transaction
 from django.db.models import OuterRef, Subquery
-from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -28,8 +25,6 @@ from .serializers import (
     ErrorResponseSerializer,
     TaskRunDetailSerializer,
     TaskRunProgressRequestSerializer,
-    TaskRunResponseSerializer,
-    TaskRunStreamResponseSerializer,
     TaskSerializer,
     TaskUpdatePositionRequestSerializer,
     TaskUpdateStageRequestSerializer,
@@ -114,6 +109,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if organization:
             qs = qs.filter(repository_config__organization__iexact=organization.strip())
 
+        # Prefetch runs to avoid N+1 queries when fetching latest_run
+        qs = qs.prefetch_related("runs")
+
         return qs
 
     def get_serializer_context(self):
@@ -168,129 +166,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task.save()
 
         return Response(TaskSerializer(task).data)
-
-    @extend_schema(
-        summary="Get task progress",
-        description="Get the latest execution progress for a task's Claude Code workflow",
-        responses={
-            200: OpenApiResponse(
-                response=TaskRunResponseSerializer,
-                description="Task progress information",
-                examples=[
-                    OpenApiExample(
-                        "Progress Available",
-                        description="Example response when progress is available",
-                        response_only=True,
-                        value={
-                            "has_progress": True,
-                            "id": "345e6789-e89b-12d3-a456-426614174004",
-                            "status": "in_progress",
-                            "current_step": "Running tests",
-                            "completed_steps": 3,
-                            "total_steps": 5,
-                            "progress_percentage": 60.0,
-                            "output_log": "✓ Code analysis complete\n✓ Dependencies installed\n✓ Tests running...",
-                            "error_message": "",
-                            "created_at": "2024-01-15T10:30:00Z",
-                            "updated_at": "2024-01-15T10:35:00Z",
-                            "completed_at": None,
-                            "workflow_id": "task-workflow-123",
-                            "workflow_run_id": "run-456",
-                        },
-                    ),
-                    OpenApiExample(
-                        "No Progress",
-                        description="Example response when no progress is available",
-                        response_only=True,
-                        value={"has_progress": False, "message": "No execution progress found for this task"},
-                    ),
-                ],
-            ),
-            404: OpenApiResponse(description="Task not found"),
-        },
-    )
-    @action(detail=True, methods=["get"], required_scopes=["task:read"])
-    def progress(self, request, pk=None, **kwargs):
-        task = self.get_object()
-
-        # Get the most recent progress record for this task
-        progress = TaskRun.objects.filter(task=task, team=self.team).order_by("-created_at").first()
-
-        if not progress:
-            response_data = {"has_progress": False, "message": "No execution progress found for this task"}
-            return Response(TaskRunResponseSerializer(response_data).data)
-
-        response_data = {
-            "has_progress": True,
-            "id": progress.id,
-            "status": progress.status,
-            "current_step": progress.current_step,
-            "completed_steps": progress.completed_steps,
-            "total_steps": progress.total_steps,
-            "progress_percentage": progress.progress_percentage,
-            "output_log": progress.output_log,
-            "error_message": progress.error_message,
-            "created_at": progress.created_at,
-            "updated_at": progress.updated_at,
-            "completed_at": progress.completed_at,
-            "workflow_id": progress.workflow_id,
-            "workflow_run_id": progress.workflow_run_id,
-        }
-        return Response(TaskRunResponseSerializer(response_data).data)
-
-    @extend_schema(
-        summary="Stream task progress",
-        description="Get real-time progress updates for a task. Use the 'since' parameter to get only recent updates.",
-        parameters=[
-            OpenApiParameter(
-                name="since",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="ISO datetime to get progress updates since (format: YYYY-MM-DDTHH:MM:SS.ffffffZ)",
-            )
-        ],
-        responses={
-            200: OpenApiResponse(
-                response=TaskRunStreamResponseSerializer,
-                description="Recent progress updates",
-            ),
-            404: OpenApiResponse(description="Task not found"),
-        },
-    )
-    @action(detail=True, methods=["get"], required_scopes=["task:read"])
-    def progress_stream(self, request, pk=None, **kwargs):
-        task = self.get_object()
-
-        since = request.query_params.get("since")  # Timestamp to get updates since
-        since_dt = parse_datetime(since) if since else None
-
-        queryset = TaskRun.objects.filter(task=task, team=self.team).order_by("-created_at")
-
-        if since_dt:
-            queryset = queryset.filter(updated_at__gt=since_dt)
-
-        progress_records = queryset[:5]  # Limit to 5 most recent
-
-        response_data = {
-            "progress_updates": [
-                {
-                    "id": p.id,
-                    "status": p.status,
-                    "current_step": p.current_step,
-                    "completed_steps": p.completed_steps,
-                    "total_steps": p.total_steps,
-                    "progress_percentage": p.progress_percentage,
-                    "output_log": p.output_log,
-                    "error_message": p.error_message,
-                    "updated_at": p.updated_at,
-                    "workflow_id": p.workflow_id,
-                }
-                for p in progress_records
-            ],
-            "server_time": timezone.now().isoformat(),
-        }
-        return Response(TaskRunStreamResponseSerializer(response_data).data)
 
     @extend_schema(
         summary="Run task",
