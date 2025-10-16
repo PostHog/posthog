@@ -241,7 +241,7 @@ def snapshot_actors_property_taxonomy(
     results: list[ActorsPropertyTaxonomySnapshot] = []
     group_type_mappings: list[int | None] = [
         None,
-        *(g.group_type_index for g in GroupTypeMapping.objects.filter(team=team)),
+        *(g.group_type_index for g in GroupTypeMapping.objects.filter(team_id=team.id)),
     ]
 
     for index in group_type_mappings:
