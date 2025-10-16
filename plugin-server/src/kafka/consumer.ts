@@ -110,7 +110,8 @@ export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPart
             return {
                 topic,
                 partition: parseInt(partition),
-                offset: highestOffset,
+                // When committing to Kafka you commit the offset of the next message you want to consume
+                offset: highestOffset + 1,
             }
         })
     })
@@ -568,26 +569,18 @@ export class KafkaConsumer {
         return consumer
     }
 
-    private storeOffsetsForMessages = (messages: Message[]): void => {
-        const topicPartitionOffsets = findOffsetsToCommit(messages).map((message) => {
-            return {
-                ...message,
-                // When committing to Kafka you commit the offset of the next message you want to consume
-                offset: message.offset + 1,
-            }
-        })
-
-        if (topicPartitionOffsets.length > 0) {
-            logger.debug('📝', 'Storing offsets', { topicPartitionOffsets })
+    private storeOffsetsForMessages = (topicPartitionOffsetsToCommit: TopicPartitionOffset[]): void => {
+        if (topicPartitionOffsetsToCommit.length > 0) {
+            logger.debug('📝', 'Storing offsets', { topicPartitionOffsetsToCommit })
             try {
-                this.rdKafkaConsumer.offsetsStore(topicPartitionOffsets)
+                this.rdKafkaConsumer.offsetsStore(topicPartitionOffsetsToCommit)
             } catch (e) {
                 // NOTE: We don't throw here - this can happen if we were re-assigned partitions
                 // and the offsets are no longer valid whilst processing a batch
                 logger.error('📝', 'Failed to store offsets', {
                     error: String(e),
                     assignedPartitions: this.assignments(),
-                    topicPartitionOffsets,
+                    topicPartitionOffsetsToCommit,
                 })
                 captureException(e)
             }
@@ -696,14 +689,11 @@ export class KafkaConsumer {
                     // it would be hard to mix background work with non-background work.
                     // So we just create pretend work to simplify the rest of the logic
                     const backgroundTask = result?.backgroundTask ?? Promise.resolve()
-
                     const backgroundTaskStart = performance.now()
+                    // Pull out the offsets to commit from the messages so we can release the messages reference
+                    const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
 
                     void backgroundTask.finally(async () => {
-                        // Only when we are fully done with the background work we store the offsets
-                        // TODO: Test if this fully works as expected - like what if backgroundBatches[1] finishes after backgroundBatches[0]
-                        // Remove the background work from the queue when it is finished
-
                         // First of all clear ourselves from the queue
                         const index = this.backgroundTask.indexOf(backgroundTask)
                         void this.backgroundTask.splice(index, 1)
@@ -712,7 +702,7 @@ export class KafkaConsumer {
                         await Promise.all(this.backgroundTask.slice(0, index))
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
-                            this.storeOffsetsForMessages(messages)
+                            this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
                         }
 
                         if (result?.backgroundTask) {
