@@ -80,7 +80,7 @@ def DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL():
     )
 
 
-def WRITABLE_INGESTION_WARNINGS_TABLE_SQL(on_cluster=True):
+def WRITABLE_INGESTION_WARNINGS_TABLE_SQL():
     return INGESTION_WARNINGS_TABLE_BASE_SQL().format(
         table_name="writable_ingestion_warnings",
         engine=Distributed(data_table="sharded_ingestion_warnings", sharding_key="rand()"),

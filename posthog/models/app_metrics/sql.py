@@ -36,7 +36,7 @@ BASE_APP_METRICS_COLUMNS = """
 APP_METRICS_TIMESTAMP_TRUNCATION = "toStartOfHour(timestamp)"
 
 APP_METRICS_DATA_TABLE_SQL = (
-    lambda on_cluster=True: f"""
+    lambda: f"""
 CREATE TABLE IF NOT EXISTS {APP_METRICS_SHARDED_TABLE}
 (
     {BASE_APP_METRICS_COLUMNS}
@@ -50,7 +50,7 @@ ORDER BY (team_id, plugin_config_id, job_id, category, {APP_METRICS_TIMESTAMP_TR
 
 
 DISTRIBUTED_APP_METRICS_TABLE_SQL = (
-    lambda on_cluster=True: f"""
+    lambda: f"""
 CREATE TABLE IF NOT EXISTS {APP_METRICS_TABLE}
 (
     {BASE_APP_METRICS_COLUMNS}
@@ -61,7 +61,7 @@ ENGINE={Distributed(data_table=APP_METRICS_SHARDED_TABLE, sharding_key="rand()")
 )
 
 WRITABLE_APP_METRICS_TABLE_SQL = (
-    lambda on_cluster=True: f"""
+    lambda: f"""
 CREATE TABLE IF NOT EXISTS {APP_METRICS_WRITABLE_TABLE}
 (
     {BASE_APP_METRICS_COLUMNS}
@@ -72,7 +72,7 @@ ENGINE={Distributed(data_table=APP_METRICS_SHARDED_TABLE, sharding_key="rand()")
 )
 
 KAFKA_APP_METRICS_TABLE_SQL = (
-    lambda on_cluster=True: f"""
+    lambda: f"""
 CREATE TABLE IF NOT EXISTS kafka_app_metrics
 (
     team_id Int64,

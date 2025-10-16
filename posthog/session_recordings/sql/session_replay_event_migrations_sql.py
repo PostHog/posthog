@@ -3,16 +3,12 @@ from django.conf import settings
 from posthog.session_recordings.sql.session_replay_event_sql import SESSION_REPLAY_EVENTS_DATA_TABLE
 
 
-def DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True):
-    return "DROP TABLE IF EXISTS session_replay_events_mv" + (
-        f" ON CLUSTER {settings.CLICKHOUSE_CLUSTER}" if on_cluster else ""
-    )
+def DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL():
+    return "DROP TABLE IF EXISTS session_replay_events_mv"
 
 
-def DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
-    return "DROP TABLE IF EXISTS kafka_session_replay_events" + (
-        f" ON CLUSTER {settings.CLICKHOUSE_CLUSTER}" if on_cluster else ""
-    )
+def DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL():
+    return "DROP TABLE IF EXISTS kafka_session_replay_events"
 
 
 # this alter command exists because existing installations

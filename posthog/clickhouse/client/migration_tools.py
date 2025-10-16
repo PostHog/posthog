@@ -18,7 +18,7 @@ def get_migrations_cluster():
 
 def run_sql_with_exceptions(
     sql: str,
-    node_roles: list[NodeRole] | None = None,
+    node_roles: list[NodeRole] | NodeRole | None = None,
     sharded: bool = False,
     is_alter_on_replicated_table: bool = False,
 ):
@@ -53,6 +53,9 @@ def run_sql_with_exceptions(
         configuration, such as when the sharded flag is set for roles other than DATA.
     """
 
+    if node_roles and node_roles is not list:
+        node_roles = [node_roles]
+
     node_roles = node_roles or [NodeRole.DATA]
 
     if settings.E2E_TESTING or settings.DEBUG:
@@ -61,8 +64,8 @@ def run_sql_with_exceptions(
         node_roles = [NodeRole.ALL]
 
     def run_migration():
-        if "ON CLUSTER" in sql:
-            raise ValueError("ON CLUSTER is not supposed to used in migration, query: %s", sql)
+        # if "ON CLUSTER" in sql:
+        #     raise ValueError("ON CLUSTER is not supposed to used in migration, query: %s", sql)
 
         cluster = get_migrations_cluster()
 

@@ -13,8 +13,8 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 
 operations = [
     # looking at past migrations we have to drop materialized views and kafka tables first
-    run_sql_with_exceptions(DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
+    run_sql_with_exceptions(DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL(), node_roles=[NodeRole.DATA]),
+    run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     # alter the target tables
     run_sql_with_exceptions(
         SET_TTL_ONLY_DROP_PARTS_SESSION_REPLAY_EVENTS_TABLE_SQL(),
@@ -29,6 +29,6 @@ operations = [
         is_alter_on_replicated_table=True,
     ),
     # and then recreate the materialized views and kafka tables
-    run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
+    run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(), node_roles=[NodeRole.DATA]),
+    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL(), node_roles=[NodeRole.DATA]),
 ]
