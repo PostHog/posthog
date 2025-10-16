@@ -34,14 +34,44 @@
             "status": "skip"
         },
         {
+            "name": "feature_flags",
+            "source_files": ["feature_flag.py"],
+            "target_app": "feature_flags",
+            "create_backend_dir": false,
+            "product_already_exists": true,
+            "status": "todo",
+            "priority": 1,
+            "notes": "5 changes in 100 migrations, high-value, active development"
+        },
+        {
+            "name": "integrations",
+            "source_files": ["integration.py"],
+            "target_app": "cdp",
+            "create_backend_dir": false,
+            "product_already_exists": true,
+            "status": "todo",
+            "priority": 2,
+            "notes": "7 changes in 100 migrations, CDP core functionality"
+        },
+        {
+            "name": "data_warehouse_sources",
+            "source_files": ["external_data_source.py"],
+            "target_app": "data_warehouse",
+            "create_backend_dir": false,
+            "product_already_exists": true,
+            "status": "todo",
+            "priority": 3,
+            "notes": "7 changes in 100 migrations, high activity"
+        },
+        {
             "name": "dashboards",
             "source_files": ["dashboard.py", "dashboard_tile.py"],
             "target_app": "dashboards",
             "create_backend_dir": true,
             "product_already_exists": true,
             "status": "todo",
-            "priority": 1,
-            "notes": "2 changes in last 100 migrations (dashboardtile), product exists"
+            "priority": 4,
+            "notes": "1 change (dashboardtile) in 100 migrations"
         },
         {
             "name": "experiments",
@@ -50,8 +80,8 @@
             "create_backend_dir": true,
             "product_already_exists": true,
             "status": "todo",
-            "priority": 2,
-            "notes": "2 changes in last 100 migrations, active development"
+            "priority": 5,
+            "notes": "2 changes in 100 migrations"
         },
         {
             "name": "surveys",
@@ -60,18 +90,8 @@
             "create_backend_dir": false,
             "product_already_exists": true,
             "status": "todo",
-            "priority": 3,
-            "notes": "2 changes in last 100 migrations, standalone product"
-        },
-        {
-            "name": "feature_flags",
-            "source_files": ["feature_flag.py"],
-            "target_app": "feature_flags",
-            "create_backend_dir": false,
-            "product_already_exists": true,
-            "status": "todo",
-            "priority": 4,
-            "notes": "1+ changes in recent migrations, high-value product"
+            "priority": 6,
+            "notes": "2 changes in 100 migrations"
         },
         {
             "name": "messaging",
