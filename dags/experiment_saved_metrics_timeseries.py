@@ -23,7 +23,7 @@ from posthog.models.experiment import Experiment, ExperimentMetricResult
 from dags.common import JobOwners
 from dags.experiments import (
     _parse_partition_key,
-    discover_experiment_metric_partitions,
+    refresh_experiment_metric_partitions,
     remove_step_sessions_from_experiment_result,
     schedule_experiment_metric_partitions,
 )
@@ -259,7 +259,7 @@ def experiment_saved_metrics_timeseries_discovery_sensor(context: dagster.Sensor
     analysis. When new combinations are found, it creates dynamic partitions for the
     experiment_saved_metrics_timeseries asset and triggers processing only for the new partitions.
     """
-    return discover_experiment_metric_partitions(
+    return refresh_experiment_metric_partitions(
         context=context,
         partition_name=EXPERIMENT_SAVED_METRICS_PARTITIONS_NAME,
         partitions_def=experiment_saved_metrics_partitions_def,

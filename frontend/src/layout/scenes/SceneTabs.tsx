@@ -180,6 +180,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
 
     useEffect(() => {
         if (isEditing && inputRef.current) {
+            // focus the input with delay to ensure the tab input is rendered
             setTimeout(() => {
                 inputRef.current?.focus()
             }, 100)
@@ -194,7 +195,11 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 })}
             />
 
-            <ButtonGroupPrimitive groupVariant="default" fullWidth className="border-0 rounded-none">
+            <ButtonGroupPrimitive
+                groupVariant="default"
+                fullWidth
+                className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
+            >
                 <ButtonPrimitive
                     onClick={(e) => {
                         e.stopPropagation()

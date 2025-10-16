@@ -24,6 +24,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { groupsModel } from '~/models/groupsModel'
 import {
     AnyPropertyFilter,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagGroupType,
     GroupTypeIndex,
@@ -51,6 +52,7 @@ export interface FeatureFlagReleaseConditionsLogicProps {
     onChange?: (filters: FeatureFlagFilters, errors: any) => void
     nonEmptyFeatureFlagVariants?: MultivariateFlagVariant[]
     isSuper?: boolean
+    evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
 export type FeatureFlagGroupTypeWithSortKey = FeatureFlagGroupType & { sort_key: string }
@@ -515,7 +517,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     effectiveTotalUsers = 1
                 }
 
-                return effectiveRolloutPercentage * ((affectedUsers[sortKey] ?? 0) / effectiveTotalUsers)
+                return (
+                    Math.round(
+                        effectiveRolloutPercentage * ((affectedUsers[sortKey] ?? 0) / effectiveTotalUsers) * 1000000
+                    ) / 1000000
+                )
             },
         ],
         getFlagKey: [
@@ -534,6 +540,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                             property.type === PropertyFilterType.Flag && property.key ? [property.key] : []
                         ) || []
                 ) || [],
+        ],
+        properties: [
+            (s) => [s.filterGroups],
+            (filterGroups: FeatureFlagGroupType[]) => {
+                return filterGroups?.flatMap((g) => g.properties ?? []) ?? []
+            },
         ],
     }),
     propsChanged(({ props, values, actions }) => {

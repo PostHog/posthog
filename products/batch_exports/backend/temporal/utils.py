@@ -191,7 +191,7 @@ class JsonType(pa.ExtensionType):
 
 def cast_record_batch_json_columns(
     record_batch: pa.RecordBatch,
-    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
+    json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
 ) -> pa.RecordBatch:
     """Cast json_columns in record_batch to JsonType.
 
@@ -217,7 +217,7 @@ def cast_record_batch_json_columns(
 
 def cast_record_batch_schema_json_columns(
     schema: pa.Schema,
-    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
+    json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
 ):
     column_names = set(schema.names)
     intersection = column_names & set(json_columns)

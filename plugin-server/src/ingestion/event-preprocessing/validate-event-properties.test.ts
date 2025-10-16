@@ -55,7 +55,7 @@ describe('createValidateEventPropertiesStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual(drop('Group key too long'))
+            expect(result).toEqual(drop('group_key_too_long'))
         })
 
         it('should allow $groupidentify events with group_key shorter than 400 characters', async () => {

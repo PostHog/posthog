@@ -18,8 +18,6 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { Experiment } from '~/types'
 
-import { MetricSourceModal } from '../Metrics/MetricSourceModal'
-import { MetricsReorderModal } from '../MetricsView/MetricsReorderModal'
 import { ExperimentTypePanel } from './ExperimentTypePanel'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
 import { VariantsPanel } from './VariantsPanel'
@@ -36,6 +34,12 @@ const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
 type CreateExperimentProps = Partial<{
     draftExperiment: Experiment
 }>
+
+/**
+ * temporary setup. We may want to put this behind a feature flag for testing.
+ */
+const SHOW_EXPERIMENT_TYPE_PANEL = false
+const SHOW_TARGETING_PANEL = false
 
 export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JSX.Element => {
     const { HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
@@ -106,16 +110,20 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                         }}
                         className="bg-surface-primary"
                         panels={[
-                            {
-                                key: 'experiment-type',
-                                header: 'Experiment type',
-                                content: (
-                                    <ExperimentTypePanel
-                                        experiment={experiment}
-                                        setExperimentType={(type) => setExperimentValue('type', type)}
-                                    />
-                                ),
-                            },
+                            ...(SHOW_EXPERIMENT_TYPE_PANEL
+                                ? [
+                                      {
+                                          key: 'experiment-type',
+                                          header: 'Experiment type',
+                                          content: (
+                                              <ExperimentTypePanel
+                                                  experiment={experiment}
+                                                  setExperimentType={(type) => setExperimentValue('type', type)}
+                                              />
+                                          ),
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'experiment-variants',
                                 header: 'Feature flag & variants',
@@ -136,15 +144,19 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                     />
                                 ),
                             },
-                            {
-                                key: 'experiment-targeting',
-                                header: 'Targeting',
-                                content: (
-                                    <div className="p-4">
-                                        <span>Targeting Panel Goes Here</span>
-                                    </div>
-                                ),
-                            },
+                            ...(SHOW_TARGETING_PANEL
+                                ? [
+                                      {
+                                          key: 'experiment-targeting',
+                                          header: 'Targeting',
+                                          content: (
+                                              <div className="p-4">
+                                                  <span>Targeting Panel Goes Here</span>
+                                              </div>
+                                          ),
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'experiment-exposure',
                                 header: 'Exposure criteria',
@@ -174,12 +186,6 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                     <span>Sidebar Checklist Goes Here</span>
                 </div>
             </div>
-
-            {/* Metric Modals */}
-            <MetricSourceModal isSecondary={false} />
-            <MetricSourceModal isSecondary={true} />
-            <MetricsReorderModal isSecondary={false} />
-            <MetricsReorderModal isSecondary={true} />
         </div>
     )
 }

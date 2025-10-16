@@ -8,7 +8,8 @@ use num_cpus;
 use once_cell::sync::Lazy;
 use rocksdb::{
     checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, Cache, ColumnFamilyDescriptor,
-    DBWithThreadMode, MultiThreaded, Options, WriteBatch, WriteBufferManager, WriteOptions,
+    DBWithThreadMode, MultiThreaded, Options, SliceTransform, WriteBatch, WriteBufferManager,
+    WriteOptions,
 };
 use std::time::Instant;
 
@@ -46,16 +47,7 @@ static SHARED_WRITE_BUFFER_MANAGER: Lazy<Arc<WriteBufferManager>> = Lazy::new(||
     ))
 });
 
-fn rocksdb_options() -> Options {
-    let num_threads = std::cmp::max(2, num_cpus::get()); // Avoid setting to 0 or 1
-
-    let mut opts = Options::default();
-    opts.create_if_missing(true);
-    opts.create_missing_column_families(true);
-
-    // Level style compaction with universal style for TTL-like use case
-    opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
-
+pub fn block_based_table_factory() -> BlockBasedOptions {
     // Optimize for point lookups (dedup check)
     let mut block_opts = BlockBasedOptions::default();
     // Set bloom filter to 10 bits per key, not approximate
@@ -65,6 +57,30 @@ fn rocksdb_options() -> Options {
     block_opts.set_bloom_filter(10.0, false);
     block_opts.set_cache_index_and_filter_blocks(true);
     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
+    block_opts.set_whole_key_filtering(true);
+    block_opts.set_partition_filters(true);
+    block_opts.set_pin_top_level_index_and_filter(true);
+    block_opts
+}
+
+fn rocksdb_options() -> Options {
+    let num_threads = std::cmp::max(2, num_cpus::get()); // Avoid setting to 0 or 1
+
+    let mut opts = Options::default();
+    opts.create_if_missing(true);
+    // Enable atomic flush to ensure consistency between column families
+    opts.set_atomic_flush(true);
+    opts.create_missing_column_families(true);
+
+    // Level style compaction with universal style for TTL-like use case
+    opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
+    opts.optimize_universal_style_compaction(512 * 1024 * 1024); // 512MB
+
+    let mut block_opts = block_based_table_factory();
+    // Timestamp CF
+    let mut ts_cf = Options::default();
+    ts_cf.set_block_based_table_factory(&block_opts);
+    ts_cf.set_prefix_extractor(SliceTransform::create_fixed_prefix(8));
 
     // CRITICAL: Use shared block cache across all stores
     block_opts.set_block_cache(&SHARED_BLOCK_CACHE);
@@ -76,16 +92,24 @@ fn rocksdb_options() -> Options {
 
     // Reduced memory budget per store (with 50 partitions per pod)
     opts.set_write_buffer_size(8 * 1024 * 1024); // Reduced to 8MB per memtable
-    opts.set_max_write_buffer_number(2); // Max 2 buffers = 16MB per partition
-    opts.set_target_file_size_base(64 * 1024 * 1024); // SST files ~64MB
+    opts.set_max_write_buffer_number(3); // Max 3 buffers = 24MB per partition
+    opts.set_target_file_size_base(128 * 1024 * 1024); // SST files ~128MB
 
     // Parallelism
     opts.increase_parallelism(num_threads as i32);
-    opts.optimize_level_style_compaction(512 * 1024 * 1024); // 512MB
+    opts.set_max_background_jobs(num_threads as i32);
+
+    // IO & safety
+    opts.set_paranoid_checks(true);
+    opts.set_bytes_per_sync(1024 * 1024);
+    opts.set_wal_bytes_per_sync(1024 * 1024);
+    opts.set_use_direct_reads(true);
+    opts.set_use_direct_io_for_flush_and_compaction(true);
+    opts.set_compaction_readahead_size(2 * 1024 * 1024);
 
     // Reduce background IO impact
     opts.set_disable_auto_compactions(false);
-    opts.set_max_open_files(100); // Reduced from 500 for 50 partitions per pod
+    opts.set_max_open_files(1024); // Reduced from 500 for 50 partitions per pod
 
     // CRITICAL: Disable mmap with many partitions to avoid virtual memory explosion
     opts.set_allow_mmap_reads(false);
@@ -312,6 +336,24 @@ impl RocksDbStore {
         result
     }
 
+    pub fn flush_all_cf(&self) -> Result<()> {
+        let mut flush_opts = rocksdb::FlushOptions::default();
+        flush_opts.set_wait(true);
+        let start_time = Instant::now();
+        let result = self.db.flush_opt(&flush_opts);
+        let duration = start_time.elapsed();
+        self.metrics
+            .histogram(ROCKSDB_FLUSH_DURATION_HISTOGRAM)
+            .record(duration.as_secs_f64());
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
+                Err(anyhow::anyhow!("Failed to flush: {}", e))
+            }
+        }
+    }
+
     fn flush_cf_internal(&self, cf_name: &str) -> Result<()> {
         let mut flush_opts = rocksdb::FlushOptions::default();
         flush_opts.set_wait(true);
@@ -321,24 +363,18 @@ impl RocksDbStore {
             .context("Failed to flush")
     }
 
-    pub fn compact_cf(&self, cf_name: &str) -> Result<()> {
-        let start_time = Instant::now();
-
-        let result = self.compact_cf_internal(cf_name);
-
-        let duration = start_time.elapsed();
-        self.metrics
-            .histogram(ROCKSDB_COMPACTION_DURATION_HISTOGRAM)
-            .with_label("column_family", cf_name)
-            .record(duration.as_secs_f64());
-
-        result
+    /// Flush the WAL (Write-Ahead Log) to ensure durability
+    /// Setting sync=true ensures WAL is synced to disk before returning
+    pub fn flush_wal(&self, sync: bool) -> Result<()> {
+        self.db
+            .flush_wal(sync)
+            .map_err(|e| anyhow::anyhow!("Failed to flush WAL (sync={}): {}", sync, e))
     }
 
-    fn compact_cf_internal(&self, cf_name: &str) -> Result<()> {
-        let cf = self.get_cf_handle(cf_name)?;
-        self.db.compact_range_cf(&cf, None::<&[u8]>, None::<&[u8]>);
-        Ok(())
+    /// Get the latest sequence number from the database
+    /// This represents the current state of the database and can be used to verify checkpoint consistency
+    pub fn latest_sequence_number(&self) -> u64 {
+        self.db.latest_sequence_number()
     }
 
     /// Create an incremental checkpoint at the specified path

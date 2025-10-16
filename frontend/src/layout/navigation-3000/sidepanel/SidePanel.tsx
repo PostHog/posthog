@@ -23,6 +23,7 @@ import { SidePanelTab } from '~/types'
 
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelMax } from './panels/SidePanelMax'
+import { SidePanelSdkDoctor, SidePanelSdkDoctorIcon } from './panels/SidePanelSdkDoctor'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
@@ -105,6 +106,11 @@ export const SIDE_PANEL_TABS: Record<
         label: 'Access control',
         Icon: IconLock,
         Content: SidePanelAccessControl,
+    },
+    [SidePanelTab.SdkDoctor]: {
+        label: 'SDK Doctor',
+        Icon: SidePanelSdkDoctorIcon,
+        Content: SidePanelSdkDoctor,
     },
 }
 
