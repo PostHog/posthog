@@ -247,7 +247,7 @@ class TestS3Table(BaseTest):
         res = build_function_call(
             "http://url.com", DataWarehouseTable.TableFormat.Delta, None, "key", "secret", None, None
         )
-        assert res == "deltaLake('http://url.com', 'key', 'secret')"
+        assert res == "deltaLake('http://url.com', 'key', 'secret', 'Parquet')"
 
     def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format(self):
         res = build_function_call(
@@ -277,7 +277,7 @@ class TestS3Table(BaseTest):
         res = build_function_call(
             "http://url.com", DataWarehouseTable.TableFormat.Delta, None, "key", "secret", "some structure", None
         )
-        assert res == "deltaLake('http://url.com', 'key', 'secret', 'some structure')"
+        assert res == "deltaLake('http://url.com', 'key', 'secret', 'Parquet', 'some structure')"
 
     def test_s3_build_function_call_azure(self):
         res = build_function_call(
