@@ -59,7 +59,7 @@ class Migration(migrations.Migration):
                 # We add -- existing-table-constraint-ignore to ignore the constraint validation in CI.
                 migrations.RunSQL(
                     """
-                    ALTER TABLE "posthog_datawarehousesavedquery" ADD COLUMN "managed_viewset_id" integer NULL CONSTRAINT "posthog_datawarehousesavedquery_managed_viewset_id_1cbf8562_fk_posthog_a" REFERENCES "posthog_datawarehousemanagedviewset"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                    ALTER TABLE "posthog_datawarehousesavedquery" ADD COLUMN "managed_viewset_id" uuid NULL CONSTRAINT "posthog_datawarehousesavedquery_managed_viewset_id_1cbf8562_fk_posthog_a" REFERENCES "posthog_datawarehousemanagedviewset"("id") DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
                     SET CONSTRAINTS "posthog_datawarehousesavedquery_managed_viewset_id_1cbf8562_fk_posthog_a" IMMEDIATE; -- existing-table-constraint-ignore
                     """,
                     reverse_sql="""
