@@ -39,6 +39,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { EventType } from '~/types'
@@ -170,7 +171,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 emptyStateHeading: 'There were no generations in this period',
                 emptyStateDetail: 'Try changing the date range or filters.',
                 expandable: {
-                    expandedRowRender: function renderExpandedGeneration({ result }: { result: any }) {
+                    expandedRowRender: function renderExpandedGeneration({ result }: DataTableRow) {
                         if (!Array.isArray(result)) {
                             return null
                         }
@@ -208,16 +209,16 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             </div>
                         )
                     },
-                    rowExpandable: ({ result }: { result: any }) =>
+                    rowExpandable: ({ result }: DataTableRow) =>
                         !!result && Array.isArray(result) && !!result[0] && !!result[1],
-                    isRowExpanded: ({ result }: { result: any }) =>
+                    isRowExpanded: ({ result }: DataTableRow) =>
                         Array.isArray(result) && !!result[0] && expandedGenerationIds.has(result[0] as string),
-                    onRowExpand: ({ result }: { result: any }) => {
+                    onRowExpand: ({ result }: DataTableRow) => {
                         if (Array.isArray(result) && result[0] && result[1]) {
                             toggleGenerationExpanded(result[0] as string, result[1] as string)
                         }
                     },
-                    onRowCollapse: ({ result }: { result: any }) => {
+                    onRowCollapse: ({ result }: DataTableRow) => {
                         if (Array.isArray(result) && result[0] && result[1]) {
                             toggleGenerationExpanded(result[0] as string, result[1] as string)
                         }
