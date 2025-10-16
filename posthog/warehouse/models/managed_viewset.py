@@ -17,6 +17,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
 )
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -66,7 +67,6 @@ class ManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
         views_created = 0
         views_updated = 0
-        views_scheduled = 0
 
         with transaction.atomic():
             for view in expected_views:
@@ -96,14 +96,20 @@ class ManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 if created:
                     try:
                         sync_saved_query_workflow(saved_query, create=True)
-                        views_scheduled += 1
                     except Exception as e:
+                        capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                         logger.warning(
                             "failed_to_schedule_saved_query",
                             team_id=self.team_id,
                             saved_query_id=str(saved_query.id),
                             error=str(e),
                         )
+
+                        # Disable materialization for this view if we failed to schedule the workflow
+                        # TODO: Should we have a cron job that re-enables materialization for managed viewset-based views
+                        # that failed to schedule?
+                        saved_query.is_materialized = False
+                        saved_query.save(update_fields=["is_materialized"])
 
             orphaned_views = (
                 DataWarehouseSavedQuery.objects.filter(
@@ -121,6 +127,7 @@ class ManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                     orphaned_view.soft_delete()
                     views_deleted += 1
                 except Exception as e:
+                    capture_exception(e, {"managed_viewset_id": self.id, "view_name": orphaned_view.name})
                     logger.warning(
                         "failed_to_delete_orphaned_view",
                         team_id=self.team_id,
@@ -134,7 +141,6 @@ class ManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 kind=self.kind,
                 views_created=views_created,
                 views_updated=views_updated,
-                views_scheduled=views_scheduled,
                 views_deleted=views_deleted,
             )
 
@@ -152,27 +158,30 @@ class ManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         ).exclude(deleted=True)
 
         views_deleted = 0
-        for view in related_views:
-            try:
-                view.revert_materialization()
-                view.soft_delete()
-                views_deleted += 1
-            except Exception as e:
-                logger.warning(
-                    "failed_to_delete_managed_view",
-                    team_id=self.team_id,
-                    view_name=view.name,
-                    error=str(e),
-                )
+        with transaction.atomic():
+            for view in related_views:
+                try:
+                    view.revert_materialization()
+                    view.soft_delete()
+                    views_deleted += 1
+                except Exception as e:
+                    logger.warning(
+                        "failed_to_delete_managed_view",
+                        team_id=self.team_id,
+                        view_name=view.name,
+                        error=str(e),
+                    )
 
-        logger.info(
-            "managed_viewset_deleted_with_views",
-            team_id=self.team_id,
-            kind=self.kind,
-            views_deleted=views_deleted,
-        )
+                    capture_exception(e, {"managed_viewset_id": self.id, "view_name": view.name})
 
-        self.delete()
+            logger.info(
+                "managed_viewset_deleted_with_views",
+                team_id=self.team_id,
+                kind=self.kind,
+                views_deleted=views_deleted,
+            )
+
+            self.delete()
         return views_deleted
 
     def _get_expected_views_for_revenue_analytics(self) -> list[ExpectedView]:
