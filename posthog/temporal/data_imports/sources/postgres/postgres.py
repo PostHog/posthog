@@ -16,7 +16,11 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
+from posthog.temporal.data_imports.pipelines.pipeline.consts import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
+    INCREASED_DEFAULT_CHUNK_SIZE,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
@@ -342,7 +346,8 @@ def _get_table_chunk_size(
 
         chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
 
-        min_chunk_size = min(chunk_size, DEFAULT_CHUNK_SIZE)
+        # If we get a result back from postgres, then increase the max chunk cap to the increased value
+        min_chunk_size = min(chunk_size, INCREASED_DEFAULT_CHUNK_SIZE)
 
         if is_read_replica:
             sb_chunk = min(min_chunk_size, 5000)
