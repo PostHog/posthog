@@ -2663,7 +2663,7 @@ export interface ExperimentMetricBaseProperties extends Node {
     conversion_window_unit?: FunnelConversionWindowTimeUnit
     goal?: ExperimentMetricGoal
     isSharedMetric?: boolean
-    sharedMetricId?: string
+    sharedMetricId?: number
 }
 
 export type ExperimentMetricOutlierHandling = {
