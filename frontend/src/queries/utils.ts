@@ -63,6 +63,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
@@ -571,18 +572,28 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
 }
 
+function buildPropertyPath(value: string, groupType: TaxonomicFilterGroupType, prefix?: string): string {
+    const coreDefinition = getCoreFilterDefinition(value, groupType)
+    const escapedProperty = escapePropertyAsHogQLIdentifier(value)
+
+    if (coreDefinition?.virtual) {
+        return prefix ? `${prefix}.${escapedProperty}` : escapedProperty
+    }
+    return prefix ? `${prefix}.properties.${escapedProperty}` : `properties.${escapedProperty}`
+}
+
 export function taxonomicEventFilterToHogQL(
     groupType: TaxonomicFilterGroupType,
     value: TaxonomicFilterValue
 ): string | null {
     if (groupType === TaxonomicFilterGroupType.EventProperties) {
-        return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+        return buildPropertyPath(String(value), groupType)
     }
     if (groupType === TaxonomicFilterGroupType.PersonProperties) {
-        return `person.properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+        return buildPropertyPath(String(value), groupType, 'person')
     }
     if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
-        return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+        return buildPropertyPath(String(value), groupType)
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
@@ -595,7 +606,7 @@ export function taxonomicPersonFilterToHogQL(
     value: TaxonomicFilterValue
 ): string | null {
     if (groupType === TaxonomicFilterGroupType.PersonProperties) {
-        return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+        return buildPropertyPath(String(value), groupType)
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
@@ -608,7 +619,7 @@ export function taxonomicGroupFilterToHogQL(
     value: TaxonomicFilterValue
 ): string | null {
     if (groupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)) {
-        return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+        return buildPropertyPath(String(value), groupType)
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
