@@ -5,8 +5,6 @@ from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 
-#
-
 DOCUMENT_EMBEDDINGS = "posthog_document_embeddings"
 DOCUMENT_EMBEDDING_WRITABLE = f"writable_{DOCUMENT_EMBEDDINGS}"
 KAFKA_DOCUMENT_EMBEDDINGS = f"kafka_{DOCUMENT_EMBEDDINGS}"

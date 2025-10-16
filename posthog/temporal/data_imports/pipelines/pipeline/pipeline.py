@@ -315,12 +315,13 @@ class PipelineNonDLT:
                 return
 
         self._logger.debug(f"Adding {len(new_file_uris)} S3 files to query folder")
-        prepare_s3_files_for_querying(
+        queryable_folder = prepare_s3_files_for_querying(
             folder_path=self._job.folder_path(),
             table_name=self._resource_name,
             file_uris=new_file_uris,
             # delete existing files if it's the first chunk, otherwise we'll just append to the existing files
             delete_existing=chunk_index == 0,
+            use_timestamped_folders=False,
         )
         self._logger.debug("Validating schema and updating table")
         validate_schema_and_update_table_sync(
@@ -329,6 +330,7 @@ class PipelineNonDLT:
             schema_id=self._schema.id,
             table_schema_dict=self._internal_schema.to_hogql_types(),
             row_count=row_count,
+            queryable_folder=queryable_folder,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
 
@@ -345,7 +347,9 @@ class PipelineNonDLT:
 
         file_uris = delta_table.file_uris()
         self._logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
-        prepare_s3_files_for_querying(self._job.folder_path(), self._resource_name, file_uris)
+        queryable_folder = prepare_s3_files_for_querying(
+            self._job.folder_path(), self._resource_name, file_uris, delete_existing=True, use_timestamped_folders=True
+        )
 
         self._logger.debug("Updating last synced at timestamp on schema")
         update_last_synced_at_sync(job_id=self._job.id, schema_id=self._schema.id, team_id=self._job.team_id)
@@ -369,6 +373,7 @@ class PipelineNonDLT:
             schema_id=self._schema.id,
             table_schema_dict=self._internal_schema.to_hogql_types(),
             row_count=row_count,
+            queryable_folder=queryable_folder,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
         self._logger.debug("Finished validating schema and updating table")
