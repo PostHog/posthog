@@ -20,47 +20,11 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
 
 export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
-    const { updateUser } = useActions(userLogic)
+    const { updateWeeklyDigestForTeam, updateWeeklyDigestForAllTeams } = useActions(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const [weeklyDigestProjectsExpanded, setWeeklyDigestProjectsExpanded] = useState(weeklyDigestEnabled)
-
-    const updateWeeklyDigestForProject = (teamId: number, enabled: boolean): void => {
-        if (!user?.notification_settings) {
-            return
-        }
-
-        updateUser({
-            notification_settings: {
-                ...user.notification_settings,
-                project_weekly_digest_disabled: {
-                    ...user.notification_settings.project_weekly_digest_disabled,
-                    [teamId]: !enabled,
-                },
-            },
-        })
-    }
-
-    const updateAllWeeklyDigestForProject = (enabled: boolean): void => {
-        if (!user?.notification_settings) {
-            return
-        }
-
-        const projectWeeklyDigestSettings = {
-            ...user.notification_settings.project_weekly_digest_disabled,
-        }
-        currentOrganization?.teams?.forEach((team) => {
-            projectWeeklyDigestSettings[team.id] = !enabled
-        })
-
-        updateUser({
-            notification_settings: {
-                ...user.notification_settings,
-                project_weekly_digest_disabled: projectWeeklyDigestSettings,
-            },
-        })
-    }
 
     return (
         <div className="deprecated-space-y-4">
@@ -102,7 +66,10 @@ export function UpdateEmailPreferences(): JSX.Element {
                                                     size="xsmall"
                                                     type="secondary"
                                                     onClick={() => {
-                                                        updateAllWeeklyDigestForProject(true)
+                                                        updateWeeklyDigestForAllTeams(
+                                                            currentOrganization?.teams.map((t) => t.id),
+                                                            true
+                                                        )
                                                     }}
                                                 >
                                                     Enable for all teams
@@ -111,7 +78,10 @@ export function UpdateEmailPreferences(): JSX.Element {
                                                     size="xsmall"
                                                     type="secondary"
                                                     onClick={() => {
-                                                        updateAllWeeklyDigestForProject(false)
+                                                        updateWeeklyDigestForAllTeams(
+                                                            currentOrganization?.teams.map((t) => t.id),
+                                                            false
+                                                        )
                                                     }}
                                                 >
                                                     Disable for all teams
@@ -123,9 +93,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                                                     key={`weekly-digest-${team.id}`}
                                                     id={`weekly-digest-${team.id}`}
                                                     data-attr={`weekly_digest_${team.id}`}
-                                                    onChange={(checked) =>
-                                                        updateWeeklyDigestForProject(team.id, checked)
-                                                    }
+                                                    onChange={(checked) => updateWeeklyDigestForTeam(team.id, checked)}
                                                     checked={
                                                         !user?.notification_settings.project_weekly_digest_disabled?.[
                                                             team.id
