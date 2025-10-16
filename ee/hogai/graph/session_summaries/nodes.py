@@ -11,6 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
+    AssistantMessage,
     AssistantToolCallMessage,
     MaxRecordingUniversalFilters,
     NotebookUpdateMessage,
@@ -53,7 +54,6 @@ from ee.hogai.utils.types.composed import MaxNodeName
 
 class SessionSummarizationNode(AssistantNode):
     logger = structlog.get_logger(__name__)
-    REASONING_MESSAGE = "Summarizing session recordings"
 
     @property
     def node_name(self) -> MaxNodeName:
@@ -68,7 +68,11 @@ class SessionSummarizationNode(AssistantNode):
         """Push summarization progress as reasoning messages"""
         content = prepare_reasoning_progress_message(progress_message)
         if content:
-            await self._write_reasoning(content=content)
+            self.dispatcher.message(
+                AssistantMessage(
+                    content=content,
+                )
+            )
 
     async def _stream_notebook_content(self, content: dict, state: AssistantState, partial: bool = True) -> None:
         """Stream TipTap content directly to a notebook if notebook_id is present in state."""
@@ -85,7 +89,7 @@ class SessionSummarizationNode(AssistantNode):
                 notebook_id=state.notebook_short_id, content=content, id=str(uuid4())
             )
         # Stream the notebook update
-        await self._write_message(notebook_message)
+        self.dispatcher.message(notebook_message)
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
@@ -168,7 +172,7 @@ class _SessionSearch:
         self._node = node
 
     async def _generate_replay_filters(
-        self, filter_query: str, conversation_id: str, start_time: float
+        self, state: AssistantState, config: RunnableConfig, filter_query: str, conversation_id: str, start_time: float
     ) -> MaxRecordingUniversalFilters | str | None:
         """
         Generates replay filters to get session ids by directly using SearchSessionRecordingsTool.
@@ -181,8 +185,13 @@ class _SessionSearch:
         from products.replay.backend.max_tools import SearchSessionRecordingsTool  # Avoid circular import
 
         # Create the tool instance with minimal context (no current_filters for fresh generation)
-        tool = SearchSessionRecordingsTool(team=self._node._team, user=self._node._user)
-        tool._context = {"current_filters": {}}
+        tool = await SearchSessionRecordingsTool.create_tool_class(
+            team=self._node._team,
+            user=self._node._user,
+            state=state,
+            config=config,
+            context_manager=self._node.context_manager,
+        )
         try:
             # Call the tool's graph directly to use the same implementation as in the tool (avoid duplication)
             result = await tool._invoke_graph(change=filter_query)
@@ -328,7 +337,9 @@ class _SessionSearch:
             return self._node._create_error_response(self._node._base_error_instructions, state)
         # If the current filters were marked as relevant, but not present in the context
         current_filters = (
-            self._node._get_contextual_tools(config).get("search_session_recordings", {}).get("current_filters")
+            self._node.context_manager.get_contextual_tools()
+            .get("search_session_recordings", {})
+            .get("current_filters")
         )
         try:
             # Use current filters, if provided
@@ -346,6 +357,8 @@ class _SessionSearch:
             else:
                 filter_query = await self._generate_filter_query(state.session_summarization_query, config)
                 filter_generation_result = await self._generate_replay_filters(
+                    state=state,
+                    config=config,
                     filter_query=filter_query,
                     conversation_id=conversation_id,
                     start_time=start_time,

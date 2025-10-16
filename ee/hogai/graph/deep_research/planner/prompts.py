@@ -99,8 +99,8 @@ Track research progress:
 ```json
 {{
     "todos": [{{
-        "id": int,
-        "description": string,
+        "id": string,
+        "content": string,
         "status": "pending" | "in_progress" | "completed",
         "priority": "low" | "medium" | "high"
     }}]

@@ -21,7 +21,6 @@ from posthog.schema import (
     DeepResearchNotebook,
     DeepResearchType,
     ProsemirrorJSONContent,
-    TaskExecutionStatus,
 )
 
 from posthog.models import Team, User
@@ -93,7 +92,7 @@ class TestDeepResearchReportNode:
                 description="Analyze user behavior",
                 result="Users show high engagement",
                 artifacts=artifacts,
-                status=TaskExecutionStatus.COMPLETED,
+                status="completed",
             )
         ]
 
@@ -115,7 +114,7 @@ class TestDeepResearchReportNode:
                     description="Task 1",
                     result="Result 1",
                     artifacts=[artifact1, artifact2],
-                    status=TaskExecutionStatus.COMPLETED,
+                    status="completed",
                 )
             ],
             intermediate_results=[
@@ -141,7 +140,7 @@ class TestDeepResearchReportNode:
                     description="Task 1",
                     result="Result 1",
                     artifacts=[artifact1, artifact2],
-                    status=TaskExecutionStatus.COMPLETED,
+                    status="completed",
                 )
             ],
             intermediate_results=[
@@ -423,7 +422,7 @@ class TestDeepResearchReportNode:
                     description="Task 1",
                     result="Result",
                     artifacts=artifacts,
-                    status=TaskExecutionStatus.COMPLETED,
+                    status="completed",
                 )
             ],
             intermediate_results=[],
@@ -504,14 +503,14 @@ class TestDeepResearchReportNode:
                     description="Task 1",
                     result="Result 1",
                     artifacts=[artifact1, artifact2],
-                    status=TaskExecutionStatus.COMPLETED,
+                    status="completed",
                 ),
                 TaskResult(
                     id="task_2",
                     description="Task 2",
                     result="Result 2",
                     artifacts=[artifact3],
-                    status=TaskExecutionStatus.COMPLETED,
+                    status="completed",
                 ),
             ],
             intermediate_results=[
@@ -587,7 +586,7 @@ class TestDeepResearchReportNode:
                     description="Test task",
                     result="Test result",
                     artifacts=[self.create_sample_artifact()],
-                    status=TaskExecutionStatus.COMPLETED,
+                    status="completed",
                 )
             ],
             intermediate_results=[DeepResearchIntermediateResult(content="Test analysis", artifact_ids=["artifact_1"])],

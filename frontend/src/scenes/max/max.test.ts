@@ -81,9 +81,12 @@ describe('Max Logics Integration Tests', () => {
                 ],
                 [
                     partial({
-                        type: AssistantMessageType.Reasoning,
+                        type: AssistantMessageType.Assistant,
                         status: 'completed',
                         id: 'loader',
+                        meta: partial({
+                            thinking: expect.any(Array),
+                        }),
                     }),
                 ],
             ],

@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, TaskExecutionItem, TaskExecutionStatus
+from posthog.schema import AssistantHogQLQuery, AssistantToolCall, AssistantToolCallMessage
 
 from posthog.models import Dashboard, Insight, Team, User
 
 from ee.hogai.graph.dashboards.nodes import DashboardCreationExecutorNode, DashboardCreationNode, QueryMetadata
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import BaseStateWithTasks, InsightArtifact, InsightQuery, TaskResult
+from ee.hogai.utils.types.base import BaseStateWithTaskResults, InsightArtifact, InsightQuery, TaskResult
 
 
 class TestQueryMetadata(TestCase):
@@ -50,78 +50,49 @@ class TestDashboardCreationExecutorNode:
     @pytest.mark.asyncio
     async def test_aget_input_tuples_search_insights(self):
         """Test _aget_input_tuples for search_insights tasks."""
-        state = BaseStateWithTasks(
-            tasks=[
-                TaskExecutionItem(
-                    id="task_1",
-                    description="Test search",
-                    prompt="Test prompt",
-                    status=TaskExecutionStatus.PENDING,
-                    task_type="search_insights",
-                )
-            ]
-        )
+        tool_calls = [
+            AssistantToolCall(id="task_1", name="search_insights", args={"search_insights_query": "Test prompt"})
+        ]
 
-        input_tuples = await self.node._aget_input_tuples(state)
+        input_tuples = await self.node._aget_input_tuples(tool_calls)
 
         assert len(input_tuples) == 1
         task, artifacts, callable_func = input_tuples[0]
         assert task.id == "task_1"
-        assert task.task_type == "search_insights"
+        assert task.name == "search_insights"
         assert callable_func == self.node._execute_search_insights
 
     @pytest.mark.asyncio
     async def test_aget_input_tuples_create_insight(self):
         """Test _aget_input_tuples for create_insight tasks."""
-        state = BaseStateWithTasks(
-            tasks=[
-                TaskExecutionItem(
-                    id="task_1",
-                    description="Test create",
-                    prompt="Test prompt",
-                    status=TaskExecutionStatus.PENDING,
-                    task_type="create_insight",
-                )
-            ]
-        )
+        tool_calls = [AssistantToolCall(id="task_1", name="create_insight", args={"query_description": "Test prompt"})]
 
-        input_tuples = await self.node._aget_input_tuples(state)
+        input_tuples = await self.node._aget_input_tuples(tool_calls)
 
         assert len(input_tuples) == 1
         task, artifacts, callable_func = input_tuples[0]
         assert task.id == "task_1"
-        assert task.task_type == "create_insight"
+        assert task.name == "create_insight"
         assert callable_func == self.node._execute_create_insight
 
     @pytest.mark.asyncio
     async def test_aget_input_tuples_unsupported_task(self):
         """Test _aget_input_tuples raises error for unsupported task type."""
-        state = BaseStateWithTasks(
-            tasks=[
-                TaskExecutionItem(
-                    id="task_1",
-                    description="Test task",
-                    prompt="Test prompt",
-                    status=TaskExecutionStatus.PENDING,
-                    task_type="unsupported_type",
-                )
-            ]
-        )
+        tool_calls = [AssistantToolCall(id="task_1", name="unsupported_type", args={"query": "Test prompt"})]
 
         with pytest.raises(ValueError) as exc_info:
-            await self.node._aget_input_tuples(state)
+            await self.node._aget_input_tuples(tool_calls)
 
         assert "Unsupported task type: unsupported_type" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_aget_input_tuples_no_tasks(self):
-        """Test _aget_input_tuples raises error when no tasks."""
-        state = BaseStateWithTasks(tasks=None)
+        """Test _aget_input_tuples returns empty list when no tasks."""
+        tool_calls = []
 
-        with pytest.raises(ValueError) as exc_info:
-            await self.node._aget_input_tuples(state)
+        input_tuples = await self.node._aget_input_tuples(tool_calls)
 
-        assert "No tasks to execute" in str(exc_info.value)
+        assert len(input_tuples) == 0
 
 
 class TestDashboardCreationNode:
@@ -386,12 +357,12 @@ class TestDashboardCreationNodeAsyncMethods:
                     task_id="task_1", id=None, content="Test content", query=AssistantHogQLQuery(query="SELECT 1")
                 )
             ],
-            status=TaskExecutionStatus.COMPLETED,
+            status="completed",
         )
-        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithTasks(task_results=[mock_task_result]))
+        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithTaskResults(task_results=[mock_task_result]))
 
         # Mock _process_insight_creation_results to return the modified query_metadata
-        async def mock_process_insight_creation_results(task_results, query_metadata):
+        async def mock_process_insight_creation_results(tool_calls, task_results, query_metadata):
             query_metadata["task_1"].created_insight_ids.add(1)
             query_metadata["task_1"].created_insight_ids.add(2)
             query_metadata["task_1"].created_insight_messages.append("Insight created")
@@ -439,9 +410,9 @@ class TestDashboardCreationNodeAsyncMethods:
                     task_id="task_1", id=2, content="Test reason", query=AssistantHogQLQuery(query="SELECT 1")
                 ),
             ],
-            status=TaskExecutionStatus.COMPLETED,
+            status="completed",
         )
-        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithTasks(task_results=[mock_task_result]))
+        mock_executor_node.arun = AsyncMock(return_value=BaseStateWithTaskResults(task_results=[mock_task_result]))
 
         queries_metadata = {
             "task_1": QueryMetadata(
@@ -500,6 +471,11 @@ class TestDashboardCreationNodeAsyncMethods:
         # Create a node with mocked models
         node = DashboardCreationNode(team, user)
 
+        tool_calls = [
+            AssistantToolCall(id="task_1", name="create_insight", args={"query_description": "Description 1"}),
+            AssistantToolCall(id="task_2", name="create_insight", args={"query_description": "Description 2"}),
+        ]
+
         task_results = [
             TaskResult(
                 id="task_1",
@@ -510,7 +486,7 @@ class TestDashboardCreationNodeAsyncMethods:
                         task_id="task_1", id=None, content="Test content", query=AssistantHogQLQuery(query="SELECT 1")
                     )
                 ],
-                status=TaskExecutionStatus.COMPLETED,
+                status="completed",
             ),
             TaskResult(
                 id="task_2",
@@ -521,7 +497,7 @@ class TestDashboardCreationNodeAsyncMethods:
                         task_id="task_2", id=None, content="Test content", query=AssistantHogQLQuery(query="SELECT 1")
                     )
                 ],
-                status=TaskExecutionStatus.FAILED,
+                status="failed",
             ),
         ]
         query_metadata = {
@@ -546,7 +522,7 @@ class TestDashboardCreationNodeAsyncMethods:
         mock_insight.id = 123
 
         with patch.object(node, "_save_insights", return_value=[mock_insight]):
-            result = await node._process_insight_creation_results(task_results, query_metadata)
+            result = await node._process_insight_creation_results(tool_calls, task_results, query_metadata)
 
         assert "task_1" in result
         # Check that exactly one insight was created
@@ -562,5 +538,5 @@ class TestDashboardCreationNodeAsyncMethods:
         assert len(result["task_2"].created_insight_messages) == 1
         assert (
             result["task_2"].created_insight_messages[0]
-            == "\n -Query 2: Could not create insights for the query with the description **Task failed**"
+            == "\n -Query 2: Could not create insights for the query with the description **Description 2**"
         )

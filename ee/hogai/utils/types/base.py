@@ -32,10 +32,9 @@ from posthog.schema import (
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsTopCustomersQuery,
-    TaskExecutionItem,
     TaskExecutionMessage,
-    TaskExecutionStatus,
     TrendsQuery,
+    UpdateMessage,
     VisualizationMessage,
 )
 
@@ -45,11 +44,12 @@ AIMessageUnion = Union[
     AssistantMessage,
     VisualizationMessage,
     FailureMessage,
-    ReasoningMessage,
     AssistantToolCallMessage,
+    MultiVisualizationMessage,
+    ReasoningMessage,
     PlanningMessage,
     TaskExecutionMessage,
-    MultiVisualizationMessage,
+    UpdateMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
 AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
@@ -79,12 +79,12 @@ ASSISTANT_MESSAGE_TYPES = (
     AssistantMessage,
     VisualizationMessage,
     FailureMessage,
-    ReasoningMessage,
     AssistantToolCallMessage,
-    PlanningMessage,
-    TaskExecutionMessage,
     MultiVisualizationMessage,
     ContextMessage,
+    ReasoningMessage,
+    PlanningMessage,
+    TaskExecutionMessage,
 )
 
 
@@ -194,10 +194,9 @@ class TaskResult(BaseModel):
     """
 
     id: str
-    description: str
     result: str
     artifacts: Sequence[TaskArtifact] = Field(default=[])
-    status: TaskExecutionStatus
+    status: Literal["completed", "failed"]
 
 
 class InsightQuery(BaseModel):
@@ -242,11 +241,7 @@ class BaseStateWithMessages(BaseState):
     """
 
 
-class BaseStateWithTasks(BaseState):
-    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
-    """
-    The current tasks.
-    """
+class BaseStateWithTaskResults(BaseState):
     task_results: Annotated[list[TaskResult], append] = Field(default=[])  # pyright: ignore[reportUndefinedVariable]
     """
     Results of tasks executed by assistants.

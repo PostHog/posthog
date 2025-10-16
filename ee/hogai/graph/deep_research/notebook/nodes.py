@@ -48,6 +48,7 @@ class DeepResearchNotebookPlanningNode(DeepResearchNode):
         notebook_update_message.conversation_notebooks = all_conversation_notebooks
         notebook_update_message.current_run_notebooks = current_run_notebooks
 
+        self.dispatcher.message(notebook_update_message)
         return PartialDeepResearchState(
             messages=[notebook_update_message],
             previous_response_id=None,  # we reset the previous response id because we're starting a new conversation after the onboarding

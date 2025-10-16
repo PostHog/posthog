@@ -166,12 +166,12 @@ class MainAssistant(BaseAssistant):
             },
         )
 
-    def _process_value_update(self, update: GraphValueUpdateTuple) -> list[BaseModel] | None:
+    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> BaseModel | None:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
         if intersected_nodes := state_update.keys() & self.VISUALIZATION_NODES.keys():
             node_name: MaxNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
             if isinstance(node_val, PartialAssistantState) and node_val.intermediate_steps:
-                return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)]
-        return super()._process_value_update(update)
+                return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
+        return await super()._aprocess_value_update(update)

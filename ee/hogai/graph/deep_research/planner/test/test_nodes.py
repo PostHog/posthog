@@ -20,19 +20,21 @@ from posthog.schema import (
     DeepResearchType,
     HumanMessage,
     MultiVisualizationMessage,
-    PlanningMessage,
-    PlanningStepStatus,
-    TaskExecutionStatus,
 )
 
-from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
+from ee.hogai.graph.deep_research.planner.nodes import (
+    DeepResearchPlannerNode,
+    DeepResearchPlannerToolsNode,
+    TaskExecutionItem,
+)
 from ee.hogai.graph.deep_research.planner.prompts import (
     FINALIZE_RESEARCH_TOOL_RESULT,
     NO_TASKS_RESULTS_TOOL_RESULT,
     WRITE_RESULT_FAILED_TOOL_RESULT,
     WRITE_RESULT_TOOL_RESULT,
 )
-from ee.hogai.graph.deep_research.types import DeepResearchState, DeepResearchTask, DeepResearchTodo
+from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState
+from ee.hogai.graph.root.tools.todo_write import TodoItem
 from ee.hogai.utils.types import InsightArtifact
 from ee.hogai.utils.types.base import TaskResult
 
@@ -364,6 +366,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(messages=[AssistantMessage(content="Test", tool_calls=None, id=str(uuid4()))])
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], HumanMessage)
@@ -402,6 +405,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(messages=[self._create_assistant_message_with_tool_calls(tool_calls)])
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         if len(todos_data) == 0:
             self.assertEqual(len(result.messages), 1)
@@ -412,18 +416,16 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             self.assertIsNone(result.todos)
         else:
             self.assertEqual(len(result.messages), 2)
-            self.assertIsInstance(result.messages[0], PlanningMessage)
-            self.assertIsInstance(result.messages[1], AssistantToolCallMessage)
-            self.assertEqual(len(cast(PlanningMessage, result.messages[0]).steps), len(todos_data))
+            self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
             self.assertIn("Todos updated. Current list:", cast(AssistantToolCallMessage, result.messages[1]).content)
             self.assertIsNotNone(result.todos)
-            self.assertEqual(len(cast(list[DeepResearchTodo], result.todos)), len(todos_data))
+            self.assertEqual(len(cast(list[TodoItem], result.todos)), len(todos_data))
 
     @parameterized.expand(
         [
             (
                 "with_todos",
-                [DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
+                [TodoItem(id="1", content="Test", status="pending", priority="high")],
             ),
             ("empty_todos", []),
             ("no_todos", None),
@@ -435,6 +437,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(messages=[self._create_assistant_message_with_tool_calls(tool_calls)], todos=todos)
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
@@ -456,6 +459,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                     messages=[self._create_assistant_message_with_tool_calls(tool_calls)], todos=None
                 )
                 result = await self.node.arun(state, self.config)
+                result = cast(PartialDeepResearchState, result)
 
                 self.assertEqual(len(result.messages), 1)
                 self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
@@ -468,9 +472,8 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 [
                     TaskResult(
                         id="1",
-                        description="Task 1",
                         result="Result",
-                        status=TaskExecutionStatus.COMPLETED,
+                        status="completed",
                         artifacts=[_create_test_artifact("art1", "Artifact 1")],
                     )
                 ],
@@ -480,9 +483,8 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 [
                     TaskResult(
                         id="1",
-                        description="Task 1",
                         result="Result",
-                        status=TaskExecutionStatus.COMPLETED,
+                        status="completed",
                         artifacts=[],
                     )
                 ],
@@ -495,11 +497,12 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         tool_calls = [AssistantToolCall(id="test_1", name="artifacts_read", args={})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
             task_results=task_results,
         )
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
@@ -509,23 +512,23 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
     async def test_execute_tasks_tool(self):
         """Test execute_tasks tool execution returns tasks"""
         tasks = [
-            DeepResearchTask(
+            TaskExecutionItem(
                 id="1",
                 description="Test task",
                 prompt="Test prompt",
-                status=TaskExecutionStatus.PENDING,
+                status="pending",
                 task_type="create_insight",
             )
         ]
         tool_calls = [AssistantToolCall(id="test_1", name="execute_tasks", args={"tasks": tasks})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
         )
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
-        self.assertEqual(result.tasks, tasks)
         self.assertEqual(len(result.messages), 0)
 
     async def test_tools_requiring_task_results_without_results(self):
@@ -537,13 +540,12 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 tool_calls = [AssistantToolCall(id="test_1", name=tool_name, args={})]
                 state = self._create_state(
                     messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-                    todos=[
-                        DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")
-                    ],
+                    todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
                     task_results=[],
                 )
 
                 result = await self.node.arun(state, self.config)
+                result = cast(PartialDeepResearchState, result)
 
                 self.assertEqual(len(result.messages), 1)
                 self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
@@ -563,13 +565,12 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         tool_calls = [AssistantToolCall(id="test_1", name="result_write", args={"result": result_data})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
-                TaskResult(id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED)
-            ],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
+            task_results=[TaskResult(id="1", result="Result", status="completed")],
         )
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         if not content:
             self.assertEqual(len(result.messages), 1)
@@ -591,19 +592,19 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         tool_calls = [AssistantToolCall(id="test_1", name="result_write", args={"result": result_data})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
             task_results=[
                 TaskResult(
                     id="1",
-                    description="Task",
                     result="Result",
-                    status=TaskExecutionStatus.COMPLETED,
+                    status="completed",
                     artifacts=[_create_test_artifact("valid_id", "Valid artifact")],
                 )
             ],
         )
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
@@ -618,19 +619,19 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         tool_calls = [AssistantToolCall(id="test_1", name="result_write", args={"result": result_data})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
             task_results=[
                 TaskResult(
                     id="1",
-                    description="Task",
                     result="Result",
-                    status=TaskExecutionStatus.COMPLETED,
+                    status="completed",
                     artifacts=[artifact1, artifact2],
                 )
             ],
         )
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         self.assertEqual(len(result.messages), 2)
 
@@ -648,13 +649,12 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         tool_calls = [AssistantToolCall(id="test_1", name="finalize_research", args={})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
-                TaskResult(id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED)
-            ],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
+            task_results=[TaskResult(id="1", result="Result", status="completed")],
         )
 
         result = await self.node.arun(state, self.config)
+        result = cast(PartialDeepResearchState, result)
 
         self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
@@ -665,10 +665,8 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         tool_calls = [AssistantToolCall(id="test_1", name="unknown_tool", args={})]
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
-            todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
-            task_results=[
-                TaskResult(id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED)
-            ],
+            todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
+            task_results=[TaskResult(id="1", result="Result", status="completed")],
         )
 
         with self.assertRaises(ValueError) as cm:
@@ -680,11 +678,11 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             (
                 "with_tasks",
                 [
-                    DeepResearchTask(
+                    TaskExecutionItem(
                         id="1",
                         description="Test",
                         prompt="Test prompt",
-                        status=TaskExecutionStatus.PENDING,
+                        status="pending",
                         task_type="create_insight",
                     )
                 ],

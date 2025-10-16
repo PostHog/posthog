@@ -36,9 +36,10 @@ async def eval_insights_addition(patch_get_stream_writer, pytestconfig, demo_org
     conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
 
     async def task_add_insights(insights_queries: list):
-        tool = EditCurrentDashboardTool(team=demo_org_team_user[1], user=demo_org_team_user[2])
-        tool._init_run(
-            RunnableConfig(
+        tool = EditCurrentDashboardTool(
+            team=demo_org_team_user[1],
+            user=demo_org_team_user[2],
+            config=RunnableConfig(
                 configurable={
                     "thread_id": conversation.id,
                     "team": demo_org_team_user[1],
@@ -125,9 +126,10 @@ async def eval_combined_rename_and_add(pytestconfig, demo_org_team_user):
     conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
 
     async def task_combined_edit(args: dict):
-        tool = EditCurrentDashboardTool(team=demo_org_team_user[1], user=demo_org_team_user[2])
-        tool._init_run(
-            RunnableConfig(
+        tool = EditCurrentDashboardTool(
+            team=demo_org_team_user[1],
+            user=demo_org_team_user[2],
+            config=RunnableConfig(
                 configurable={
                     "thread_id": conversation.id,
                     "team": demo_org_team_user[1],

@@ -123,9 +123,8 @@ class SearchSessionRecordingsTool(MaxTool):
       * When the user asks to summarize session recordings
     """
     thinking_message: str = "Coming up with session recordings filters"
-    root_system_prompt_template: str = "Current recordings filters are: {current_filters}"
+    context_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
-    show_tool_call_message: bool = False
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """

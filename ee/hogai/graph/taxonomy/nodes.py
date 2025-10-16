@@ -22,7 +22,7 @@ from ee.hogai.utils.helpers import format_events_yaml
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..base import BaseAssistantNode
-from ..mixins import StateClassMixin, TaxonomyReasoningNodeMixin
+from ..mixins import StateClassMixin, TaxonomyUpdateDispatcherNodeMixin
 from .prompts import (
     HUMAN_IN_THE_LOOP_PROMPT,
     ITERATION_LIMIT_PROMPT,
@@ -44,6 +44,7 @@ class TaxonomyAgentNode(
     TaxonomyReasoningNodeMixin,
     TaxonomyNodeBound,
     StateClassMixin,
+    TaxonomyUpdateDispatcherNodeMixin,
     ABC,
 ):
     """Base node for taxonomy agents."""
@@ -109,15 +110,16 @@ class TaxonomyAgentNode(
         """
         return format_events_yaml(events_in_context, self._team)
 
-    def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
+    async def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         """Process the state and return filtering options."""
+        await self.dispatch_update_message(state)
         progress_messages = state.tool_progress_messages or []
         full_conversation = self._construct_messages(state)
 
         chain = full_conversation | merge_message_runs() | self._get_model(state)
 
         events_in_context = []
-        if ui_context := self._get_ui_context(state):
+        if ui_context := self.context_manager.get_ui_context(state):
             events_in_context = ui_context.events if ui_context.events else []
 
         output_message = chain.invoke(
@@ -148,7 +150,10 @@ class TaxonomyAgentNode(
 
 
 class TaxonomyAgentToolsNode(
-    Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyReasoningNodeMixin, TaxonomyNodeBound, StateClassMixin
+    Generic[TaxonomyStateType, TaxonomyPartialStateType],
+    TaxonomyNodeBound,
+    StateClassMixin,
+    TaxonomyUpdateDispatcherNodeMixin,
 ):
     """Base tools node for taxonomy agents."""
 
@@ -164,6 +169,7 @@ class TaxonomyAgentToolsNode(
         return TaxonomyNodeName.TOOLS_NODE
 
     async def arun(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
+        await self.dispatch_update_message(state)
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
         tool_input: TaxonomyTool | None = None

@@ -8,22 +8,22 @@ from unittest.mock import MagicMock, patch
 from langchain_core.runnables import RunnableConfig
 from pydantic import ConfigDict
 
-from posthog.schema import ReasoningMessage, TaskExecutionItem, TaskExecutionMessage, TaskExecutionStatus
+from posthog.schema import TaskExecutionItem, TaskExecutionStatus
 
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
-from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResult
+from ee.hogai.utils.types.base import BaseStateWithTaskResults, TaskArtifact, TaskResult
 from ee.hogai.utils.types.composed import MaxNodeName
 
 
-class MockTestState(BaseStateWithTasks):
+class MockTestState(BaseStateWithTaskResults):
     """Mock state for testing the base class."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     test_input_tuples: list[TaskExecutionInputTuple] = []
 
 
-class MockPartialTestState(BaseStateWithTasks):
+class MockPartialTestState(BaseStateWithTaskResults):
     """Mock partial test state for testing the base class."""
 
     pass
@@ -43,18 +43,16 @@ class TaskExecutorNodeImplementation(BaseTaskExecutorNode[MockTestState, MockPar
 
     async def arun(self, state: MockTestState, config: RunnableConfig) -> MockPartialTestState:
         """Forward to the base _arun method."""
-        return await self._arun(state, config)
+        return await self.aexecute(state, config)
 
     async def _aget_input_tuples(self, state: MockTestState) -> list[TaskExecutionInputTuple]:
         self.input_tuples_called = True
         # Return test input tuples based on state
         return getattr(state, "test_input_tuples", [])
 
-    async def _aget_final_state(
-        self, tasks: list[TaskExecutionItem], task_results: list[TaskResult]
-    ) -> MockPartialTestState:
+    async def _aget_final_state(self, task_results: list[TaskResult]) -> MockPartialTestState:
         self.final_state_called = True
-        return MockPartialTestState(messages=[])
+        return MockPartialTestState(task_results=task_results)
 
 
 class TestBaseTaskExecutorNode(TestCase):
@@ -80,10 +78,9 @@ class TestBaseTaskExecutorNode(TestCase):
     ) -> TaskResult:
         return TaskResult(
             id=task_id,
-            description="Test result",
             result="Success",
             artifacts=[],
-            status=status,
+            status=status.value,
         )
 
 
@@ -104,11 +101,6 @@ class TestTaskExecution(TestBaseTaskExecutorNode):
 
         self.assertTrue(self.node.input_tuples_called)
         self.assertTrue(self.node.final_state_called)
-        # Should not send task execution message for single task
-        task_execution_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], TaskExecutionMessage)
-        ]
-        self.assertEqual(len(task_execution_calls), 0)
 
     @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_multiple_tasks_parallel_execution(self, mock_write_message):
@@ -146,12 +138,6 @@ class TestTaskExecution(TestBaseTaskExecutorNode):
         # Tasks should complete in order of their execution time, not submission
         self.assertEqual(execution_order, ["task3", "task2", "task1"])
 
-        # Should send task execution messages for multiple tasks
-        task_execution_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], TaskExecutionMessage)
-        ]
-        self.assertGreater(len(task_execution_calls), 0)
-
     @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_task_status_transitions(self, mock_write_message):
         """Test that task statuses are properly updated during execution."""
@@ -167,7 +153,7 @@ class TestTaskExecution(TestBaseTaskExecutorNode):
         await self.node.arun(state, config)
 
         # Task should start as IN_PROGRESS
-        self.assertEqual(task.status, TaskExecutionStatus.COMPLETED)
+        self.assertEqual(task.status, "completed")
 
 
 class TestReasoningCallback(TestBaseTaskExecutorNode):
@@ -187,14 +173,6 @@ class TestReasoningCallback(TestBaseTaskExecutorNode):
         config = RunnableConfig()
 
         await self.node.arun(state, config)
-
-        # Should send reasoning messages for single task
-        reasoning_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], ReasoningMessage)
-        ]
-        self.assertEqual(len(reasoning_calls), 2)
-        self.assertEqual(reasoning_calls[0][0][0].content, "Starting analysis")
-        self.assertEqual(reasoning_calls[1][0][0].content, "Processing data")
 
     @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_reasoning_callback_for_multiple_tasks(self, mock_write_message):
@@ -218,18 +196,6 @@ class TestReasoningCallback(TestBaseTaskExecutorNode):
         config = RunnableConfig()
 
         await self.node.arun(state, config)
-
-        # Should update task execution messages for multiple tasks
-        task_execution_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], TaskExecutionMessage)
-        ]
-        self.assertGreater(len(task_execution_calls), 0)
-
-        # No reasoning messages should be sent for multiple tasks
-        reasoning_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], ReasoningMessage)
-        ]
-        self.assertEqual(len(reasoning_calls), 0)
 
 
 class TestErrorHandling(TestBaseTaskExecutorNode):
@@ -368,11 +334,6 @@ class TestMessageFlow(TestBaseTaskExecutorNode):
 
         await self.node.arun(state, config)
 
-        task_execution_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], TaskExecutionMessage)
-        ]
-        self.assertEqual(len(task_execution_calls), 0)
-
     @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_task_execution_messages_for_multiple_tasks(self, mock_write_message):
         """Test that TaskExecutionMessages are sent for multiple tasks."""
@@ -391,17 +352,6 @@ class TestMessageFlow(TestBaseTaskExecutorNode):
         config = RunnableConfig()
 
         await self.node.arun(state, config)
-
-        task_execution_calls = [
-            call for call in mock_write_message.call_args_list if isinstance(call[0][0], TaskExecutionMessage)
-        ]
-        # Should send initial, update, and final messages
-        self.assertGreaterEqual(len(task_execution_calls), 3)
-
-        # All messages should have the same ID
-        message_ids = {call[0][0].id for call in task_execution_calls}
-        self.assertEqual(len(message_ids), 1)
-        self.assertEqual(message_ids.pop(), self.node._task_execution_message_id)
 
 
 class TestEdgeCases(TestBaseTaskExecutorNode):

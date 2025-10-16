@@ -92,7 +92,7 @@ describe('maxThreadLogic', () => {
         })
     })
 
-    it('preserves only the latest reasoning message in threadGrouped', async () => {
+    it('groups assistant messages with thinking correctly', async () => {
         await expectLogic(logic, () => {
             logic.actions.setThread([
                 {
@@ -102,16 +102,13 @@ describe('maxThreadLogic', () => {
                     id: 'human-1',
                 },
                 {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
+                    type: AssistantMessageType.Assistant,
+                    content: 'response',
                     status: 'completed',
-                    id: 'reasoning-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-2',
+                    id: 'assistant-1',
+                    meta: {
+                        thinking: [{ thinking: 'Processing request' }],
+                    },
                 },
             ])
         }).toMatchValues({
@@ -126,10 +123,13 @@ describe('maxThreadLogic', () => {
                 ],
                 [
                     {
-                        type: AssistantMessageType.Reasoning,
-                        content: 'hello',
+                        type: AssistantMessageType.Assistant,
+                        content: 'response',
                         status: 'completed',
-                        id: 'reasoning-2',
+                        id: 'assistant-1',
+                        meta: {
+                            thinking: [{ thinking: 'Processing request' }],
+                        },
                     },
                 ],
             ],
@@ -144,18 +144,6 @@ describe('maxThreadLogic', () => {
                     content: 'hello',
                     status: 'completed',
                     id: 'human-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-2',
                 },
                 {
                     type: AssistantMessageType.Assistant,
@@ -200,7 +188,7 @@ describe('maxThreadLogic', () => {
         })
     })
 
-    it('preserves the reasoning message when the assistant message is without id', async () => {
+    it('groups assistant messages without id correctly', async () => {
         await expectLogic(logic, () => {
             logic.actions.setThread([
                 {
@@ -208,18 +196,6 @@ describe('maxThreadLogic', () => {
                     content: 'hello',
                     status: 'completed',
                     id: 'human-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-2',
                 },
                 {
                     type: AssistantMessageType.Assistant,
@@ -238,12 +214,6 @@ describe('maxThreadLogic', () => {
                     },
                 ],
                 [
-                    {
-                        type: AssistantMessageType.Reasoning,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'reasoning-2',
-                    },
                     {
                         type: AssistantMessageType.Assistant,
                         content: 'hello',
@@ -281,7 +251,8 @@ describe('maxThreadLogic', () => {
                 ],
                 [
                     partial({
-                        type: AssistantMessageType.Reasoning,
+                        type: AssistantMessageType.Assistant,
+                        meta: partial({ thinking: expect.any(Array) }),
                         status: 'completed',
                         id: 'loader',
                     }),
@@ -329,7 +300,8 @@ describe('maxThreadLogic', () => {
                         id: 'assistant-1',
                     },
                     partial({
-                        type: AssistantMessageType.Reasoning,
+                        type: AssistantMessageType.Assistant,
+                        meta: partial({ thinking: expect.any(Array) }),
                         status: 'completed',
                         id: 'loader',
                     }),
@@ -396,7 +368,8 @@ describe('maxThreadLogic', () => {
                 ],
                 [
                     partial({
-                        type: AssistantMessageType.Reasoning,
+                        type: AssistantMessageType.Assistant,
+                        meta: partial({ thinking: expect.any(Array) }),
                         status: 'completed',
                         id: 'loader',
                     }),

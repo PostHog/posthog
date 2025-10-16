@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from time import time
 from typing import Any, Optional, ParamSpec, TypeVar, Union, overload
 
+from django.conf import settings
 from django.db import close_old_connections
 
 from asgiref.sync import SyncToAsync
@@ -44,11 +45,15 @@ class DatabaseSyncToAsync(SyncToAsync):
                 logger.debug(f"database_sync_to_async {fun_name} took {execution_time} seconds")
 
     def thread_handler(self, loop, *args, **kwargs):
-        close_old_connections()
+        # Don't close the connection in tests
+        if not settings.TEST:
+            close_old_connections()
         try:
             return super().thread_handler(loop, *args, **kwargs)
         finally:
-            close_old_connections()
+            # Don't close the connection in tests
+            if not settings.TEST:
+                close_old_connections()
 
 
 # Taken from https://github.com/django/asgiref/blob/main/asgiref/sync.py#L547

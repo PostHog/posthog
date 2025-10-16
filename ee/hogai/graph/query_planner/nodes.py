@@ -24,10 +24,10 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.mixins import TaxonomyReasoningNodeMixin
-from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
+from ee.hogai.graph.mixins import TaxonomyUpdateDispatcherNodeMixin
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
@@ -57,7 +57,7 @@ from .toolkit import (
 )
 
 
-class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
+class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
     @property
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.QUERY_PLANNER
@@ -100,13 +100,17 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
 
         return retrieve_entity_properties_dynamic, retrieve_entity_property_values_dynamic
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        await self.dispatch_update_message(state)
+        return await database_sync_to_async(self._run)(state, config)
+
+    def _run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         conversation = self._construct_messages(state)
 
         chain = conversation | merge_message_runs() | self._get_model(state)
 
         events_in_context = []
-        if ui_context := self._get_ui_context(state):
+        if ui_context := self.context_manager.get_ui_context(state):
             events_in_context = ui_context.events if ui_context.events else []
 
         output_message = chain.invoke(
@@ -127,7 +131,6 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
                 "trends_json_schema": dereference_schema(AssistantTrendsQuery.model_json_schema()),
                 "funnel_json_schema": dereference_schema(AssistantFunnelsQuery.model_json_schema()),
                 "retention_json_schema": dereference_schema(AssistantRetentionQuery.model_json_schema()),
-                "insight_types_prompt": ROOT_INSIGHT_DESCRIPTION_PROMPT,
             },
             config,
         )
@@ -254,6 +257,9 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
         return AssistantNodeName.QUERY_PLANNER_TOOLS
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        # Store parent_tool_call_id for message dispatches
+        self._parent_tool_call_id = state.root_tool_call_id
+
         toolkit = TaxonomyAgentToolkit(self._team)
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
