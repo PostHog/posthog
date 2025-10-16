@@ -12041,6 +12041,9 @@
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -12060,6 +12063,9 @@
                         "$ref": "#/definitions/ExperimentFunnelMetricStep"
                     },
                     "type": "array"
+                },
+                "sharedMetricId": {
+                    "type": "number"
                 },
                 "uuid": {
                     "type": "string"
@@ -12265,6 +12271,9 @@
                 "ignore_zeros": {
                     "type": "boolean"
                 },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -12281,6 +12290,9 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "sharedMetricId": {
+                    "type": "number"
                 },
                 "source": {
                     "$ref": "#/definitions/ExperimentMetricSource"
@@ -12350,6 +12362,9 @@
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -12359,6 +12374,9 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "sharedMetricId": {
+                    "type": "number"
                 },
                 "uuid": {
                     "type": "string"
@@ -12620,6 +12638,9 @@
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -12636,6 +12657,9 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "sharedMetricId": {
+                    "type": "number"
                 },
                 "uuid": {
                     "type": "string"
