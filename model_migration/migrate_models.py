@@ -20,10 +20,11 @@ logger = logging.getLogger(__name__)
 class ImportTransformer(cst.CSTTransformer):
     """LibCST transformer to update import statements for moved models"""
 
-    def __init__(self, model_names: set[str], target_app: str, module_name: str):
+    def __init__(self, model_names: set[str], target_app: str, module_name: str, merge_models: bool = True):
         self.model_names = model_names
         self.target_app = target_app
         self.module_name = module_name
+        self.merge_models = merge_models
         self.changed = False
         self.imports_to_add = []  # Store additional imports to add
 
@@ -101,11 +102,23 @@ class ImportTransformer(cst.CSTTransformer):
 
         self.changed = True
 
-        # Store the moved import to add later
-        moved_module = cst.parse_expression(f"products.{self.target_app}.backend.models")
-        moved_names = [cst.ImportAlias(name=cst.Name(name)) for name in moved_imports]
-        moved_stmt = cst.ImportFrom(module=moved_module, names=moved_names)
-        self.imports_to_add.append(moved_stmt)
+        if self.merge_models:
+            # Merge mode: all models go to products.<app>.backend.models
+            moved_module = cst.parse_expression(f"products.{self.target_app}.backend.models")
+            moved_names = [cst.ImportAlias(name=cst.Name(name)) for name in moved_imports]
+            moved_stmt = cst.ImportFrom(module=moved_module, names=moved_names)
+            self.imports_to_add.append(moved_stmt)
+        else:
+            # No-merge mode: each model comes from its own file
+            for model_name in moved_imports:
+                # Convert model name to snake_case for filename
+                import re
+
+                snake_name = re.sub(r"(?<!^)(?=[A-Z])", "_", model_name).lower()
+                moved_module = cst.parse_expression(f"products.{self.target_app}.backend.models.{snake_name}")
+                moved_names = [cst.ImportAlias(name=cst.Name(model_name))]
+                moved_stmt = cst.ImportFrom(module=moved_module, names=moved_names)
+                self.imports_to_add.append(moved_stmt)
 
         if remaining_imports:
             # Keep original import with remaining models only
@@ -181,10 +194,14 @@ class LLMInvocationError(Exception):
 
 class ModelMigrator:
     def __init__(
-        self, config_file: str = "model_migration/migration_config.json", continue_from_migrations: bool = False
+        self,
+        config_file: str = "model_migration/migration_config.json",
+        continue_from_migrations: bool = False,
+        merge_models: bool = True,
     ):
         self.root_dir = Path.cwd()
         self.continue_from_migrations = continue_from_migrations
+        self.merge_models = merge_models
 
         config_path = Path(config_file)
         if not config_path.is_absolute():
@@ -929,7 +946,122 @@ class {app_name.title()}Config(AppConfig):
 
     def move_model_files_and_update_imports(self, source_files: list[str], target_app: str) -> bool:
         """Move files manually first, then use LibCST to update imports"""
-        logger.info("🔄 Moving %d model files...", len(source_files))
+        if self.merge_models:
+            return self._move_model_files_merge_mode(source_files, target_app)
+        else:
+            return self._move_model_files_no_merge_mode(source_files, target_app)
+
+    def _move_model_files_no_merge_mode(self, source_files: list[str], target_app: str) -> bool:
+        """Move files using no-merge mode (preserve 1:1 file structure)"""
+        logger.info("🔄 Moving %d model files (no-merge mode, preserving structure)...", len(source_files))
+
+        # Step 0: Expand any subdirectories to include all their files
+        expanded_files, non_model_files = self._expand_subdirectory_files(source_files)
+        logger.info("📁 Expanded to %d total files (%d supporting files)", len(expanded_files), len(non_model_files))
+
+        target_dir = self.root_dir / "products" / target_app / "backend"
+        models_dir = target_dir / "models"
+
+        # Create models directory if it doesn't exist
+        if not models_dir.exists():
+            models_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("📁 Created models directory: %s", models_dir)
+
+        # Create minimal __init__.py in models directory (no re-exports)
+        models_init = models_dir / "__init__.py"
+        if not models_init.exists():
+            models_init.write_text("")
+            logger.info("📄 Created %s/__init__.py", models_dir.name)
+
+        # Step 1: Get model class names
+        model_names = self._extract_class_names_from_files(source_files)
+        logger.info("📋 Model classes found: %s", list(model_names))
+
+        # Step 2: Copy individual model files to models/ directory with snake_case naming
+        import re
+        import shutil
+
+        copied_files = []
+        for source_file in source_files:
+            source_path = self.root_dir / "posthog" / "models" / source_file
+            if not source_path.exists():
+                logger.warning("⚠️  Source file not found: %s", source_path)
+                continue
+
+            logger.info("📄 Processing %s", source_file)
+
+            # Convert filename to snake_case for destination
+            filename = source_path.name
+            filename_without_ext = filename.replace(".py", "")
+            snake_name = re.sub(r"(?<!^)(?=[A-Z])", "_", filename_without_ext).lower()
+            target_file = models_dir / f"{snake_name}.py"
+
+            # Read and process the source file
+            content = source_path.read_text()
+
+            # Update foreign key references in the content
+            lines = content.split("\n")
+            updated_lines = []
+            for line in lines:
+                updated_line = self._update_foreign_key_references(line, model_names)
+                updated_lines.append(updated_line)
+            updated_content = "\n".join(updated_lines)
+
+            # Write to target
+            target_file.write_text(updated_content)
+            self._ensure_model_db_tables(target_file)
+            copied_files.append((source_file, target_file))
+            logger.info("📄 Copied %s → %s", source_file, target_file.relative_to(self.root_dir))
+
+        # Step 3: Copy supporting files (util.py, test files, etc.) if any
+        if non_model_files:
+            logger.info("📁 Copying %d supporting files...", len(non_model_files))
+            for support_file in non_model_files:
+                source_path = self.root_dir / "posthog" / "models" / support_file
+
+                # Preserve directory structure in backend/
+                if "/" in support_file:
+                    # For files in subdirectories, keep the structure
+                    # e.g., warehouse/util.py → models/util.py (drop the subdirectory level)
+                    target_file_path = models_dir / support_file.split("/", 1)[1]
+                else:
+                    target_file_path = models_dir / support_file
+
+                # Create parent directories if needed
+                target_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Move the file
+                if source_path.exists():
+                    shutil.move(source_path, target_file_path)
+                    logger.info("📄 Moved %s → %s", support_file, target_file_path.relative_to(self.root_dir))
+                else:
+                    logger.warning("⚠️  Supporting file not found: %s", source_path)
+
+        # Step 4: Use libcst to update imports across the codebase
+        logger.info("🔄 Using libcst to update imports across codebase...")
+        for source_file in source_files:
+            module_name = source_file.replace(".py", "")
+
+            try:
+                # Use libcst to find and replace imports
+                self._update_imports_for_module(module_name, target_app)
+
+            except Exception as e:
+                logger.warning("⚠️  Error updating imports for %s: %s", module_name, e)
+                # Continue anyway - we can check manually
+
+        # Step 5: Remove original files
+        for source_file in source_files:
+            source_path = self.root_dir / "posthog" / "models" / source_file
+            if source_path.exists():
+                os.remove(source_path)
+                logger.info("🗑️  Removed original: %s", source_path)
+
+        return True
+
+    def _move_model_files_merge_mode(self, source_files: list[str], target_app: str) -> bool:
+        """Move files using merge mode (combine all into models.py)"""
+        logger.info("🔄 Moving %d model files (merge mode)...", len(source_files))
 
         # Step 0: Expand any subdirectories to include all their files
         expanded_files, non_model_files = self._expand_subdirectory_files(source_files)
@@ -1151,7 +1283,7 @@ class {app_name.title()}Config(AppConfig):
                 tree = cst.parse_module(content)
 
                 # Transform the tree
-                transformer = ImportTransformer(model_names, target_app, module_name)
+                transformer = ImportTransformer(model_names, target_app, module_name, self.merge_models)
                 new_tree = tree.visit(transformer)
 
                 # Write back if changed
@@ -1505,24 +1637,66 @@ class {app_name.title()}Config(AppConfig):
         target_app = migration_spec["target_app"]
         create_backend = migration_spec.get("create_backend_dir", False)
 
+        # Check if migration spec has merge_models setting (override default)
+        if "merge_models" in migration_spec:
+            original_merge_models = self.merge_models
+            self.merge_models = migration_spec["merge_models"]
+            logger.info("   Using merge_models=%s from config", self.merge_models)
+        else:
+            original_merge_models = None
+
         logger.info("\n🚀 Starting migration: %s", name)
         logger.info("   Source files: %s", source_files)
         logger.info("   Target app: %s", target_app)
 
+        try:
+            return self._execute_migration(source_files, target_app, create_backend)
+        finally:
+            # Restore original merge_models setting if it was overridden
+            if original_merge_models is not None:
+                self.merge_models = original_merge_models
+
+    def _execute_migration(self, source_files: list[str], target_app: str, create_backend: bool) -> bool:
+        """Execute the migration steps"""
         if self.continue_from_migrations:
             logger.info("🔄 Continuing from migrations step (skipping file operations)")
-            # Extract model class names from the target backend models.py file
-            target_models_file = self.root_dir / "products" / target_app / "backend" / "models.py"
-            if not target_models_file.exists():
-                logger.error("❌ Cannot continue: target models.py not found at %s", target_models_file)
-                return False
 
-            # Ensure db_table declarations are present even in continue mode
-            self._ensure_model_db_tables(target_models_file)
+            # Handle both merge and no-merge modes for continue
+            if self.merge_models:
+                # Merge mode: single models.py file
+                target_models_file = self.root_dir / "products" / target_app / "backend" / "models.py"
+                if not target_models_file.exists():
+                    logger.error("❌ Cannot continue: target models.py not found at %s", target_models_file)
+                    return False
 
-            with open(target_models_file) as f:
-                content = f.read()
-            model_names = self._extract_models_from_content(content)
+                # Ensure db_table declarations are present even in continue mode
+                self._ensure_model_db_tables(target_models_file)
+
+                with open(target_models_file) as f:
+                    content = f.read()
+                model_names = self._extract_models_from_content(content)
+            else:
+                # No-merge mode: individual files in models/ directory
+                models_dir = self.root_dir / "products" / target_app / "backend" / "models"
+                if not models_dir.exists():
+                    logger.error("❌ Cannot continue: target models directory not found at %s", models_dir)
+                    return False
+
+                # Extract model names from all .py files in models directory
+                model_names = set()
+                for model_file in models_dir.glob("*.py"):
+                    if model_file.name == "__init__.py":
+                        continue
+
+                    # Ensure db_table declarations
+                    self._ensure_model_db_tables(model_file)
+
+                    # Extract model names from this file
+                    with open(model_file) as f:
+                        content = f.read()
+                    file_models = self._extract_models_from_content(content)
+                    model_names.update(file_models)
+
             logger.info("📋 Model classes found in target: %s", list(model_names))
         else:
             # Step 1: Create backend structure if needed
@@ -1593,7 +1767,6 @@ class {app_name.title()}Config(AppConfig):
         if not self.update_tach_config(target_app):
             logger.warning("⚠️  Failed to update tach.toml, but continuing...")
 
-        logger.info("✅ Migration %s completed successfully!", name)
         return True
 
     def run_all_migrations(self, single_mode: bool = False):
@@ -1656,6 +1829,8 @@ if __name__ == "__main__":
     # Check for command line flags
     single_mode = "--single" in sys.argv
     continue_mode = "--continue" in sys.argv
+    no_merge_models = "--no-merge-models" in sys.argv
+    merge_models = not no_merge_models
 
     if continue_mode and single_mode:
         logger.info("🔄 Running in single continue mode")
@@ -1664,5 +1839,8 @@ if __name__ == "__main__":
     elif single_mode:
         logger.info("🎯 Running in single mode")
 
-    migrator = ModelMigrator(continue_from_migrations=continue_mode)
+    if no_merge_models:
+        logger.info("📁 Running in no-merge-models mode (preserve 1:1 file structure)")
+
+    migrator = ModelMigrator(continue_from_migrations=continue_mode, merge_models=merge_models)
     migrator.run_all_migrations(single_mode=single_mode)
