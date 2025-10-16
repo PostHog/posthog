@@ -60,7 +60,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     tooltip: 'Time of the last run that completed a data import',
                     render: (_, run) => {
                         return run.last_run_at ? (
-                            <TZLabel time={run.last_run_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
+                            <TZLabel time={run.last_run_at} defaultTimestampFormat="absolute" />
                         ) : (
                             'Never'
                         )

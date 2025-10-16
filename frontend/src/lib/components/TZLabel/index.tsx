@@ -5,7 +5,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconClock, IconCopy, IconGear, IconHome, IconLaptop } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonDropdownProps, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -16,24 +16,57 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { teamLogic } from '../../../scenes/teamLogic'
-import { TZLabelLogicProps, tzLabelLogic } from './tzlabelLogic'
+import { TZLabelLogicProps, TimestampFormat, tzLabelLogic } from './tzlabelLogic'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
 const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'
 
-export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'children'> & {
-    time: string | dayjs.Dayjs
-    showSeconds?: boolean
-    /** Whether to show the absolute or relative timestamp format by default */
-    defaultTimestampFormat?: 'absolute' | 'relative'
-    /** The key of the logic to use for persisting preferences - defaults to 'global' */
-    logicKey?: string
-    /** Whether to show a popover on hover - defaults to true */
-    noPopover?: boolean
-    noStyles?: boolean
-    className?: string
-    title?: string
-    children?: JSX.Element
+export type TZLabelProps = TZLabelLogicProps &
+    Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'children'> & {
+        time: string | dayjs.Dayjs
+        showSeconds?: boolean
+        /** Whether to show a popover on hover - defaults to true */
+        noPopover?: boolean
+        noStyles?: boolean
+        className?: string
+        title?: string
+        children?: JSX.Element
+        formatTime?: string
+        formatDate?: string
+    }
+
+function TZLabelFormatSelectBound({
+    ...props
+}: Omit<LemonSelectProps<TimestampFormat | null>, 'value' | 'onChange' | 'options' | 'allowClear'> &
+    Pick<TZLabelLogicProps, 'logicKey'>): JSX.Element {
+    const { timestampFormat } = useValues(tzLabelLogic)
+    const { setTimestampFormatChoice } = useActions(tzLabelLogic)
+    return (
+        <LemonSelect
+            icon={<IconClock />}
+            {...props}
+            allowClear={false}
+            options={[
+                { value: 'absolute', label: 'Absolute' },
+                { value: 'relative', label: 'Relative' },
+            ]}
+            onChange={(value) => setTimestampFormatChoice(value)}
+            value={timestampFormat}
+        />
+    )
+}
+
+export function TZLabelFormatSelect({
+    logicKey,
+    defaultTimestampFormat,
+    ...props
+}: TZLabelLogicProps &
+    Omit<LemonSelectProps<TimestampFormat | null>, 'value' | 'onChange' | 'options' | 'allowClear'>): JSX.Element {
+    return (
+        <BindLogic logic={tzLabelLogic} props={{ logicKey, defaultTimestampFormat }}>
+            <TZLabelFormatSelectBound {...props} />
+        </BindLogic>
+    )
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
@@ -44,8 +77,6 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
     const { currentTeam } = useValues(teamLogic)
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
-    const { timestampFormat } = useValues(tzLabelLogic)
-    const { setTimestampFormatChoice } = useActions(tzLabelLogic)
 
     const copyDateTime = (dateTime: dayjs.Dayjs, label: string): void => {
         void copyToClipboard(dateTime.toDate().toISOString(), label)
@@ -113,17 +144,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
             </div>
 
             <div className="border-t p-2">
-                <LemonSelect
-                    value={timestampFormat}
-                    icon={<IconClock />}
-                    onChange={(value) => setTimestampFormatChoice(value)}
-                    size="xsmall"
-                    fullWidth
-                    options={[
-                        { value: 'absolute', label: 'Absolute' },
-                        { value: 'relative', label: 'Relative' },
-                    ]}
-                />
+                <TZLabelFormatSelectBound size="xsmall" fullWidth />
             </div>
         </div>
     )

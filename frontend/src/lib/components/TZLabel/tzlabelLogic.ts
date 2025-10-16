@@ -3,8 +3,11 @@ import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 import type { tzLabelLogicType } from './tzlabelLogicType'
 
 export type TimestampFormat = 'absolute' | 'relative'
+
 export type TZLabelLogicProps = {
+    /** The key of the logic to use for persisting preferences - defaults to 'global' */
     logicKey?: string
+    /** Whether to show the absolute or relative timestamp format by default - overrides the logicKey default */
     defaultTimestampFormat?: TimestampFormat
 }
 export const tzLabelLogic = kea<tzLabelLogicType>([

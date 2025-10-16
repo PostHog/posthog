@@ -301,11 +301,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         render: function Render(_, schema) {
                             return schema.last_synced_at ? (
                                 <>
-                                    <TZLabel
-                                        time={schema.last_synced_at}
-                                        formatDate="MMM DD, YYYY"
-                                        formatTime="HH:mm"
-                                    />
+                                    <TZLabel time={schema.last_synced_at} defaultTimestampFormat="absolute" />
                                 </>
                             ) : null
                         },
