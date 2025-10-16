@@ -1383,7 +1383,7 @@ class FileSystemIconType(StrEnum):
     TASK = "task"
     LINK = "link"
     LOGS = "logs"
-    MESSAGING = "messaging"
+    WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
     COMMENT = "comment"
@@ -5284,11 +5284,13 @@ class UsageMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    change_from_previous_pct: Optional[float] = None
     display: UsageMetricDisplay
     format: UsageMetricFormat
     id: str
     interval: int
     name: str
+    previous: float
     value: float
 
 
@@ -6460,7 +6462,7 @@ class CachedLogsQueryResponse(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[LogMessage]
+    results: Any
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -9279,7 +9281,7 @@ class LogsQueryResponse(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[LogMessage]
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -10727,7 +10729,7 @@ class QueryResponseAlternative65(BaseModel):
     resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[LogMessage]
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
