@@ -913,7 +913,7 @@ def test_creating_databricks_batch_export_fails_if_integration_is_missing(
     assert response.json() == {
         "type": "validation_error",
         "code": "invalid_input",
-        "detail": "integration is required for Databricks batch exports",
+        "detail": "Integration is required for Databricks batch exports",
         "attr": "destination",
     }
 
