@@ -563,11 +563,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
+                const maxTablesShownPerSection = 4
                 const ignoredTables = values.databaseSchema.filter(
                     (schema) => !schema.should_sync || schema.sync_type === null
                 )
                 const appendOnlyTables = values.databaseSchema.filter(
                     (schema) => schema.should_sync && schema.sync_type === 'append'
+                )
+                const incrementalTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'incremental'
                 )
                 const fullRefreshTables = values.databaseSchema.filter(
                     (schema) => schema.should_sync && schema.sync_type === 'full_refresh'
@@ -587,16 +591,31 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             </span>
                         </div>
                         {fullRefreshTables.length > 0 && (
-                            <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
-                                {fullRefreshTables.map((table) => (
-                                    <div
-                                        key={table.table}
-                                        className="font-mono px-2 rounded bg-surface-secondary w-min"
-                                    >
-                                        {table.table}
-                                    </div>
-                                ))}
-                            </div>
+                            <>
+                                <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
+                                    {fullRefreshTables
+                                        .slice(0, Math.min(fullRefreshTables.length, maxTablesShownPerSection))
+                                        .map((table) => (
+                                            <div
+                                                key={table.table}
+                                                className="font-mono px-2 rounded bg-surface-secondary w-min"
+                                            >
+                                                {table.table}
+                                            </div>
+                                        ))}
+                                </div>
+                                <div>
+                                    {fullRefreshTables.length > maxTablesShownPerSection && (
+                                        <div className="my-4">
+                                            and{' '}
+                                            <span className="text-warning font-bold">
+                                                {fullRefreshTables.length - maxTablesShownPerSection}
+                                            </span>{' '}
+                                            more...
+                                        </div>
+                                    )}
+                                </div>
+                            </>
                         )}
                         <h4 className="mt-2">Append-only tables</h4>
                         <div>
@@ -610,16 +629,31 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             )}
                         </div>
                         {appendOnlyTables.length > 0 && (
-                            <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
-                                {appendOnlyTables.map((table) => (
-                                    <div
-                                        key={table.table}
-                                        className="font-mono px-2 rounded bg-surface-secondary w-min"
-                                    >
-                                        {table.table}
-                                    </div>
-                                ))}
-                            </div>
+                            <>
+                                <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
+                                    {appendOnlyTables
+                                        .slice(0, Math.min(appendOnlyTables.length, maxTablesShownPerSection))
+                                        .map((table) => (
+                                            <div
+                                                key={table.table}
+                                                className="font-mono px-2 rounded bg-surface-secondary w-min"
+                                            >
+                                                {table.table}
+                                            </div>
+                                        ))}
+                                </div>
+                                <div>
+                                    {appendOnlyTables.length > maxTablesShownPerSection && (
+                                        <div className="my-4">
+                                            and{' '}
+                                            <span className="text-warning font-bold">
+                                                {appendOnlyTables.length - maxTablesShownPerSection}
+                                            </span>{' '}
+                                            more...
+                                        </div>
+                                    )}
+                                </div>
+                            </>
                         )}
                         <h4 className="mt-2">Ignored tables</h4>
                         <div>
@@ -627,30 +661,28 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             ignored.{' '}
                             {ignoredTables.length > 0 ? (
                                 <>
-                                    You currently have {ignoredTables.length} tables set to be ignored from future
-                                    syncs.
+                                    You currently have{' '}
+                                    <span className="text-warning font-bold">{ignoredTables.length}</span> table(s) set
+                                    to be ignored from future syncs.
                                 </>
                             ) : (
                                 <>You are syncing all of your tables. You'll be bathing in data soon.</>
                             )}
                         </div>
-                        {ignoredTables.length > 0 && (
-                            <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
-                                {ignoredTables.map((table) => (
-                                    <div
-                                        key={table.table}
-                                        className="font-mono px-2 rounded bg-surface-secondary w-min"
-                                    >
-                                        {table.table}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
                         <h4 className="mt-2">Incremental tables</h4>
                         <div>
                             The remainder of your tables are setup for incremental syncs, which are typically ideal. The
                             field you select for syncing incrementally should change each time the row is updated - for
-                            example, <span className="font-mono">updated_at</span>.
+                            example, <span className="font-mono">updated_at</span>.{' '}
+                            {incrementalTables.length > 0 && (
+                                <>
+                                    You currently have{' '}
+                                    <span className="text-warning font-bold">
+                                        {incrementalTables.length} {incrementalTables.length === 69 && ' (nice)'}
+                                    </span>{' '}
+                                    table(s) set to sync incrementally.
+                                </>
+                            )}
                         </div>
                     </>
                 )
