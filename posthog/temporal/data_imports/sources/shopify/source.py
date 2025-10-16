@@ -12,8 +12,10 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldT
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import ShopifySourceConfig
+from posthog.temporal.data_imports.sources.shopify.constants import SHOPIFY_RESOURCES
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     ShopifyPermissionError,
+    shopify_source,
     validate_credentials as validate_shopify_credentials,
 )
 from posthog.warehouse.types import ExternalDataSourceType
@@ -34,7 +36,9 @@ class ShopifySource(BaseSource[ShopifySourceConfig]):
             iconPath="/static/services/shopify.png",
             caption="""Enter your Shopify credentials to automatically pull your Shopify data into the PostHog Data warehouse.
 
-You can find your store URL by visiting your store's admin console. The URL typically looks like https://{store_id}.myshopify.com OR https://shop.{store_id}.com. To create and configure your access token go to [your store's admin console](https://admin.shopify.com) and [follow these steps]()
+You can find your store id by visiting your store's admin console. Your store id will be included in the store URL which typically looks something like _https://{store-id}.myshopify.com_.
+
+To create and configure your access token go to [your store's admin console](https://admin.shopify.com) and [follow these steps]().
 
 The simplest setup for permissions is to only allow **read** permissions for the resources you are interested in syncing with your warehouse.
         """,
@@ -43,12 +47,11 @@ The simplest setup for permissions is to only allow **read** permissions for the
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="shopify_store_url",
-                        label="Store URL",
-                        type=SourceFieldInputConfigType.URL,
+                        name="shopify_store_id",
+                        label="Store id",
+                        type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        # we will parse and validate this URL in the source implementation
-                        placeholder="https://my-store-id.myshopify.com",
+                        placeholder="my-store-id",
                     ),
                     SourceFieldInputConfig(
                         name="shopify_access_token",
@@ -61,7 +64,6 @@ The simplest setup for permissions is to only allow **read** permissions for the
             ),
             betaSource=True,
             featureFlag="shopify-dwh",
-            unreleasedSource=True,
         )
 
     def validate_credentials(self, config: ShopifySourceConfig, team_id: int) -> tuple[bool, str | None]:
@@ -76,7 +78,18 @@ The simplest setup for permissions is to only allow **read** permissions for the
             return False, str(e)
 
     def get_schemas(self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        raise NotImplementedError()
+        return [
+            SourceSchema(name=resource_name, supports_incremental=False, supports_append=False, incremental_fields=[])
+            for resource_name in SHOPIFY_RESOURCES
+        ]
 
     def source_for_pipeline(self, config: ShopifySourceConfig, inputs: SourceInputs) -> SourceResponse:
-        raise NotImplementedError()
+        return shopify_source(
+            shopify_store_id=config.shopify_store_id,
+            shopify_access_token=config.shopify_access_token,
+            resource_name=inputs.schema_name,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,
+            logger=inputs.logger,
+        )

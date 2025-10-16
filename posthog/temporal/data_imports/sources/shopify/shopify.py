@@ -1,23 +1,14 @@
 import os
-from collections.abc import Iterable
 from typing import Any, Optional
 
 import requests
-from gql import (
-    Client as GQLClient,
-    gql,
-)
-from gql.transport.aiohttp import AIOHTTPTransport
+from requests import Session
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.graphql_source.constants import (
-    GRAPHQL_DATA_KEY,
-    GRAPHQL_DEFAULT_PAGE_SIZE,
-    GRAPHQL_ERRORS_KEY,
-    GRAPHQL_EXTENSIONS_KEY,
-)
+from posthog.temporal.data_imports.sources.common.graphql_source.constants import GRAPHQL_DEFAULT_PAGE_SIZE
+from posthog.temporal.data_imports.sources.common.graphql_source.typing import GraphQLResource, GraphQLResponse
 
 from .constants import SHOPIFY_ACCESS_TOKEN_CHECK, SHOPIFY_API_URL, SHOPIFY_API_VERSION, SHOPIFY_RESOURCES
 
@@ -39,36 +30,59 @@ class ShopifyRateLimitError(Exception):
     pass
 
 
-def _is_rate_limited(response: dict[str, Any]) -> bool:
+def _is_rate_limited(payload: GraphQLResponse, resource: GraphQLResource) -> bool:
     """Check if the response indicates a rate limit has been hit."""
-    if GRAPHQL_ERRORS_KEY in response:
-        errors = response[GRAPHQL_ERRORS_KEY]
-        if isinstance(errors, list):
-            for error in errors:
-                if isinstance(error, dict) and "THROTTLED" in str(error).upper():
-                    return True
-
-    if GRAPHQL_EXTENSIONS_KEY in response:
-        extensions = response[GRAPHQL_EXTENSIONS_KEY]
-        if isinstance(extensions, dict) and "cost" in extensions:
-            cost = extensions["cost"]
-            if isinstance(cost, dict) and "throttleStatus" in cost:
-                throttle = cost["throttleStatus"]
-                if isinstance(throttle, dict):
-                    currently_available = throttle.get("currentlyAvailable", float("inf"))
-                    return currently_available <= 0
-
+    errors, ok = resource.safe_unwrap(payload, accessor="errors")
+    if ok and isinstance(errors, list):
+        for error in errors:
+            if "throttled" in str(error).lower():
+                return True
+    currently_available, ok = resource.safe_unwrap(
+        payload, accessor="extensions.cost.throttleStatus.currentlyAvailable"
+    )
+    if ok and isinstance(currently_available, int | float):
+        # this check is a little liberal. if we find that we are getting rate limited
+        # too often might be worth it to check against the requestedCost instead
+        return currently_available <= 0
     return False
 
 
-# FIX: implement this
-def _validate_shopify_store_url(raw_url: str) -> str | None:
-    """Returns a validated shopify store url if possible, None if invalid."""
-    return f"{raw_url}/admin/api/2025-10/graphql.json"
+def _make_paginated_shopify_request(url: str, sess: Session, resource: GraphQLResource, logger: FilteringBoundLogger):
+    @retry(
+        retry=retry_if_exception_type(ShopifyRateLimitError),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential_jitter(initial=1, max=30),
+        reraise=True,
+    )
+    def execute(vars) -> GraphQLResponse:
+        logger.debug(f"Shopify: reading from resource {resource.name}")
+        response = sess.post(url, json={"query": resource.query, "variables": vars})
+        response.raise_for_status()
+        payload = response.json()
+        if _is_rate_limited(payload, resource):
+            raise ShopifyRateLimitError("Shopify rate limit exceeded...")
+        if "data" in payload:
+            return payload
+        elif "errors" in payload:
+            raise Exception(f"Shopify GraphQL error: {payload['errors']}")
+        else:
+            raise Exception(f"Unexpected graphql response format in Shopify rows read. Keys: {list(payload.keys())}")
+
+    vars = {"pageSize": GRAPHQL_DEFAULT_PAGE_SIZE}
+    has_next_page = True
+    while has_next_page:
+        payload = execute(vars)
+        data_iter = resource.unwrap(payload, accessor=f"{resource.accessor}.nodes")
+        yield data_iter
+        page_info = resource.unwrap(payload, accessor=f"{resource.accessor}.pageInfo")
+        has_next_page = page_info.get("hasNextPage", False)
+        if has_next_page:
+            # this is intentionally an unsafe lookup so errors surface if expectations aren't met
+            vars.update({"cursor": page_info["endCursor"]})
 
 
 def shopify_source(
-    shopify_store_url: str,
+    shopify_store_id: str,
     shopify_access_token: str,
     resource_name: str,
     db_incremental_field_last_value: Optional[Any],
@@ -76,54 +90,15 @@ def shopify_source(
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
 ):
-    validated_url = _validate_shopify_store_url(shopify_store_url)
-    if not validated_url:
-        raise Exception(
-            "The Shopify store URL provided doesn't seem to match common Shopify URL patterns. Make sure you are providing a valid Shopify URL that looks like https://mystore.myshopify.com OR https://shop.mystore.com."
-        )
+    api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
 
     def get_rows():
-        transport = AIOHTTPTransport(
-            url=validated_url,
-            headers={
-                "X-Shopify-Access-Token": shopify_access_token,
-                "Content-Type": "application/json",
-            },
-        )
-        default_vars = {"pageSize": GRAPHQL_DEFAULT_PAGE_SIZE}
-        client = GQLClient(transport=transport)
+        sess = requests.Session()
+        sess.headers.update({"X-Shopify-Access-Token": shopify_access_token, "Content-Type": "application/json"})
         resource = SHOPIFY_RESOURCES.get(resource_name)
         if not resource:
             raise Exception(f"Shopify resource does not exist: {resource_name}")
-
-        @retry(
-            retry=retry_if_exception_type(ShopifyRateLimitError),
-            stop=stop_after_attempt(5),
-            wait=wait_exponential_jitter(initial=1, max=30),
-            reraise=True,
-        )
-        def execute():
-            logger.debug(f"Shopify: reading from resource {resource_name}")
-            response = client.execute(gql(resource.query), variable_values=default_vars)
-
-            if _is_rate_limited(response):
-                logger.warning(f"Shopify: rate limit hit for resource {resource_name}, retrying...")
-                raise ShopifyRateLimitError(f"Rate limit exceeded for resource {resource_name}")
-
-            if GRAPHQL_DATA_KEY in response:
-                return response[GRAPHQL_DATA_KEY]
-            elif GRAPHQL_ERRORS_KEY in response:
-                raise Exception(f"Shopify GraphQL error: {response[GRAPHQL_ERRORS_KEY]}")
-            else:
-                raise Exception(
-                    f"Unexpected graphql response format in Shopify rows read. Keys: {list(response.keys())}"
-                )
-
-        data = execute()
-        if isinstance(data, Iterable):
-            yield from data
-        else:
-            yield data
+        yield from _make_paginated_shopify_request(api_url, sess, resource, logger)
 
     return SourceResponse(
         items=get_rows(),
@@ -140,7 +115,7 @@ def shopify_source(
     )
 
 
-def validate_credentials(shopify_store_url: str, shopify_access_token: str) -> bool:
+def validate_credentials(shopify_store_id: str, shopify_access_token: str) -> bool:
     """
     Validates Shopify API credentials and checks permissions for all required resources.
     This function will:
@@ -148,7 +123,7 @@ def validate_credentials(shopify_store_url: str, shopify_access_token: str) -> b
     - Raise ShopifyPermissionError if the access token is valid but lacks permissions for specific resources
     - Raise Exception if the access token is invalid or there's any other error
     """
-    api_url = SHOPIFY_API_URL.format(store_url=shopify_store_url, api_version=SHOPIFY_API_VERSION)
+    api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
     sess = requests.Session()
     sess.headers.update(
         {
@@ -162,8 +137,8 @@ def validate_credentials(shopify_store_url: str, shopify_access_token: str) -> b
         res = sess.post(api_url, json={"query": SHOPIFY_ACCESS_TOKEN_CHECK})
         res.raise_for_status()
         data = res.json()
-        if GRAPHQL_ERRORS_KEY in data:
-            raise Exception(f"Failed to verify your Shopify credentials: {data[GRAPHQL_ERRORS_KEY]}")
+        if "errors" in data:
+            raise Exception(f"Failed to verify your Shopify credentials: {data['errors']}")
     except Exception as e:
         raise Exception(f"Failed to verify your Shopify credentials: {e}")
 
@@ -174,9 +149,9 @@ def validate_credentials(shopify_store_url: str, shopify_access_token: str) -> b
             res = sess.post(api_url, json={"query": resource.permissions_query})
             res.raise_for_status()
             data = res.json()
-            if GRAPHQL_ERRORS_KEY in data:
+            if "errors" in data:
                 missing_permissions[resource_name] = (
-                    f"Failed to verify Shopify access privileges for resource {resource_name}: {data[GRAPHQL_ERRORS_KEY]}"
+                    f"Failed to verify Shopify access privileges for resource {resource_name}: {data['errors']}"
                 )
         except Exception as e:
             missing_permissions[resource_name] = str(e)

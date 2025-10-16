@@ -5,7 +5,7 @@ query PaginatedShopifyPaymentsBalanceTransactions($pageSize: Int!, $cursor: Stri
 	shopifyPaymentsAccount {{
 		balanceTransactions(first: $pageSize, after: $cursor) {{
 			nodes {{
-				adjustmentsOrders(first: 250) {{
+				adjustmentsOrders {{
                     amount {MONEY_V2_FRAGMENT}
                     fees {MONEY_V2_FRAGMENT}
                     name
