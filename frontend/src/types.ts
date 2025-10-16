@@ -5832,6 +5832,10 @@ export interface DataWarehouseDashboardDataSource {
     url: string
 }
 
+export interface DataWarehouseJobStatsRequestPayload {
+    days: 1 | 7 | 30
+}
+
 export interface DataWarehouseJobStats {
     days: number
     cutoff_time: string

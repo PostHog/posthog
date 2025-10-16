@@ -72,6 +72,7 @@ import {
     DataModelingJob,
     DataWarehouseActivityRecord,
     DataWarehouseJobStats,
+    DataWarehouseJobStatsRequestPayload,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSourceRowCount,
@@ -3664,7 +3665,9 @@ const api = {
                 .get(options)
         },
 
-        async jobStats(options?: ApiMethodOptions & { days?: 1 | 7 | 30 }): Promise<DataWarehouseJobStats> {
+        async jobStats(
+            options?: ApiMethodOptions & DataWarehouseJobStatsRequestPayload
+        ): Promise<DataWarehouseJobStats> {
             return await new ApiRequest()
                 .dataWarehouse()
                 .withAction('job_stats')
