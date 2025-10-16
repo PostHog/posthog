@@ -418,7 +418,13 @@ class Task(models.Model):
 
         created_by = User.objects.get(id=user_id)
 
+        if not created_by:
+            raise ValueError(f"User {user_id} does not exist")
+
         github_integration = Integration.objects.filter(team=team, kind="github").first()
+
+        if not github_integration:
+            raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         repository_config = {}
 
