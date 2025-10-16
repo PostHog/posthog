@@ -1872,7 +1872,7 @@ class {app_name.title()}Config(AppConfig):
 
         return True
 
-    def run_all_migrations(self, single_mode: bool = False):
+    def run_all_migrations(self, single_mode: bool = False, specific_product: str | None = None):
         """Run migrations based on their status flags."""
         mode_label = "single" if single_mode else "batch"
         logger.info("🎯 Starting %s migration run...\n", mode_label)
@@ -1883,6 +1883,17 @@ class {app_name.title()}Config(AppConfig):
                 "✅ No migrations marked as todo. Update migration_config.json if you want to schedule more work."
             )
             return
+
+        # Filter for specific product if requested
+        if specific_product:
+            pending = [(idx, spec) for idx, spec in pending if spec.get("name") == specific_product]
+            if not pending:
+                logger.error("❌ Product '%s' not found in todo migrations", specific_product)
+                logger.info(
+                    "Available todo migrations: %s", [spec.get("name") for _, spec in self._pending_migrations()]
+                )
+                return
+            logger.info("📌 Filtered to specific product: %s", specific_product)
 
         if single_mode:
             pending = pending[:1]
@@ -1935,6 +1946,17 @@ if __name__ == "__main__":
     no_merge_models = "--no-merge-models" in sys.argv
     merge_models = not no_merge_models
 
+    # Extract product name if specified after --single
+    specific_product = None
+    if single_mode:
+        # Look for --single <product_name>
+        try:
+            single_idx = sys.argv.index("--single")
+            if single_idx + 1 < len(sys.argv) and not sys.argv[single_idx + 1].startswith("--"):
+                specific_product = sys.argv[single_idx + 1]
+        except (ValueError, IndexError):
+            pass
+
     if continue_mode and single_mode:
         logger.info("🔄 Running in single continue mode")
     elif continue_mode:
@@ -1946,4 +1968,4 @@ if __name__ == "__main__":
         logger.info("📁 Running in no-merge-models mode (preserve 1:1 file structure)")
 
     migrator = ModelMigrator(continue_from_migrations=continue_mode, merge_models=merge_models)
-    migrator.run_all_migrations(single_mode=single_mode)
+    migrator.run_all_migrations(single_mode=single_mode, specific_product=specific_product)
