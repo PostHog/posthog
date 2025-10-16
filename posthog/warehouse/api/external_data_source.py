@@ -425,15 +425,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
             sync_time_of_day = schema.get("sync_time_of_day")
+            should_sync = schema.get("should_sync", False)
 
-            if requires_incremental_fields and incremental_field is None:
+            if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Incremental schemas given do not have an incremental field set"},
                 )
 
-            if requires_incremental_fields and incremental_field_type is None:
+            if should_sync and requires_incremental_fields and incremental_field_type is None:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
