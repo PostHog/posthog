@@ -11,10 +11,7 @@ import {
 } from 'scenes/session-recordings/player/snapshot-processing/chrome-extension-stripping'
 import { chunkMutationSnapshot } from 'scenes/session-recordings/player/snapshot-processing/chunk-large-mutations'
 import { decompressEvent } from 'scenes/session-recordings/player/snapshot-processing/decompress'
-import {
-    ViewportResolution,
-    patchMetaEventIntoMobileData,
-} from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
+import { ViewportResolution } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { throttleCapture } from 'scenes/session-recordings/player/snapshot-processing/throttle-capturing'
 
@@ -30,13 +27,52 @@ import { PostHogEE } from '../../../../../@posthog/ee/types'
 export type ProcessingCache = Record<SourceKey, RecordingSnapshot[]>
 
 function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
-    // if this is an incremental, and an image etc etc
-    return false
+    if (snapshot.type !== EventType.IncrementalSnapshot) {
+        return false
+    }
+    const data: any = (snapshot as any).data
+    // Detect React Native wireframe incremental format if present
+    if (data && Array.isArray(data.updates) && data.updates.some((u: any) => u && 'wireframe' in u)) {
+        return true
+    }
+    // Conservatively treat any first incremental-before-full as requiring a full snapshot
+    return true
 }
 
-function convertIncrementalToFull(snapshot: RecordingSnapshot): RecordingSnapshot {
-    // do the switch here
-    return snapshot
+function createMinimalFullSnapshot(windowId: string | undefined, timestamp: number): RecordingSnapshot {
+    // Create a minimal rrweb full document snapshot structure sufficient for playback
+    const htmlNode = {
+        type: 1, // NodeType.Element
+        tagName: 'html',
+        attributes: {},
+        childNodes: [
+            {
+                type: 1,
+                tagName: 'head',
+                attributes: {},
+                childNodes: [],
+            },
+            {
+                type: 1,
+                tagName: 'body',
+                attributes: {},
+                childNodes: [],
+            },
+        ],
+    }
+    const documentNode = {
+        type: 0, // NodeType.Document
+        childNodes: [htmlNode],
+    }
+    return {
+        type: EventType.FullSnapshot,
+        timestamp,
+        windowId,
+        data: {
+            node: documentNode,
+            initialOffset: { top: 0, left: 0 },
+        },
+    } as unknown as RecordingSnapshot
 }
 
 /**
@@ -60,7 +96,7 @@ export function processAllSnapshots(
     const matchedExtensions = new Set<string>()
 
     let hasSeenMeta = false
-    let hasSeenAnyFullSnapshot = false
+    const seenFullByWindow: Record<string, boolean> = {}
 
     // we loop over this data as little as possible,
     // since it could be large and processed more than once,
@@ -121,13 +157,55 @@ export function processAllSnapshots(
                 hasSeenMeta = true
             }
 
-            if (snapshot.type === EventType.IncrementalSnapshot && !hasSeenAnyFullSnapshot && isLikelyMobileScreenshot(snapshot)) {
-                snapshot = convertIncrementalToFull(snapshot)
+            {
+                const windowId = snapshot.windowId
+                const hasSeenFullForWindow = !!seenFullByWindow[windowId]
+
+                if (
+                    snapshot.type === EventType.IncrementalSnapshot &&
+                    !hasSeenFullForWindow &&
+                    isLikelyMobileScreenshot(snapshot)
+                ) {
+                    // Inject a synthetic full snapshot (and meta if needed) immediately before the first incremental
+                    const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
+
+                    if (!hasSeenMeta) {
+                        const viewport = viewportForTimestamp(syntheticTimestamp)
+                        if (viewport && viewport.width && viewport.height) {
+                            const metaEvent: RecordingSnapshot = {
+                                type: EventType.Meta,
+                                timestamp: syntheticTimestamp,
+                                windowId: snapshot.windowId,
+                                data: {
+                                    width: parseInt(viewport.width, 10),
+                                    height: parseInt(viewport.height, 10),
+                                    href: viewport.href || 'unknown',
+                                },
+                            }
+                            result.push(metaEvent)
+                            sourceResult.push(metaEvent)
+                            throttleCapture(`${sessionRecordingId}-patched-meta`, () => {
+                                posthog.capture('patched meta into web recording', {
+                                    throttleCaptureKey: `${sessionRecordingId}-patched-meta`,
+                                    sessionRecordingId,
+                                    sourceKey: sourceKey,
+                                    feature: 'session-recording-meta-patching',
+                                })
+                            })
+                        }
+                    }
+
+                    const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp)
+                    result.push(syntheticFull)
+                    sourceResult.push(syntheticFull)
+                    seenFullByWindow[windowId] = true
+                    hasSeenMeta = false // after a full snapshot, reset hasSeenMeta to expect next full patching if needed
+                }
             }
 
             // Process chrome extension data
             if (snapshot.type === EventType.FullSnapshot) {
-                hasSeenAnyFullSnapshot = true
+                seenFullByWindow[snapshot.windowId] = true
 
                 // Check if we need to patch a meta event before this full snapshot
                 if (!hasSeenMeta) {
@@ -246,42 +324,10 @@ function hashSnapshot(snapshot: RecordingSnapshot): number {
  *
  * If it can't be case as eventWithTime by this point, then it's probably not a valid event anyway
  */
-function coerceToEventWithTime(
-    d: unknown,
-    sessionRecordingId: string,
-    hasSeenAnyFullSnapshot: boolean = false,
-    isMobile: boolean = false
-): eventWithTime[] {
+function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWithTime {
     // we decompress first so that we could support partial compression on mobile in the future
     const currentEvent = decompressEvent(d, sessionRecordingId) as eventWithTime
-    const transformedEvent = postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || currentEvent
-
-    // If we haven't seen any full snapshot yet and this is mobile, synthesize one before the first incremental
-    if (
-        !hasSeenAnyFullSnapshot &&
-        isMobile &&
-        currentEvent.type !== EventType.FullSnapshot &&
-        postHogEEModule?.mobileReplay
-    ) {
-        // Create synthetic mobile full snapshot using the proper transformer
-        const syntheticMobileFullSnapshot = {
-            type: EventType.FullSnapshot,
-            timestamp: currentEvent.timestamp - 1,
-            data: {
-                wireframes: [], // Empty wireframes - just create the basic HTML structure
-                initialOffset: { top: 0, left: 0 },
-            },
-        }
-
-        // Transform it using the existing makeFullEvent transformer
-        const syntheticFullSnapshot = postHogEEModule.mobileReplay.transformEventToWeb(
-            syntheticMobileFullSnapshot
-        ) as eventWithTime
-
-        return [syntheticFullSnapshot, transformedEvent]
-    }
-
-    return [transformedEvent]
+    return (postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || currentEvent) as eventWithTime
 }
 
 export const parseEncodedSnapshots = async (
@@ -354,8 +400,6 @@ export const parseEncodedSnapshots = async (
 
     const lineCount = items.length
     const unparseableLines: string[] = []
-    let isMobileSnapshots = false
-    let hasSeenAnyFullSnapshot = false
 
     const parsedLines: RecordingSnapshot[] = items.flatMap((l) => {
         if (!l) {
@@ -386,27 +430,16 @@ export const parseEncodedSnapshots = async (
                 snapshotData = snapshotLine['data']
             }
 
-            if (!isMobileSnapshots) {
-                isMobileSnapshots = hasAnyWireframes(snapshotData)
-            }
-
             return snapshotData.flatMap((d: unknown) => {
-                const snapResult = coerceToEventWithTime(d, sessionId, hasSeenAnyFullSnapshot, isMobileSnapshots)
+                const snap = coerceToEventWithTime(d, sessionId)
 
-                // If we emitted or encountered a full snapshot, flip the flag so we don't synthesize again
-                if (!hasSeenAnyFullSnapshot && snapResult.some((e) => e.type === EventType.FullSnapshot)) {
-                    hasSeenAnyFullSnapshot = true
+                const baseSnapshot: RecordingSnapshot = {
+                    windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
+                    ...snap,
                 }
 
-                return snapResult.flatMap((snap) => {
-                    const baseSnapshot: RecordingSnapshot = {
-                        windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
-                        ...snap,
-                    }
-
-                    // Apply chunking to the snapshot if needed
-                    return chunkMutationSnapshot(baseSnapshot)
-                })
+                // Apply chunking to the snapshot if needed
+                return chunkMutationSnapshot(baseSnapshot)
             })
         } catch {
             if (typeof l === 'string') {
@@ -431,7 +464,7 @@ export const parseEncodedSnapshots = async (
         })
     }
 
-    return isMobileSnapshots ? patchMetaEventIntoMobileData(parsedLines, sessionId) : parsedLines
+    return parsedLines
 }
 
 /*
