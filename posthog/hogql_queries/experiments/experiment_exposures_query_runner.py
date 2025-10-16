@@ -19,7 +19,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.exposure_query_logic import (
@@ -154,6 +154,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 experiment_id=self.query.experiment_id,
                 experiment_name=self.query.experiment_name,
                 experiment_feature_flag_key=self.feature_flag_key,
+                product=Product.EXPERIMENTS,
             )
 
             # Set limit to avoid being cut-off by the default 100 rows limit

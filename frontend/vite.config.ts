@@ -25,10 +25,10 @@ export default defineConfig(({ mode }) => {
                         setTimeout(() => {
                             console.info(`
 ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
-                                                            
-   🚀 Visit http://localhost:8010 to see the app             
-   ⚠️  You may need to wait for the other services to start   
-                                                            
+
+   🚀 Visit http://localhost:8010 to see the app
+   ⚠️  You may need to wait for the other services to start
+
 ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
 `)
                         }, 1000)
@@ -83,6 +83,15 @@ export default defineConfig(({ mode }) => {
             },
             sourcemap: true,
         },
+        worker: {
+            format: 'es', // Use ES modules to support WASM imports
+            plugins: () => [react()],
+            rollupOptions: {
+                output: {
+                    entryFileNames: isDev ? '[name].js' : '[name]-[hash].js',
+                },
+            },
+        },
         server: {
             port: 8234,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
@@ -102,6 +111,7 @@ export default defineConfig(({ mode }) => {
         },
         optimizeDeps: {
             include: ['react', 'react-dom', 'buffer'],
+            exclude: ['snappy-wasm'], // Don't pre-bundle snappy-wasm so WASM file stays with JS
         },
     }
 })

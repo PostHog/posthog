@@ -1,27 +1,49 @@
-import { IconBalance } from '@posthog/icons'
-import { IconTrash } from '@posthog/icons'
-import { IconPlus } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
+import { useDebouncedCallback } from 'use-debounce'
+
+import { IconBalance, IconCheck, IconPlus, IconTrash } from '@posthog/icons'
 
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { alphabet } from 'lib/utils'
-import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { percentageDistribution } from '../utils'
+import { variantsPanelLogic } from './variantsPanelLogic'
+
+const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys?: Set<string>): string => {
+    const baseKey = name
+        .toLowerCase()
+        .replace(/[^A-Za-z0-9-_]+/g, '-')
+        .replace(/-+$/, '')
+        .replace(/^-+/, '')
+
+    let key = baseKey
+    let counter = 1
+
+    while (unavailableFeatureFlagKeys?.has(key)) {
+        key = `${baseKey}-${counter}`
+        counter++
+    }
+    return key
+}
 
 interface VariantsPanelCreateFeatureFlagProps {
     experiment: Experiment
     onChange: (updates: {
-        parameters: {
-            feature_flag_variants: MultivariateFlagVariant[]
+        feature_flag_variants?: MultivariateFlagVariant[]
+        ensure_experience_continuity?: boolean
+        feature_flag_key?: string
+        parameters?: {
+            feature_flag_variants?: MultivariateFlagVariant[]
             ensure_experience_continuity?: boolean
-            feature_flag_key?: string
         }
     }) => void
 }
@@ -30,6 +52,14 @@ export const VariantsPanelCreateFeatureFlag = ({
     experiment,
     onChange,
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
+    const {
+        featureFlagKeyDirty,
+        unavailableFeatureFlagKeys,
+        featureFlagKeyValidation,
+        featureFlagKeyValidationLoading,
+    } = useValues(variantsPanelLogic)
+    const { setFeatureFlagKeyDirty, validateFeatureFlagKey } = useActions(variantsPanelLogic)
+
     const variants = experiment.parameters?.feature_flag_variants || [
         { key: 'control', rollout_percentage: 50 },
         { key: 'test', rollout_percentage: 50 },
@@ -94,157 +124,153 @@ export const VariantsPanelCreateFeatureFlag = ({
         })
     }
 
+    const debouncedValidateFeatureFlagKey = useDebouncedCallback((key: string) => {
+        if (key) {
+            validateFeatureFlagKey(key)
+        }
+    }, 300)
+
     return (
-        <div>
-            <div className="max-w-2xl mb-4">
-                <label htmlFor="experiment-feature-flag-key" className="text-sm font-semibold">
-                    Feature flag key
-                </label>
-                <LemonInput
-                    className="mt-1"
-                    placeholder="pricing-page-conversion"
-                    data-attr="experiment-feature-flag-key"
-                    value={experiment.feature_flag_key || ''}
-                    onChange={(value) => {
-                        onChange({
-                            parameters: {
-                                feature_flag_variants: variants,
-                                ensure_experience_continuity: ensureExperienceContinuity,
-                                feature_flag_key: value,
-                            },
-                        })
-                    }}
-                    onFocus={() => {
-                        if (!experiment.feature_flag_key && experiment.name) {
+        <div className="flex flex-col gap-4">
+            <LemonField.Pure label="Feature flag key" htmlFor="experiment-feature-flag-key">
+                <>
+                    <LemonInput
+                        id="experiment-feature-flag-key"
+                        placeholder="examples: new-landing-page, betaFeature, ab_test_1"
+                        value={experiment.feature_flag_key || ''}
+                        onChange={(value) => {
+                            /**
+                             * if the user changes the feature flag key, we need to set the dirty flag to true
+                             * so that we don't generate a new key automatically
+                             * TODO: clear dirty flag when the name is empty
+                             */
+                            setFeatureFlagKeyDirty()
+                            const normalizedValue = value.replace(/\s+/g, '-')
                             onChange({
-                                parameters: {
-                                    feature_flag_variants: variants,
-                                    ensure_experience_continuity: ensureExperienceContinuity,
-                                },
+                                feature_flag_key: normalizedValue,
                             })
+                            debouncedValidateFeatureFlagKey(normalizedValue)
+                        }}
+                        onFocus={() => {
+                            if (experiment.name && !featureFlagKeyDirty) {
+                                onChange({
+                                    feature_flag_key: generateFeatureFlagKey(
+                                        experiment.name,
+                                        unavailableFeatureFlagKeys
+                                    ),
+                                })
+                            }
+                        }}
+                        suffix={
+                            featureFlagKeyValidationLoading ? (
+                                <Spinner size="small" />
+                            ) : featureFlagKeyValidation?.valid ? (
+                                <IconCheck className="text-success" />
+                            ) : null
                         }
-                    }}
-                />
-                <div className="text-xs text-muted mt-1">
-                    Each experiment is backed by a feature flag. This key will be used to control the experiment in your
-                    code.
-                </div>
-            </div>
+                        status={featureFlagKeyValidation?.error ? 'danger' : 'default'}
+                    />
+                    {featureFlagKeyValidation?.error && (
+                        <div className="text-xs text-danger">{featureFlagKeyValidation.error}</div>
+                    )}
+                    <div className="text-sm text-secondary">
+                        Each experiment is backed by a feature flag. This key will be used to control the experiment in
+                        your code.
+                    </div>
+                </>
+            </LemonField.Pure>
 
-            <h3 className="font-semibold mb-2">Variant keys</h3>
-            <div className="text-sm text-muted mb-4">
-                The rollout percentage of feature flag variants must add up to 100%
-            </div>
-
-            <div className="p-4 mt-4 text-sm border border-primary rounded">
-                <div className="grid grid-cols-24 gap-2 font-bold mb-2">
-                    <div />
-                    <div className="col-span-4">Variant key</div>
-                    <div className="col-span-6">Description</div>
-                    <div className="col-span-8">
-                        <div className="flex flex-col">
-                            <span>Payload</span>
-                            <span className="text-secondary font-normal">
-                                Specify return payload when the variant key matches
-                            </span>
+            <LemonField.Pure
+                label="Variant keys"
+                help="The rollout percentage of experiment variants must add up to 100%"
+            >
+                <div className="text-sm border border-primary rounded p-4">
+                    <div className="grid grid-cols-24 gap-2 font-bold mb-2 items-center">
+                        <div />
+                        <div className="col-span-4">Variant key</div>
+                        <div className="col-span-6">Description</div>
+                        <div className="col-span-3 flex justify-between items-center gap-1">
+                            <span>Rollout</span>
+                            <LemonButton
+                                onClick={() => distributeVariantsEqually()}
+                                tooltip="Normalize variant rollout percentages"
+                            >
+                                <IconBalance />
+                            </LemonButton>
                         </div>
                     </div>
-                    <div className="col-span-3 flex justify-between items-center gap-1">
-                        <span>Rollout</span>
-                        <LemonButton
-                            onClick={() => distributeVariantsEqually()}
-                            tooltip="Normalize variant rollout percentages"
-                        >
-                            <IconBalance />
-                        </LemonButton>
-                    </div>
-                </div>
-                {variants.map((variant, index) => (
-                    <div key={variant.key} className="grid grid-cols-24 gap-2 mb-2">
-                        <div className="flex items-center justify-center">
-                            <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
-                        </div>
-                        <div className="col-span-4">
-                            <LemonInput
-                                value={variant.key}
-                                onChange={(value) => updateVariant(index, { key: value })}
-                                data-attr="experiment-variant-key"
-                                data-key-index={index.toString()}
-                                className="ph-ignore-input"
-                                placeholder={`example-variant-${index + 1}`}
-                                autoComplete="off"
-                                autoCapitalize="off"
-                                autoCorrect="off"
-                                spellCheck={false}
-                            />
-                        </div>
-                        <div className="col-span-6">
-                            <LemonInput
-                                value={variant.name || ''}
-                                onChange={(value) => updateVariant(index, { name: value })}
-                                data-attr="experiment-variant-name"
-                                className="ph-ignore-input"
-                                placeholder="Description"
-                            />
-                        </div>
-                        <div className="col-span-8">
-                            <JSONEditorInput
-                                onChange={(newValue) => {
-                                    const updatedVariant = { ...variant, name: newValue }
-                                    if (newValue === '') {
-                                        delete updatedVariant.name
-                                    } else {
-                                        updatedVariant.name = newValue
-                                    }
-                                    updateVariant(index, updatedVariant)
-                                }}
-                                value={variant.name || ''}
-                                placeholder='{"key": "value"}'
-                            />
-                        </div>
-                        <div className="col-span-3">
-                            <LemonInput
-                                type="number"
-                                min={0}
-                                max={100}
-                                value={variant.rollout_percentage}
-                                onChange={(changedValue) => {
-                                    const valueInt =
-                                        changedValue !== undefined && !Number.isNaN(changedValue)
-                                            ? parseInt(changedValue.toString(), 10)
-                                            : 0
-                                    updateVariant(index, { rollout_percentage: valueInt })
-                                }}
-                                suffix={<span>%</span>}
-                                data-attr="experiment-variant-rollout-percentage-input"
-                            />
-                        </div>
-                        <div className="flex items-center justify-center">
-                            {variants.length > 2 && index > 0 && (
-                                <LemonButton
-                                    icon={<IconTrash />}
-                                    data-attr={`delete-prop-filter-${index}`}
-                                    noPadding
-                                    onClick={() => removeVariant(index)}
-                                    tooltipPlacement="top-end"
+                    {variants.map((variant, index) => (
+                        <div key={variant.key} className="grid grid-cols-24 gap-2 mb-2">
+                            <div className="flex items-center justify-center">
+                                <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
+                            </div>
+                            <div className="col-span-4">
+                                <LemonInput
+                                    value={variant.key}
+                                    onChange={(value) => updateVariant(index, { key: value })}
+                                    data-attr="experiment-variant-key"
+                                    data-key-index={index.toString()}
+                                    className="ph-ignore-input"
+                                    placeholder={`example-variant-${index + 1}`}
+                                    autoComplete="off"
+                                    autoCapitalize="off"
+                                    autoCorrect="off"
+                                    spellCheck={false}
                                 />
-                            )}
+                            </div>
+                            <div className="col-span-6">
+                                <LemonInput
+                                    value={variant.name || ''}
+                                    onChange={(value) => updateVariant(index, { name: value })}
+                                    data-attr="experiment-variant-name"
+                                    className="ph-ignore-input"
+                                    placeholder="Description"
+                                />
+                            </div>
+                            <div className="col-span-3">
+                                <LemonInput
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={variant.rollout_percentage}
+                                    onChange={(changedValue) => {
+                                        const valueInt =
+                                            changedValue !== undefined && !Number.isNaN(changedValue)
+                                                ? parseInt(changedValue.toString(), 10)
+                                                : 0
+                                        updateVariant(index, { rollout_percentage: valueInt })
+                                    }}
+                                    suffix={<span>%</span>}
+                                    data-attr="experiment-variant-rollout-percentage-input"
+                                />
+                            </div>
+                            <div className="flex items-center justify-center">
+                                {variants.length > 2 && index > 0 && (
+                                    <LemonButton
+                                        icon={<IconTrash />}
+                                        data-attr={`delete-prop-filter-${index}`}
+                                        noPadding
+                                        onClick={() => removeVariant(index)}
+                                        tooltipPlacement="top-end"
+                                    />
+                                )}
+                            </div>
                         </div>
-                    </div>
-                ))}
-                {variants.length > 0 && !areVariantRolloutsValid && (
-                    <p className="text-danger">
-                        Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}).
-                    </p>
-                )}
-                {variants.length < MAX_EXPERIMENT_VARIANTS && (
-                    <LemonButton type="secondary" onClick={addVariant} icon={<IconPlus />} center>
-                        Add variant
-                    </LemonButton>
-                )}
-            </div>
+                    ))}
+                    {variants.length > 0 && !areVariantRolloutsValid && (
+                        <p className="text-danger">
+                            Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}).
+                        </p>
+                    )}
+                    {variants.length < MAX_EXPERIMENT_VARIANTS && (
+                        <LemonButton type="secondary" onClick={addVariant} icon={<IconPlus />} center>
+                            Add variant
+                        </LemonButton>
+                    )}
+                </div>
+            </LemonField.Pure>
 
-            <div className="max-w-2xl mt-4">
+            <div>
                 <LemonCheckbox
                     label="Persist flag across authentication steps"
                     onChange={(checked) => {

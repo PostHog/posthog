@@ -27,16 +27,6 @@ from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
-from .error_tracking import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingStackFrame,
-    ErrorTrackingSymbolSet,
-    ErrorTrackingIssueAssignment,
-    ErrorTrackingAssignmentRule,
-    ErrorTrackingGroupingRule,
-    ErrorTrackingSuppressionRule,
-)
 from .event.event import Event
 from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
@@ -64,7 +54,6 @@ from .message_template import MessageTemplate
 from .message_category import MessageCategory
 from .message_preferences import MessageRecipientPreference
 from .messaging import MessagingRecord
-from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
 from .organization_integration import OrganizationIntegration
@@ -119,14 +108,6 @@ __all__ = [
     "Element",
     "ElementGroup",
     "Entity",
-    "ErrorTrackingIssue",
-    "ErrorTrackingIssueFingerprintV2",
-    "ErrorTrackingStackFrame",
-    "ErrorTrackingSymbolSet",
-    "ErrorTrackingIssueAssignment",
-    "ErrorTrackingAssignmentRule",
-    "ErrorTrackingGroupingRule",
-    "ErrorTrackingSuppressionRule",
     "Event",
     "EventBuffer",
     "EventDefinition",

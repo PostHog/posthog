@@ -32,6 +32,7 @@ import {
     FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelVizType,
+    MultivariateFlagVariant,
     PropertyFilterType,
     PropertyOperator,
     type QueryBasedInsightModel,
@@ -48,8 +49,9 @@ export function getExposureConfigDisplayName(config: ExperimentExposureConfig): 
     return isEventExposureConfig(config) ? config.event || 'Unknown Event' : config.name || `Action ${config.id}`
 }
 
-export function getExperimentInsightColour(variantIndex: number | null): string {
-    return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
+export function getVariantColor(variantKey: string, featureFlagVariants: MultivariateFlagVariant[]): string {
+    const variantIndex = featureFlagVariants.findIndex((v) => v.key === variantKey)
+    return variantIndex !== -1 ? getSeriesColor(variantIndex) : 'var(--text-muted)'
 }
 
 export function formatUnitByQuantity(value: number, unit: string): string {

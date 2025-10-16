@@ -8,6 +8,7 @@ def register_all_admin():
     from posthog.admin.admins import (
         AsyncDeletionAdmin,
         BatchImportAdmin,
+        BehavioralCohortAnalysisAdmin,
         CohortAdmin,
         DashboardAdmin,
         DashboardTemplateAdmin,
@@ -34,6 +35,9 @@ def register_all_admin():
         TextAdmin,
         UserAdmin,
     )
+
+    # Needed for the behavioral cohorts analysis admin interface
+    from posthog.admin.admins.behavioral_cohorts_admin import BehavioralCohortAnalysis
     from posthog.models import (
         AsyncDeletion,
         BatchImport,
@@ -64,6 +68,9 @@ def register_all_admin():
         User,
     )
 
+    from products.tasks.backend.admin import SandboxSnapshotAdmin
+    from products.tasks.backend.models import SandboxSnapshot
+
     admin.site.register(Organization, OrganizationAdmin)
     admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
     admin.site.register(Project, ProjectAdmin)
@@ -87,6 +94,7 @@ def register_all_admin():
     admin.site.register(Text, TextAdmin)
 
     admin.site.register(Cohort, CohortAdmin)
+    admin.site.register(BehavioralCohortAnalysis, BehavioralCohortAnalysisAdmin)
     admin.site.register(PersonDistinctId, PersonDistinctIdAdmin)
 
     admin.site.register(Survey, SurveyAdmin)
@@ -98,3 +106,5 @@ def register_all_admin():
     admin.site.register(BatchImport, BatchImportAdmin)
 
     admin.site.register(PersonalAPIKey, PersonalAPIKeyAdmin)
+
+    admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)

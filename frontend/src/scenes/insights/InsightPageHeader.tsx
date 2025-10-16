@@ -6,7 +6,7 @@ import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash, Icon
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
-import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -141,6 +141,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const siteUrl = preflight?.site_url || window.location.origin
 
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+
     async function handleDuplicateInsight(): Promise<void> {
         // We do not want to duplicate the dashboard filters that might be included in this insight
         // Ideally we would store those separately and be able to remove them on duplicate or edit, but current we merge them
@@ -188,6 +190,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             insightLogicProps={insightLogicProps}
                             insightId={insight.id as number}
                             insightShortId={insight.short_id as InsightShortId}
+                            canCreateAlertForInsight={canCreateAlertForInsight}
                         />
                     )}
 

@@ -14,6 +14,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupLogicProps, groupLogic } from 'scenes/groups/groupLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -27,6 +28,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import type { ActionFilter } from '~/types'
 import {
@@ -84,6 +86,7 @@ export function Group(): JSX.Element {
     const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(groupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { aggregationLabel } = useValues(groupsModel)
 
     if (!groupData || !groupType) {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
@@ -97,7 +100,7 @@ export function Group(): JSX.Element {
                 name={groupData.group_key}
                 resourceType={{ type: 'group' }}
                 forceBackTo={{
-                    name: 'People / Projects',
+                    name: capitalizeFirstLetter(aggregationLabel(groupTypeIndex).plural),
                     key: 'groups',
                     path: urls.groups(groupTypeIndex),
                 }}

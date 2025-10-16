@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { captureException } from '../../utils/posthog'
-import { createNewPipeline, createRetryingPipeline } from './helpers'
+import { createContext, createNewPipeline, createRetryingPipeline } from './helpers'
 import { PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResultType, dlq, ok } from './results'
 import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'
@@ -39,19 +39,13 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = {
-                result: ok({ message }),
-                context: { message },
-            }
+            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
 
             const result = await retryingPipeline.process(input)
 
             expect(mockProcessStep).toHaveBeenCalledTimes(1)
             expect(mockProcessStep).toHaveBeenCalledWith({ message })
-            expect(result).toEqual({
-                result: ok({ processed: 'test' }),
-                context: expect.objectContaining({ message }),
-            })
+            expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'mockConstructor' }))
         })
     })
 
@@ -82,10 +76,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = {
-                result: ok({ message }),
-                context: { message },
-            }
+            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -93,10 +84,7 @@ describe('RetryingPipeline', () => {
 
             expect(callCount).toBe(3)
             expect(mockCaptureException).not.toHaveBeenCalled() // Should not capture retriable errors
-            expect(result).toEqual({
-                result: ok({ processed: 'test' }),
-                context: expect.objectContaining({ message }),
-            })
+            expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'mockConstructor' }))
         })
 
         it('should log errors when all retries are exhausted', async () => {
@@ -119,10 +107,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = {
-                result: ok({ message }),
-                context: { message },
-            }
+            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -151,10 +136,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = {
-                result: ok({ message }),
-                context: { message },
-            }
+            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
 
             const result = await retryingPipeline.process(input)
 
@@ -165,7 +147,7 @@ describe('RetryingPipeline', () => {
             if (result.result.type === PipelineResultType.DLQ) {
                 expect(result.result.reason).toBe('Processing error - non-retriable')
             }
-            expect(result.context).toEqual(expect.objectContaining({ message }))
+            expect(result.context).toEqual({ message, sideEffects: [] })
         })
 
         it('should treat errors without isRetriable property as retriable', async () => {
@@ -194,10 +176,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = {
-                result: ok({ message }),
-                context: { message },
-            }
+            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -205,10 +184,7 @@ describe('RetryingPipeline', () => {
 
             expect(callCount).toBe(2)
             expect(mockCaptureException).not.toHaveBeenCalled() // Should not capture retriable errors
-            expect(result).toEqual({
-                result: ok({ processed: 'test' }),
-                context: expect.objectContaining({ message }),
-            })
+            expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'mockConstructor' }))
         })
 
         it('should propagate DLQ results without retrying', async () => {
@@ -229,21 +205,21 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = {
-                result: ok({ message }),
-                context: { message },
-            }
+            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
 
             const result = await retryingPipeline.process(input)
 
-            expect(result).toEqual({
-                result: {
-                    type: PipelineResultType.DLQ,
-                    reason: 'DLQ reason',
-                    error: expect.any(Error),
-                },
-                context: expect.objectContaining({ message }),
-            })
+            expect(result).toEqual(
+                createContext(
+                    {
+                        type: PipelineResultType.DLQ,
+                        reason: 'DLQ reason',
+                        error: expect.any(Error),
+                        sideEffects: [],
+                    },
+                    { message, lastStep: 'mockConstructor' }
+                )
+            )
         })
     })
 
@@ -269,18 +245,12 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = {
-                result: ok({ message }),
-                context: { message },
-            }
+            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
 
             const result = await retryingPipeline.process(input)
 
             expect(mockProcessStep).toHaveBeenCalledTimes(1)
-            expect(result).toEqual({
-                result: ok({ processed: 'test' }),
-                context: expect.objectContaining({ message }),
-            })
+            expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'mockConstructor' }))
         })
     })
 
@@ -306,10 +276,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = {
-                result: ok({ message }),
-                context: { message },
-            }
+            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -338,10 +305,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = {
-                result: ok({ message }),
-                context: { message },
-            }
+            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -369,10 +333,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = {
-                result: ok({ message }),
-                context: { message },
-            }
+            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -403,10 +364,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = {
-                result: ok({ message }),
-                context: { message },
-            }
+            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
 
             const processPromise = retryingPipeline.process(input)
 

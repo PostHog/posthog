@@ -108,6 +108,19 @@ class RecordBatchQueue(asyncio.Queue):
         """
         return self._bytes_size
 
+    def __repr__(self):
+        return f"<{type(self).__name__} at {id(self):#x} {self._format()}>"
+
+    def __str__(self):
+        return f"<{type(self).__name__} {self._format()}>"
+
+    def _format(self) -> str:
+        result = f"record_batches={len(self._queue)}"
+        result += f" bytes={str(self._bytes_size)}"
+        if self.record_batch_schema is not None:
+            result += f" schema='{self.record_batch_schema}'"
+        return result
+
 
 class TaskNotDoneError(Exception):
     """Raised when a task that should be done, isn't."""

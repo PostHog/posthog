@@ -270,12 +270,18 @@ class RootNode(AssistantNode):
         filtered_messages = [message for message in messages if isinstance(message, RootMessageUnion)]
         conversation_window = self._window_manager.get_messages_in_window(filtered_messages, window_start_id)
 
+        return available_tools
+
+    def _construct_messages(
+        self,
+        messages: Sequence[AssistantMessageUnion],
+        window_start_id: str | None = None,
+        tool_calls_count: int | None = None,
+    ) -> list[BaseMessage]:
+        conversation_window = self._window_manager.get_messages_in_window(messages, window_start_id)
+
         # `assistant` messages must be contiguous with the respective `tool` messages.
-        tool_result_messages = {
-            message.tool_call_id: message
-            for message in conversation_window
-            if isinstance(message, AssistantToolCallMessage)
-        }
+        tool_result_messages = self._get_tool_map(conversation_window)
 
         history: list[BaseMessage] = convert_to_anthropic_messages(conversation_window, tool_result_messages)
 
@@ -320,12 +326,12 @@ class RootNodeTools(AssistantNode):
         else:
             # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
             # when the tool has been removed from the backend since the user's frontend was loaded
-            ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
-            content = (
-                ToolClass(team=self._team, user=self._user).thinking_message
-                if ToolClass
-                else f"Running tool {tool_call.name}"
-            )
+            try:
+                ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL[tool_call.name]  # type: ignore
+                tool = await ToolClass.create_tool_class(team=self._team, user=self._user)
+                content = tool.thinking_message
+            except KeyError:
+                content = f"Running tool {tool_call.name}"
 
         self.dispatcher.message(AssistantMessage(content=content, parent_tool_call_id=tool_call.id))
 

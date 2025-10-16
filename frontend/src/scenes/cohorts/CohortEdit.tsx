@@ -14,7 +14,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
+import { IconErrorOutline, IconRefresh, IconUploadFile } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -71,6 +71,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     useAttachedLogic(logic, attachTo)
     const {
         deleteCohort,
+        restoreCohort,
         setOuterGroupsType,
         setQuery,
         duplicateCohort,
@@ -129,6 +130,25 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
+    }
+
+    if (cohort.deleted) {
+        return (
+            <div>
+                <LemonBanner type="error">The cohort '{cohort.name}' has been soft deleted.</LemonBanner>
+                <ScenePanel>
+                    <ButtonPrimitive
+                        disabled={cohortLoading}
+                        onClick={() => {
+                            restoreCohort()
+                        }}
+                        menuItem
+                    >
+                        <IconRefresh /> Restore
+                    </ButtonPrimitive>
+                </ScenePanel>
+            </div>
+        )
     }
 
     return (

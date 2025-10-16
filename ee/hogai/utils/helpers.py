@@ -134,6 +134,10 @@ def should_output_assistant_message(candidate_message: AssistantMessageUnion) ->
     if isinstance(candidate_message, ContextMessage):
         return False
 
+    # Filter out context messages
+    if isinstance(candidate_message, ContextMessage):
+        return False
+
     return True
 
 

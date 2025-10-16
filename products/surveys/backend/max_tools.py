@@ -183,12 +183,12 @@ class SurveyToolkit(TaxonomyAgentToolkit):
 
         return [lookup_feature_flag, final_answer]
 
-    def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
+    async def handle_tools(self, tool_name: str, tool_input) -> tuple[str, str]:
         """Handle custom tool execution."""
         if tool_name == "lookup_feature_flag":
             result = self._lookup_feature_flag(tool_input.arguments.flag_key)
             return tool_name, result
-        return super().handle_tools(tool_name, tool_input)
+        return await super().handle_tools(tool_name, tool_input)
 
     def _lookup_feature_flag(self, flag_key: str) -> str:
         """Look up feature flag information by key."""
@@ -329,7 +329,7 @@ class SurveyAnalysisTool(MaxTool):
         "Analyze survey responses to extract themes, sentiment, and actionable insights from open-ended questions"
     )
     thinking_message: str = "Analyzing your survey responses"
-    root_system_prompt_template: str = (
+    context_prompt_template: str = (
         "You have access to a survey analysis tool that can analyze open-ended responses to identify themes, sentiment, and actionable insights. "
         "When users ask about analyzing survey responses, summarizing feedback, finding patterns in responses, or extracting insights from survey data, "
         "use the analyze_survey_responses tool. Survey data includes: {formatted_responses}"

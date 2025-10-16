@@ -31,7 +31,6 @@ APIScopeObject = Literal[
     "insight",
     "integration",
     "link",
-    "named_query",
     "notebook",
     "organization",
     "organization_member",
@@ -54,6 +53,8 @@ APIScopeObject = Literal[
     "warehouse_table",
     "logs",  # logs product,
     "task",
+    "endpoint",
+    "web_analytics",
 ]
 
 APIScopeActions = Literal[

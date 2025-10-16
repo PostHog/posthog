@@ -6,6 +6,8 @@ import {
     buildInParallel,
     copyIndexHtml,
     copyPublicFolder,
+    copyRRWebWorkerFiles,
+    copySnappyWASMFile,
     createHashlessEntrypoints,
     isDev,
     startDevServer,
@@ -15,6 +17,9 @@ export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
+copySnappyWASMFile(__dirname)
+copyRRWebWorkerFiles(__dirname)
+
 writeIndexHtml()
 writeExporterHtml()
 await import('./build-products.mjs')
@@ -81,6 +86,7 @@ await buildInParallel(
                             'lib/hog',
                             'scenes/activity/explore/EventDetails',
                             'scenes/web-analytics/WebAnalyticsDashboard',
+                            'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts',
                         ]
 
                         // Patterns to match for denying imports
@@ -122,8 +128,8 @@ await buildInParallel(
                                                 args.path
                                             )});
                                         }
-                                        return function() { 
-                                            return {} 
+                                        return function() {
+                                            return {}
                                         }
                                     }
                                 });

@@ -41,6 +41,7 @@ TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateTyp
 
 class TaxonomyAgentNode(
     Generic[TaxonomyStateType, TaxonomyPartialStateType],
+    TaxonomyReasoningNodeMixin,
     TaxonomyNodeBound,
     StateClassMixin,
     TaxonomyUpdateDispatcherNodeMixin,
@@ -203,8 +204,12 @@ class TaxonomyAgentToolsNode(
             return self._get_reset_state(ITERATION_LIMIT_PROMPT, "max_iterations", state)
 
         if tool_input and not output:
+            # Taxonomy is a separate graph, so it dispatches its own messages
+            reasoning_message = await self.get_reasoning_message(state)
+            if reasoning_message:
+                await self._write_message(reasoning_message)
             # Use the toolkit to handle tool execution
-            _, output = self._toolkit.handle_tools(tool_input.name, tool_input)
+            _, output = await self._toolkit.handle_tools(tool_input.name, tool_input)
 
         if output:
             tool_msg = LangchainToolMessage(

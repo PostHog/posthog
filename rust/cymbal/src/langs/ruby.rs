@@ -90,6 +90,8 @@ impl From<&RawRubyFrame> for Frame {
             context: raw.get_context(),
             release: None,
             synthetic: raw.meta.synthetic,
+            suspicious: false,
+            module: None,
         }
     }
 }

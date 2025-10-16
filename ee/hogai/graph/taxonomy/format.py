@@ -7,13 +7,18 @@ import yaml
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
-def format_property_values(sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False) -> str:
+def format_property_values(
+    property_name: str, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
+) -> str:
     if len(sample_values) == 0 or sample_count == 0:
-        return f"The property does not have any values in the taxonomy."
+        data = {
+            "property": property_name,
+            "values": [],
+            "message": f"The property does not have any values in the taxonomy.",
+        }
+        return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
-    # Add quotes to the String type, so the LLM can easily infer a type.
-    # Strings like "true" or "10" are interpreted as booleans or numbers without quotes, so the schema generation fails.
-    # Remove the floating point the value is an integer.
+    # Format values for YAML
     formatted_sample_values: list[str] = []
     for value in sample_values:
         if format_as_string:
@@ -22,16 +27,14 @@ def format_property_values(sample_values: list, sample_count: Optional[int] = 0,
             formatted_sample_values.append(str(int(value)))
         else:
             formatted_sample_values.append(str(value))
-    prop_values = ", ".join(formatted_sample_values)
 
-    # If there wasn't an exact match with the user's search, we provide a hint that LLM can use an arbitrary value.
     if sample_count is None:
-        return f"{prop_values} and many more distinct values."
+        formatted_sample_values.append("and many more distinct values")
     elif sample_count > len(sample_values):
-        diff = sample_count - len(sample_values)
-        return f"{prop_values} and {diff} more distinct value{'' if diff == 1 else 's'}."
-
-    return prop_values
+        remaining = sample_count - len(sample_values)
+        formatted_sample_values.append(f"and {remaining} more distinct values")
+    data = {"property": property_name, "values": formatted_sample_values}
+    return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
 
 def format_properties_xml(children: list[tuple[str, str | None, str | None]]):

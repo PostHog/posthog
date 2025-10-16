@@ -28,7 +28,7 @@ jobs:
         name: Automerge if requested
         runs-on: ubuntu-24.04
         env:
-            IS_POSTHOG_BOT_AVAILABLE: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN != '' }}
+            IS_POSTHOG_BOT_AVAILABLE: ${{ secrets.POSTHOG_BOT_PAT != '' }}
         steps:
             # must have an id so subsequent steps can use the output
             - id: automergeStep
@@ -36,7 +36,7 @@ jobs:
               if: env.IS_POSTHOG_BOT_AVAILABLE == 'true'
               uses: pascalgn/automerge-action@d1203c0bf94a827b991e5de69d662e9163304fa0 # v0.16.3
               env:
-                  GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_PAT }}
 
             # the automerge documentation claims it adds these outputs but we don't get them
             # maybe because it was a fake PR 🤷

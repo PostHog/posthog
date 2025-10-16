@@ -20,6 +20,7 @@ type MetricOption = {
     metric: ExperimentMetric
     uuid: string
     isSharedMetric: boolean
+    name: string | undefined
 }
 
 export const MetricSelectorStep = ({
@@ -45,6 +46,7 @@ export const MetricSelectorStep = ({
                 metric: metric as ExperimentMetric,
                 uuid: metric.uuid!,
                 isSharedMetric: false,
+                name: undefined,
             })),
         // Shared metrics with primary type
         ...experiment.saved_metrics
@@ -61,6 +63,7 @@ export const MetricSelectorStep = ({
                         metric: sharedMetric.query as ExperimentMetric,
                         uuid: sharedMetric.query.uuid,
                         isSharedMetric: true,
+                        name: sharedMetric.name,
                     }
                 }
                 return null
@@ -81,7 +84,11 @@ export const MetricSelectorStep = ({
                         label: (
                             <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
                                 <span className="mr-1">{index + 1}.</span>
-                                <MetricTitle metric={option.metric} />
+                                {option.name ? (
+                                    <span className="max-w-56 truncate">{option.name}</span>
+                                ) : (
+                                    <MetricTitle metric={option.metric} />
+                                )}
                                 {option.isSharedMetric && (
                                     <span className="ml-1">
                                         <LemonTag>Shared</LemonTag>

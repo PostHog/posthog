@@ -25,7 +25,7 @@ Each section should be concise and use bullet points for clarity. Do not repeat 
 Spend the most time on product details.
 
 IMPORTANT: DO NOT INCLUDE CITATION TOKENS. CITATION LINKS ARE PROHIBITED.
-DO NOT OFFER THE USER ANY INSTRUCTIONS. AVOID FOLLOW-UP SUGGESTIONS AND PROPOSALS.
+IMPORTANT: DO NOT OFFER THE USER ANY INSTRUCTIONS. DO NOT OFFER FOLLOW-UP SUGGESTIONS OR PROPOSALS.
 
 If the given domain doesn't exist OR no relevant data was found, then answer a single sentence:
 "{SCRAPING_TERMINATION_MESSAGE}"
@@ -34,11 +34,13 @@ Do NOT make speculative or assumptive statements, just output that sentence 1:1 
 """.strip()
 
 INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT = """
-Provide an analysis of my product based on the following domain(s): {{domains}}.
+Provide an analysis of my product based on the following domain(s): {{{domains}}}.
+Search them individually.
 """.strip()
 
 INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT = """
-Provide an analysis of my product based on the following app bundle ID(s): {{#bundle_ids}}{{.}}{{^last}}, {{/last}}{{/bundle_ids}}
+Provide an analysis of my product based on the following app bundle ID(s): {{{bundle_ids}}}
+Search them individually.
 """.strip()
 
 

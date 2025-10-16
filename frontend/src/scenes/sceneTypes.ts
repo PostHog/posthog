@@ -70,8 +70,6 @@ export enum Scene {
     Login = 'Login',
     Login2FA = 'Login2FA',
     Max = 'Max',
-    Messaging = 'Messaging',
-    MessagingCampaign = 'MessagingCampaign',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     NewTab = 'NewTab',
     Notebook = 'Notebook',
@@ -119,6 +117,8 @@ export enum Scene {
     WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
+    Workflow = 'Workflow',
+    Workflows = 'Workflows',
     EmbeddedAnalytics = 'EmbeddedAnalytics',
     QueryEndpoints = 'QueryEndpoints',
     Wizard = 'Wizard',
@@ -217,6 +217,10 @@ export interface SceneConfig {
 
 // Map scenes to their access control resource types
 export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
+    // Actions
+    [Scene.Action]: AccessControlResourceType.Action,
+    [Scene.Actions]: AccessControlResourceType.Action,
+
     // Feature flags
     [Scene.FeatureFlag]: AccessControlResourceType.FeatureFlag,
     [Scene.FeatureFlags]: AccessControlResourceType.FeatureFlag,
@@ -240,6 +244,17 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Revenue analytics
     [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
+
+    // Web Analytics
+    [Scene.WebAnalytics]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsMarketing]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsWebVitals]: AccessControlResourceType.WebAnalytics,
+
+    // Surveys
+    [Scene.Survey]: AccessControlResourceType.Survey,
+    [Scene.Surveys]: AccessControlResourceType.Survey,
+    [Scene.SurveyTemplates]: AccessControlResourceType.Survey,
 
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,

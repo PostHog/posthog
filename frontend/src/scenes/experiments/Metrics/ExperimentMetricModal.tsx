@@ -6,20 +6,17 @@ import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
-import { experimentLogic } from '../experimentLogic'
 import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
 
 export function ExperimentMetricModal({
-    experimentId,
+    experiment,
     onSave,
     onDelete,
 }: {
-    experimentId: Experiment['id']
+    experiment: Experiment
     onSave: (metric: ExperimentMetric, context: MetricContext) => void
     onDelete: (metric: ExperimentMetric, context: MetricContext) => void
 }): JSX.Element | null {
-    const { experiment, experimentLoading } = useValues(experimentLogic({ experimentId }))
-
     const { isModalOpen, metric, context, isCreateMode, isEditMode } = useValues(experimentMetricModalLogic)
     const { closeExperimentMetricModal, setMetric: setModalMetric } = useActions(experimentMetricModalLogic)
 
@@ -71,7 +68,6 @@ export function ExperimentMetricModal({
                             form="edit-experiment-metric-form"
                             onClick={() => onSave(metric, context)}
                             type="primary"
-                            loading={experimentLoading}
                             data-attr="save-experiment-metric"
                         >
                             {isCreateMode ? 'Create' : 'Save'}

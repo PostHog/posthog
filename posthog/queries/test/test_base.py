@@ -32,12 +32,12 @@ class TestBase(APIBaseTest):
         compared_filter = determine_compared_filter(filter)
 
         self.assertIsInstance(compared_filter, PathFilter)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "date_from": "2020-05-16T00:00:00+00:00",
                 "date_to": "2020-05-22T23:59:59.999999+00:00",
-            },
-            compared_filter.to_dict(),
+            }.items(),
+            compared_filter.to_dict().items(),
         )
 
 

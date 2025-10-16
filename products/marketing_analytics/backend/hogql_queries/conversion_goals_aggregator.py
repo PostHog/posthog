@@ -2,6 +2,8 @@ from posthog.hogql import ast
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
+
 from .conversion_goal_processor import ConversionGoalProcessor
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
@@ -106,7 +108,7 @@ class ConversionGoalsAggregator:
             group_by=[ast.Field(chain=[field]) for field in self.config.group_by_fields],
         )
 
-        return ast.CTE(name="unified_conversion_goals", expr=final_query, cte_type="subquery")
+        return ast.CTE(name=UNIFIED_CONVERSION_GOALS_CTE_ALIAS, expr=final_query, cte_type="subquery")
 
     def get_conversion_goal_columns(self) -> dict[str, ast.Alias]:
         """Get the column mappings for accessing conversion goals from the unified CTE"""

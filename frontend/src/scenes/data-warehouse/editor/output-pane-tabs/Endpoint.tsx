@@ -14,6 +14,7 @@ import {
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { slugify } from 'lib/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
@@ -92,8 +93,8 @@ function generateVariablesJson(variables: Variable[]): string {
         .join('\n')
 }
 
-function getNamedQueryEndpointUrl(projectId: number | undefined, endpointName: string | null): string {
-    return `${window.location.origin}/api/projects/${projectId}/named_query/d/${endpointName || 'your-query-name'}`
+function getEndpointUrl(projectId: number | undefined, endpointName: string | null): string {
+    return `${window.location.origin}/api/projects/${projectId}/endpoints/${slugify(endpointName || 'your-endpoint-name')}`
 }
 
 function generateTerminalExample(
@@ -101,7 +102,7 @@ function generateTerminalExample(
     variables: Variable[],
     projectId: number | undefined
 ): string {
-    return `curl -X POST ${getNamedQueryEndpointUrl(projectId, endpointName)} \\
+    return `curl -X POST ${getEndpointUrl(projectId, endpointName)} \\
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -119,7 +120,7 @@ function generatePythonExample(
     return `import requests
 import json
 
-url = "${getNamedQueryEndpointUrl(projectId, endpointName)}"
+url = "${getEndpointUrl(projectId, endpointName)}"
 
 headers = {
     'Content-Type': 'application/json',
@@ -143,7 +144,7 @@ function generateNodeExample(
 ): string {
     return `const fetch = require('node-fetch');
 
-const url = '${getNamedQueryEndpointUrl(projectId, endpointName)}';
+const url = '${getEndpointUrl(projectId, endpointName)}';
 
 const headers = {
     'Content-Type': 'application/json',

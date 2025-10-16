@@ -30,7 +30,7 @@ export const manifest: ProductManifest = {
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
             href: urls.logs(),
-            flag: FEATURE_FLAGS.LOGS,
+            flag: FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS,
             tags: ['alpha'],
         },
     ],

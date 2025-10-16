@@ -131,6 +131,7 @@ describe('PersonCreateService', () => {
                 {
                     personId: 'test-person-id',
                     distinctId: 'test-distinct-id',
+                    eventUuid: creatorEventUuid,
                     teamId: teamId,
                     message: 'Person properties exceeds size limit and was rejected',
                 }

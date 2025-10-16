@@ -5,6 +5,7 @@ from posthog.temporal.messaging.behavioral_cohorts_workflow import (
 )
 from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import (
     BehavioralCohortsCoordinatorWorkflow,
+    check_running_workflows_activity,
     get_conditions_count_activity,
 )
 
@@ -16,4 +17,5 @@ ACTIVITIES = [
     get_unique_conditions_page_activity,
     process_condition_batch_activity,
     get_conditions_count_activity,
+    check_running_workflows_activity,
 ]

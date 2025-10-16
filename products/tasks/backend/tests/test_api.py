@@ -420,6 +420,40 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(len(data["progress_updates"]), 0)
         self.assertIn("server_time", data)
 
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_triggers_workflow(self, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        mock_workflow.assert_called_once_with(
+            task_id=str(task.id),
+            team_id=task.team.id,
+            user_id=self.user.id,
+        )
+
+        data = response.json()
+        self.assertEqual(data["id"], str(task.id))
+        self.assertEqual(data["title"], task.title)
+
+    def test_run_endpoint_without_workflow_fails(self):
+        workflow = self.create_workflow()
+        stage = workflow.stages.first()
+
+        task = Task.objects.create(
+            team=self.team,
+            title="Task without workflow",
+            description="Test",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            current_stage=stage,
+            position=0,
+        )
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Task has no workflow configured")
+
 
 class TestTaskProgressAPI(BaseTaskAPITest):
     def test_progress_with_no_progress_records(self):
@@ -585,6 +619,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("/api/projects/@current/tasks/bulk_reorder/", "POST"),
             (f"/api/projects/@current/tasks/{task.id}/progress/", "GET"),
             (f"/api/projects/@current/tasks/{task.id}/progress_stream/", "GET"),
+            (f"/api/projects/@current/tasks/{task.id}/run/", "POST"),
         ]
 
         for url, method in endpoints:
@@ -734,16 +769,19 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             ("task:read", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", False),
             ("task:read", "POST", "/api/projects/@current/workflows/", False),
             ("task:read", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", False),
+            ("task:read", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", False),
             ("task:write", "GET", "/api/projects/@current/tasks/", True),
             ("task:write", "POST", "/api/projects/@current/tasks/", True),
             ("task:write", "PATCH", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:write", "DELETE", f"/api/projects/@current/tasks/{{task_id}}/", True),
             ("task:write", "POST", "/api/projects/@current/workflows/", True),
             ("task:write", "PATCH", f"/api/projects/@current/workflows/{{workflow_id}}/", True),
+            ("task:write", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
             ("other_scope:read", "GET", "/api/projects/@current/tasks/", False),
             ("other_scope:write", "POST", "/api/projects/@current/tasks/", False),
             ("*", "GET", "/api/projects/@current/tasks/", True),
             ("*", "POST", "/api/projects/@current/tasks/", True),
+            ("*", "POST", f"/api/projects/@current/tasks/{{task_id}}/run/", True),
         ]
     )
     def test_scoped_api_key_permissions(self, scope, method, url_template, should_have_access):
@@ -764,13 +802,13 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
         self.client.force_authenticate(None)
 
         data = {}
-        if method == "POST" and "tasks" in url:
+        if method == "POST" and url == "/api/projects/@current/tasks/":
             data = {
                 "title": "New Task",
                 "description": "Description",
                 "origin_product": Task.OriginProduct.USER_CREATED,
             }
-        elif method == "POST" and "workflows" in url:
+        elif method == "POST" and "/workflows/" in url and not url.endswith("/"):
             data = {
                 "name": "New Workflow",
                 "description": "Description",

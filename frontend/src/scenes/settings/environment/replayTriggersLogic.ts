@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { forms } from 'kea-forms'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -7,6 +8,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SessionReplayUrlTriggerConfig, TeamPublicType, TeamType } from '~/types'
 
 import type { replayTriggersLogicType } from './replayTriggersLogicType'
+
+export type ReplayPlatform = 'web' | 'mobile'
 
 const NEW_URL_TRIGGER = { url: '', matching: 'regex' }
 
@@ -46,6 +49,7 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         cancelProposingUrlBlocklist: true,
         setEventTriggerConfig: (eventTriggerConfig: string[]) => ({ eventTriggerConfig }),
         updateEventTriggerConfig: (eventTriggerConfig: string[]) => ({ eventTriggerConfig }),
+        selectPlatform: (platform: ReplayPlatform) => ({ platform }),
     }),
     connect(() => ({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] })),
     reducers({
@@ -114,6 +118,12 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                     eventTriggerConfig?.filter(isStringWithLength) ?? null,
                 updateEventTriggerConfig: (_, { eventTriggerConfig }) =>
                     eventTriggerConfig?.filter(isStringWithLength) ?? null,
+            },
+        ],
+        selectedPlatform: [
+            'web' as ReplayPlatform,
+            {
+                selectPlatform: (_, { platform }) => platform,
             },
         ],
     }),
@@ -245,6 +255,23 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                 await teamLogic.asyncActions.updateCurrentTeam({
                     session_recording_event_trigger_config: eventTriggerConfig,
                 })
+            }
+        },
+    })),
+    actionToUrl(() => ({
+        selectPlatform: ({ platform }) => {
+            return [
+                router.values.location.pathname,
+                router.values.searchParams,
+                { ...router.values.hashParams, selectedPlatform: platform },
+            ]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        ['*/replay/settings']: (_, __, hashParams) => {
+            const platformFromHash = hashParams.selectedPlatform as ReplayPlatform | undefined
+            if (platformFromHash && platformFromHash !== values.selectedPlatform) {
+                actions.selectPlatform(platformFromHash)
             }
         },
     })),

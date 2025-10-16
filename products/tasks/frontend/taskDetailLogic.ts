@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -16,6 +16,7 @@ export const taskDetailLogic = kea<taskDetailLogicType>([
 
     actions({
         updateTask: (taskId: string, updates: Partial<Task>) => ({ taskId, updates }),
+        runTask: (taskId: string) => ({ taskId }),
     }),
 
     loaders(({ props }) => ({
@@ -26,6 +27,10 @@ export const taskDetailLogic = kea<taskDetailLogicType>([
             },
             updateTask: async ({ taskId, updates }: { taskId: string; updates: Partial<Task> }) => {
                 const response = await api.tasks.update(taskId, updates)
+                return response as Task
+            },
+            runTask: async ({ taskId }: { taskId: string }) => {
+                const response = await api.tasks.run(taskId)
                 return response as Task
             },
         },
@@ -40,12 +45,6 @@ export const taskDetailLogic = kea<taskDetailLogicType>([
     selectors({
         taskId: [() => [(_, props) => props.taskId], (taskId) => taskId],
     }),
-
-    listeners(({ actions }) => ({
-        updateTask: async ({ taskId, updates }) => {
-            actions.updateTask(taskId, updates)
-        },
-    })),
 
     afterMount(({ actions }) => {
         actions.loadTask()

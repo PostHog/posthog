@@ -12,10 +12,9 @@ from langchain_core.messages import (
     convert_to_messages,
     convert_to_openai_messages,
 )
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.types import AssistantState
@@ -61,6 +60,12 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         langchain_messages = convert_to_messages(
             convert_to_openai_messages(super()._construct_messages(messages, window_start_id, tool_calls_count))
         )
+
+        # Inkeep doesn't support AIMessages without content.
+        # Add some content that won't reflect in the final response.
+        for msg in langchain_messages:
+            if isinstance(msg, LangchainAIMessage) and not msg.content:
+                msg.content = "..."  # Patch until Inkeep supports empty AI messages
 
         # Only keep the messages up to the last human or system message,
         # as Inkeep doesn't like the last message being an AI one

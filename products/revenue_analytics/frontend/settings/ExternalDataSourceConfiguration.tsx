@@ -13,7 +13,7 @@ import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { AccessControlResourceType, ExternalDataSource } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
@@ -47,7 +47,10 @@ export function ExternalDataSourceConfiguration({
             description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_revenue_last_30_days virtual fields."
         >
             <div className={cn('flex flex-col items-end w-full')}>
-                <AccessControlAction resourceType={AccessControlResourceType.RevenueAnalytics} minAccessLevel="editor">
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.RevenueAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
                     <LemonButton
                         className="my-1"
                         ref={buttonRef}
@@ -91,7 +94,7 @@ export function ExternalDataSourceConfiguration({
                                     </Link>
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.RevenueAnalytics}
-                                        minAccessLevel="editor"
+                                        minAccessLevel={AccessControlLevel.Editor}
                                     >
                                         <LemonSwitch
                                             checked={source.revenue_analytics_config.enabled}
@@ -135,7 +138,7 @@ export function ExternalDataSourceConfiguration({
 
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.RevenueAnalytics}
-                                        minAccessLevel="editor"
+                                        minAccessLevel={AccessControlLevel.Editor}
                                     >
                                         {({ disabledReason }) =>
                                             join && source.revenue_analytics_config.enabled ? (
@@ -219,7 +222,7 @@ export function ExternalDataSourceConfiguration({
 
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.RevenueAnalytics}
-                                        minAccessLevel="editor"
+                                        minAccessLevel={AccessControlLevel.Editor}
                                     >
                                         {({ disabledReason }) =>
                                             join && source.revenue_analytics_config.enabled ? (

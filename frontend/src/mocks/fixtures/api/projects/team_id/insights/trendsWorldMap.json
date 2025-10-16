@@ -161,14 +161,7 @@
                 }
             ],
             "trendsFilter": {
-                "display": "WorldMap",
-                "resultCustomizationBy": "position",
-                "resultCustomizations": {
-                    "0": {
-                        "assignmentBy": "position",
-                        "hidden": true
-                    }
-                }
+                "display": "WorldMap"
             },
             "version": 2
         },

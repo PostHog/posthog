@@ -94,8 +94,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
             self.assertEqual(len(next_state.messages), 1)
+            self.assertIsInstance(next_state.messages[0], AssistantMessage)
             assistant_message = next_state.messages[0]
-            self.assertIsInstance(assistant_message, AssistantMessage)
             assert isinstance(assistant_message, AssistantMessage)
             self.assertEqual(assistant_message.content, content)
             self.assertIsNotNone(assistant_message.id)
@@ -799,14 +799,12 @@ class TestRootNodeTools(BaseTest):
             ]
         )
 
-        with patch("ee.hogai.tool.get_contextual_tool_class") as mock_tools:
-            # Mock the navigate tool
-            mock_navigate_tool = AsyncMock()
-            mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
-                content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
-            )
-            mock_tools.return_value = lambda *args, **kwargs: mock_navigate_tool
+        mock_navigate_tool = AsyncMock()
+        mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
+            content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
+        )
 
+        with mock_contextual_tool(mock_navigate_tool):
             # The navigate tool call should raise NodeInterrupt
             with self.assertRaises(NodeInterrupt) as cm:
                 await node.arun(state, {"configurable": {"contextual_tools": {"navigate": {}}}})

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
@@ -68,6 +68,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
+from ee.hogai.utils.types.base import ReplaceMessages
 from ee.models.assistant import Conversation, CoreMemory
 
 from ..assistant import Assistant
@@ -131,6 +132,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             team=self.team,
             properties={"$host": "us.posthog.com"},
         )
+        await sync_to_async(flush_persons_and_events)()
 
     async def _run_assistant_graph(
         self,
@@ -152,7 +154,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         assistant = Assistant.create(
             self.team,
             conversation or self.conversation,
-            new_message=HumanMessage(content=message or "Hello", ui_context=ui_context),
+            new_message=HumanMessage(content=message, ui_context=ui_context) if message is not None else None,
             user=self.user,
             is_new_conversation=is_new_conversation,
             initial_state=tool_call_partial_state,
@@ -193,9 +195,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 msg_dict = (
                     expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
                 )
-                self.assertDictContainsSubset(
-                    msg_dict,
-                    cast(BaseModel, output_msg).model_dump(exclude_none=True),
+                self.assertLessEqual(
+                    msg_dict.items(),
+                    cast(BaseModel, output_msg).model_dump(exclude_none=True).items(),
                     f"Message content mismatch at index {i}",
                 )
             else:
@@ -210,7 +212,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 else expected_message
             )
             msg_dict = message.model_dump(exclude_none=True) if isinstance(message, BaseModel) else message
-            self.assertDictContainsSubset(expected_msg_dict, msg_dict, f"Message content mismatch at index {i}")
+            self.assertLessEqual(expected_msg_dict.items(), msg_dict.items(), f"Message content mismatch at index {i}")
 
     async def _test_human_in_the_loop(self, insight_type: Literal["trends", "funnel", "retention"]):
         graph = (
@@ -1401,7 +1403,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile(),
             conversation=self.conversation,
             is_new_conversation=True,
-            message=None,
+            message="Hello",
             mode=AssistantMode.ASSISTANT,
             contextual_tools={"create_and_query_insight": {"current_query": "query"}},
         )
@@ -1451,6 +1453,65 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
         state = cast(AssistantState, state)
         self.assertStateMessagesEqual(cast(list[Any], state.messages), expected_state_messages)
+
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    async def test_continue_generation_without_new_message(self, root_mock):
+        """Test that the assistant can continue generation without a new message (askMax(null) scenario)"""
+        root_mock.return_value = FakeChatOpenAI(
+            responses=[messages.AIMessage(content="Based on the previous analysis, I can provide insights.")]
+        )
+
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root({"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END})
+            .compile()
+        )
+
+        # First, set up the conversation with existing messages and tool call result
+        config: RunnableConfig = {"configurable": {"thread_id": self.conversation.id}}
+        await graph.aupdate_state(
+            config,
+            {
+                "messages": [
+                    HumanMessage(content="Analyze trends"),
+                    AssistantMessage(
+                        content="Let me analyze",
+                        tool_calls=[
+                            AssistantToolCall(
+                                id="tool-1",
+                                name="create_and_query_insight",
+                                args={"query_description": "test"},
+                            )
+                        ],
+                    ),
+                    AssistantToolCallMessage(
+                        content="Tool execution complete",
+                        tool_call_id="tool-1",
+                    ),
+                ]
+            },
+        )
+
+        # Continue without a new user message (simulates askMax(null))
+        output, _ = await self._run_assistant_graph(
+            test_graph=graph,
+            conversation=self.conversation,
+            is_new_conversation=False,
+            message=None,  # This simulates askMax(null)
+            mode=AssistantMode.ASSISTANT,
+        )
+
+        # Verify the assistant continued generation with the expected message
+        assistant_messages = [msg for _, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertTrue(len(assistant_messages) > 0, "Expected at least one assistant message")
+        # The root node should have generated the continuation message we mocked
+        final_message = assistant_messages[-1]
+        self.assertEqual(
+            final_message.content,
+            "Based on the previous analysis, I can provide insights.",
+            "Expected the root node to generate continuation message",
+        )
 
     # Tests for ainvoke method
     async def test_ainvoke_basic_functionality(self):
@@ -1855,6 +1916,140 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         graph = (
             AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, node)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+            .compile()
+        )
+
+        output, _ = await self._run_assistant_graph(graph, message="First run", conversation=self.conversation)
+        # Filter for assistant messages only, as the test is about tracking assistant message IDs
+        assistant_output = [(event_type, msg) for event_type, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertEqual(len(assistant_output), 1)
+        self.assertEqual(cast(AssistantMessage, assistant_output[0][1]).id, message_id_1)
+
+        output, _ = await self._run_assistant_graph(graph, message="Second run", conversation=self.conversation)
+        # Filter for assistant messages only, as the test is about tracking assistant message IDs
+        assistant_output = [(event_type, msg) for event_type, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertEqual(len(assistant_output), 1)
+        self.assertEqual(cast(AssistantMessage, assistant_output[0][1]).id, message_id_2)
+
+    async def test_messages_without_id_are_yielded(self):
+        """Test that messages without ID are always yielded."""
+
+        class MessageWithoutIdNode:
+            def __init__(self):
+                self.call_count = 0
+
+            def __call__(self, state):
+                self.call_count += 1
+                # Return message without ID - should always be yielded
+                return {
+                    "messages": [
+                        AssistantMessage(content=f"Message {self.call_count} without ID"),
+                        AssistantMessage(content=f"Message {self.call_count} without ID"),
+                    ]
+                }
+
+        node = MessageWithoutIdNode()
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_node(AssistantNodeName.ROOT, node)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+            .compile()
+        )
+
+        # Run the assistant multiple times
+        output1, _ = await self._run_assistant_graph(graph, message="First run", conversation=self.conversation)
+        output2, _ = await self._run_assistant_graph(graph, message="Second run", conversation=self.conversation)
+
+        # Both runs should yield their messages (human + assistant message each)
+        self.assertEqual(len(output1), 3)  # Human message + AI message + AI message
+        self.assertEqual(len(output2), 3)  # Human message + AI message + AI message
+
+    async def test_messages_with_id_are_deduplicated(self):
+        """Test that messages with ID are deduplicated during streaming."""
+        message_id = str(uuid4())
+
+        class DuplicateMessageNode:
+            def __init__(self):
+                self.call_count = 0
+
+            def __call__(self, state):
+                self.call_count += 1
+                # Always return the same message with same ID
+                return {
+                    "messages": [
+                        AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
+                        AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
+                    ]
+                }
+
+        node = DuplicateMessageNode()
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_node(AssistantNodeName.ROOT, node)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+            .compile()
+        )
+
+        # Create assistant and manually test the streaming behavior
+        assistant = Assistant.create(
+            self.team,
+            self.conversation,
+            new_message=HumanMessage(content="Test message"),
+            user=self.user,
+            is_new_conversation=False,
+        )
+        assistant._graph = AssistantCompiledStateGraph(graph, {})
+
+        # Collect all streamed messages
+        streamed_messages = []
+        async for event_type, message in assistant.astream(stream_first_message=False):
+            if event_type == AssistantEventType.MESSAGE:
+                streamed_messages.append(message)
+
+        # Should only get one message despite the node being called multiple times
+        assistant_messages = [
+            msg for msg in streamed_messages if isinstance(msg, AssistantMessage) and msg.id == message_id
+        ]
+        self.assertEqual(len(assistant_messages), 1, "Message with same ID should only be yielded once")
+
+        # Verify the message ID is in the streamed_update_ids set
+        self.assertIn(message_id, assistant._streamed_update_ids)
+
+    async def test_init_or_update_state_adds_existing_message_ids_to_streamed_set(self):
+        """Test that _init_or_update_state adds existing message IDs to _streamed_update_ids."""
+        # Create messages with IDs that should be tracked
+        message_id_1 = str(uuid4())
+        message_id_2 = str(uuid4())
+        call_count = [0]
+
+        # Create a simple graph that returns messages with IDs
+        def create_messages_with_ids(_):
+            result = None
+            if call_count[0] == 0:
+                result = PartialAssistantState(
+                    messages=[
+                        AssistantMessage(id=message_id_1, content="Message 1"),
+                    ]
+                )
+            else:
+                result = PartialAssistantState(
+                    messages=ReplaceMessages(
+                        [
+                            AssistantMessage(id=message_id_1, content="Message 1"),
+                            AssistantMessage(id=message_id_2, content="Message 2"),
+                        ]
+                    )
+                )
+            call_count[0] += 1
+            return result
+
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_node(AssistantNodeName.ROOT, create_messages_with_ids)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()

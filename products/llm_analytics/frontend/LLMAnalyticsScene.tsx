@@ -28,6 +28,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -529,10 +530,10 @@ export function LLMAnalyticsScene(): JSX.Element {
             <SceneContent>
                 {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
                 <SceneTitleSection
-                    name="LLM Analytics"
-                    description="Analyze and understand your LLM usage and performance."
+                    name={sceneConfigurations['LLMAnalytics'].name}
+                    description={sceneConfigurations['LLMAnalytics'].description}
                     resourceType={{
-                        type: 'llm_analytics',
+                        type: sceneConfigurations['LLMAnalytics'].iconType || 'default_icon_type',
                     }}
                     actions={
                         <>

@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -7,12 +7,14 @@ import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tr
 
 import api from 'lib/api'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange, LogsQuery } from '~/queries/schema/schema-general'
+import { DateRange, LogMessage, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import { PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
+import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
@@ -94,6 +96,9 @@ export const logsLogic = kea<logsLogicType>([
         }),
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
+        zoomDateRange: (multiplier: number) => ({ multiplier }),
+        setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
+        setTimestampFormat: (timestampFormat: 'absolute' | 'relative') => ({ timestampFormat }),
     }),
 
     reducers({
@@ -143,6 +148,13 @@ export const logsLogic = kea<logsLogicType>([
             true as boolean,
             {
                 setWrapBody: (_, { wrapBody }) => wrapBody,
+            },
+        ],
+        timestampFormat: [
+            'absolute' as 'absolute' | 'relative',
+            { persist: true },
+            {
+                setTimestampFormat: (_, { timestampFormat }) => timestampFormat,
             },
         ],
         logsAbortController: [
@@ -196,7 +208,7 @@ export const logsLogic = kea<logsLogicType>([
 
     loaders(({ values, actions }) => ({
         logs: [
-            [],
+            [] as LogMessage[],
             {
                 fetchLogs: async () => {
                     const logsController = new AbortController()
@@ -253,33 +265,94 @@ export const logsLogic = kea<logsLogicType>([
         ],
     })),
 
-    listeners(({ values, actions }) => {
-        return {
-            runQuery: async ({ debounce }, breakpoint) => {
-                if (debounce) {
-                    await breakpoint(debounce)
-                }
-                actions.fetchLogs()
-                actions.fetchSparkline()
+    selectors(() => ({
+        sparklineData: [
+            (s) => [s.sparkline],
+            (sparkline) => {
+                let lastTime = ''
+                let i = -1
+                const labels: string[] = []
+                const dates: string[] = []
+                const data = Object.entries(
+                    sparkline.reduce((accumulator, currentItem) => {
+                        if (currentItem.time !== lastTime) {
+                            labels.push(humanFriendlyDetailedTime(currentItem.time))
+                            dates.push(currentItem.time)
+                            lastTime = currentItem.time
+                            i++
+                        }
+                        const key = currentItem.level
+                        if (!accumulator[key]) {
+                            accumulator[key] = Array(sparkline.length)
+                        }
+                        accumulator[key][i] = currentItem.count
+                        return accumulator
+                    }, {})
+                )
+                    .map(([level, data]) => ({
+                        name: level,
+                        values: data as number[],
+                        color: {
+                            fatal: 'danger-dark',
+                            error: 'danger',
+                            warn: 'warning',
+                            info: 'brand-blue',
+                            debug: 'muted',
+                            trace: 'muted-alt',
+                        }[level],
+                    }))
+                    .filter((series) => series.values.reduce((a, b) => a + b) > 0)
+
+                return { data, labels, dates }
             },
-            cancelInProgressLogs: ({ logsAbortController }) => {
-                if (values.logsAbortController !== null) {
-                    values.logsAbortController.abort('new query started')
-                }
-                actions.setLogsAbortController(logsAbortController)
-            },
-            cancelInProgressSparkline: ({ sparklineAbortController }) => {
-                if (values.sparklineAbortController !== null) {
-                    values.sparklineAbortController.abort('new query started')
-                }
-                actions.setSparklineAbortController(sparklineAbortController)
-            },
-            toggleAttributeBreakdown: ({ key }) => {
-                const breakdowns = [...values.expandedAttributeBreaksdowns]
-                const index = breakdowns.indexOf(key)
-                index >= 0 ? breakdowns.splice(index, 1) : breakdowns.push(key)
-                actions.setExpandedAttributeBreaksdowns(breakdowns)
-            },
-        }
-    }),
+        ],
+    })),
+
+    listeners(({ values, actions }) => ({
+        runQuery: async ({ debounce }, breakpoint) => {
+            if (debounce) {
+                await breakpoint(debounce)
+            }
+            actions.fetchLogs()
+            actions.fetchSparkline()
+        },
+        cancelInProgressLogs: ({ logsAbortController }) => {
+            if (values.logsAbortController !== null) {
+                values.logsAbortController.abort('new query started')
+            }
+            actions.setLogsAbortController(logsAbortController)
+        },
+        cancelInProgressSparkline: ({ sparklineAbortController }) => {
+            if (values.sparklineAbortController !== null) {
+                values.sparklineAbortController.abort('new query started')
+            }
+            actions.setSparklineAbortController(sparklineAbortController)
+        },
+        toggleAttributeBreakdown: ({ key }) => {
+            const breakdowns = [...values.expandedAttributeBreaksdowns]
+            const index = breakdowns.indexOf(key)
+            index >= 0 ? breakdowns.splice(index, 1) : breakdowns.push(key)
+            actions.setExpandedAttributeBreaksdowns(breakdowns)
+        },
+        zoomDateRange: ({ multiplier }) => {
+            const newDateRange = zoomDateRange(values.dateRange, multiplier)
+            actions.setDateRange(newDateRange)
+        },
+        setDateRangeFromSparkline: ({ startIndex, endIndex }) => {
+            const dates = values.sparklineData.dates
+            const dateFrom = dates[startIndex]
+            const dateTo = dates[endIndex]
+
+            if (!dateFrom || !dateTo) {
+                return
+            }
+
+            // NOTE: I don't know how accurate this really is but its a good starting point
+            const newDateRange = {
+                date_from: dateFrom,
+                date_to: dateTo,
+            }
+            actions.setDateRange(newDateRange)
+        },
+    })),
 ])

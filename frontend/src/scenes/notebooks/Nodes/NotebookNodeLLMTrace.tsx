@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 
-import { BaseLLMAnalyticsTraces } from 'products/llm_analytics/frontend/LLMAnalyticsTracesScene'
+import { LLMAnalyticsTraces } from 'products/llm_analytics/frontend/LLMAnalyticsTracesScene'
 import { llmAnalyticsLogic } from 'products/llm_analytics/frontend/llmAnalyticsLogic'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
@@ -15,7 +15,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
         return null
     }
 
-    return <BaseLLMAnalyticsTraces logic={llmAnalyticsLogic({ personId })} />
+    return (
+        <BindLogic logic={llmAnalyticsLogic} props={{ personId }}>
+            <LLMAnalyticsTraces />
+        </BindLogic>
+    )
 }
 
 type NotebookNodeLLMTraceAttributes = {

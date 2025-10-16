@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { GatheringBatchPipeline } from './gathering-batch-pipeline'
-import { createNewBatchPipeline } from './helpers'
+import { createContext, createNewBatchPipeline } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
 
 // Mock batch processing pipeline for testing
@@ -83,7 +83,7 @@ describe('GatheringBatchPipeline', () => {
             const spy = jest.spyOn(subPipeline, 'feed')
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
 
-            const testBatch: BatchPipelineResultWithContext<string> = [{ result: ok('test'), context: context1 }]
+            const testBatch: BatchPipelineResultWithContext<string> = [createContext(ok('test'), context1)]
 
             gatherPipeline.feed(testBatch)
 
@@ -102,9 +102,9 @@ describe('GatheringBatchPipeline', () => {
 
         it('should gather all results from sub-pipeline in single call', async () => {
             const subPipeline = new MockBatchProcessingPipeline([
-                [{ result: ok('hello'), context: context1 }],
-                [{ result: ok('world'), context: context2 }],
-                [{ result: ok('test'), context: context3 }],
+                [createContext(ok('hello'), context1)],
+                [createContext(ok('world'), context2)],
+                [createContext(ok('test'), context3)],
             ])
 
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
@@ -113,9 +113,9 @@ describe('GatheringBatchPipeline', () => {
             const result2 = await gatherPipeline.next()
 
             expect(result).toEqual([
-                { result: ok('hello'), context: context1 },
-                { result: ok('world'), context: context2 },
-                { result: ok('test'), context: context3 },
+                createContext(ok('hello'), context1),
+                createContext(ok('world'), context2),
+                createContext(ok('test'), context3),
             ])
             expect(result2).toBeNull()
         })
@@ -126,9 +126,9 @@ describe('GatheringBatchPipeline', () => {
             const redirectResult = redirect<string>('test redirect', 'test-topic')
 
             const subPipeline = new MockBatchProcessingPipeline([
-                [{ result: dropResult, context: context1 }],
-                [{ result: dlqResult, context: context2 }],
-                [{ result: redirectResult, context: context3 }],
+                [createContext(dropResult, context1)],
+                [createContext(dlqResult, context2)],
+                [createContext(redirectResult, context3)],
             ])
 
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
@@ -137,9 +137,9 @@ describe('GatheringBatchPipeline', () => {
             const result2 = await gatherPipeline.next()
 
             expect(result).toEqual([
-                { result: dropResult, context: context1 },
-                { result: dlqResult, context: context2 },
-                { result: redirectResult, context: context3 },
+                createContext(dropResult, context1),
+                createContext(dlqResult, context2),
+                createContext(redirectResult, context3),
             ])
             expect(result2).toBeNull()
         })
@@ -148,9 +148,9 @@ describe('GatheringBatchPipeline', () => {
             const dropResult = drop<string>('test drop')
 
             const subPipeline = new MockBatchProcessingPipeline([
-                [{ result: ok('hello'), context: context1 }],
-                [{ result: dropResult, context: context2 }],
-                [{ result: ok('world'), context: context3 }],
+                [createContext(ok('hello'), context1)],
+                [createContext(dropResult, context2)],
+                [createContext(ok('world'), context3)],
             ])
 
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
@@ -159,9 +159,9 @@ describe('GatheringBatchPipeline', () => {
             const result2 = await gatherPipeline.next()
 
             expect(result).toEqual([
-                { result: ok('hello'), context: context1 },
-                { result: dropResult, context: context2 },
-                { result: ok('world'), context: context3 },
+                createContext(ok('hello'), context1),
+                createContext(dropResult, context2),
+                createContext(ok('world'), context3),
             ])
             expect(result2).toBeNull()
         })
@@ -169,9 +169,9 @@ describe('GatheringBatchPipeline', () => {
         it('should handle empty batches from sub-pipeline', async () => {
             const subPipeline = new MockBatchProcessingPipeline([
                 [], // Empty batch
-                [{ result: ok('hello'), context: context1 }],
+                [createContext(ok('hello'), context1)],
                 [], // Another empty batch
-                [{ result: ok('world'), context: context2 }],
+                [createContext(ok('world'), context2)],
             ])
 
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
@@ -179,10 +179,7 @@ describe('GatheringBatchPipeline', () => {
             const result = await gatherPipeline.next()
             const result2 = await gatherPipeline.next()
 
-            expect(result).toEqual([
-                { result: ok('hello'), context: context1 },
-                { result: ok('world'), context: context2 },
-            ])
+            expect(result).toEqual([createContext(ok('hello'), context1), createContext(ok('world'), context2)])
             expect(result2).toBeNull()
         })
 
@@ -200,9 +197,9 @@ describe('GatheringBatchPipeline', () => {
 
         it('should preserve order of results from sub-pipeline', async () => {
             const subPipeline = new MockBatchProcessingPipeline([
-                [{ result: ok('first'), context: context1 }],
-                [{ result: ok('second'), context: context2 }],
-                [{ result: ok('third'), context: context3 }],
+                [createContext(ok('first'), context1)],
+                [createContext(ok('second'), context2)],
+                [createContext(ok('third'), context3)],
             ])
 
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
@@ -210,16 +207,16 @@ describe('GatheringBatchPipeline', () => {
             const result = await gatherPipeline.next()
 
             expect(result).toEqual([
-                { result: ok('first'), context: context1 },
-                { result: ok('second'), context: context2 },
-                { result: ok('third'), context: context3 },
+                createContext(ok('first'), context1),
+                createContext(ok('second'), context2),
+                createContext(ok('third'), context3),
             ])
         })
 
         it('should handle large number of batches', async () => {
             const batches: BatchPipelineResultWithContext<string>[] = []
             for (let i = 0; i < 10; i++) {
-                batches.push([{ result: ok(`item${i}`), context: context1 }])
+                batches.push([createContext(ok(`item${i}`), context1)])
             }
 
             const subPipeline = new MockBatchProcessingPipeline(batches)
@@ -229,36 +226,33 @@ describe('GatheringBatchPipeline', () => {
             const result2 = await gatherPipeline.next()
 
             expect(result).toHaveLength(10)
-            expect(result![0]).toEqual({ result: ok('item0'), context: context1 })
-            expect(result![9]).toEqual({ result: ok('item9'), context: context1 })
+            expect(result![0]).toEqual(createContext(ok('item0'), context1))
+            expect(result![9]).toEqual(createContext(ok('item9'), context1))
             expect(result2).toBeNull()
         })
 
         it('should resume after returning null when more batches are fed', async () => {
             const subPipeline = new MockBatchProcessingPipeline([
-                [{ result: ok('first'), context: context1 }],
-                [{ result: ok('second'), context: context2 }],
+                [createContext(ok('first'), context1)],
+                [createContext(ok('second'), context2)],
             ])
 
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
 
             // First round: process initial batches
             const result1 = await gatherPipeline.next()
-            expect(result1).toEqual([
-                { result: ok('first'), context: context1 },
-                { result: ok('second'), context: context2 },
-            ])
+            expect(result1).toEqual([createContext(ok('first'), context1), createContext(ok('second'), context2)])
 
             // Should return null when exhausted
             const result2 = await gatherPipeline.next()
             expect(result2).toBeNull()
 
             // Feed more batches
-            subPipeline.feed([{ result: ok('third'), context: context3 }])
+            subPipeline.feed([createContext(ok('third'), context3)])
 
             // Should resume processing
             const result3 = await gatherPipeline.next()
-            expect(result3).toEqual([{ result: ok('third'), context: context3 }])
+            expect(result3).toEqual([createContext(ok('third'), context3)])
 
             // Should return null again
             const result4 = await gatherPipeline.next()

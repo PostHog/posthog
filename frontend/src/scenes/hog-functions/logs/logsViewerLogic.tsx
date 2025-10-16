@@ -490,8 +490,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     }),
     listeners(({ actions, cache, values }) => ({
         loadLogs: () => {
-            clearTimeout(cache.pollingTimeout)
-
             if (values.isGrouped) {
                 actions.loadGroupedLogs()
             } else {
@@ -516,8 +514,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         loadGroupedLogsSuccess: () => actions.scheduleLoadNewerLogs(),
         loadUngroupedLogsSuccess: () => actions.scheduleLoadNewerLogs(),
         scheduleLoadNewerLogs: () => {
-            clearTimeout(cache.pollingTimeout)
-            cache.pollingTimeout = setTimeout(() => actions.loadNewerLogs(), POLLING_INTERVAL)
+            cache.disposables.add(() => {
+                const timeoutId = setTimeout(() => actions.loadNewerLogs(), POLLING_INTERVAL)
+                return () => clearTimeout(timeoutId)
+            }, 'pollingTimeout')
         },
 
         revealHiddenLogs: () => {
@@ -541,8 +541,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     afterMount(({ actions }) => {
         actions.loadLogs()
     }),
-    beforeUnmount(({ cache }) => {
-        clearInterval(cache.pollingTimeout)
+    beforeUnmount(() => {
+        // Disposables handle cleanup automatically
     }),
     actionToUrl(({ values }) => {
         const syncProperties = (

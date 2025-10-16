@@ -7,6 +7,17 @@ import { LemonButton, LemonCheckbox, LemonSwitch, LemonTag } from '@posthog/lemo
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { NotificationSettings } from '~/types'
+
+type BooleanNotificationSettings = Omit<NotificationSettings, 'project_weekly_digest_disabled'>
+
+const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
+    plugin_disabled: true,
+    error_tracking_issue_assigned: true,
+    discussions_mentioned: true,
+    all_weekly_digest_disabled: false,
+}
+
 export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
@@ -14,7 +25,6 @@ export function UpdateEmailPreferences(): JSX.Element {
 
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const [weeklyDigestProjectsExpanded, setWeeklyDigestProjectsExpanded] = useState(weeklyDigestEnabled)
-    const pipelineErrorsEnabled = user?.notification_settings?.plugin_disabled ?? true
 
     const updateWeeklyDigestForProject = (teamId: number, enabled: boolean): void => {
         if (!user?.notification_settings) {
@@ -43,30 +53,17 @@ export function UpdateEmailPreferences(): JSX.Element {
 
                     {/* Weekly Digest Section */}
                     <div className="border rounded p-4 deprecated-space-y-3">
-                        <LemonSwitch
-                            id="weekly-digest-enabled"
-                            data-attr="weekly_digest_enabled"
-                            onChange={() => {
-                                user?.notification_settings &&
-                                    updateUser({
-                                        notification_settings: {
-                                            ...user?.notification_settings,
-                                            all_weekly_digest_disabled:
-                                                !user?.notification_settings.all_weekly_digest_disabled,
-                                        },
-                                    })
-                            }}
-                            checked={weeklyDigestEnabled}
-                            disabled={userLoading}
+                        <SimpleSwitch
+                            setting="all_weekly_digest_disabled"
                             label="Weekly digest"
+                            description="The weekly digest keeps you up to date with everything that's happening in your PostHog organizations"
+                            dataAttr="weekly_digest_enabled"
+                            // because the setting is disabled, but the control is expressed as enabled
+                            inverse={true}
                         />
-                        <p className="text-muted mt-2">
-                            The weekly digest keeps you up to date with everything that's happening in your PostHog
-                            organizations.
-                        </p>
 
                         {weeklyDigestEnabled && (
-                            <div className="ml-6">
+                            <div>
                                 <LemonButton
                                     icon={weeklyDigestProjectsExpanded ? <IconChevronDown /> : <IconChevronRight />}
                                     onClick={() => setWeeklyDigestProjectsExpanded(!weeklyDigestProjectsExpanded)}
@@ -109,28 +106,81 @@ export function UpdateEmailPreferences(): JSX.Element {
                         )}
                     </div>
 
-                    {/* Data Pipeline Errors Section */}
-                    <div className="border rounded p-4 deprecated-space-y-3">
-                        <LemonSwitch
-                            id="pipeline-errors-enabled"
-                            data-attr="pipeline_errors_enabled"
-                            onChange={() => {
-                                user?.notification_settings &&
-                                    updateUser({
-                                        notification_settings: {
-                                            ...user?.notification_settings,
-                                            plugin_disabled: !user?.notification_settings.plugin_disabled,
-                                        },
-                                    })
-                            }}
-                            checked={pipelineErrorsEnabled}
-                            disabled={userLoading}
+                    <div className="border rounded p-4">
+                        <SimpleSwitch
+                            setting="plugin_disabled"
                             label="Data pipeline errors"
-                            tooltip="Get notified when data pipeline components (destinations, batch exports) encounter errors for all projects"
+                            description="Get notified when data pipeline components (destinations, batch exports) encounter errors for all projects"
+                            dataAttr="pipeline_errors_enabled"
+                        />
+                    </div>
+
+                    <div className="border rounded p-4">
+                        <SimpleSwitch
+                            setting="error_tracking_issue_assigned"
+                            label="Issue assigned"
+                            description="Stay on top of your bugs with a notification every time an issue is assigned to you or your role"
+                            dataAttr="error_tracking_issue_assigned_enabled"
+                        />
+                    </div>
+
+                    <div className="border rounded p-4">
+                        <SimpleSwitch
+                            setting="discussions_mentioned"
+                            label="Comment mentions"
+                            description="Get notified when someone mentions you in a discussion on any project"
+                            dataAttr="discussions_mentioned_enabled"
                         />
                     </div>
                 </div>
             </div>
+        </div>
+    )
+}
+
+const SimpleSwitch = ({
+    dataAttr,
+    label,
+    description,
+    setting,
+    inverse = false,
+}: {
+    dataAttr: string
+    label: string
+    description: string
+    setting: keyof BooleanNotificationSettings
+    /**
+     * Some settings are expressed as "disabled" but the control is expressed as "enabled" (e.g. "All weekly digests" setting). 🫠
+     */
+    inverse?: boolean
+}): JSX.Element => {
+    const { user, userLoading } = useValues(userLogic)
+    const { updateUser } = useActions(userLogic)
+
+    const value = user?.notification_settings?.[setting]
+    let checked = value ?? NOTIFICATION_DEFAULTS[setting]
+    if (inverse) {
+        checked = !checked
+    }
+
+    return (
+        <div className="space-y-2">
+            <LemonSwitch
+                data-attr={dataAttr}
+                onChange={(newChecked) => {
+                    user?.notification_settings &&
+                        updateUser({
+                            notification_settings: {
+                                ...user?.notification_settings,
+                                [setting]: inverse ? !newChecked : newChecked,
+                            },
+                        })
+                }}
+                checked={checked}
+                disabled={userLoading}
+                label={label}
+            />
+            <span className="text-muted">{description}</span>
         </div>
     )
 }

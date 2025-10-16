@@ -82,7 +82,7 @@ class EditCurrentInsightTool(MaxTool):
         "Update the insight the user is currently working on, based on the current insight's JSON schema."
     )
     thinking_message: str = "Editing your insight"
-    root_system_prompt_template: str = """The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:
+    context_prompt_template: str = """The user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:
 
 ```json
 {current_query}
@@ -92,6 +92,7 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
 """.strip()
 
     args_schema: type[BaseModel] = EditCurrentInsightArgs
+    show_tool_call_message: bool = False
 
     async def _arun_impl(self, query_kind: str, query_description: str) -> tuple[str, ToolMessagesArtifact]:
         from ee.hogai.graph.graph import InsightsAssistantGraph  # avoid circular import

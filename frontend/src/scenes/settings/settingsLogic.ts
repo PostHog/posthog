@@ -369,6 +369,7 @@ export const settingsLogic = kea<settingsLogicType>([
         ['*/replay/settings']: (_, __, hashParams) => {
             const { selectedSetting } = hashParams
             const selectedSettingId = selectedSetting as SettingId
+
             if (!selectedSettingId) {
                 return
             }

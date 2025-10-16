@@ -592,7 +592,7 @@ class TestDatabricksIntegrationModel(BaseTest):
             8, "nodename nor servname provided, or not known"
         )
         with pytest.raises(
-            DatabricksIntegrationError, match="Databricks integration is not valid: could not connect to 'invalid'"
+            DatabricksIntegrationError, match="Databricks integration error: could not connect to hostname 'invalid'"
         ):
             DatabricksIntegration.integration_from_config(
                 team_id=self.team.pk,

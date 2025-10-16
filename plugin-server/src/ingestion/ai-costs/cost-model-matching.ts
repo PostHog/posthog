@@ -10,6 +10,7 @@ const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
 export enum CostModelSource {
     Primary = 'primary',
     Backup = 'backup',
+    Custom = 'custom',
 }
 
 export interface CostModelResult {

@@ -24,6 +24,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
@@ -358,6 +359,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
+        setCreateExperimentLoading: (loading: boolean) => ({ loading }),
         setExperimentType: (type?: string) => ({ type }),
         addVariant: true,
         removeVariant: (idx: number) => ({ idx }),
@@ -831,9 +833,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 setFeatureFlagValidationError: (_, { error }) => error,
             },
         ],
+        createExperimentLoading: [
+            false,
+            {
+                setCreateExperimentLoading: (_, { loading }) => loading,
+            },
+        ],
     }),
     listeners(({ values, actions, props }) => ({
         createExperiment: async ({ draft, folder }) => {
+            actions.setCreateExperimentLoading(true)
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
             actions.touchExperimentField('name')
@@ -843,6 +852,7 @@ export const experimentLogic = kea<experimentLogicType>([
             )
 
             if (hasFormErrors(values.experimentErrors)) {
+                actions.setCreateExperimentLoading(false)
                 return
             }
 
@@ -850,6 +860,7 @@ export const experimentLogic = kea<experimentLogicType>([
             // Terminate if the insight did not manage to load in time
             if (!minimumDetectableEffect) {
                 eventUsageLogic.actions.reportExperimentInsightLoadFailed()
+                actions.setCreateExperimentLoading(false)
                 return lemonToast.error(
                     'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
                 )
@@ -929,6 +940,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to create experiment')
+                actions.setCreateExperimentLoading(false)
                 return
             }
 
@@ -946,6 +958,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     },
                 })
             }
+            actions.setCreateExperimentLoading(false)
         },
         setExperimentType: async ({ type }) => {
             actions.setExperiment({ type: type })
@@ -1527,14 +1540,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 return [
                     {
                         key: Scene.Experiments,
-                        name: 'Experiments',
+                        name: sceneConfigurations[Scene.Experiments].name || 'Experiments',
                         path: urls.experiments(),
-                        iconType: 'experiment',
+                        iconType: sceneConfigurations[Scene.Experiments].iconType || 'default_icon_type',
                     },
                     {
                         key: [Scene.Experiment, experimentId],
-                        name: experiment?.name || '',
-                        iconType: 'experiment',
+                        name: experiment?.name || 'New Experiment',
+                        iconType: sceneConfigurations[Scene.Experiment].iconType || 'default_icon_type',
                     },
                 ]
             },

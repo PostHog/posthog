@@ -6,6 +6,7 @@ import { toast } from 'react-toastify'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import MaxTool from 'scenes/max/MaxTool'
@@ -15,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { ProductKey, SidePanelTab } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ProductKey, SidePanelTab } from '~/types'
 
 import { TemplateCard } from '../../SurveyTemplates'
 import { SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateType, defaultSurveyTemplates } from '../../constants'
@@ -37,14 +38,19 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
 
     if (!isOnNewEmptyStateExperiment) {
         return (
-            <ProductIntroduction
-                productName="Surveys"
-                thingName="survey"
-                description="Use surveys to gather qualitative feedback from your users on new or existing features."
-                action={() => router.actions.push(urls.surveyTemplates())}
-                isEmpty={numOfSurveys === 0}
-                productKey={ProductKey.SURVEYS}
-            />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Survey}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                <ProductIntroduction
+                    productName="Surveys"
+                    thingName="survey"
+                    description="Use surveys to gather qualitative feedback from your users on new or existing features."
+                    action={() => router.actions.push(urls.surveyTemplates())}
+                    isEmpty={numOfSurveys === 0}
+                    productKey={ProductKey.SURVEYS}
+                />
+            </AccessControlAction>
         )
     }
 

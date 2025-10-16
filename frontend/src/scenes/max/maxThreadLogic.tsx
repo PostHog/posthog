@@ -121,7 +121,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'loadConversationHistory',
                 'setThreadKey',
                 'prependOrReplaceConversation as updateGlobalConversationCache',
-                'setActiveStreamingThreads',
+                'incrActiveStreamingThreads',
+                'decrActiveStreamingThreads',
                 'setConversationId',
                 'setAutoRun',
                 'loadConversationHistorySuccess',
@@ -281,7 +282,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         streamConversation: async ({ streamData, generationAttempt }, breakpoint) => {
             // Set active streaming threads, so we know streaming is active
-            actions.setActiveStreamingThreads(1)
+            actions.incrActiveStreamingThreads()
 
             if (generationAttempt === 0 && streamData.content) {
                 const message: ThreadMessage = {
@@ -380,13 +381,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
                 }
             }
+            actions.decrActiveStreamingThreads()
             if (values.isAnotherAgenticIterationScheduled) {
                 // Continue generation after applying tool - null message in askMax "just resume generation with current context"
                 actions.askMax(null)
             } else {
                 // Otherwise wrap things up
                 actions.completeThreadGeneration()
-                actions.setActiveStreamingThreads(-1)
             }
             cache.generationController = undefined
         },
@@ -790,13 +791,13 @@ async function onEventImplementation(
                         toolResult.page_key,
                         breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
                     )
+                    actions.setForAnotherAgenticIteration(true) // Let's iterate after applying the navigate tool
                 }
             }
             actions.addMessage({
                 ...parsedResponse,
                 status: 'completed',
             })
-            actions.setForAnotherAgenticIteration(true) // Let's iterate after applying the tool(s)
         } else {
             if (isNotebookUpdateMessage(parsedResponse)) {
                 actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)

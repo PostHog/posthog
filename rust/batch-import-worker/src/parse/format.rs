@@ -44,6 +44,7 @@ impl FormatConfig {
         let transform_context = TransformContext {
             team_id: model.team_id,
             token: context.get_token_for_team_id(model.team_id).await?,
+            job_id: model.id,
             identify_cache: context.identify_cache.clone(),
             group_cache: context.group_cache.clone(),
             import_events: model.import_config.import_events,

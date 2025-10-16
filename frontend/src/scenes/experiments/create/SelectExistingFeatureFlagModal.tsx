@@ -8,7 +8,6 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagType } from '~/types'
 
-import { featureFlagEligibleForExperiment } from '../utils'
 import { selectExistingFeatureFlagModalLogic } from './selectExistingFeatureFlagModalLogic'
 
 export const SelectExistingFeatureFlagModal = ({
@@ -50,13 +49,7 @@ export const SelectExistingFeatureFlagModal = ({
                 {filtersSection}
                 <LemonTable
                     id="ff"
-                    dataSource={featureFlags.results.filter((featureFlag) => {
-                        try {
-                            return featureFlagEligibleForExperiment(featureFlag)
-                        } catch {
-                            return false
-                        }
-                    })}
+                    dataSource={featureFlags.results}
                     loading={featureFlagsLoading}
                     useURLForSorting={false}
                     columns={[

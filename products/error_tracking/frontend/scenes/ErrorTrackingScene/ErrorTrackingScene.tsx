@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconGear } from '@posthog/icons'
@@ -12,7 +12,8 @@ import {
     TabsPrimitiveTrigger,
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -20,10 +21,12 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
+import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { ErrorTrackingIssueImpactTool } from '../../components/IssueImpactTool'
+import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
-import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
+import { ERROR_TRACKING_SCENE_LOGIC_KEY, errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { ImpactFilters } from './tabs/impact/ImpactFilters'
 import { ImpactList } from './tabs/impact/ImpactList'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
@@ -42,46 +45,50 @@ export function ErrorTrackingScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <ErrorTrackingSetupPrompt>
-                <Header />
+            <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
+                <BindLogic logic={issueQueryOptionsLogic} props={{ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }}>
+                    <ErrorTrackingSetupPrompt>
+                        <Header />
 
-                <ErrorTrackingIssueFilteringTool />
-                {hasIssueCorrelation && <ErrorTrackingIssueImpactTool />}
+                        <ErrorTrackingIssueFilteringTool />
+                        {hasIssueCorrelation && <ErrorTrackingIssueImpactTool />}
 
-                {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                {hasIssueCorrelation ? (
-                    <div>
-                        <TabsPrimitive
-                            value={activeTab}
-                            onValueChange={setActiveTab}
-                            className="border rounded bg-surface-primary"
-                        >
-                            <TabsPrimitiveList className="border-b">
-                                <TabsPrimitiveTrigger value="issues" className="px-2 py-1 cursor-pointer">
-                                    Issues
-                                </TabsPrimitiveTrigger>
-                                <TabsPrimitiveTrigger value="impact" className="px-2 py-1 cursor-pointer">
-                                    Impact
-                                </TabsPrimitiveTrigger>
-                            </TabsPrimitiveList>
-                            <TabsPrimitiveContent value="issues" className="p-2">
-                                <IssuesFilters />
-                            </TabsPrimitiveContent>
-                            <TabsPrimitiveContent value="impact" className="p-2">
-                                <ImpactFilters />
-                            </TabsPrimitiveContent>
-                        </TabsPrimitive>
-                        {activeTab === 'issues' ? <IssuesList /> : <ImpactList />}
-                    </div>
-                ) : (
-                    <div>
-                        <div className="border rounded bg-surface-primary p-2">
-                            <IssuesFilters />
-                        </div>
-                        <IssuesList />
-                    </div>
-                )}
-            </ErrorTrackingSetupPrompt>
+                        {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
+                        {hasIssueCorrelation ? (
+                            <div>
+                                <TabsPrimitive
+                                    value={activeTab}
+                                    onValueChange={setActiveTab}
+                                    className="border rounded bg-surface-primary"
+                                >
+                                    <TabsPrimitiveList className="border-b">
+                                        <TabsPrimitiveTrigger value="issues" className="px-2 py-1 cursor-pointer">
+                                            Issues
+                                        </TabsPrimitiveTrigger>
+                                        <TabsPrimitiveTrigger value="impact" className="px-2 py-1 cursor-pointer">
+                                            Impact
+                                        </TabsPrimitiveTrigger>
+                                    </TabsPrimitiveList>
+                                    <TabsPrimitiveContent value="issues" className="p-2">
+                                        <IssuesFilters />
+                                    </TabsPrimitiveContent>
+                                    <TabsPrimitiveContent value="impact" className="p-2">
+                                        <ImpactFilters />
+                                    </TabsPrimitiveContent>
+                                </TabsPrimitive>
+                                {activeTab === 'issues' ? <IssuesList /> : <ImpactList />}
+                            </div>
+                        ) : (
+                            <div>
+                                <div className="border rounded bg-surface-primary p-2">
+                                    <IssuesFilters />
+                                </div>
+                                <IssuesList />
+                            </div>
+                        )}
+                    </ErrorTrackingSetupPrompt>
+                </BindLogic>
+            </BindLogic>
         </SceneContent>
     )
 }
@@ -98,9 +105,9 @@ const Header = (): JSX.Element => {
     return (
         <>
             <SceneTitleSection
-                name="Error tracking"
+                name={sceneConfigurations[Scene.ErrorTracking].name}
                 resourceType={{
-                    type: 'error_tracking',
+                    type: sceneConfigurations[Scene.ErrorTracking].iconType || 'default_icon_type',
                 }}
                 actions={
                     <>

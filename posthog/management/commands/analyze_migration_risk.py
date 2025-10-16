@@ -78,11 +78,24 @@ class Command(BaseCommand):
 
     def analyze_loaded_migrations(self, migrations: list[tuple[str, migrations.Migration]]) -> list[MigrationRisk]:
         """Analyze a list of loaded migrations."""
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+
         analyzer = RiskAnalyzer()
         results = []
 
+        # Get migration loader for enhanced validation
+        try:
+            executor = MigrationExecutor(connection)
+            loader = executor.loader
+        except Exception:
+            loader = None
+
         for label, migration in migrations:
-            risk = analyzer.analyze_migration(migration, label)
+            if loader:
+                risk = analyzer.analyze_migration_with_context(migration, label, loader)
+            else:
+                risk = analyzer.analyze_migration(migration, label)
             results.append(risk)
 
         return results

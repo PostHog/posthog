@@ -1,9 +1,13 @@
+import os
 import uuid
 from typing import Optional, cast
 
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.utils import timezone
+
+from asgiref.sync import async_to_sync
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
@@ -231,6 +235,7 @@ class Task(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
     task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
     description = models.TextField()
@@ -331,12 +336,13 @@ class Task(models.Model):
         """
         config = self.repository_config
         if config.get("organization") and config.get("repository"):
+            full_name = f"{config.get('organization')}/{config.get('repository')}".lower()
             return [
                 {
                     "org": config.get("organization"),
                     "repo": config.get("repository"),
                     "integration_id": self.github_integration_id,
-                    "full_name": f"{config.get('organization')}/{config.get('repository')}",
+                    "full_name": full_name,
                 }
             ]
         return []
@@ -566,3 +572,18 @@ class SandboxSnapshot(UUIDModel):
             if snapshot.has_repos(required_repos):
                 return snapshot
         return None
+
+    def delete(self, *args, **kwargs):
+        if self.external_id:
+            from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+
+            if os.environ.get("RUNLOOP_API_KEY") and not settings.TEST:
+                try:
+                    async_to_sync(SandboxEnvironment.delete_snapshot)(self.external_id)
+                except Exception as e:
+                    raise Exception(
+                        f"Failed to delete external snapshot {self.external_id}: {str(e)}. "
+                        f"The database record has not been deleted."
+                    ) from e
+
+        super().delete(*args, **kwargs)
