@@ -4271,12 +4271,7 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/LogMessage"
-                    },
-                    "type": "array"
-                },
+                "results": {},
                 "timezone": {
                     "type": "string"
                 },
@@ -12995,7 +12990,7 @@
                 "task",
                 "link",
                 "logs",
-                "messaging",
+                "workflows",
                 "notebook",
                 "action",
                 "comment",
@@ -16160,12 +16155,7 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/LogMessage"
-                    },
-                    "type": "array"
-                },
+                "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -21423,12 +21413,7 @@
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
                             "description": "The date range used for the query"
                         },
-                        "results": {
-                            "items": {
-                                "$ref": "#/definitions/LogMessage"
-                            },
-                            "type": "array"
-                        },
+                        "results": {},
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {
@@ -26370,6 +26355,9 @@
         "UsageMetric": {
             "additionalProperties": false,
             "properties": {
+                "change_from_previous_pct": {
+                    "type": ["number", "null"]
+                },
                 "display": {
                     "$ref": "#/definitions/UsageMetricDisplay"
                 },
@@ -26385,11 +26373,23 @@
                 "name": {
                     "type": "string"
                 },
+                "previous": {
+                    "type": "number"
+                },
                 "value": {
                     "type": "number"
                 }
             },
-            "required": ["id", "name", "value", "format", "display", "interval"],
+            "required": [
+                "id",
+                "name",
+                "value",
+                "previous",
+                "change_from_previous_pct",
+                "format",
+                "display",
+                "interval"
+            ],
             "type": "object"
         },
         "UsageMetricDisplay": {

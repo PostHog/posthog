@@ -342,7 +342,7 @@ class _Printer(Visitor[str]):
             part_of_select_union
             and isinstance(self.stack[0], ast.SelectSetQuery)
             and len(self.stack[0].subsequent_select_queries) > 0
-            and self.stack[0].subsequent_select_queries[-1].select_query == node
+            and self.stack[0].subsequent_select_queries[-1].select_query is node
         )
 
         # We will add extra clauses onto this from the joined tables
