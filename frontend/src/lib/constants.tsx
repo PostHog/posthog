@@ -206,7 +206,6 @@ export const FEATURE_FLAGS = {
     ENVIRONMENTS: 'environments', // owner: #team-platform-features
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     WORKFLOWS: 'messaging', // owner @haven #team-workflows
-    MESSAGING_EARLY_ACCESS: 'messaging-product', // owner @haven #team-workflows
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen-posthog #team-platform-features
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
