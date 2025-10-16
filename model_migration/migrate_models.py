@@ -806,7 +806,7 @@ class {app_name.title()}Config(AppConfig):
         """Extract Django model class names from source files"""
         class_names = set()
         for source_file in source_files:
-            source_path = self.root_dir / "posthog" / "models" / source_file
+            source_path = self.root_dir / Path(self.source_base_path) / source_file
             if source_path.exists():
                 try:
                     with open(source_path) as f:
@@ -910,7 +910,7 @@ class {app_name.title()}Config(AppConfig):
             if "/" in source_file:
                 # This is a subdirectory file - expand to include all files from the subdirectory
                 subdirectory = source_file.split("/")[0]
-                subdirectory_path = self.root_dir / "posthog" / "models" / subdirectory
+                subdirectory_path = self.root_dir / Path(self.source_base_path) / subdirectory
 
                 if subdirectory_path.exists() and subdirectory_path.is_dir():
                     logger.info("🔍 Expanding subdirectory: %s", subdirectory)
@@ -920,8 +920,8 @@ class {app_name.title()}Config(AppConfig):
                         if py_file.name == "__pycache__" or py_file.name == "__init__.py":
                             continue
 
-                        # Calculate relative path from posthog/models/
-                        relative_path = py_file.relative_to(self.root_dir / "posthog" / "models")
+                        # Calculate relative path from source_base_path
+                        relative_path = py_file.relative_to(self.root_dir / Path(self.source_base_path))
                         relative_str = str(relative_path)
 
                         expanded_files.append(relative_str)
@@ -983,7 +983,7 @@ class {app_name.title()}Config(AppConfig):
 
         copied_files = []
         for source_file in source_files:
-            source_path = self.root_dir / "posthog" / "models" / source_file
+            source_path = self.root_dir / Path(self.source_base_path) / source_file
             if not source_path.exists():
                 logger.warning("⚠️  Source file not found: %s", source_path)
                 continue
@@ -1017,7 +1017,7 @@ class {app_name.title()}Config(AppConfig):
         if non_model_files:
             logger.info("📁 Copying %d supporting files...", len(non_model_files))
             for support_file in non_model_files:
-                source_path = self.root_dir / "posthog" / "models" / support_file
+                source_path = self.root_dir / Path(self.source_base_path) / support_file
 
                 # Preserve directory structure in backend/
                 if "/" in support_file:
@@ -1052,7 +1052,7 @@ class {app_name.title()}Config(AppConfig):
 
         # Step 5: Remove original files
         for source_file in source_files:
-            source_path = self.root_dir / "posthog" / "models" / source_file
+            source_path = self.root_dir / Path(self.source_base_path) / source_file
             if source_path.exists():
                 os.remove(source_path)
                 logger.info("🗑️  Removed original: %s", source_path)
@@ -1080,7 +1080,7 @@ class {app_name.title()}Config(AppConfig):
 
         # First, process model files for combining
         for source_file in source_files:
-            source_path = self.root_dir / "posthog" / "models" / source_file
+            source_path = self.root_dir / Path(self.source_base_path) / source_file
             if not source_path.exists():
                 logger.warning("⚠️  Source file not found: %s", source_path)
                 continue
@@ -1174,7 +1174,7 @@ class {app_name.title()}Config(AppConfig):
         if non_model_files:
             logger.info("📁 Copying %d supporting files...", len(non_model_files))
             for support_file in non_model_files:
-                source_path = self.root_dir / "posthog" / "models" / support_file
+                source_path = self.root_dir / Path(self.source_base_path) / support_file
 
                 # Preserve directory structure in backend/
                 if "/" in support_file:
@@ -1210,7 +1210,7 @@ class {app_name.title()}Config(AppConfig):
 
         # Step 3: Remove original files
         for source_file in source_files:
-            source_path = self.root_dir / "posthog" / "models" / source_file
+            source_path = self.root_dir / Path(self.source_base_path) / source_file
             if source_path.exists():
                 os.remove(source_path)
                 logger.info("🗑️  Removed original: %s", source_path)
@@ -1636,6 +1636,7 @@ class {app_name.title()}Config(AppConfig):
         source_files = migration_spec["source_files"]
         target_app = migration_spec["target_app"]
         create_backend = migration_spec.get("create_backend_dir", False)
+        source_base_path = migration_spec.get("source_base_path", "posthog/models")
 
         # Check if migration spec has merge_models setting (override default)
         if "merge_models" in migration_spec:
@@ -1645,9 +1646,14 @@ class {app_name.title()}Config(AppConfig):
         else:
             original_merge_models = None
 
+        # Store source_base_path for use in helper methods
+        self.source_base_path = source_base_path
+
         logger.info("\n🚀 Starting migration: %s", name)
         logger.info("   Source files: %s", source_files)
         logger.info("   Target app: %s", target_app)
+        if source_base_path != "posthog/models":
+            logger.info("   Source base path: %s", source_base_path)
 
         try:
             return self._execute_migration(source_files, target_app, create_backend)
@@ -1709,8 +1715,10 @@ class {app_name.title()}Config(AppConfig):
             logger.info("📋 Model classes found: %s", list(model_names))
 
             # Step 3: Update posthog/models/__init__.py imports (before LibCST to prevent circular imports)
-            if not self.update_posthog_models_init(source_files, target_app):
-                return False
+            # Only update if using standard posthog/models path
+            if self.source_base_path == "posthog/models":
+                if not self.update_posthog_models_init(source_files, target_app):
+                    return False
 
             # Step 4: Move model files and update imports with LibCST
             if not self.move_model_files_and_update_imports(source_files, target_app):
