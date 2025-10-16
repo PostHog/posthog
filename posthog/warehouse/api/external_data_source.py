@@ -143,7 +143,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         representation = super().to_representation(instance)
 
         # non-sensitive fields
-        whitelisted_keys = {
+        job_inputs_allowed_keys = {
             # stripe
             "stripe_account_id",
             # sql
@@ -155,27 +155,40 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "ssh_tunnel",
             "using_ssl",
             # vitally
-            "payload",
-            "prefix",
-            "regionsubdomain",
-            "source_type",
+            "region"
             # chargebee
             "site_name",
             # zendesk
             "subdomain",
             "email_address",
             # hubspot
-            "redirect_uri",
+            "hubspot_integration_id",
             # snowflake
             "account_id",
             "warehouse",
             "role",
             # bigquery
             "dataset_id",
-            "project_id",
-            "client_email",
-            "token_uri",
-            "temporary-dataset",
+            "temporary_dataset",
+            "dataset_project"
+            # google ads
+            "customer_id",
+            "google_ads_integration_id",
+            "is_mcc_account",
+            # google sheets
+            "spreadsheet_url",
+            # linkedin ads
+            "linkedin_ads_integration_id",
+            # meta ads
+            "meta_ads_integration_id",
+            # reddit ads
+            "reddit_integration_id",
+            # salesforce
+            "salesforce_integration_id",
+            # shopify
+            "shopify_store_id",
+            # temporal
+            "namespace",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
@@ -199,7 +212,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
             # Remove sensitive fields
             for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
-                if key not in whitelisted_keys:
+                if key not in job_inputs_allowed_keys:
                     job_inputs.pop(key, None)
 
         return representation
@@ -412,15 +425,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
             sync_time_of_day = schema.get("sync_time_of_day")
+            should_sync = schema.get("should_sync", False)
 
-            if requires_incremental_fields and incremental_field is None:
+            if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Incremental schemas given do not have an incremental field set"},
                 )
 
-            if requires_incremental_fields and incremental_field_type is None:
+            if should_sync and requires_incremental_fields and incremental_field_type is None:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -431,7 +445,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 name=schema.get("name"),
                 team=self.team,
                 source=new_source_model,
-                should_sync=schema.get("should_sync"),
+                should_sync=should_sync,
                 sync_type=sync_type,
                 sync_time_of_day=sync_time_of_day,
                 sync_type_config=(
@@ -444,7 +458,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ),
             )
 
-            if schema.get("should_sync"):
+            if should_sync:
                 active_schemas.append(schema_model)
 
         try:

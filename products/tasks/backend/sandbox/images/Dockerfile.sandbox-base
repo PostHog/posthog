@@ -67,13 +67,17 @@ RUN npm install -g @posthog/cli
 
 RUN npm install -g @anthropic-ai/claude-code
 
-RUN npm install -g @posthog/agent
+# Set up /scripts as a Node.js project and install @posthog/agent
+RUN mkdir -p /scripts && \
+    cd /scripts && \
+    npm init -y && \
+    npm install @posthog/agent
 
 # Download agent runner script from GitHub
-RUN mkdir -p /scripts && \
+RUN cd /scripts && \
     curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/products/tasks/scripts/runAgent.mjs \
-    -o /scripts/runAgent.mjs && \
-    chmod +x /scripts/runAgent.mjs
+    -o runAgent.mjs && \
+    chmod +x runAgent.mjs
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
 ENV IS_SANDBOX=1
