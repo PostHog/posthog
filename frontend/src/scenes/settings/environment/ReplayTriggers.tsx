@@ -218,10 +218,10 @@ function UrlConfigForm({
                         <LemonInput autoFocus placeholder="Enter URL regex." data-attr="url-input" />
                     </LemonField>
                 </LemonLabel>
-                {urlTriggerInputValidationWarning && (
+                {type === 'trigger' && urlTriggerInputValidationWarning && (
                     <span className="text-danger">{urlTriggerInputValidationWarning}</span>
                 )}
-                {urlBlocklistInputValidationWarning && (
+                {type === 'blocklist' && urlBlocklistInputValidationWarning && (
                     <span className="text-danger">{urlBlocklistInputValidationWarning}</span>
                 )}
             </div>
