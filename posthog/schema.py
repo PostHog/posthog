@@ -1207,6 +1207,8 @@ class EventType(BaseModel):
     event: str
     id: str
     person: Optional[Person] = None
+    person_id: Optional[str] = None
+    person_mode: Optional[str] = None
     properties: dict[str, Any]
     timestamp: str
     uuid: Optional[str] = None
