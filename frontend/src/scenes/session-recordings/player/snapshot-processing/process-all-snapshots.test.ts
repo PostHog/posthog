@@ -34,33 +34,45 @@ describe('process all snapshots', () => {
             const snapshots = await parseEncodedSnapshots(rawSnapshots, sessionId)
             expect(snapshots).toHaveLength(99)
 
-            const start = performance.now()
-            const results = processAllSnapshots(
-                [
+            const durations: number[] = []
+            const runs = 5
+
+            for (let i = 0; i < runs; i++) {
+                const start = performance.now()
+                const results = processAllSnapshots(
+                    [
+                        {
+                            source: 'blob_v2',
+                            blob_key: '0',
+                        },
+                    ],
                     {
-                        source: 'blob_v2',
-                        blob_key: '0',
+                        [key]: {
+                            snapshots: snapshots,
+                        },
                     },
-                ],
-                {
-                    [key]: {
-                        snapshots: snapshots,
+                    {},
+                    () => {
+                        return {
+                            width: '100',
+                            height: '100',
+                            href: 'https://example.com',
+                        }
                     },
-                },
-                {},
-                () => {
-                    return {
-                        width: '100',
-                        height: '100',
-                        href: 'https://example.com',
-                    }
-                },
-                sessionId
-            )
-            const end = performance.now()
-            const duration = end - start
-            expect(results).toHaveLength(99)
-            expect(duration).toBeLessThan(50)
+                    sessionId
+                )
+                const end = performance.now()
+                durations.push(end - start)
+                expect(results).toHaveLength(99)
+            }
+
+            durations.sort((a, b) => a - b)
+            const median = durations[Math.floor(runs / 2)]
+            const mean = durations.reduce((sum, d) => sum + d, 0) / runs
+            const stdDev = Math.sqrt(durations.reduce((sum, d) => sum + (d - mean) ** 2, 0) / runs)
+
+            expect(median).toBeLessThan(50)
+            expect(stdDev).toBeLessThan(25)
         })
 
         it('deduplicates snapshot', async () => {
