@@ -2341,7 +2341,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
-    results: LogMessage[]
+    results: unknown // TODO: Type this to LogMessage[] and fix the issues it creates on the backend
     hasMore?: boolean
     limit?: integer
     offset?: integer
