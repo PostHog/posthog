@@ -245,7 +245,8 @@ export function InsightVizDisplay({
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
     if (!theme) {
-        return null
+        // TODO
+        //     return null
     }
 
     return (
