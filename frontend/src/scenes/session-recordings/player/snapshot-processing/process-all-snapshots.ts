@@ -28,6 +28,17 @@ import {
 import { PostHogEE } from '../../../../../@posthog/ee/types'
 
 export type ProcessingCache = Record<SourceKey, RecordingSnapshot[]>
+
+function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
+    // if this is an incremental, and an image etc etc
+    return false
+}
+
+function convertIncrementalToFull(snapshot: RecordingSnapshot): RecordingSnapshot {
+    // do the switch here
+    return snapshot
+}
+
 /**
  * NB this mutates processingCache and returns the processed snapshots
  *
@@ -49,6 +60,7 @@ export function processAllSnapshots(
     const matchedExtensions = new Set<string>()
 
     let hasSeenMeta = false
+    let hasSeenAnyFullSnapshot = false
 
     // we loop over this data as little as possible,
     // since it could be large and processed more than once,
@@ -109,8 +121,14 @@ export function processAllSnapshots(
                 hasSeenMeta = true
             }
 
+            if (snapshot.type === EventType.IncrementalSnapshot && !hasSeenAnyFullSnapshot && isLikelyMobileScreenshot(snapshot)) {
+                snapshot = convertIncrementalToFull(snapshot)
+            }
+
             // Process chrome extension data
             if (snapshot.type === EventType.FullSnapshot) {
+                hasSeenAnyFullSnapshot = true
+
                 // Check if we need to patch a meta event before this full snapshot
                 if (!hasSeenMeta) {
                     const viewport = viewportForTimestamp(snapshot.timestamp)
