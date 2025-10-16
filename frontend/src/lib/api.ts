@@ -3394,6 +3394,9 @@ const api = {
         async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
             return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
         },
+        async run(id: Task['id']): Promise<Task> {
+            return await new ApiRequest().task(id).withAction('run').create()
+        },
     },
 
     surveys: {
