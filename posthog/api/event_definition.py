@@ -142,13 +142,9 @@ class EventDefinitionViewSet(
     ordering_fields = ["name", "last_seen_at"]
 
     def dangerously_get_queryset(self):
-        # `type` = 'all' | 'event' | 'action_event' | 'internal_event'
-        # Allows this endpoint to return lists of event definitions, actions, internal events, or both.
-        event_type_str = self.request.GET.get("event_type", EventDefinitionType.EVENT)
-        try:
-            event_type = EventDefinitionType(event_type_str)
-        except ValueError:
-            event_type = EventDefinitionType.EVENT
+        # `type` = 'all' | 'event' | 'action_event'
+        # Allows this endpoint to return lists of event definitions, actions, or both.
+        event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
 
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
@@ -164,6 +160,7 @@ class EventDefinitionViewSet(
             from ee.models.event_definition import EnterpriseEventDefinition
 
             event_definition_object_manager = EnterpriseEventDefinition.objects
+
         else:
             event_definition_object_manager = EventDefinition.objects
 
@@ -172,6 +169,7 @@ class EventDefinitionViewSet(
             search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
 
         excluded_properties = self.request.GET.get("excluded_properties")
+
         if excluded_properties:
             excluded_list = list(set(json.loads(excluded_properties)))
             search_query = search_query + f" AND NOT name = ANY(ARRAY{excluded_list})"

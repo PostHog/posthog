@@ -77,13 +77,9 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
     const { eventOrdering } = useValues(taxonomicFilterPreferencesLogic)
     const { setEventOrdering } = useActions(taxonomicFilterPreferencesLogic)
 
-    // Support sorting for both Events and InternalEvents
-    const isEventLike =
-        openTab === TaxonomicFilterGroupType.Events || openTab === TaxonomicFilterGroupType.InternalEvents
-
     return (
         <div className="flex flex-row justify-between items-center w-full relative pb-2">
-            {isEventLike ? (
+            {openTab === TaxonomicFilterGroupType.Events ? (
                 <>
                     <span>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</span>
                     <FlaggedFeature flag="taxonomic-event-sorting" match={true}>
