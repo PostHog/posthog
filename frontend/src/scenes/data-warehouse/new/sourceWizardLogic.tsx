@@ -728,10 +728,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                 schema.incremental_field = resolvedField.field
                                 schema.incremental_field_type = resolvedField.field_type
                             } else {
-                                const field = schema.incremental_fields.find((n) => n.field == schema.incremental_field)
-                                if (field) {
-                                    schema.incremental_field_type = field.type || field.field_type
-                                }
+                                schema.sync_type = 'full_refresh'
                             }
                         } else {
                             schema.sync_type = 'full_refresh'
