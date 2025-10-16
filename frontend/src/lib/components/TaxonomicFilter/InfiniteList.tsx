@@ -116,7 +116,6 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
         listGroupType === TaxonomicFilterGroupType.Events ||
-        listGroupType === TaxonomicFilterGroupType.InternalEvents ||
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
         listGroupType === TaxonomicFilterGroupType.Metadata ||
         listGroupType === TaxonomicFilterGroupType.SessionProperties ||
@@ -168,7 +167,6 @@ const selectedItemHasPopover = (
                 TaxonomicFilterGroupType.Actions,
                 TaxonomicFilterGroupType.Elements,
                 TaxonomicFilterGroupType.Events,
-                TaxonomicFilterGroupType.InternalEvents,
                 TaxonomicFilterGroupType.DataWarehouse,
                 TaxonomicFilterGroupType.DataWarehouseProperties,
                 TaxonomicFilterGroupType.DataWarehousePersonProperties,
