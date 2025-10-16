@@ -73,10 +73,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
         loadRecents: true,
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
-        setPersonSearchPagination: (pagination: { count: number; hasMore: boolean; limit: number }) => ({ pagination }),
         setNewTabSceneDataIncludePersons: (includePersons: boolean) => ({ includePersons }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ values }) => ({
         recents: [
             (() => {
                 if ('sessionStorage' in window) {
@@ -133,18 +132,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         return []
                     }
 
-                    // Use consistent API approach like other working implementations
-                    const response = await api.persons.list({ search: searchTerm.trim() })
+                    const url = api.persons.determineListUrl({
+                        search: searchTerm.trim(),
+                        limit: PAGINATION_LIMIT,
+                    })
+                    const response = await api.get(url)
                     breakpoint()
-
-                    // Store pagination info immediately
-                    setTimeout(() => {
-                        actions.setPersonSearchPagination({
-                            count: response.count,
-                            hasMore: Boolean(response.next),
-                            limit: 20,
-                        })
-                    }, 0)
 
                     return response.results
                 },
@@ -154,23 +147,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
 
                     const currentResults = values.personSearchResults
-                    const offset = currentResults.length
 
-                    // Build URL properly to avoid malformed query strings
-                    const baseUrl = api.persons.determineListUrl({ search: searchTerm.trim() })
-                    const separator = baseUrl.includes('?') ? '&' : '?'
-                    const url = `${baseUrl}${separator}limit=20&offset=${offset}`
+                    const url = api.persons.determineListUrl({
+                        search: searchTerm.trim(),
+                        limit: PAGINATION_LIMIT,
+                        offset: currentResults.length,
+                    })
                     const response = await api.get(url)
                     breakpoint()
-
-                    // Update pagination info
-                    setTimeout(() => {
-                        actions.setPersonSearchPagination({
-                            count: response.count,
-                            hasMore: Boolean(response.next),
-                            limit: 20,
-                        })
-                    }, 0)
 
                     return [...currentResults, ...response.results]
                 },
@@ -188,12 +172,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             'all' as NEW_TAB_CATEGORY_ITEMS,
             {
                 setSelectedCategory: (_, { category }) => category,
-            },
-        ],
-        personSearchPagination: [
-            { count: 0, hasMore: false, limit: 20 } as { count: number; hasMore: boolean; limit: number },
-            {
-                setPersonSearchPagination: (_, { pagination }) => pagination,
             },
         ],
         newTabSceneDataIncludePersons: [
@@ -561,14 +539,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
             try {
                 // Manually trigger the search and handle the result
-                const response = await api.persons.list({ search: searchTerm.trim() })
-
-                // Update pagination info
-                actions.setPersonSearchPagination({
-                    count: response.count,
-                    hasMore: Boolean(response.next),
-                    limit: 20,
+                const url = api.persons.determineListUrl({
+                    search: searchTerm.trim(),
+                    limit: PAGINATION_LIMIT,
                 })
+                const response = await api.get(url)
 
                 // Manually set the results instead of relying on the loader
                 actions.loadPersonSearchResultsSuccess(response.results)

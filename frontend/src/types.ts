@@ -1338,6 +1338,8 @@ export interface PersonListParams {
     cohort?: number
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
+    limit?: number
+    offset?: number
 }
 
 export type SearchableEntity =
