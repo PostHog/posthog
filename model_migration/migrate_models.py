@@ -121,11 +121,17 @@ class ImportTransformer(cst.CSTTransformer):
         else:
             # No-merge mode: each model comes from its own file
             for model_name in moved_imports:
-                # Convert model name to snake_case for filename
-                import re
+                # Look up the actual filename from the mapping
+                # If mapping is available, use it; otherwise fall back to snake_case
+                if model_name in self.filename_to_model_mapping:
+                    filename = self.filename_to_model_mapping[model_name]
+                else:
+                    # Fallback: convert model name to snake_case for filename
+                    import re
 
-                snake_name = re.sub(r"(?<!^)(?=[A-Z])", "_", model_name).lower()
-                moved_module = cst.parse_expression(f"products.{self.target_app}.backend.models.{snake_name}")
+                    filename = re.sub(r"(?<!^)(?=[A-Z])", "_", model_name).lower()
+
+                moved_module = cst.parse_expression(f"products.{self.target_app}.backend.models.{filename}")
                 moved_names = [cst.ImportAlias(name=cst.Name(model_name))]
                 moved_stmt = cst.ImportFrom(module=moved_module, names=moved_names)
                 self.imports_to_add.append(moved_stmt)
@@ -295,6 +301,36 @@ class ModelMigrator:
             posthog/hoql_queries -> posthog.hoql_queries
         """
         return source_base_path.replace("/", ".")
+
+    def _build_model_to_filename_mapping(self, source_files: list[str]) -> dict[str, str]:
+        """Build mapping of model names to their actual filenames (without .py).
+
+        For no-merge mode, we need to map model names to their actual filenames.
+        Example: DataWarehouseTable -> table (not data_warehouse_table)
+
+        Returns a dict like:
+            {"DataWarehouseTable": "table", "DataWarehouseJoin": "join", ...}
+        """
+        mapping = {}
+        for source_file in source_files:
+            source_path = self.root_dir / Path(self.source_base_path) / source_file
+            if not source_path.exists():
+                continue
+
+            try:
+                with open(source_path) as f:
+                    content = f.read()
+
+                tree = ast.parse(content)
+                # Get all class names from this file
+                for node in tree.body:
+                    if isinstance(node, ast.ClassDef):
+                        mapping[node.name] = source_file.replace(".py", "")
+            except (FileNotFoundError, SyntaxError):
+                continue
+
+        logger.debug("📋 Model-to-filename mapping: %s", mapping)
+        return mapping
 
     def _ensure_model_db_tables(self, models_path: Path) -> None:
         """Ensure moved models keep referencing the original database tables."""
@@ -1058,7 +1094,13 @@ class {app_name.title()}Config(AppConfig):
                 else:
                     logger.warning("⚠️  Supporting file not found: %s", source_path)
 
-        # Step 4: Use libcst to update imports across the codebase
+        # Step 4: Build model-to-filename mapping for no-merge mode
+        # This is crucial for correct import paths in no-merge mode
+        model_to_filename_mapping = self._build_model_to_filename_mapping(source_files)
+        self.model_to_filename_mapping = model_to_filename_mapping
+        logger.info("📋 Built model-to-filename mapping with %d entries", len(model_to_filename_mapping))
+
+        # Step 5: Use libcst to update imports across the codebase
         logger.info("🔄 Using libcst to update imports across codebase...")
         for source_file in source_files:
             module_name = source_file.replace(".py", "")
@@ -1071,7 +1113,7 @@ class {app_name.title()}Config(AppConfig):
                 logger.warning("⚠️  Error updating imports for %s: %s", module_name, e)
                 # Continue anyway - we can check manually
 
-        # Step 5: Remove original files
+        # Step 6: Remove original files
         for source_file in source_files:
             source_path = self.root_dir / Path(self.source_base_path) / source_file
             if source_path.exists():
@@ -1305,12 +1347,15 @@ class {app_name.title()}Config(AppConfig):
                 tree = cst.parse_module(content)
 
                 # Transform the tree
+                # For no-merge mode, pass the model_to_filename mapping
+                model_to_filename_mapping = getattr(self, "model_to_filename_mapping", {})
                 transformer = ImportTransformer(
                     model_names,
                     target_app,
                     module_name,
                     self.merge_models,
                     import_base_path=self.import_base_path,
+                    filename_to_model_mapping=model_to_filename_mapping,
                 )
                 new_tree = tree.visit(transformer)
 
