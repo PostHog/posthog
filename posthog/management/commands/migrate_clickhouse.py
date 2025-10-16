@@ -135,9 +135,9 @@ class Command(BaseCommand):
 
         for migration_name in unapplied_migrations:
             if match := migration_id_re.match(migration_name):
-                id = match.group(1)
-                if id in prefixes:
-                    duplicates.append((id, migration_name))
+                prefix = match.group(1)
+                if prefix in prefixes:
+                    duplicates.append((prefix, migration_name))
                 prefixes[id].append(migration_name)
 
         # Check for conflicts
