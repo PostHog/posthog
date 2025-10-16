@@ -1,5 +1,7 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+
 import { lemonToast } from '@posthog/lemon-ui'
+
 import { ExternalFeatureFlag, FetchExternalFlagsResponse, featureFlagMigrationApi } from 'lib/api/featureFlagMigration'
 
 export enum MigrationProvider {
@@ -16,7 +18,6 @@ interface FieldMapping {
     auto_selected: boolean
     options: Array<{ key: string; label: string; type: string }>
 }
-
 
 export const featureFlagMigrationWizardLogic = kea([
     path(['scenes', 'feature-flags', 'featureFlagMigrationWizardLogic']),
@@ -50,7 +51,7 @@ export const featureFlagMigrationWizardLogic = kea([
         updateFieldMapping: (externalKey, posthogField, posthogType) => ({
             externalKey,
             posthogField,
-            posthogType
+            posthogType,
         }),
         resetFieldMappings: (originalMappings) => ({ originalMappings }),
         startNewImport: true,
@@ -59,7 +60,6 @@ export const featureFlagMigrationWizardLogic = kea([
         executeImport: true,
         executeImportSuccess: (results) => ({ results }),
         executeImportFailure: (error) => ({ error }),
-
     }),
 
     reducers({
@@ -128,9 +128,8 @@ export const featureFlagMigrationWizardLogic = kea([
                     const isSelected = state.some((f: ExternalFeatureFlag) => f.key === flag.key)
                     if (isSelected) {
                         return state.filter((f: ExternalFeatureFlag) => f.key !== flag.key)
-                    } else {
-                        return [...state, flag]
                     }
+                    return [...state, flag]
                 },
                 onClear: () => [],
             },
@@ -200,15 +199,20 @@ export const featureFlagMigrationWizardLogic = kea([
     }),
 
     selectors({
-        canGoBack: [
-            (s) => [s.currentStep],
-            (currentStep: number): boolean => currentStep > 1,
-        ],
+        canGoBack: [(s) => [s.currentStep], (currentStep: number): boolean => currentStep > 1],
 
         canGoNext: [
             (s) => [s.currentStep, s.selectedProvider, s.apiKey, s.selectedFlags, s.isLoading],
-            (currentStep: number, selectedProvider: MigrationProvider | null, apiKey: string, selectedFlags: ExternalFeatureFlag[], isLoading: boolean): boolean => {
-                if (isLoading) return false
+            (
+                currentStep: number,
+                selectedProvider: MigrationProvider | null,
+                apiKey: string,
+                selectedFlags: ExternalFeatureFlag[],
+                isLoading: boolean
+            ): boolean => {
+                if (isLoading) {
+                    return false
+                }
 
                 switch (currentStep) {
                     case 1: // Provider selection
@@ -288,7 +292,7 @@ export const featureFlagMigrationWizardLogic = kea([
         selectedMappingsCount: [
             (s) => [s.fieldMappings],
             (fieldMappings: FieldMapping[]): number => {
-                return fieldMappings.filter(mapping => mapping.auto_selected || mapping.posthog_field).length
+                return fieldMappings.filter((mapping) => mapping.auto_selected || mapping.posthog_field).length
             },
         ],
     }),
@@ -349,7 +353,6 @@ export const featureFlagMigrationWizardLogic = kea([
                 lemonToast.error(`Failed to extract field mappings: ${errorMessage}`)
             }
         },
-
 
         executeImport: async () => {
             if (!values.selectedProvider || values.selectedFlags.length === 0) {

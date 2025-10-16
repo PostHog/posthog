@@ -2012,7 +2012,9 @@ class FeatureFlagViewSet(
                 logger.info(f"Import: Original key='{original_flag_key}', Unique key='{unique_flag_key}'")
 
                 # Additional debugging: check what exists in database right now
-                existing_flags = FeatureFlag.objects.filter(team=self.team, key__startswith=original_flag_key, deleted=False).values_list('key', flat=True)
+                existing_flags = FeatureFlag.objects.filter(
+                    team=self.team, key__startswith=original_flag_key, deleted=False
+                ).values_list("key", flat=True)
                 logger.info(f"Import: Existing flags with similar keys: {list(existing_flags)}")
 
                 # Update flag_data with unique key before conversion
@@ -2029,8 +2031,8 @@ class FeatureFlagViewSet(
                 logger.info(f"Import: About to create flag with key='{posthog_flag_data.get('key')}'")
 
                 # Log payload data specifically
-                filters = posthog_flag_data.get('filters', {})
-                multivariate = filters.get('multivariate')
+                filters = posthog_flag_data.get("filters", {})
+                multivariate = filters.get("multivariate")
                 if multivariate:
                     logger.info(f"PAYLOAD_TRACK: Creating flag with multivariate data: {multivariate}")
                 else:
@@ -2042,28 +2044,39 @@ class FeatureFlagViewSet(
 
                 for attempt in range(max_retries):
                     try:
-                        logger.info(f"Import: Attempt {attempt + 1} to create flag with key='{posthog_flag_data.get('key')}'")
+                        logger.info(
+                            f"Import: Attempt {attempt + 1} to create flag with key='{posthog_flag_data.get('key')}'"
+                        )
                         new_flag = FeatureFlag.objects.create(
                             team=self.team, created_by=request.user, last_modified_by=request.user, **posthog_flag_data
                         )
                         logger.info(f"Import: Successfully created flag with key='{new_flag.key}' (id={new_flag.id})")
                         break  # Success, exit retry loop
                     except Exception as e:
-                        if "unique constraint" in str(e).lower() and "key" in str(e).lower() and attempt < max_retries - 1:
+                        if (
+                            "unique constraint" in str(e).lower()
+                            and "key" in str(e).lower()
+                            and attempt < max_retries - 1
+                        ):
                             # Key conflict detected, regenerate key and retry
-                            current_failed_key = posthog_flag_data.get('key', '')
-                            logger.warning(f"Key conflict detected for '{current_failed_key}', regenerating key (attempt {attempt + 1})")
+                            current_failed_key = posthog_flag_data.get("key", "")
+                            logger.warning(
+                                f"Key conflict detected for '{current_failed_key}', regenerating key (attempt {attempt + 1})"
+                            )
 
                             # Force generation of a unique key with timestamp to avoid race conditions
                             import time
                             import random
+
                             original_flag_key = flag_data.get("key", "")
                             timestamp = int(time.time())
                             random_suffix = random.randint(100, 999)
                             unique_flag_key = f"{original_flag_key}_{timestamp}_{random_suffix}"
 
                             # Double-check this key doesn't exist (very unlikely but safe)
-                            while FeatureFlag.objects.filter(team=self.team, key=unique_flag_key, deleted=False).exists():
+                            while FeatureFlag.objects.filter(
+                                team=self.team, key=unique_flag_key, deleted=False
+                            ).exists():
                                 random_suffix = random.randint(100, 999)
                                 unique_flag_key = f"{original_flag_key}_{timestamp}_{random_suffix}"
 
@@ -2414,24 +2427,31 @@ class FeatureFlagViewSet(
                             posthog_payloads[variant_key] = variant_value
                             logger.info(f"PAYLOAD_TRACK: Added payload for variant '{variant_key}': {variant_value}")
                         else:
-                            logger.warning(f"PAYLOAD_TRACK: Variant '{variant_key}' has no payload (variant_value is None)")
+                            logger.warning(
+                                f"PAYLOAD_TRACK: Variant '{variant_key}' has no payload (variant_value is None)"
+                            )
 
                 if posthog_variants:
                     has_variants = True
                     # Convert payloads to JSON strings for top-level payloads
                     import json
+
                     top_level_payloads = {}
                     for variant_key, payload_value in posthog_payloads.items():
-                        top_level_payloads[variant_key] = json.dumps(payload_value) if payload_value is not None else None
+                        top_level_payloads[variant_key] = (
+                            json.dumps(payload_value) if payload_value is not None else None
+                        )
 
                     filters = {
                         "payloads": top_level_payloads,  # Top-level payloads as JSON strings
                         "multivariate": {
                             "variants": posthog_variants,
-                            "payloads": posthog_payloads  # Multivariate payloads as objects
-                        }
+                            "payloads": posthog_payloads,  # Multivariate payloads as objects
+                        },
                     }
-                    logger.info(f"PAYLOAD_TRACK: Final filters - top_level_payloads: {top_level_payloads}, multivariate_payloads: {posthog_payloads}")
+                    logger.info(
+                        f"PAYLOAD_TRACK: Final filters - top_level_payloads: {top_level_payloads}, multivariate_payloads: {posthog_payloads}"
+                    )
 
         # Provider-specific condition transformation
         if provider == "launchdarkly":
@@ -2478,7 +2498,9 @@ class FeatureFlagViewSet(
                 if field_mappings:
                     original_count = len(properties)
                     properties = self._apply_field_mappings_to_properties(properties, field_mappings, provider)
-                    logger.info(f"Applied field mappings: {original_count} -> {len(properties)} properties for condition {condition.get('rule_id', 'unknown')}")
+                    logger.info(
+                        f"Applied field mappings: {original_count} -> {len(properties)} properties for condition {condition.get('rule_id', 'unknown')}"
+                    )
 
                 # Validate properties have supported types (person, cohort, flag)
                 valid_properties = []
@@ -2487,11 +2509,15 @@ class FeatureFlagViewSet(
                     if prop_type in ["person", "cohort", "flag"]:
                         valid_properties.append(prop)
                     else:
-                        logger.warning(f"Skipping property with unsupported type '{prop_type}': {prop.get('key', 'unknown')}")
+                        logger.warning(
+                            f"Skipping property with unsupported type '{prop_type}': {prop.get('key', 'unknown')}"
+                        )
 
                 properties = valid_properties
                 if len(properties) < len(condition.get("properties", [])):
-                    logger.info(f"Filtered properties to only valid types: {len(condition.get('properties', []))} -> {len(properties)}")
+                    logger.info(
+                        f"Filtered properties to only valid types: {len(condition.get('properties', []))} -> {len(properties)}"
+                    )
 
                 # Only create groups that have actual properties
                 # Skip conditions with empty properties to avoid empty condition sets
@@ -4248,7 +4274,6 @@ class FeatureFlagViewSet(
             rule_name = rule.get("name", "").lower()
             rule_conditions = rule.get("conditions", [])
 
-
             # Skip rules that are explicitly named as default or fail rules
             if "default" in rule_name and ("fail" in rule_name or "false" in rule_name):
                 logger.info(f"Statsig: Skipping Default: Fail rule named '{rule.get('name', '')}'")
@@ -4289,9 +4314,13 @@ class FeatureFlagViewSet(
                     "rule_id": rule.get("id"),
                 }
                 conditions.append(condition_data)
-                logger.info(f"Statsig: Created condition group with {len(all_properties)} properties for rule {rule.get('id', 'unknown')}: {all_properties}")
+                logger.info(
+                    f"Statsig: Created condition group with {len(all_properties)} properties for rule {rule.get('id', 'unknown')}: {all_properties}"
+                )
             else:
-                logger.warning(f"Statsig: Skipped rule {rule.get('id', 'unknown')} - no properties generated from {len(rule_conditions)} conditions")
+                logger.warning(
+                    f"Statsig: Skipped rule {rule.get('id', 'unknown')} - no properties generated from {len(rule_conditions)} conditions"
+                )
 
         return conditions
 
@@ -4592,8 +4621,11 @@ class FeatureFlagViewSet(
                         # Try to parse JSON5 if returnValue is empty
                         try:
                             import json
+
                             # Remove JSON5 comments for basic parsing
-                            cleaned_json = "\n".join(line for line in json5_str.split("\n") if not line.strip().startswith("//"))
+                            cleaned_json = "\n".join(
+                                line for line in json5_str.split("\n") if not line.strip().startswith("//")
+                            )
 
                             if cleaned_json.strip() and cleaned_json.strip() != "{}":
                                 variant_value = json.loads(cleaned_json)
@@ -4611,9 +4643,11 @@ class FeatureFlagViewSet(
                         "key": variant.get("name", variant.get("id", "")),  # Use name as key
                         "name": variant.get("name", variant.get("id", "")),
                         "value": variant_value,
-                        "rollout_percentage": variant.get("passPercentage", 0)
+                        "rollout_percentage": variant.get("passPercentage", 0),
                     }
-                    logger.info(f"PAYLOAD_TRACK: Extracted variant '{variant_data['key']}' with payload: {variant_value}")
+                    logger.info(
+                        f"PAYLOAD_TRACK: Extracted variant '{variant_data['key']}' with payload: {variant_value}"
+                    )
                     rule_variant_set.append(variant_data)
                 variant_sets_by_rule.append(rule_variant_set)
 
@@ -4626,7 +4660,9 @@ class FeatureFlagViewSet(
             for i, rule_variants in enumerate(variant_sets_by_rule[1:], 1):
                 if not self._variants_are_consistent(baseline_variants, rule_variants):
                     # This should be flagged as a validation error
-                    logger.warning(f"Statsig Dynamic Config: Inconsistent variants found between rules. Rule 0 vs Rule {i}")
+                    logger.warning(
+                        f"Statsig Dynamic Config: Inconsistent variants found between rules. Rule 0 vs Rule {i}"
+                    )
                     # For now, we'll use the baseline and add this to import issues
                     return []  # Return empty to mark as non-importable
 
@@ -4661,7 +4697,7 @@ class FeatureFlagViewSet(
             v1_percentage = v1.get("rollout_percentage", v1.get("percentage", 0))
             v2_percentage = v2.get("rollout_percentage", v2.get("percentage", 0))
 
-            if (v1.get("key") != v2.get("key") or v1_percentage != v2_percentage):
+            if v1.get("key") != v2.get("key") or v1_percentage != v2_percentage:
                 return False
 
         return True
@@ -4683,10 +4719,12 @@ class FeatureFlagViewSet(
                 # Extract variant info: keys and split percentages
                 rule_variant_set = []
                 for variant in rule_variants:
-                    rule_variant_set.append({
-                        "key": variant.get("name", variant.get("id", "")),
-                        "percentage": variant.get("passPercentage", 0)
-                    })
+                    rule_variant_set.append(
+                        {
+                            "key": variant.get("name", variant.get("id", "")),
+                            "percentage": variant.get("passPercentage", 0),
+                        }
+                    )
                 variant_sets_by_rule.append((rule_idx, rule_variant_set))
 
         if len(variant_sets_by_rule) <= 1:
@@ -4885,6 +4923,7 @@ class FeatureFlagViewSet(
         """Generate a unique flag key by adding a suffix if the key already exists"""
         import time
         import random
+
         from django.db import transaction
 
         if not original_key:
@@ -4971,7 +5010,9 @@ class FeatureFlagViewSet(
                             # If we can't extract field info, create a basic one so the field appears in mapping
                             display_name = external_key.replace("_", " ").title()
                             unique_fields.add(("custom", external_key, f"Custom Field: {display_name}"))
-                            logger.info(f"DEBUG: Flag {flag_key} created basic field info for unmapped key: {external_key}")
+                            logger.info(
+                                f"DEBUG: Flag {flag_key} created basic field info for unmapped key: {external_key}"
+                            )
 
         logger.info(f"DEBUG: Total unique fields found: {len(unique_fields)}")
         logger.info(f"DEBUG: Unique fields: {sorted(unique_fields)}")
@@ -5012,7 +5053,7 @@ class FeatureFlagViewSet(
             return {
                 "type": "custom",
                 "key": prop_key,
-                "display_name": f"Custom Field: {prop_key.replace('_', ' ').title()}"
+                "display_name": f"Custom Field: {prop_key.replace('_', ' ').title()}",
             }
         return None
 
@@ -5040,7 +5081,9 @@ class FeatureFlagViewSet(
                 logger.info(f"DEBUG: Flag {flag_key} Rule {rule_idx} has {len(rule_conditions)} conditions")
 
                 for cond_idx, condition in enumerate(rule_conditions):
-                    logger.info(f"DEBUG: Flag {flag_key} Rule {rule_idx} Condition {cond_idx} full structure: {condition}")
+                    logger.info(
+                        f"DEBUG: Flag {flag_key} Rule {rule_idx} Condition {cond_idx} full structure: {condition}"
+                    )
 
                     condition_type = condition.get("type", "")
                     # Check for other possible field names in the condition
@@ -5048,13 +5091,17 @@ class FeatureFlagViewSet(
                     condition_targetValue = condition.get("targetValue", "")
                     condition_operator = condition.get("operator", "")
 
-                    logger.info(f"DEBUG: Flag {flag_key} Rule {rule_idx} Condition {cond_idx}: type='{condition_type}', field='{condition_field}', targetValue='{condition_targetValue}', operator='{condition_operator}'")
+                    logger.info(
+                        f"DEBUG: Flag {flag_key} Rule {rule_idx} Condition {cond_idx}: type='{condition_type}', field='{condition_field}', targetValue='{condition_targetValue}', operator='{condition_operator}'"
+                    )
 
                     # Handle custom_field type specially
                     if condition_type == "custom_field":
                         # For custom fields, the actual field name is likely in the 'field' property
                         custom_field_name = condition_field or condition.get("name", "") or condition.get("key", "")
-                        logger.info(f"DEBUG: Flag {flag_key} Found custom_field condition with name: '{custom_field_name}'")
+                        logger.info(
+                            f"DEBUG: Flag {flag_key} Found custom_field condition with name: '{custom_field_name}'"
+                        )
 
                         if custom_field_name:
                             field_info = self._create_statsig_field_info(custom_field_name)
@@ -5064,9 +5111,13 @@ class FeatureFlagViewSet(
                                 logger.info(f"DEBUG: Flag {flag_key} Added custom field info: {field_info}")
                                 field_info_list.append(field_info)
                             else:
-                                logger.warning(f"DEBUG: Flag {flag_key} No field info created for custom field: {custom_field_name}")
+                                logger.warning(
+                                    f"DEBUG: Flag {flag_key} No field info created for custom field: {custom_field_name}"
+                                )
                         else:
-                            logger.warning(f"DEBUG: Flag {flag_key} custom_field condition missing field name: {condition}")
+                            logger.warning(
+                                f"DEBUG: Flag {flag_key} custom_field condition missing field name: {condition}"
+                            )
                     else:
                         # Try to extract field name from different possible locations for non-custom fields
                         field_to_use = condition_type or condition_field
@@ -5077,7 +5128,9 @@ class FeatureFlagViewSet(
                                 logger.info(f"DEBUG: Flag {flag_key} Added field info: {field_info}")
                                 field_info_list.append(field_info)
                             else:
-                                logger.warning(f"DEBUG: Flag {flag_key} No field info created for field: {field_to_use}")
+                                logger.warning(
+                                    f"DEBUG: Flag {flag_key} No field info created for field: {field_to_use}"
+                                )
                         else:
                             logger.info(f"DEBUG: Flag {flag_key} Skipped field: {field_to_use} (excluded or empty)")
         else:
@@ -5090,7 +5143,9 @@ class FeatureFlagViewSet(
             for cond_idx, condition in enumerate(flag.get("conditions", [])):
                 for prop_idx, prop in enumerate(condition.get("properties", [])):
                     if "name" in str(prop).lower() or "custom" in str(prop).lower():
-                        logger.info(f"DEBUG: Flag {flag_key} Found potential custom field in top-level conditions[{cond_idx}].properties[{prop_idx}]: {prop}")
+                        logger.info(
+                            f"DEBUG: Flag {flag_key} Found potential custom field in top-level conditions[{cond_idx}].properties[{prop_idx}]: {prop}"
+                        )
 
         # Check transformed conditions as backup
         if "transformed_conditions" in metadata:
@@ -5099,14 +5154,29 @@ class FeatureFlagViewSet(
         # Search for any mention of "name" or "custom" anywhere in the flag structure
         flag_str = str(flag).lower()
         if "name" in flag_str and "custom" in flag_str:
-            logger.info(f"DEBUG: Flag {flag_key} contains both 'name' and 'custom' in its structure - might have custom name field")
+            logger.info(
+                f"DEBUG: Flag {flag_key} contains both 'name' and 'custom' in its structure - might have custom name field"
+            )
 
         # Log any fields that might be custom but with different structure
         for _rule_idx, rule in enumerate(metadata.get("original_rules", [])):
             for _cond_idx, condition in enumerate(rule.get("conditions", [])):
                 # Check if there are any unusual field structures
-                if condition.get("type") not in ["email", "country", "passes_segment", "browser_name", "os_name", "browser_version", "user_id", "public", "pass_gate", "fail_gate"]:
-                    logger.info(f"DEBUG: Flag {flag_key} Found unusual condition type that might be custom: {condition}")
+                if condition.get("type") not in [
+                    "email",
+                    "country",
+                    "passes_segment",
+                    "browser_name",
+                    "os_name",
+                    "browser_version",
+                    "user_id",
+                    "public",
+                    "pass_gate",
+                    "fail_gate",
+                ]:
+                    logger.info(
+                        f"DEBUG: Flag {flag_key} Found unusual condition type that might be custom: {condition}"
+                    )
 
                 # Check for any field that has the word "name" in its values
                 target_value = condition.get("targetValue", [])
@@ -5120,7 +5190,9 @@ class FeatureFlagViewSet(
             if key not in unique_fields:
                 unique_fields[key] = field_info
 
-        logger.info(f"DEBUG: Flag {flag_key} extracted {len(unique_fields)} unique fields: {list(unique_fields.values())}")
+        logger.info(
+            f"DEBUG: Flag {flag_key} extracted {len(unique_fields)} unique fields: {list(unique_fields.values())}"
+        )
         return list(unique_fields.values())
 
     def _create_statsig_field_info(self, attribute):
@@ -5181,7 +5253,11 @@ class FeatureFlagViewSet(
 
         # Fallback: use the type as the key for fields like browser_name, os_name, etc.
         elif prop_type and prop_type not in ["person", "event"]:
-            return {"type": "custom", "key": prop_type, "display_name": f"Custom Field: {prop_type.replace('_', ' ').title()}"}
+            return {
+                "type": "custom",
+                "key": prop_type,
+                "display_name": f"Custom Field: {prop_type.replace('_', ' ').title()}",
+            }
 
         return None
 
@@ -5477,10 +5553,10 @@ class FeatureFlagViewSet(
         unmapped_fields = []
 
         # Check each condition in the flag
-        for condition_idx, condition in enumerate(flag_data.get("conditions", [])):
+        for _condition_idx, condition in enumerate(flag_data.get("conditions", [])):
             properties = condition.get("properties", [])
 
-            for prop_idx, prop in enumerate(properties):
+            for _prop_idx, prop in enumerate(properties):
                 # Skip cohort properties as they don't need field mapping
                 if prop.get("type") == "cohort":
                     continue

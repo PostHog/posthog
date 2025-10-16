@@ -1,20 +1,21 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect } from 'react'
+import { useState } from 'react'
 
-import { LemonButton, LemonTable, LemonInput, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTabs } from '@posthog/lemon-ui'
+import { LemonDropdown } from '@posthog/lemon-ui'
+
+import { ExternalFeatureFlag } from 'lib/api/featureFlagMigration'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonDropdown } from '@posthog/lemon-ui'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { useState } from 'react'
 
-import { ExternalFeatureFlag } from 'lib/api/featureFlagMigration'
-import { ExternalProvider, externalProviderImportWizardLogic } from './externalProviderImportWizardLogic'
-
-import IconStatsig from 'public/services/statsig.com.png'
 import IconLaunchDarkly from 'public/services/launchdarkly.com.png'
+import IconStatsig from 'public/services/statsig.com.png'
+
+import { ExternalProvider, externalProviderImportWizardLogic } from './externalProviderImportWizardLogic'
 
 // Provider logos
 const getProviderLogo = (provider: ExternalProvider): string => {
@@ -33,7 +34,10 @@ interface ExternalProviderImportWizardProps {
     importType: 'feature-flags' | 'experiments' | 'events'
 }
 
-export function ExternalProviderImportWizard({ onComplete, importType }: ExternalProviderImportWizardProps): JSX.Element {
+export function ExternalProviderImportWizard({
+    onComplete,
+    importType,
+}: ExternalProviderImportWizardProps): JSX.Element {
     return (
         <BindLogic logic={externalProviderImportWizardLogic} props={{ onComplete, importType }}>
             <InternalExternalProviderImportWizard onComplete={onComplete} importType={importType} />
@@ -41,7 +45,10 @@ export function ExternalProviderImportWizard({ onComplete, importType }: Externa
     )
 }
 
-function InternalExternalProviderImportWizard({ onComplete, importType }: ExternalProviderImportWizardProps): JSX.Element {
+function InternalExternalProviderImportWizard({
+    onComplete,
+    importType,
+}: ExternalProviderImportWizardProps): JSX.Element {
     const {
         currentStep,
         isLoading,
@@ -52,10 +59,10 @@ function InternalExternalProviderImportWizard({ onComplete, importType }: Extern
         stepDescription,
         selectedProvider,
     } = useValues(externalProviderImportWizardLogic)
-    const { onBack, onNext, onClear, startNewImport, fetchExternalResources, extractFieldMappings, executeImport } = useActions(externalProviderImportWizardLogic)
+    const { onBack, onNext, onClear, startNewImport, fetchExternalResources, extractFieldMappings, executeImport } =
+        useActions(externalProviderImportWizardLogic)
 
     useEffect(() => onClear, [onClear])
-
 
     const footer = useCallback(() => {
         if (currentStep === 1) {
@@ -66,12 +73,7 @@ function InternalExternalProviderImportWizard({ onComplete, importType }: Extern
             // Final step - show different buttons
             return (
                 <div className="flex flex-row gap-2 justify-end mt-4">
-                    <LemonButton
-                        type="secondary"
-                        center
-                        data-attr="import-start-new"
-                        onClick={startNewImport}
-                    >
+                    <LemonButton type="secondary" center data-attr="import-start-new" onClick={startNewImport}>
                         Start New Import
                     </LemonButton>
                     <LemonButton
@@ -131,7 +133,18 @@ function InternalExternalProviderImportWizard({ onComplete, importType }: Extern
                 </LemonButton>
             </div>
         )
-    }, [currentStep, canGoBack, onBack, isLoading, canGoNext, nextButtonText, onNext, onComplete, startNewImport, importType])
+    }, [
+        currentStep,
+        canGoBack,
+        onBack,
+        isLoading,
+        canGoNext,
+        nextButtonText,
+        onNext,
+        onComplete,
+        startNewImport,
+        importType,
+    ])
 
     return (
         <div className="space-y-6">
@@ -164,18 +177,18 @@ function InternalExternalProviderImportWizard({ onComplete, importType }: Extern
     )
 }
 
-function ProviderIcon({ provider, size = 'medium' }: { provider: ExternalProvider; size?: 'small' | 'medium' }): JSX.Element {
+function ProviderIcon({
+    provider,
+    size = 'medium',
+}: {
+    provider: ExternalProvider
+    size?: 'small' | 'medium'
+}): JSX.Element {
     const sizePx = size === 'small' ? 30 : 60
     const logo = getProviderLogo(provider)
 
     return (
-        <img
-            src={logo}
-            alt={provider}
-            height={sizePx}
-            width={sizePx}
-            className="object-contain max-w-none rounded"
-        />
+        <img src={logo} alt={provider} height={sizePx} width={sizePx} className="object-contain max-w-none rounded" />
     )
 }
 
@@ -250,9 +263,7 @@ function ProviderSelectionStep({ importType }: { importType: string }): JSX.Elem
                     {
                         title: '',
                         width: 0,
-                        render: (_, provider) => (
-                            <ProviderIcon provider={provider.key} size="small" />
-                        ),
+                        render: (_, provider) => <ProviderIcon provider={provider.key} size="small" />,
                     },
                     {
                         title: 'Provider',
@@ -318,7 +329,8 @@ function AuthenticationStep(): JSX.Element {
                             <li>Copy the generated Console API Key</li>
                         </ol>
                         <div className="mt-2 text-xs text-warning">
-                            <strong>Important:</strong> Use your Console API Key, not the Client Key or Server Secret Key.
+                            <strong>Important:</strong> Use your Console API Key, not the Client Key or Server Secret
+                            Key.
                         </div>
                     </div>
                 )
@@ -359,9 +371,7 @@ function AuthenticationStep(): JSX.Element {
                                 placeholder="Enter your project key (defaults to 'default')"
                                 data-attr="import-project-key-input"
                             />
-                            <div className="text-xs text-muted">
-                                Leave empty to use the default project.
-                            </div>
+                            <div className="text-xs text-muted">Leave empty to use the default project.</div>
                         </div>
 
                         <div className="space-y-2">
@@ -389,7 +399,9 @@ function AuthenticationStep(): JSX.Element {
 }
 
 function SelectionStep({ importType }: { importType: string }): JSX.Element {
-    const { fetchedResources, selectedResources, selectedProvider, isLoading } = useValues(externalProviderImportWizardLogic)
+    const { fetchedResources, selectedResources, selectedProvider, isLoading } = useValues(
+        externalProviderImportWizardLogic
+    )
     const { toggleResourceSelection } = useActions(externalProviderImportWizardLogic)
     const [activeTab, setActiveTab] = useState<'importable' | 'not-supported' | 'feature-gates' | 'dynamic-configs'>(
         selectedProvider === ExternalProvider.STATSIG ? 'feature-gates' : 'importable'
@@ -413,9 +425,7 @@ function SelectionStep({ importType }: { importType: string }): JSX.Element {
             <div className="space-y-6">
                 <div>
                     <h4 className="text-lg font-semibold mb-2">{getLoadingText()}</h4>
-                    <p className="text-muted">
-                        Please wait while we fetch your data from {selectedProvider}...
-                    </p>
+                    <p className="text-muted">Please wait while we fetch your data from {selectedProvider}...</p>
                 </div>
 
                 <div className="text-center py-8">
@@ -438,20 +448,27 @@ function SelectionStep({ importType }: { importType: string }): JSX.Element {
 
     // For now, keep the existing feature flag selection UI
     // This can be made more generic later when we add other import types
-    const getCurrentFlags = () => {
+    const getCurrentFlags = (): ExternalFeatureFlag[] => {
         if (selectedProvider === ExternalProvider.STATSIG) {
             return activeTab === 'feature-gates'
-                ? fetchedResources.importable_flags.filter((f: ExternalFeatureFlag) => (f.metadata as any)?.statsig_type === 'feature_gate')
-                : fetchedResources.importable_flags.filter((f: ExternalFeatureFlag) => (f.metadata as any)?.statsig_type === 'dynamic_config')
-        } else {
-            return activeTab === 'importable' ? fetchedResources.importable_flags : []
+                ? fetchedResources.importable_flags.filter(
+                      (f: ExternalFeatureFlag) => (f.metadata as any)?.statsig_type === 'feature_gate'
+                  )
+                : fetchedResources.importable_flags.filter(
+                      (f: ExternalFeatureFlag) => (f.metadata as any)?.statsig_type === 'dynamic_config'
+                  )
         }
+        return activeTab === 'importable' ? fetchedResources.importable_flags : []
     }
 
     const currentFlags = getCurrentFlags()
-    const allCurrentFlagsSelected = currentFlags.length > 0 && currentFlags.every((flag: ExternalFeatureFlag) => selectedResources.some((selected: ExternalFeatureFlag) => selected.key === flag.key))
+    const allCurrentFlagsSelected =
+        currentFlags.length > 0 &&
+        currentFlags.every((flag: ExternalFeatureFlag) =>
+            selectedResources.some((selected: ExternalFeatureFlag) => selected.key === flag.key)
+        )
 
-    const handleSelectAll = () => {
+    const handleSelectAll = (): void => {
         if (allCurrentFlagsSelected) {
             // Deselect all current flags
             currentFlags.forEach((flag: ExternalFeatureFlag) => {
@@ -484,7 +501,8 @@ function SelectionStep({ importType }: { importType: string }): JSX.Element {
                                 <div className="space-y-4">
                                     <div className="flex justify-between items-center">
                                         <div className="text-sm text-muted">
-                                            {selectedResources.length} of {fetchedResources.importable_flags.length} selected
+                                            {selectedResources.length} of {fetchedResources.importable_flags.length}{' '}
+                                            selected
                                         </div>
                                         <LemonButton
                                             type="secondary"
@@ -510,7 +528,8 @@ function SelectionStep({ importType }: { importType: string }): JSX.Element {
                                 <div className="space-y-4">
                                     <div className="flex justify-between items-center">
                                         <div className="text-sm text-muted">
-                                            {selectedResources.length} of {fetchedResources.importable_flags.length} selected
+                                            {selectedResources.length} of {fetchedResources.importable_flags.length}{' '}
+                                            selected
                                         </div>
                                         <LemonButton
                                             type="secondary"
@@ -543,7 +562,8 @@ function SelectionStep({ importType }: { importType: string }): JSX.Element {
                                 <div className="space-y-4">
                                     <div className="flex justify-between items-center">
                                         <div className="text-sm text-muted">
-                                            {selectedResources.length} of {fetchedResources.importable_flags.length} selected
+                                            {selectedResources.length} of {fetchedResources.importable_flags.length}{' '}
+                                            selected
                                         </div>
                                         <LemonButton
                                             type="secondary"
@@ -582,7 +602,9 @@ function SelectionStep({ importType }: { importType: string }): JSX.Element {
 }
 
 function FieldMappingStep(): JSX.Element {
-    const { fieldMappings, originalFieldMappings, selectedMappingsCount, isLoading } = useValues(externalProviderImportWizardLogic)
+    const { fieldMappings, originalFieldMappings, selectedMappingsCount, isLoading } = useValues(
+        externalProviderImportWizardLogic
+    )
     const { updateFieldMapping, resetFieldMappings } = useActions(externalProviderImportWizardLogic)
 
     if (isLoading) {
@@ -600,26 +622,27 @@ function FieldMappingStep(): JSX.Element {
                 {fieldMappings.length === 0 ? (
                     <div className="text-center py-8">
                         <div className="bg-success/10 border border-success/20 rounded-lg p-4 max-w-md mx-auto">
-                            <p className="text-sm text-success-foreground">
-                                ✓ All fields are ready for import.
-                            </p>
+                            <p className="text-sm text-success-foreground">✓ All fields are ready for import.</p>
                         </div>
                     </div>
                 ) : (
                     <>
-                        <div className={`border rounded-lg p-3 mb-4 ${
-                            selectedMappingsCount < fieldMappings.length
-                                ? 'bg-warning/10 border-warning/20'
-                                : 'bg-success/10 border-success/20'
-                        }`}>
+                        <div
+                            className={`border rounded-lg p-3 mb-4 ${
+                                selectedMappingsCount < fieldMappings.length
+                                    ? 'bg-warning/10 border-warning/20'
+                                    : 'bg-success/10 border-success/20'
+                            }`}
+                        >
                             <div className="flex justify-between items-center">
                                 <div className="text-sm">
-                                    <strong>{selectedMappingsCount}</strong> of{' '}
-                                    <strong>{fieldMappings.length}</strong> fields mapped
+                                    <strong>{selectedMappingsCount}</strong> of <strong>{fieldMappings.length}</strong>{' '}
+                                    fields mapped
                                     {selectedMappingsCount < fieldMappings.length && (
                                         <div className="mt-1 text-warning-foreground">
-                                            <strong>{fieldMappings.length - selectedMappingsCount}</strong> unmapped fields highlighted below -
-                                            these will be skipped during import and related rules will be ignored
+                                            <strong>{fieldMappings.length - selectedMappingsCount}</strong> unmapped
+                                            fields highlighted below - these will be skipped during import and related
+                                            rules will be ignored
                                         </div>
                                     )}
                                 </div>
@@ -637,9 +660,11 @@ function FieldMappingStep(): JSX.Element {
                         <LemonTable
                             dataSource={fieldMappings}
                             onRow={(mapping) => ({
-                                className: !mapping.posthog_field && !(mapping.auto_selected && mapping.external_type === 'segment')
-                                    ? 'bg-warning/10 border-l-4 border-l-warning'
-                                    : ''
+                                className:
+                                    !mapping.posthog_field &&
+                                    !(mapping.auto_selected && mapping.external_type === 'segment')
+                                        ? 'bg-warning/10 border-l-4 border-l-warning'
+                                        : '',
                             })}
                             columns={[
                                 {
@@ -647,14 +672,18 @@ function FieldMappingStep(): JSX.Element {
                                     key: 'external_field',
                                     render: (_, mapping) => (
                                         <div className="flex items-center gap-2">
-                                            {!mapping.posthog_field && !(mapping.auto_selected && mapping.external_type === 'segment') && (
-                                                <div className="w-2 h-2 bg-warning rounded-full flex-shrink-0" title="Unmapped field" />
-                                            )}
+                                            {!mapping.posthog_field &&
+                                                !(mapping.auto_selected && mapping.external_type === 'segment') && (
+                                                    <div
+                                                        className="w-2 h-2 bg-warning rounded-full flex-shrink-0"
+                                                        title="Unmapped field"
+                                                    />
+                                                )}
                                             <div className="flex-1">
-                                            <div className="font-medium text-sm">{mapping.display_name}</div>
-                                            <div className="text-xs text-muted-foreground">
-                                                <code>{mapping.external_key}</code> ({mapping.external_type})
-                                            </div>
+                                                <div className="font-medium text-sm">{mapping.display_name}</div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    <code>{mapping.external_key}</code> ({mapping.external_type})
+                                                </div>
                                             </div>
                                         </div>
                                     ),
@@ -672,11 +701,7 @@ function FieldMappingStep(): JSX.Element {
                                                 <PropertySelector
                                                     value={mapping.posthog_field || ''}
                                                     onChange={(value) => {
-                                                        updateFieldMapping(
-                                                            mapping.external_key,
-                                                            value,
-                                                            'person'
-                                                        )
+                                                        updateFieldMapping(mapping.external_key, value, 'person')
                                                     }}
                                                     placeholder="Choose PostHog field..."
                                                 />
@@ -716,7 +741,9 @@ function ImportResultsStep({ importType }: { importType: string }): JSX.Element 
             <div className="space-y-6">
                 <div>
                     <h4 className="text-lg font-semibold mb-2">Ready to import</h4>
-                    <p className="text-muted">Click the button to start importing your selected {getDestinationText()}.</p>
+                    <p className="text-muted">
+                        Click the button to start importing your selected {getDestinationText()}.
+                    </p>
                 </div>
             </div>
         )
@@ -734,25 +761,19 @@ function ImportResultsStep({ importType }: { importType: string }): JSX.Element 
                                 title: 'Key',
                                 dataIndex: 'posthog_flag',
                                 key: 'key',
-                                render: (posthog_flag: any) => (
-                                    <span>{posthog_flag.key}</span>
-                                ),
+                                render: (posthog_flag: any) => <span>{posthog_flag.key}</span>,
                             },
                             {
                                 title: 'Name',
                                 dataIndex: 'external_flag',
                                 key: 'name',
-                                render: (external_flag: any) => (
-                                    <div>{external_flag.name || '—'}</div>
-                                ),
+                                render: (external_flag: any) => <div>{external_flag.name || '—'}</div>,
                             },
                             {
                                 title: 'PostHog ID',
                                 dataIndex: 'posthog_flag',
                                 key: 'id',
-                                render: (posthog_flag: any) => (
-                                    <span>{posthog_flag.id}</span>
-                                ),
+                                render: (posthog_flag: any) => <span>{posthog_flag.id}</span>,
                             },
                             {
                                 title: 'Actions',
@@ -763,7 +784,8 @@ function ImportResultsStep({ importType }: { importType: string }): JSX.Element 
                                             type="primary"
                                             size="small"
                                             onClick={() => {
-                                                const baseUrl = importType === 'feature-flags' ? '/feature_flags' : '/insights'
+                                                const baseUrl =
+                                                    importType === 'feature-flags' ? '/feature_flags' : '/insights'
                                                 window.open(`${baseUrl}/${item.posthog_flag.id}`, '_blank')
                                             }}
                                         >
@@ -790,17 +812,13 @@ function ImportResultsStep({ importType }: { importType: string }): JSX.Element 
                                 title: 'Key',
                                 dataIndex: 'flag',
                                 key: 'key',
-                                render: (flag: any) => (
-                                    <span>{flag.key}</span>
-                                ),
+                                render: (flag: any) => <span>{flag.key}</span>,
                             },
                             {
                                 title: 'Name',
                                 dataIndex: 'flag',
                                 key: 'name',
-                                render: (flag: any) => (
-                                    <div>{flag.name || '—'}</div>
-                                ),
+                                render: (flag: any) => <div>{flag.name || '—'}</div>,
                             },
                             {
                                 title: 'Reason',
@@ -857,12 +875,7 @@ function PropertySelector({
     )
 
     const buttonContent = value ? (
-        <PropertyKeyInfo
-            value={value}
-            disablePopover
-            ellipsis
-            type={TaxonomicFilterGroupType.PersonProperties}
-        />
+        <PropertyKeyInfo value={value} disablePopover ellipsis type={TaxonomicFilterGroupType.PersonProperties} />
     ) : (
         placeholder
     )
@@ -887,12 +900,7 @@ function PropertySelector({
                     </LemonButton>
                 </LemonDropdown>
                 {value && (
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        onClick={() => onChange('')}
-                        className="shrink-0"
-                    >
+                    <LemonButton type="tertiary" size="small" onClick={() => onChange('')} className="shrink-0">
                         Clear
                     </LemonButton>
                 )}
@@ -927,7 +935,7 @@ function SelectionTable({
                     }
                 },
                 style: { cursor: disabled ? 'default' : 'pointer' },
-                className: disabled ? '' : 'hover:bg-side'
+                className: disabled ? '' : 'hover:bg-side',
             })}
             columns={[
                 {
@@ -964,18 +972,16 @@ function SelectionTable({
                 {
                     title: 'Description',
                     key: 'description',
-                    render: (_, flag) => (
-                        <div className="text-sm">
-                            {flag.description || '—'}
-                        </div>
-                    ),
+                    render: (_, flag) => <div className="text-sm">{flag.description || '—'}</div>,
                 },
                 {
                     title: 'Status',
                     key: 'status',
                     width: 100,
                     render: (_, flag) => (
-                        <span className={`text-xs px-2 py-0.5 rounded ${flag.enabled ? 'bg-success/10 text-success' : 'bg-muted/10 text-muted'}`}>
+                        <span
+                            className={`text-xs px-2 py-0.5 rounded ${flag.enabled ? 'bg-success/10 text-success' : 'bg-muted/10 text-muted'}`}
+                        >
                             {flag.enabled ? 'Enabled' : 'Disabled'}
                         </span>
                     ),
@@ -1008,7 +1014,8 @@ function SelectionTable({
                                             </div>
                                         )}
                                         <div>
-                                            <span className="text-muted">Status:</span> {flag.enabled ? 'Enabled' : 'Disabled'}
+                                            <span className="text-muted">Status:</span>{' '}
+                                            {flag.enabled ? 'Enabled' : 'Disabled'}
                                         </div>
                                         <div>
                                             <span className="text-muted">Conditions:</span> {flag.conditions.length}
