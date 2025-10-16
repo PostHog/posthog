@@ -322,7 +322,7 @@ def parse_prop_clauses(
             cohort = Cohort.objects.get(pk=cohort_id)
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
-            filter_query, filter_params = method(cohort, idx, prepend=prepend)  # type: ignore
+            filter_query, filter_params = method(cohort, idx, prepend=prepend)
             filter_query = f"""{person_id_joined_alias if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else 'person_id'} IN ({filter_query})"""
 
             if has_person_id_joined or person_properties_mode in [
@@ -374,7 +374,7 @@ def negate_operator(operator: OperatorType) -> OperatorType:
         "is_date_before": "is_date_after",
         "is_date_after": "is_date_before",
         # is_date_exact not yet supported
-    }.get(operator, operator)  # type: ignore
+    }.get(operator, operator)
 
 
 def prop_filter_json_extract(
@@ -940,7 +940,7 @@ def count_hogql_properties(
 def get_session_property_filter_statement(prop: Property, idx: int, prepend: str = "") -> tuple[str, dict[str, Any]]:
     if prop.key == "$session_duration":
         try:
-            duration = float(prop.value)  # type: ignore
+            duration = float(prop.value)
         except ValueError:
             raise (exceptions.ValidationError(f"$session_duration value must be a number. Received '{prop.value}'"))
         value = f"session_duration_value{prepend}_{idx}"

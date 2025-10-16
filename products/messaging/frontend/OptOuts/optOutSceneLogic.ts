@@ -10,9 +10,9 @@ import type { optOutSceneLogicType } from './optOutSceneLogicType'
 
 export const optOutSceneLogic = kea<optOutSceneLogicType>([
     path(['products', 'messaging', 'frontend', 'OptOuts', 'optOutSceneLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
-    }),
+    })),
     actions({
         loadUnsubscribeLink: true,
     }),

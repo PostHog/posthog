@@ -6,17 +6,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 type PostHogPythonOptions = {
     enableExceptionAutocapture?: boolean
-    djangoIntegration?: boolean
 }
 
 function PythonInstallSnippet(): JSX.Element {
     return <CodeSnippet language={Language.Bash}>pip install posthog</CodeSnippet>
 }
 
-export function PythonSetupSnippet({
-    enableExceptionAutocapture = false,
-    djangoIntegration = false,
-}: PostHogPythonOptions): JSX.Element {
+export function PythonSetupSnippet({ enableExceptionAutocapture = false }: PostHogPythonOptions): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     const options = [`host='${apiHostOrigin()}'`]
@@ -24,14 +20,11 @@ export function PythonSetupSnippet({
     if (enableExceptionAutocapture) {
         options.push('enable_exception_autocapture=True')
     }
-    if (djangoIntegration) {
-        options.push('exception_autocapture_integrations = [Integrations.Django]')
-    }
 
     return (
         <CodeSnippet language={Language.Python}>
             {`from posthog import Posthog
-${djangoIntegration ? 'from posthog.integrations.django import Integrations\n' : ''}
+
 posthog = Posthog(
   project_api_key='${currentTeam?.api_token}',
   ${options.join(',\n  ')}

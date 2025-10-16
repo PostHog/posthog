@@ -1,12 +1,12 @@
 import { DateTime } from 'luxon'
 
 import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
-import { Hub } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { UUIDT } from '../../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
+    HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     LogEntry,
@@ -16,8 +16,7 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { HogExecutorService } from '../hog-executor.service'
-import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
+import { HogExecutorExecuteAsyncOptions } from '../hog-executor.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
@@ -27,25 +26,40 @@ import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
+import { HogFlowFunctionsService } from './hogflow-functions.service'
 import { actionIdForLogging, ensureCurrentAction, findContinueAction, shouldSkipAction } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
+
+export function createHogFlowInvocation(
+    globals: HogFunctionInvocationGlobals,
+    hogFlow: HogFlow,
+    filterGlobals: HogFunctionFilterGlobals
+): CyclotronJobInvocationHogFlow {
+    return {
+        id: new UUIDT().toString(),
+        state: {
+            event: globals.event,
+            actionStepCount: 0,
+        },
+        teamId: hogFlow.team_id,
+        functionId: hogFlow.id, // TODO: Include version?
+        hogFlow,
+        person: globals.person, // This is outside of state as we don't persist it
+        filterGlobals,
+        queue: 'hogflow',
+        queuePriority: 1,
+    }
+}
 
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
 
     constructor(
-        private hub: Hub,
-        private hogFunctionExecutor: HogExecutorService,
-        private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
-        private recipientPreferencesService: RecipientPreferencesService
+        hogFlowFunctionsService: HogFlowFunctionsService,
+        recipientPreferencesService: RecipientPreferencesService
     ) {
-        const hogFunctionHandler = new HogFunctionHandler(
-            this.hub,
-            this.hogFunctionExecutor,
-            this.hogFunctionTemplateManager,
-            this.recipientPreferencesService
-        )
+        const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService)
 
         this.actionHandlers = {
             trigger: new TriggerHandler(),
@@ -58,27 +72,6 @@ export class HogFlowExecutorService {
             function_sms: hogFunctionHandler,
             function_email: hogFunctionHandler,
             exit: new ExitHandler(),
-        }
-    }
-
-    public createHogFlowInvocation(
-        globals: HogFunctionInvocationGlobals,
-        hogFlow: HogFlow,
-        filterGlobals: HogFunctionFilterGlobals
-    ): CyclotronJobInvocationHogFlow {
-        return {
-            id: new UUIDT().toString(),
-            state: {
-                event: globals.event,
-                actionStepCount: 0,
-            },
-            teamId: hogFlow.team_id,
-            functionId: hogFlow.id, // TODO: Include version?
-            hogFlow,
-            person: globals.person, // This is outside of state as we don't persist it
-            filterGlobals,
-            queue: 'hogflow',
-            queuePriority: 1,
         }
     }
 
@@ -115,7 +108,7 @@ export class HogFlowExecutorService {
                 continue
             }
 
-            const invocation = this.createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
             invocations.push(invocation)
         }
 
@@ -132,11 +125,20 @@ export class HogFlowExecutorService {
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
+        const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
             return earlyExitResult
         }
+
+        const hasCurrentAction = Boolean(invocation.state.currentAction)
+        const currentAction = hasCurrentAction ? `[Action:${invocation.state.currentAction!.id}]` : 'trigger'
+        logs.push({
+            level: 'debug',
+            message: `${hasCurrentAction ? 'Resuming' : 'Starting'} workflow execution at ${currentAction}`,
+            timestamp: DateTime.now(),
+        })
 
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
@@ -145,22 +147,60 @@ export class HogFlowExecutorService {
             result = await this.executeCurrentAction(nextInvocation)
 
             if (result.finished) {
-                this.log(result, 'info', `Workflow completed`)
+                if (result.error) {
+                    this.log(result, 'error', `Workflow encountered an error: ${result.error}`)
+                } else {
+                    this.log(result, 'info', `Workflow completed`)
+                }
             }
 
             logs.push(...result.logs)
             metrics.push(...result.metrics)
+            capturedPostHogEvents.push(...result.capturedPostHogEvents)
 
-            // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
-            if (result.finished || result.invocation.queueScheduledAt) {
+            if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
             }
         }
 
         result.logs = logs
         result.metrics = metrics
+        result.capturedPostHogEvents = capturedPostHogEvents
 
         return result
+    }
+
+    private shouldEndHogFlowExecution(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        logs: MinimalLogEntry[]
+    ): boolean {
+        const finishedWithoutError = result.finished && !result.error
+        const delayScheduled = Boolean(result.invocation.queueScheduledAt)
+
+        let shouldAbortAfterError = false
+        if (result.error) {
+            const lastExecutedActionId = result.invocation.state.currentAction?.id
+            const lastExecutedAction = result.invocation.hogFlow.actions.find((a) => a.id === lastExecutedActionId)
+            if (lastExecutedAction?.on_error === 'abort') {
+                shouldAbortAfterError = true
+                logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `Workflow is aborting due to the action's error handling setting (on_error: 'abort')`,
+                })
+            }
+        }
+
+        /**
+         * If one of the following happens:
+         * - we have finished the flow successfully
+         * - something has been scheduled to run later
+         * - there was an error during the action and the action's on_error is set to 'abort'
+         * - we have reached the max async functions count
+         *
+         * then we break the loop
+         */
+        return finishedWithoutError || delayScheduled || shouldAbortAfterError
     }
 
     /**
@@ -171,17 +211,14 @@ export class HogFlowExecutorService {
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
         let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
 
-        // Respect exit_condition before executing actions
         const { hogFlow, person } = invocation
         let shouldExit = false
         let exitReason = ''
 
-        // Always evaluate both filter matches up front using filterFunctionInstrumented
         let triggerMatch: boolean | undefined = undefined
         let conversionMatch: boolean | undefined = undefined
 
-        // Use the same filter evaluation as in buildHogFlowInvocations
-        if (hogFlow.trigger.filters && person) {
+        if (hogFlow.trigger.type === 'event' && hogFlow.trigger.filters && person) {
             const filterResult = await filterFunctionInstrumented({
                 fn: hogFlow,
                 filters: hogFlow.trigger.filters,
@@ -244,7 +281,10 @@ export class HogFlowExecutorService {
     }
 
     public async executeCurrentAction(
-        invocation: CyclotronJobInvocationHogFlow
+        invocation: CyclotronJobInvocationHogFlow,
+        options?: {
+            hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+        }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation)
         result.finished = false // Typically we are never finished unless we error or exit
@@ -259,6 +299,11 @@ export class HogFlowExecutorService {
                 return result
             }
 
+            result.logs.push({
+                level: 'debug',
+                message: `Executing action ${actionIdForLogging(currentAction)}`,
+                timestamp: DateTime.now(),
+            })
             logger.debug('🦔', `[HogFlowActionRunner] Running action ${currentAction.type}`, {
                 action: currentAction,
                 invocation,
@@ -270,7 +315,12 @@ export class HogFlowExecutorService {
             }
 
             try {
-                const handlerResult = await handler.execute(invocation, currentAction, result)
+                const handlerResult = await handler.execute({
+                    invocation,
+                    action: currentAction,
+                    result,
+                    hogExecutorOptions: options?.hogExecutorOptions,
+                })
 
                 if (handlerResult.finished) {
                     result.finished = true
@@ -296,6 +346,9 @@ export class HogFlowExecutorService {
             // The final catch - in this case we are always just logging the final outcome
             result.error = err.message
             result.finished = true // Explicitly set to true to prevent infinite loops
+
+            this.maybeContinueToNextActionOnError(result)
+
             logger.error(
                 '🦔',
                 `[HogFlowExecutor] Error executing hog flow ${invocation.hogFlow.id} - ${invocation.hogFlow.name}. Event: '${invocation.state.event?.url}'`,
@@ -310,7 +363,7 @@ export class HogFlowExecutorService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
         currentAction: HogFlowAction,
         nextAction: HogFlowAction,
-        reason: 'filtered' | 'succeeded'
+        reason: 'filtered' | 'failed' | 'succeeded'
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> {
         result.finished = false
 
@@ -327,9 +380,41 @@ export class HogFlowExecutorService {
             message: `Workflow moved to action ${actionIdForLogging(nextAction)}`,
         })
 
-        this.trackActionMetric(result, currentAction, reason === 'filtered' ? 'filtered' : 'succeeded')
+        this.trackActionMetric(result, currentAction, reason)
 
         return result
+    }
+
+    /**
+     * If the action has on_error set to 'continue' then we continue to the next action instead of failing the flow
+     */
+    private maybeContinueToNextActionOnError(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
+    ): void {
+        try {
+            const { invocation } = result
+            // If current action's on_error is set to 'continue', we move to the next action instead of failing the flow
+            const currentAction = ensureCurrentAction(invocation)
+            if (currentAction?.on_error === 'continue') {
+                const nextAction = findContinueAction(invocation)
+                if (nextAction) {
+                    this.logAction(
+                        result,
+                        currentAction,
+                        'info',
+                        `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to on_error setting`
+                    )
+
+                    /**
+                     * TODO: Determine if we should track this as a 'succeeded' metric here or
+                     * a new metric_name e.g. 'continued_after_error'
+                     */
+                    this.goToNextAction(result, currentAction, nextAction, 'succeeded')
+                }
+            }
+        } catch (err) {
+            logger.error('Error trying to continue to next action on error', { error: err })
+        }
     }
 
     /**

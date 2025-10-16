@@ -136,6 +136,12 @@ export function createCohortFormData(cohort: CohortType): FormData {
     for (const [itemKey, value] of Object.entries(rawCohort)) {
         cohortFormData.append(itemKey, value as string | Blob)
     }
+
+    if (cohort._create_static_person_ids != null) {
+        cohort._create_static_person_ids.forEach((personId) => {
+            cohortFormData.append('_create_static_person_ids', personId)
+        })
+    }
     return cohortFormData
 }
 

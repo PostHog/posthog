@@ -9,11 +9,16 @@ from posthog.schema import AssistantMessage, HumanMessage
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.onboarding.prompts import DEEP_RESEARCH_ONBOARDING_PROMPT
-from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState
+from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
 from ee.hogai.utils.helpers import extract_content_from_ai_message
+from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class DeepResearchOnboardingNode(DeepResearchNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return DeepResearchNodeName.NOTEBOOK_PLANNING
+
     def should_run_onboarding_at_start(self, state: DeepResearchState) -> Literal["onboarding", "planning", "continue"]:
         if not state.messages:
             return "onboarding"
@@ -24,7 +29,8 @@ class DeepResearchOnboardingNode(DeepResearchNode):
             # So there will be 2 human messages during the onboarding flow
             return "onboarding"
 
-        if state.notebook_short_id:
+        # If we have current_run_notebooks, we're continuing an existing run
+        if state.current_run_notebooks:
             return "continue"
         return "planning"
 
@@ -62,4 +68,5 @@ class DeepResearchOnboardingNode(DeepResearchNode):
         return PartialDeepResearchState(
             messages=[AssistantMessage(content=content, id=str(uuid4()))],
             previous_response_id=response_id,
+            current_run_notebooks=[],  # Reset current run notebooks on new run
         )

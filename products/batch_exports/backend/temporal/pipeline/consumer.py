@@ -5,10 +5,10 @@ import collections.abc
 import pyarrow as pa
 import temporalio.common
 
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
-from products.batch_exports.backend.temporal.pipeline.transformer import get_stream_transformer
+from products.batch_exports.backend.temporal.pipeline.transformer import TransformerProtocol
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, raise_on_task_failure
 from products.batch_exports.backend.temporal.utils import (
@@ -17,7 +17,7 @@ from products.batch_exports.backend.temporal.utils import (
 )
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 class Consumer:
@@ -46,9 +46,7 @@ class Consumer:
         queue: RecordBatchQueue,
         producer_task: asyncio.Task,
         schema: pa.Schema,
-        file_format: str,
-        compression: str | None,
-        include_inserted_at: bool = False,
+        transformer: TransformerProtocol,
         max_file_size_bytes: int = 0,
         json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
     ) -> BatchExportResult:
@@ -78,12 +76,6 @@ class Consumer:
         """
 
         schema = cast_record_batch_schema_json_columns(schema, json_columns=json_columns)
-        transformer = get_stream_transformer(
-            format=file_format,
-            compression=compression,
-            schema=schema,
-            include_inserted_at=include_inserted_at,
-        )
         num_records_in_batch = 0
         num_bytes_in_batch = 0
         total_record_batches_count = 0
@@ -191,11 +183,9 @@ class Consumer:
 async def run_consumer_from_stage(
     queue: RecordBatchQueue,
     consumer: Consumer,
-    producer_task: asyncio.Task,
+    producer_task: asyncio.Task[None],
+    transformer: TransformerProtocol,
     schema: pa.Schema,
-    file_format: str,
-    compression: str | None,
-    include_inserted_at: bool = False,
     max_file_size_bytes: int = 0,
     json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
 ) -> BatchExportResult:
@@ -224,9 +214,7 @@ async def run_consumer_from_stage(
         queue=queue,
         producer_task=producer_task,
         schema=schema,
-        file_format=file_format,
-        compression=compression,
-        include_inserted_at=include_inserted_at,
+        transformer=transformer,
         max_file_size_bytes=max_file_size_bytes,
         json_columns=json_columns,
     )

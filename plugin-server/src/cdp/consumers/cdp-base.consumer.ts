@@ -4,6 +4,7 @@ import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
+import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { GroupsManagerService } from '../services/managers/groups-manager.service'
@@ -36,6 +37,7 @@ export abstract class CdpConsumerBase {
     hogFlowManager: HogFlowManagerService
     hogFunctionManager: HogFunctionManagerService
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
+    hogFlowFunctionsService: HogFlowFunctionsService
     personsManager: PersonsManagerService
     recipientsManager: RecipientsManagerService
 
@@ -58,13 +60,16 @@ export abstract class CdpConsumerBase {
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(this.hub)
+        this.hogFlowFunctionsService = new HogFlowFunctionsService(
+            this.hub,
+            this.hogFunctionTemplateManager,
+            this.hogExecutor
+        )
 
         this.recipientsManager = new RecipientsManagerService(this.hub)
         this.recipientPreferencesService = new RecipientPreferencesService(this.recipientsManager)
         this.hogFlowExecutor = new HogFlowExecutorService(
-            this.hub,
-            this.hogExecutor,
-            this.hogFunctionTemplateManager,
+            this.hogFlowFunctionsService,
             this.recipientPreferencesService
         )
 

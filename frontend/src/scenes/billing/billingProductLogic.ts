@@ -6,6 +6,7 @@ import React from 'react'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
@@ -17,9 +18,10 @@ import {
     SurveyEventName,
 } from '~/types'
 
-import { isAddonVisible } from './billing-utils'
+import { calculateFreeTier, createGaugeItems, isAddonVisible, isProductVariantPrimary } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
+import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
@@ -81,7 +83,16 @@ export const billingProductLogic = kea<billingProductLogicType>([
     connect(() => ({
         values: [
             billingLogic,
-            ['billing', 'isUnlicensedDebug', 'scrollToProductKey', 'unsubscribeError'],
+            [
+                'billing',
+                'isUnlicensedDebug',
+                'scrollToProductKey',
+                'unsubscribeError',
+                'currentPlatformAddon',
+                'platformAddons',
+                'timeRemainingInSeconds',
+                'timeTotalInSeconds',
+            ],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -96,6 +107,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'setProductSpecificAlert',
                 'setScrollToProductKey',
                 'deactivateProductSuccess',
+                'switchFlatrateSubscriptionPlan',
+                'setSwitchPlanLoading',
             ],
         ],
     })),
@@ -138,6 +151,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
         setHedgehogSatisfied: (satisfied: boolean) => ({ satisfied }),
         triggerMoreHedgehogs: true,
         removeBillingLimitNextPeriod: (productType: string) => ({ productType }),
+        showConfirmUpgradeModal: true,
+        hideConfirmUpgradeModal: true,
+        confirmProductUpgrade: true,
+        showConfirmDowngradeModal: true,
+        hideConfirmDowngradeModal: true,
+        confirmProductDowngrade: true,
     }),
     reducers({
         billingLimitInput: [
@@ -243,8 +262,59 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 setHedgehogSatisfied: (_, { satisfied }) => satisfied,
             },
         ],
+        confirmUpgradeModalOpen: [
+            false as boolean,
+            {
+                showConfirmUpgradeModal: () => true,
+                hideConfirmUpgradeModal: () => false,
+            },
+        ],
+        confirmDowngradeModalOpen: [
+            false as boolean,
+            {
+                showConfirmDowngradeModal: () => true,
+                hideConfirmDowngradeModal: () => false,
+            },
+        ],
     }),
     selectors(({ values }) => ({
+        proratedAmount: [
+            (s) => [s.currentAndUpgradePlans, s.timeRemainingInSeconds, s.timeTotalInSeconds],
+            (currentAndUpgradePlans, timeRemainingInSeconds, timeTotalInSeconds): number => {
+                if (!timeTotalInSeconds) {
+                    return 0
+                }
+                const amountUsd = currentAndUpgradePlans.upgradePlan?.unit_amount_usd
+                const unitAmountInt = amountUsd ? parseFloat(amountUsd) : 0
+                const ratio = Math.max(0, Math.min(1, timeRemainingInSeconds / timeTotalInSeconds)) // make sure ratio is between 0 and 1
+                return Math.round(unitAmountInt * ratio * 100) / 100
+            },
+        ],
+        isProrated: [
+            (s) => [s.billing, s.currentAndUpgradePlans, s.proratedAmount],
+            (billing, currentAndUpgradePlans, proratedAmount): boolean => {
+                const hasActiveSubscription = billing?.has_active_subscription
+                const amountUsd = currentAndUpgradePlans.upgradePlan?.unit_amount_usd
+                if (!hasActiveSubscription || !amountUsd) {
+                    return false
+                }
+                return proratedAmount !== parseFloat(amountUsd)
+            },
+        ],
+        isLowerTierThanCurrentAddon: [
+            (s, p) => [p.product, s.currentPlatformAddon, s.platformAddons],
+            (product, currentPlatformAddon, platformAddons): boolean => {
+                if (!currentPlatformAddon || platformAddons.length === 0) {
+                    return false
+                }
+                const currentIdx = platformAddons.findIndex((a) => a.type === currentPlatformAddon.type)
+                const targetIdx = platformAddons.findIndex((a) => a.type === product.type)
+                if (currentIdx < 0 || targetIdx < 0) {
+                    return false
+                }
+                return targetIdx < currentIdx
+            },
+        ],
         isSubscribedToAnotherAddon: [
             (s, p) => [s.billing, p.product],
             (billing: BillingType, addon: BillingProductV2AddonType) => {
@@ -266,9 +336,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return false
                 }
 
-                // Check if they are subscribed to another add-on that is not a legacy add-on
-                // This is because if they are on a legacy add-on, we want them to be able to move to a new add-on.
-                return parentProduct.addons.some((a: BillingProductV2AddonType) => a.subscribed && !a.legacy_product)
+                return parentProduct.addons.some((a: BillingProductV2AddonType) => a.subscribed)
             },
         ],
         customLimitUsd: [
@@ -298,6 +366,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (s) => [s.customLimitUsd],
             (customLimitUsd) => (!!customLimitUsd || customLimitUsd === 0) && customLimitUsd >= 0,
         ],
+        isDataPipelinesDeprecated: [
+            (_s, p) => [p.product],
+            (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
+                return product.type === 'data_pipelines' && dayjs().isAfter(dayjs(DATA_PIPELINES_CUTOFF_DATE))
+            },
+        ],
         currentAndUpgradePlans: [
             (_s, p) => [p.product],
             (product) => {
@@ -312,18 +386,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 return { currentPlan, upgradePlan }
             },
         ],
-        freeTier: [
-            (_s, p) => [p.product],
-            (product) => {
-                return (
-                    (product.subscribed && product.tiered
-                        ? product.tiers?.[0]?.unit_amount_usd === '0'
-                            ? product.tiers?.[0]?.up_to
-                            : 0
-                        : product.free_allocation) || 0
-                )
-            },
-        ],
+        freeTier: [(_s, p) => [p.product], (product) => calculateFreeTier(product)],
         billingLimitAsUsage: [
             (_, p) => [p.product],
             (product) => {
@@ -341,36 +404,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         billingGaugeItems: [
-            (s, p) => [p.product, s.billing, s.freeTier, s.billingLimitAsUsage],
-            (product, billing, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
-                return [
-                    billingLimitAsUsage && billing?.discount_percent !== 100
-                        ? {
-                              type: BillingGaugeItemKind.BillingLimit,
-                              text: 'Billing limit',
-                              value: billingLimitAsUsage || 0,
-                          }
-                        : (undefined as any),
-                    freeTier
-                        ? {
-                              type: BillingGaugeItemKind.FreeTier,
-                              text: 'Free tier limit',
-                              value: freeTier,
-                          }
-                        : undefined,
-                    product.projected_usage && product.projected_usage > (product.current_usage || 0)
-                        ? {
-                              type: BillingGaugeItemKind.ProjectedUsage,
-                              text: 'Projected',
-                              value: product.projected_usage || 0,
-                          }
-                        : undefined,
-                    {
-                        type: BillingGaugeItemKind.CurrentUsage,
-                        text: 'Current',
-                        value: product.current_usage || 0,
-                    },
-                ].filter(Boolean)
+            (s, p) => [p.product, s.billing, s.billingLimitAsUsage],
+            (product, billing, billingLimitAsUsage): BillingGaugeItemType[] => {
+                return createGaugeItems(product, {
+                    billing,
+                    billingLimitAsUsage,
+                })
             },
         ],
         isAddonProduct: [
@@ -403,7 +442,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         isProductWithVariants: [
             (_s, p) => [p.product],
             (product): boolean =>
-                product.type === 'session_replay' && 'addons' in product && product.addons?.length > 0,
+                isProductVariantPrimary(product.type) && 'addons' in product && product.addons?.length > 0,
         ],
         projectedAmountExcludingAddons: [
             (s, p) => [s.isProductWithVariants, p.product],
@@ -487,7 +526,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 }
             },
         ],
-        combinedGaugeItems: [
+        combinedMonetaryGaugeItems: [
             (s) => [s.combinedMonetaryData],
             (monetaryData: {
                 currentTotal: number
@@ -619,6 +658,48 @@ export const billingProductLogic = kea<billingProductLogicType>([
             window.location.href = `/api/billing/activate?products=${products}${
                 redirectPath && `&redirect_path=${redirectPath}`
             }`
+        },
+        confirmProductUpgrade: () => {
+            const upgradePlan = values.currentAndUpgradePlans.upgradePlan
+            const currentPlatformAddon = values.currentPlatformAddon
+            if (!upgradePlan || !currentPlatformAddon) {
+                return
+            }
+            const currentPlanKey =
+                currentPlatformAddon.plans?.find((p) => p.current_plan)?.plan_key ||
+                currentPlatformAddon.plans?.[0]?.plan_key
+            actions.switchFlatrateSubscriptionPlan({
+                from_product_key: String(currentPlatformAddon.type),
+                from_plan_key: String(currentPlanKey),
+                to_product_key: props.product.type,
+                to_plan_key: String(upgradePlan.plan_key),
+            })
+        },
+        confirmProductDowngrade: () => {
+            const targetPlan = values.currentAndUpgradePlans.upgradePlan
+            const currentPlatformAddon = values.currentPlatformAddon
+            if (!targetPlan || !currentPlatformAddon) {
+                return
+            }
+            const currentPlanKey =
+                currentPlatformAddon.plans?.find((p) => p.current_plan)?.plan_key ||
+                currentPlatformAddon.plans?.[0]?.plan_key
+            actions.switchFlatrateSubscriptionPlan({
+                from_product_key: String(currentPlatformAddon.type),
+                from_plan_key: String(currentPlanKey),
+                to_product_key: props.product.type,
+                to_plan_key: String(targetPlan.plan_key),
+            })
+        },
+        setSwitchPlanLoading: ({ productKey }) => {
+            if (productKey === null) {
+                if (values.confirmUpgradeModalOpen) {
+                    actions.hideConfirmUpgradeModal()
+                }
+                if (values.confirmDowngradeModalOpen) {
+                    actions.hideConfirmDowngradeModal()
+                }
+            }
         },
         activateTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)

@@ -4,9 +4,6 @@ import { router } from 'kea-router'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
-import empty from 'scenes/pipeline/__mocks__/empty.json'
-import pluginConfigs from 'scenes/pipeline/__mocks__/pluginConfigs.json'
-import plugins from 'scenes/pipeline/__mocks__/plugins.json'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -38,9 +35,19 @@ const meta: Meta = {
                 '/api/billing/': {
                     ...billingJson,
                 },
-                '/api/projects/:team_id/pipeline_transformation_configs/': pluginConfigs,
-                '/api/organizations/:organization_id/pipeline_transformations/': plugins,
-                '/api/environments/:team_id/external_data_sources/wizard': empty,
+                '/api/environments/:team_id/external_data_sources/wizard': () => {
+                    return [
+                        200,
+                        {
+                            Stripe: {
+                                name: 'Stripe',
+                                iconPath: '/static/services/stripe.png',
+                                fields: [],
+                                caption: '',
+                            },
+                        },
+                    ]
+                },
             },
             patch: {
                 '/api/environments/@current/add_product_intent/': {},

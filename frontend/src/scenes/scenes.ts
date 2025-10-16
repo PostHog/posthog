@@ -12,17 +12,10 @@ import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema/schema-general'
-import {
-    ActivityScope,
-    ActivityTab,
-    InsightShortId,
-    PipelineStage,
-    PipelineTab,
-    PropertyFilterType,
-    ReplayTabs,
-} from '~/types'
+import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
+import { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -42,6 +35,13 @@ export const preloadedScenes: Record<string, SceneExport> = {
 }
 
 export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
+    [Scene.AdvancedActivityLogs]: {
+        projectBased: true,
+        organizationBased: false,
+        name: 'Activity logs',
+        description:
+            'Track all changes and activities in your organization with detailed filtering and export capabilities.',
+    },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.BillingAuthorizationStatus]: {
         hideProjectNotice: true,
@@ -53,28 +53,82 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
-        layout: 'app-raw',
+        description: 'You can change anything you like and it is persisted to the URL for easy sharing.',
+        layout: 'app-full-scene-height',
         defaultDocsPath: '/blog/introducing-notebooks',
+        hideProjectNotice: true,
     },
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
-    [Scene.Cohorts]: { projectBased: true, name: 'Cohorts', defaultDocsPath: '/docs/data/cohorts' },
-    [Scene.CustomCss]: { projectBased: true, name: 'Custom CSS' },
+    [Scene.CohortCalculationHistory]: { projectBased: true, name: 'Cohort Calculation History' },
+    [Scene.Cohorts]: {
+        projectBased: true,
+        name: 'Cohorts',
+        description: 'A catalog of identified persons and your created cohorts.',
+        defaultDocsPath: '/docs/data/cohorts',
+    },
+    [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
+        iconType: 'dashboard',
     },
-    [Scene.Dashboards]: { projectBased: true, name: 'Dashboards', activityScope: ActivityScope.DASHBOARD },
+    [Scene.Dashboards]: {
+        projectBased: true,
+        name: 'Dashboards',
+        activityScope: ActivityScope.DASHBOARD,
+        description: 'Create and manage your dashboards',
+        iconType: 'dashboard',
+    },
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data management',
-        activityScope: ActivityScope.DATA_MANAGEMENT,
         defaultDocsPath: '/docs/data',
     },
-    [Scene.DataPipelinesNew]: { projectBased: true, name: 'New data pipeline' },
-    [Scene.DataPipelines]: { projectBased: true, name: 'Data pipelines' },
-    [Scene.DataWarehouseSourceNew]: { projectBased: true, name: 'New data warehouse source' },
-    [Scene.DataWarehouseSource]: { projectBased: true, name: 'Data warehouse source' },
+
+    [Scene.DataPipelines]: {
+        name: 'Data pipelines',
+        description: 'Ingest, transform, and send data between hundreds of tools.',
+        activityScope: ActivityScope.HOG_FUNCTION,
+        defaultDocsPath: '/docs/cdp',
+        iconType: 'data_pipeline',
+    },
+    [Scene.DataPipelinesNew]: {
+        projectBased: true,
+        name: 'New data pipeline',
+        activityScope: ActivityScope.HOG_FUNCTION,
+        defaultDocsPath: '/docs/cdp',
+    },
+    [Scene.DataWarehouseSource]: {
+        projectBased: true,
+        name: 'Data warehouse source',
+        defaultDocsPath: '/docs/cdp/sources',
+    },
+    [Scene.DataWarehouseSourceNew]: {
+        projectBased: true,
+        name: 'New data warehouse source',
+        defaultDocsPath: async () => {
+            try {
+                // Importing here to avoid problems with importing logics from such a global file like this one
+                const { sourceWizardLogic } = await import('./data-warehouse/new/sourceWizardLogic')
+                const logic = sourceWizardLogic.findMounted()
+
+                if (logic) {
+                    const { selectedConnector } = logic.values
+
+                    // `docsUrl` includes the full URL, we only need the pathname when opening docs in the sidepanel
+                    if (selectedConnector?.docsUrl) {
+                        const parsedUrl = new URL(selectedConnector.docsUrl)
+                        return parsedUrl.pathname
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to get default docs path for new data warehouse source', error)
+            }
+
+            return '/docs/cdp/sources'
+        },
+    },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },
     [Scene.DebugQuery]: { projectBased: true },
@@ -99,6 +153,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Experiment',
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
+        iconType: 'experiment',
     },
     [Scene.ExperimentsSharedMetric]: {
         projectBased: true,
@@ -117,8 +172,17 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Experiments',
         defaultDocsPath: '/docs/experiments',
         activityScope: ActivityScope.EXPERIMENT,
+        description:
+            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.',
+        iconType: 'experiment',
     },
-    [Scene.ExploreEvents]: { projectBased: true, name: 'Explore', defaultDocsPath: '/docs/data/events' },
+    [Scene.ExploreEvents]: {
+        projectBased: true,
+        name: 'Explore events',
+        defaultDocsPath: '/docs/data/events',
+        description: 'A catalog of all user interactions with your app or website.',
+        iconType: 'apps',
+    },
     [Scene.FeatureFlag]: {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
@@ -127,6 +191,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature flags',
+        description:
+            'Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once.',
         defaultDocsPath: '/docs/feature-flags',
         activityScope: ActivityScope.FEATURE_FLAG,
     },
@@ -138,8 +204,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.GroupsNew]: { projectBased: true, defaultDocsPath: '/docs/product-analytics/group-analytics' },
     [Scene.Groups]: { projectBased: true, name: 'Groups', defaultDocsPath: '/docs/product-analytics/group-analytics' },
-    [Scene.Heatmaps]: { projectBased: true, name: 'Heatmaps' },
-    [Scene.HogFunction]: { projectBased: true, name: 'Hog function' },
+    [Scene.Heatmaps]: {
+        projectBased: true,
+        name: 'Heatmaps',
+        iconType: 'heatmap',
+    },
+    [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -151,7 +221,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
     [Scene.Link]: { projectBased: true },
     [Scene.Links]: { projectBased: true, name: 'Links' },
-    [Scene.LiveEvents]: { projectBased: true, name: 'Live', defaultDocsPath: '/docs/data/events' },
+    [Scene.LiveEvents]: {
+        projectBased: true,
+        name: 'Live events',
+        defaultDocsPath: '/docs/data/events',
+        description: 'Real-time events from your app or website.',
+        iconType: 'live',
+    },
     [Scene.Login2FA]: { onlyUnauthenticated: true },
     [Scene.Login]: { onlyUnauthenticated: true },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw', hideProjectNotice: true },
@@ -159,15 +235,15 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.NewTab]: { projectBased: true, name: 'New tab', hideProjectNotice: true, layout: 'app-raw' },
     [Scene.Notebook]: {
         projectBased: true,
-        hideProjectNotice: true,
         name: 'Notebook',
-        layout: 'app-raw',
         activityScope: ActivityScope.NOTEBOOK,
         defaultDocsPath: '/blog/introducing-notebooks',
+        canvasBackground: true,
     },
     [Scene.Notebooks]: {
         projectBased: true,
         name: 'Notebooks',
+        description: 'Notebooks are a way to organize your work and share it with others.',
         activityScope: ActivityScope.NOTEBOOK,
         defaultDocsPath: '/blog/introducing-notebooks',
     },
@@ -192,33 +268,18 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.PasswordReset]: { onlyUnauthenticated: true },
     [Scene.Person]: {
         projectBased: true,
-        name: 'Person',
+        name: 'People',
         activityScope: ActivityScope.PERSON,
         defaultDocsPath: '/docs/data/persons',
+        iconType: 'user',
     },
     [Scene.Persons]: {
         projectBased: true,
         name: 'Persons',
+        description: 'A catalog of all the people behind your events',
         activityScope: ActivityScope.PERSON,
         defaultDocsPath: '/docs/data/persons',
-    },
-    [Scene.PipelineNodeNew]: {
-        projectBased: true,
-        name: 'Pipeline new step',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
-    [Scene.PipelineNode]: {
-        projectBased: true,
-        name: 'Pipeline step',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
-    },
-    [Scene.Pipeline]: {
-        projectBased: true,
-        name: 'Pipeline',
-        activityScope: ActivityScope.PLUGIN,
-        defaultDocsPath: '/docs/cdp',
+        iconType: 'persons',
     },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true },
     [Scene.Products]: { projectBased: true, name: 'Products', layout: 'plain' },
@@ -267,7 +328,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Session replay',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
-        hideProjectNotice: true,
+        layout: 'app-full-scene-height',
+        iconType: 'session_replay',
     },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
@@ -285,8 +347,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
+        description: 'Track, analyze, and experiment with user behavior.',
         activityScope: ActivityScope.INSIGHT,
         defaultDocsPath: '/docs/product-analytics',
+        iconType: 'product_analytics',
     },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
@@ -309,6 +373,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Surveys',
         defaultDocsPath: '/docs/surveys',
         activityScope: ActivityScope.SURVEY,
+        description: 'Create surveys to collect feedback from your users',
+        iconType: 'survey',
     },
     [Scene.SystemStatus]: { instanceLevel: true, name: 'Instance panel' },
     [Scene.ToolbarLaunch]: { projectBased: true, name: 'Launch toolbar', defaultDocsPath: '/docs/toolbar' },
@@ -337,9 +403,24 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Web analytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
+        description: 'Analyze your web analytics data to understand website performance and user behavior.',
+        iconType: 'web_analytics',
+    },
+    [Scene.EmbeddedAnalytics]: {
+        projectBased: true,
+        name: 'Embedded analytics',
+        description: 'Define queries your application will use via the API and monitor their cost and usage.',
+        layout: 'app-container',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     ...productConfiguration,
+}
+
+const redirectPipeline = (stage: DataPipelinesSceneTab, id: string): string => {
+    if (id.startsWith('hog-')) {
+        return urls.hogFunction(id.replace('hog-', ''))
+    }
+    return urls.dataPipelines(stage)
 }
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
@@ -355,17 +436,18 @@ export const redirects: Record<
     '/activity': urls.activity(),
     '/annotations': () => urls.annotations(),
     '/annotations/:id': ({ id }) => urls.annotation(id),
-    '/apps': urls.pipeline(PipelineTab.Overview),
-    '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
-    '/batch_exports': urls.pipeline(PipelineTab.Destinations),
-    '/batch_exports/:id': ({ id }) => urls.pipelineNode(PipelineStage.Destination, id),
+    '/apps': urls.dataPipelines('overview'),
+    '/apps/:id': urls.dataPipelines('overview'),
+    '/batch_exports/:id': ({ id }) => urls.batchExport(id),
+    '/batch_exports': urls.dataPipelines('destinations'),
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),
-    '/data-management/database': urls.pipeline(PipelineTab.Sources),
+    '/data-management/database': urls.dataPipelines('sources'),
     '/data-pipelines': urls.dataPipelines('overview'),
     '/data-warehouse': urls.dataWarehouse(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
+
     '/events': urls.activity(),
     '/events/:id/*': ({ id, _ }) => {
         const query = getDefaultEventsSceneQuery([
@@ -385,6 +467,7 @@ export const redirects: Record<
         }
         return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
     },
+
     '/events/actions': urls.actions(),
     '/events/properties': urls.propertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
@@ -398,8 +481,16 @@ export const redirects: Record<
     '/new': urls.newTab(),
     '/organization/members': urls.settings('organization'),
     '/organization/settings': urls.settings('organization'),
-    '/pipeline': urls.pipeline(),
-    '/pipeline/data-import': urls.pipeline(PipelineTab.Sources),
+    '/pipeline': urls.dataPipelines('overview'),
+    '/pipelines': urls.dataPipelines('overview'),
+    '/pipeline/new/site-app': urls.dataPipelinesNew('site_app'),
+    '/pipeline/sources/:id': ({ id }) => redirectPipeline('sources', id),
+    '/pipeline/destinations/:id': ({ id }) => redirectPipeline('destinations', id),
+    '/pipeline/transformations/:id': ({ id }) => redirectPipeline('transformations', id),
+    '/pipeline/sources/:id/:tab': ({ id }) => redirectPipeline('sources', id),
+    '/pipeline/destinations/:id/:tab': ({ id }) => redirectPipeline('destinations', id),
+    '/pipeline/transformations/:id/:tab': ({ id }) => redirectPipeline('transformations', id),
+    '/pipeline/data-import': urls.dataPipelines('sources'),
     '/project/settings': urls.settings('project'),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
@@ -473,17 +564,13 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.personByDistinctId('*', false)]: [Scene.Person, 'personByDistinctId'],
     [urls.personByUUID('*', false)]: [Scene.Person, 'personByUUID'],
     [urls.persons()]: [Scene.Persons, 'persons'],
-    [urls.pipelineNodeNew(':stage')]: [Scene.PipelineNodeNew, 'pipelineNodeNew'],
-    [urls.pipelineNodeNew(':stage', { id: ':id' })]: [Scene.PipelineNodeNew, 'pipelineNodeNewWithId'],
-    [urls.pipeline(':tab')]: [Scene.Pipeline, 'pipeline'],
-    [urls.pipelineNode(':stage', ':id', ':nodeTab')]: [Scene.PipelineNode, 'pipelineNode'],
-    [urls.pipelineNode(':stage', ':id')]: [Scene.PipelineNode, 'pipelineNodeWithId'],
     [urls.customCss()]: [Scene.CustomCss, 'customCss'],
     [urls.groups(':groupTypeIndex')]: [Scene.Groups, 'groups'],
     [urls.groupsNew(':groupTypeIndex')]: [Scene.GroupsNew, 'groupsNew'],
     [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
+    [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
@@ -543,6 +630,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
+    [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],
@@ -551,13 +639,13 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
-    [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
-    [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
+    [urls.dataPipelines(':kind' as any)]: [Scene.DataPipelines, 'dataPipelines'],
+    [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
-    [urls.dataWarehouseSource(':id', ':tab')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
-    [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
+    [urls.dataWarehouseSource(':id', ':tab' as any)]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
+    [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],

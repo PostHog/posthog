@@ -1,40 +1,37 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import {
     LemonBanner,
     LemonButton,
-    LemonDivider,
     LemonDropdown,
+    LemonLabel,
     LemonSwitch,
     LemonTag,
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
 
-import { AvailableFeature } from '~/types'
-
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
-import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionCode } from './components/HogFunctionCode'
+import {
+    HogFunctionConfigurationClearChangesButton,
+    HogFunctionConfigurationSaveButton,
+} from './components/HogFunctionConfigurationButtons'
 import { HogFunctionInputs } from './components/HogFunctionInputs'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
-import { InlineEditableField } from './components/InlineEditableField'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
@@ -46,15 +43,10 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
     const logicProps = { templateId, id, logicKey }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
-        isConfigurationSubmitting,
-        configurationChanged,
         configuration,
         loading,
         loaded,
         hogFunction,
-        willReEnableOnSave,
-        willChangeEnabledOnSave,
-        showPaygate,
         template,
         templateHasChanged,
         type,
@@ -65,8 +57,6 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
         showTesting,
     } = useValues(logic)
 
-    const { submitConfiguration, resetForm, duplicate, deleteHogFunction } = useActions(logic)
-
     if (loading && !loaded) {
         return <SpinnerOverlay />
     }
@@ -75,83 +65,26 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
         return <NotFound object="Hog function" />
     }
 
-    const isLegacyPlugin = (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
-
-    const headerButtons = (
-        <>
-            {!templateId && (
-                <>
-                    <More
-                        overlay={
-                            <>
-                                {!isLegacyPlugin && (
-                                    <LemonButton fullWidth onClick={() => duplicate()}>
-                                        Duplicate
-                                    </LemonButton>
-                                )}
-                                <LemonDivider />
-                                <LemonButton status="danger" fullWidth onClick={() => deleteHogFunction()}>
-                                    Delete
-                                </LemonButton>
-                            </>
-                        }
-                    />
-                    <LemonDivider vertical />
-                </>
-            )}
-        </>
-    )
-
-    const saveButtons = (
-        <>
-            {configurationChanged ? (
-                <LemonButton
-                    type="secondary"
-                    htmlType="reset"
-                    onClick={() => resetForm()}
-                    disabledReason={
-                        !configurationChanged
-                            ? 'No changes'
-                            : isConfigurationSubmitting
-                              ? 'Saving in progress…'
-                              : undefined
-                    }
-                >
-                    Clear changes
+    const templateInfo =
+        hogFunction?.template?.code_language === 'hog' &&
+        hogFunction?.template &&
+        !hogFunction.template.id.startsWith('template-blank-') ? (
+            <LemonDropdown showArrow overlay={<HogFunctionTemplateOptions />}>
+                <LemonButton type="tertiary" size="small" className="border border-dashed" fullWidth>
+                    <span className="flex flex-wrap flex-1 gap-1 items-center">
+                        Built from template:
+                        <span className="font-semibold">{hogFunction?.template.name}</span>
+                        <HogFunctionStatusTag status={hogFunction.template.status} />
+                        <div className="flex-1" />
+                        {templateHasChanged ? <LemonTag type="success">Modified</LemonTag> : null}
+                    </span>
                 </LemonButton>
-            ) : null}
-            <LemonButton
-                type="primary"
-                htmlType="submit"
-                onClick={submitConfiguration}
-                loading={isConfigurationSubmitting}
-            >
-                {templateId ? 'Create' : 'Save'}
-                {willReEnableOnSave
-                    ? ' & re-enable'
-                    : willChangeEnabledOnSave
-                      ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
-                      : ''}
-            </LemonButton>
-        </>
-    )
-
-    if (showPaygate) {
-        return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
-    }
+            </LemonDropdown>
+        ) : null
 
     return (
         <div className="deprecated-space-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
-                <PageHeader
-                    buttons={
-                        <>
-                            {headerButtons}
-                            {saveButtons}
-                        </>
-                    }
-                />
-
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
                         <LemonBanner type="error">
@@ -204,77 +137,35 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                     <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex flex-col flex-1 gap-4 min-w-100">
                             <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
-                                <div className="flex flex-row gap-2 items-start">
-                                    <LemonField name="icon_url" className="h-10">
-                                        {({ value, onChange }) => (
-                                            <HogFunctionIconEditable
-                                                logicKey={id ?? templateId ?? 'new'}
-                                                src={value}
-                                                onChange={(val) => onChange(val)}
-                                            />
-                                        )}
-                                    </LemonField>
-
-                                    <div className="flex flex-col flex-1 justify-center items-start min-h-10">
-                                        <LemonField name="name">
-                                            <InlineEditableField className="font-semibold" />
-                                        </LemonField>
-                                    </div>
-
-                                    <div className="flex flex-row gap-2 items-center h-10">
-                                        {template && <HogFunctionStatusTag status={template.status} />}
-                                        {hogFunction ? (
-                                            <HogFunctionStatusIndicator hogFunction={hogFunction} />
-                                        ) : (
-                                            <LemonTag type={configuration.enabled ? 'success' : 'default'}>
-                                                {configuration.enabled ? 'Start enabled' : 'Start paused'}
-                                            </LemonTag>
-                                        )}
-                                        <LemonField name="enabled">
-                                            {({ value, onChange }) => (
-                                                <LemonSwitch
-                                                    onChange={() => onChange(!value)}
-                                                    checked={value}
-                                                    disabled={loading}
-                                                    tooltip={
-                                                        <>
-                                                            {value
-                                                                ? 'Enabled. Events will be processed.'
-                                                                : 'Disabled. Events will not be processed.'}
-                                                        </>
-                                                    }
-                                                />
-                                            )}
-                                        </LemonField>
-                                    </div>
+                                <div className="flex items-center justify-between">
+                                    <LemonLabel>Status</LemonLabel>
+                                    {hogFunction && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
                                 </div>
-
-                                <LemonField name="description">
-                                    <InlineEditableField multiline />
+                                <LemonField name="enabled">
+                                    {({ value, onChange }) => (
+                                        <LemonSwitch
+                                            onChange={() => onChange(!value)}
+                                            checked={value}
+                                            disabled={loading}
+                                            bordered
+                                            fullWidth
+                                            label={
+                                                <span className="flex flex-1">
+                                                    {configuration.enabled ? 'Enabled' : 'Disabled'}
+                                                </span>
+                                            }
+                                            tooltip={
+                                                <>
+                                                    {value
+                                                        ? 'Enabled. Events will be processed.'
+                                                        : 'Disabled. Events will not be processed.'}
+                                                </>
+                                            }
+                                        />
+                                    )}
                                 </LemonField>
 
-                                {hogFunction?.template?.code_language === 'hog' &&
-                                hogFunction?.template &&
-                                !hogFunction.template.id.startsWith('template-blank-') ? (
-                                    <LemonDropdown showArrow overlay={<HogFunctionTemplateOptions />}>
-                                        <LemonButton
-                                            type="tertiary"
-                                            size="small"
-                                            className="mt-2 border border-dashed"
-                                            fullWidth
-                                        >
-                                            <span className="flex flex-wrap flex-1 gap-1 items-center">
-                                                Built from template:
-                                                <span className="font-semibold">{hogFunction?.template.name}</span>
-                                                <HogFunctionStatusTag status={hogFunction.template.status} />
-                                                <div className="flex-1" />
-                                                {templateHasChanged ? (
-                                                    <LemonTag type="success">Modified</LemonTag>
-                                                ) : null}
-                                            </span>
-                                        </LemonButton>
-                                    </LemonDropdown>
-                                ) : null}
+                                {templateInfo}
                             </div>
 
                             {type === 'source_webhook' && <HogFunctionSourceWebhookInfo />}
@@ -299,7 +190,10 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                             {canEditSource && <HogFunctionCode />}
                             {showTesting ? <HogFunctionTest /> : null}
                             {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
-                            <div className="flex gap-2 justify-end">{saveButtons}</div>
+                            <div className="flex gap-2 justify-end">
+                                <HogFunctionConfigurationClearChangesButton />
+                                <HogFunctionConfigurationSaveButton />
+                            </div>
                         </div>
                     </div>
                 </Form>

@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
@@ -16,7 +16,6 @@ import {
     BatchExportService,
 } from '~/types'
 
-import { pipelineAccessLogic } from '../../pipeline/pipelineAccessLogic'
 import type { batchExportConfigurationLogicType } from './batchExportConfigurationLogicType'
 import { humanizeBatchExportName } from './utils'
 
@@ -33,6 +32,8 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         interval: batchExportConfig.interval,
         model: batchExportConfig.model,
         filters: batchExportConfig.filters,
+        integration_id:
+            batchExportConfig.destination.type === 'Databricks' ? batchExportConfig.destination.integration : undefined,
         ...batchExportConfig.destination.config,
     }
 }
@@ -49,6 +50,11 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
         ...(service === 'S3' && {
             file_format: 'Parquet',
             compression: 'zstd',
+        }),
+        ...(service === 'Databricks' && {
+            use_variant_type: true,
+            // prefill prefix for http path
+            http_path: '/sql/1.0/warehouses/',
         }),
     }
 }
@@ -109,44 +115,59 @@ function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatch
                     schema_valid: true,
                 },
             }),
-            ...(service != 'S3' && {
+            ...(service == 'Databricks' && {
                 team_id: {
                     name: 'team_id',
-                    hogql_value: service == 'Postgres' || service == 'Redshift' ? 'toInt32(team_id)' : 'team_id',
+                    hogql_value: 'team_id',
                     type: 'integer',
                     schema_valid: true,
                 },
-                set: {
-                    name: service == 'Snowflake' ? 'people_set' : 'set',
-                    hogql_value: "nullIf(JSONExtractString(properties, '$set'), '')",
-                    type: 'string',
-                    schema_valid: true,
-                },
-                set_once: {
-                    name: service == 'Snowflake' ? 'people_set_once' : 'set_once',
-                    hogql_value: "nullIf(JSONExtractString(properties, '$set_once'), '')",
-                    type: 'string',
-                    schema_valid: true,
-                },
-                site_url: {
-                    name: 'site_url',
-                    hogql_value: "''",
-                    type: 'string',
-                    schema_valid: true,
-                },
-                ip: {
-                    name: 'ip',
-                    hogql_value: "nullIf(JSONExtractString(properties, '$ip'), '')",
-                    type: 'string',
-                    schema_valid: true,
-                },
-                elements_chain: {
-                    name: 'elements',
-                    hogql_value: 'toJSONString(elements_chain)',
-                    type: 'string',
+                databricks_ingested_timestamp: {
+                    name: 'databricks_ingested_timestamp',
+                    hogql_value: 'NOW64()',
+                    type: 'datetime',
                     schema_valid: true,
                 },
             }),
+            ...(service != 'S3' &&
+                service != 'Databricks' && {
+                    team_id: {
+                        name: 'team_id',
+                        hogql_value: service == 'Postgres' || service == 'Redshift' ? 'toInt32(team_id)' : 'team_id',
+                        type: 'integer',
+                        schema_valid: true,
+                    },
+                    set: {
+                        name: service == 'Snowflake' ? 'people_set' : 'set',
+                        hogql_value: "nullIf(JSONExtractString(properties, '$set'), '')",
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    set_once: {
+                        name: service == 'Snowflake' ? 'people_set_once' : 'set_once',
+                        hogql_value: "nullIf(JSONExtractString(properties, '$set_once'), '')",
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    site_url: {
+                        name: 'site_url',
+                        hogql_value: "''",
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    ip: {
+                        name: 'ip',
+                        hogql_value: "nullIf(JSONExtractString(properties, '$ip'), '')",
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                    elements_chain: {
+                        name: 'elements',
+                        hogql_value: 'toJSONString(elements_chain)',
+                        type: 'string',
+                        schema_valid: true,
+                    },
+                }),
             ...(service == 'BigQuery' && {
                 bq_ingested_timestamp: {
                     name: 'bq_ingested_timestamp',
@@ -508,7 +529,7 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
 }
 
 export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicType>([
-    props({} as BatchExportConfigurationLogicProps),
+    props({ id: null, service: null } as BatchExportConfigurationLogicProps),
     key(({ service, id }: BatchExportConfigurationLogicProps) => {
         if (id) {
             return `ID:${id}`
@@ -516,13 +537,11 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         return `NEW:${service}`
     }),
     path((id) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportConfigurationLogic', id]),
-    connect(() => ({
-        values: [pipelineAccessLogic, ['canEnableNewDestinations']],
-    })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
         setSelectedModel: (model: string) => ({ model }),
         setRunningStep: (step: number | null) => ({ step }),
+        deleteBatchExport: () => true,
     }),
     loaders(({ props, actions, values }) => ({
         batchExportConfig: [
@@ -546,10 +565,12 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         model,
                         filters,
                         json_config_file,
+                        integration_id,
                         ...config
                     } = formdata
                     const destinationObj = {
                         type: destination,
+                        integration: integration_id,
                         config: config,
                     }
                     const data: Omit<
@@ -628,11 +649,13 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         model,
                         filters,
                         json_config_file,
+                        integration_id,
                         ...config
                     } = values.configuration
                     const destinationObj = {
                         type: destination,
                         config: config,
+                        integration: integration_id,
                     }
                     const data = {
                         paused,
@@ -738,8 +761,14 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         ],
     })),
     selectors(() => ({
+        logicProps: [() => [(_, props) => props], (props) => props],
         service: [(s, p) => [s.batchExportConfig, p.service], (config, service) => config?.destination.type || service],
         isNew: [(_, p) => [p.id], (id): boolean => !id],
+        loading: [
+            (s) => [s.batchExportConfigLoading, s.batchExportConfigTestLoading],
+            (batchExportConfigLoading, batchExportConfigTestLoading) =>
+                batchExportConfigLoading || batchExportConfigTestLoading,
+        ],
         requiredFields: [
             (s) => [s.service, s.isNew, s.configuration],
             (service, isNew, config): string[] => {
@@ -791,6 +820,16 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         ...(isNew && config.authentication_type == 'keypair' ? ['private_key'] : []),
                         'schema',
                         'table_name',
+                    ]
+                } else if (service === 'Databricks') {
+                    return [
+                        ...generalRequiredFields,
+                        'integration_id',
+                        'http_path',
+                        'catalog',
+                        'schema',
+                        'table_name',
+                        'use_variant_type',
                     ]
                 }
                 return generalRequiredFields
@@ -875,6 +914,22 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         json_config_file: 'The config file is not valid',
                     })
                 }
+            }
+        },
+        deleteBatchExport: async () => {
+            // TODO: support undo'ing a delete
+            const batchExportId = values.batchExportConfig?.id
+            if (!batchExportId) {
+                return
+            }
+            try {
+                await api.batchExports.delete(batchExportId)
+                lemonToast.success('Batch export deleted successfully')
+                router.actions.replace(urls.dataPipelines('destinations'))
+            } catch (error: any) {
+                // Show error toast with the error message from the API
+                const errorMessage = error.detail || error.message || 'Failed to delete'
+                lemonToast.error(errorMessage)
             }
         },
     })),

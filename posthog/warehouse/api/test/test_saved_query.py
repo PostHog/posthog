@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
+from unittest import mock
 from unittest.mock import patch
 
 from posthog.models import ActivityLog
@@ -966,7 +967,10 @@ class TestSavedQuery(APIBaseTest):
 
         DataWarehouseModelPath.objects.create(team=self.team, path=[mock_table.id.hex, db_saved_query.id.hex])
 
-        with patch("posthog.warehouse.api.saved_query.delete_saved_query_schedule") as mock_delete_saved_query_schedule:
+        with (
+            patch("posthog.warehouse.data_load.saved_query_service.delete_schedule") as mock_delete_schedule,
+            patch("posthog.warehouse.data_load.saved_query_service.sync_connect"),
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization",
             )
@@ -992,7 +996,7 @@ class TestSavedQuery(APIBaseTest):
                 0,
             )
 
-            mock_delete_saved_query_schedule.assert_called_once_with(str(db_saved_query.id))
+            mock_delete_schedule.assert_called_once_with(mock.ANY, schedule_id=str(db_saved_query.id))
 
     def test_create_with_existing_name(self):
         DataWarehouseTable.objects.create(

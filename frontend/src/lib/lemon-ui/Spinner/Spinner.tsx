@@ -83,7 +83,14 @@ export function SpinnerOverlay({
     mode?: 'spinning' | 'editing'
 }): JSX.Element {
     return (
-        <div className={twJoin('SpinnerOverlay', sceneLevel && 'SpinnerOverlay--scene-level')} aria-hidden={!visible}>
+        <div
+            className={twJoin(
+                'SpinnerOverlay',
+                sceneLevel && 'SpinnerOverlay--scene-level',
+                sceneLevel && 'h-[calc(100vh-var(--scene-layout-header-height))]'
+            )}
+            aria-hidden={!visible}
+        >
             {mode === 'editing' ? (
                 <IconPencil className="text-5xl text-accent z-10 drop-shadow-xl" />
             ) : (

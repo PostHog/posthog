@@ -1,12 +1,13 @@
 pub mod login;
 pub mod query;
 pub mod sourcemap;
+pub mod tasks;
 
 use clap::{Parser, Subcommand};
 use query::QueryCommand;
 use std::path::PathBuf;
 
-use crate::error::CapturedError;
+use crate::{commands::tasks::TaskCommand, error::CapturedError, utils::client::SKIP_SSL};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -24,6 +25,12 @@ pub enum Commands {
     /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
     /// environment variables `POSTHOG_CLI_TOKEN` and `POSTHOG_CLI_ENV_ID`
     Login,
+
+    /// Experimental commands, not quite ready for prime time
+    Exp {
+        #[command(subcommand)]
+        cmd: ExpCommand,
+    },
 
     /// Run a SQL query against any data you have in posthog. This is mostly for fun, and subject to change
     Query {
@@ -94,6 +101,20 @@ pub enum SourcemapCommand {
     Process(UploadArgs),
 }
 
+#[derive(Subcommand)]
+pub enum ExpCommand {
+    /// Manage tasks - list, create, update, delete etc
+    Task {
+        #[command(subcommand)]
+        cmd: TaskCommand,
+        /// Whether to skip SSL verification when talking to the posthog API - only use when using self-signed certificates for
+        /// self-deployed instances
+        // TODO - it seems likely we won't support tasks for self hosted, but I'm putting this here in case we do
+        #[arg(long, default_value = "false")]
+        skip_ssl_verification: bool,
+    },
+}
+
 impl Cli {
     pub fn run() -> Result<(), CapturedError> {
         let command = Cli::parse();
@@ -115,6 +136,15 @@ impl Cli {
                 }
             },
             Commands::Query { cmd } => query::query_command(command.host, cmd)?,
+            Commands::Exp { cmd } => match cmd {
+                ExpCommand::Task {
+                    cmd,
+                    skip_ssl_verification,
+                } => {
+                    *SKIP_SSL.lock().unwrap() = *skip_ssl_verification;
+                    cmd.run()?;
+                }
+            },
         }
 
         Ok(())

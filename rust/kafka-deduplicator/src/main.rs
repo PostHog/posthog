@@ -2,17 +2,18 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
+use common_profiler::router::apply_pprof_routes;
 use futures::future::ready;
 use health::HealthRegistry;
-use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
 use serve_metrics::serve;
 use tokio::task::JoinHandle;
-use tracing::info;
 use tracing::level_filters::LevelFilter;
+use tracing::{error, info};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -22,7 +23,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use kafka_deduplicator::{config::Config, service::KafkaDeduplicatorService};
 
-common_alloc::used!();
+common_profiler::used_with_profiling!();
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
     opentelemetry_otlp::new_pipeline()
@@ -57,9 +58,45 @@ pub async fn index() -> &'static str {
 /// Using fewer buckets to reduce cardinality
 fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
     const BUCKETS: &[f64] = &[0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 100.0, 500.0, 5000.0];
+    // similarity scores are all in the range [0.0, 1.0] so we want
+    // granular bucket ranges for higher fidelity metrics
+    const SIMILARITY_BUCKETS: &[f64] = &[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+
+    const CHECKPOINT_FILE_COUNT_BUCKETS: &[f64] = &[
+        1.0, 10.0, 50.0, 100.0, 200.0, 400.0, 600.0, 800.0, 1000.0, 1500.0,
+    ];
+    const CHECKPOINT_SIZE_BYTES_BUCKETS: &[f64] = &[
+        1.0,
+        10.0,
+        100.0,
+        1024.0,
+        10.0 * 1024.0,
+        100.0 * 1024.0,
+        1024.0 * 1024.0,
+        10.0 * 1024.0 * 1024.0,
+        100.0 * 1024.0 * 1024.0,
+        1024.0 * 1024.0 * 1024.0,
+        10.0 * 1024.0 * 1024.0 * 1024.0,
+        100.0 * 1024.0 * 1024.0 * 1024.0,
+    ];
 
     PrometheusBuilder::new()
         .set_buckets(BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Suffix("similarity_score".to_string()),
+            SIMILARITY_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Suffix("checkpoint_file_count".to_string()),
+            CHECKPOINT_FILE_COUNT_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Suffix("checkpoint_size_bytes".to_string()),
+            CHECKPOINT_SIZE_BYTES_BUCKETS,
+        )
         .unwrap()
         .install_recorder()
         .unwrap()
@@ -69,7 +106,31 @@ fn start_server(config: &Config, liveness: HealthRegistry) -> JoinHandle<()> {
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
-        .route("/_liveness", get(move || ready(liveness.get_status())));
+        .route(
+            "/_liveness",
+            get(move || async move {
+                let status = liveness.get_status();
+                if !status.healthy {
+                    let unhealthy_components: Vec<String> = status
+                        .components
+                        .iter()
+                        .filter(|(_, component_status)| !component_status.is_healthy())
+                        .map(|(name, component_status)| format!("{name}: {component_status:?}"))
+                        .collect();
+                    error!(
+                        "Health check FAILED - unhealthy components: [{}]",
+                        unhealthy_components.join(", ")
+                    );
+                }
+                status
+            }),
+        );
+
+    let router = if config.enable_pprof {
+        apply_pprof_routes(router)
+    } else {
+        router
+    };
 
     // Don't install metrics unless asked to
     // Installing a global recorder when capture is used as a library (during tests etc)
@@ -97,15 +158,27 @@ async fn main() -> Result<()> {
         .context("Failed to load configuration from environment variables. Please check your environment setup.")?;
 
     // Initialize tracing with structured output similar to feature-flags
-    let log_layer = fmt::layer()
-        .with_span_events(
-            FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
-        )
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_level(true)
-        .with_ansi(false)
-        .with_filter(EnvFilter::from_default_env());
+    let log_layer = {
+        let base = fmt::layer()
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_level(true);
+
+        if config.otel_log_level == tracing::Level::DEBUG {
+            // local dev: pretty-print output to console
+            base.with_span_events(
+                FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+            )
+            .with_ansi(true)
+            .with_filter(EnvFilter::from_default_env())
+            .boxed()
+        } else {
+            // production: use JSON format Loki/Grafana can extract useful filter tags from
+            base.json()
+                .with_filter(EnvFilter::from_default_env())
+                .boxed()
+        }
+    };
 
     // OpenTelemetry layer if configured
     let otel_layer = if let Some(ref otel_url) = config.otel_url {
@@ -139,6 +212,7 @@ async fn main() -> Result<()> {
 
     // Create and run the service
     let service = KafkaDeduplicatorService::new(config, liveness)
+        .await
         .with_context(|| "Failed to create Kafka Deduplicator service. Check your Kafka connection and RocksDB configuration.".to_string())?;
 
     // Run the service (this blocks until shutdown)

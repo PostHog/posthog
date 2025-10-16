@@ -8,7 +8,7 @@ import { Breadcrumb } from '~/types'
 
 import type { campaignSceneLogicType } from './campaignSceneLogicType'
 
-export const CampaignTabs = ['overview', 'workflow', 'logs', 'metrics'] as const
+export const CampaignTabs = ['workflow', 'logs', 'metrics'] as const
 export type CampaignTab = (typeof CampaignTabs)[number]
 
 export interface CampaignSceneLogicProps {
@@ -24,7 +24,7 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
     }),
     reducers({
         currentTab: [
-            'overview' as CampaignTab,
+            'workflow' as CampaignTab,
             {
                 setCurrentTab: (_, { tab }) => tab,
             },
@@ -36,18 +36,15 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
             (id): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Messaging,
-                        name: 'Messaging',
-                        path: urls.messaging('campaigns'),
-                    },
-                    {
                         key: [Scene.Messaging, 'campaigns'],
                         name: 'Campaigns',
                         path: urls.messaging('campaigns'),
+                        iconType: 'messaging',
                     },
                     {
                         key: Scene.MessagingCampaign,
                         name: id == 'new' ? 'New campaign' : 'Manage campaign',
+                        iconType: 'messaging',
                     },
                 ]
             },

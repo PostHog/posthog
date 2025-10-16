@@ -8,29 +8,28 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 
-from .activities import (
-    ai_agent_work_activity,
-    get_task_details_activity,
-    process_task_moved_to_todo_activity,
-    update_issue_github_info_activity,
-    update_issue_status_activity,
-)
 from .github_activities import (
     cleanup_repo_activity,
     clone_repo_and_create_branch_activity,
-    commit_changes_activity,
     commit_local_changes_activity,
-    create_branch_activity,
-    create_pr_activity,
+    create_pr_and_update_task_activity,
 )
-from .inputs import CommitChangesInputs, CreatePRInputs, TaskProcessingInputs
+from .inputs import TaskProcessingInputs
+from .workflow_activities import (
+    execute_agent_for_transition_activity,
+    get_agent_triggered_transition_activity,
+    get_workflow_configuration_activity,
+    move_task_to_stage_activity,
+    should_trigger_agent_workflow_activity,
+    trigger_task_processing_activity,
+)
 
 logger = get_logger(__name__)
 
 
-@temporalio.workflow.defn(name="process-issue-with-integration")
-class IssueProcessingIntegratedWorkflow(PostHogWorkflow):
-    """Workflow for processing agentic tasks."""
+@temporalio.workflow.defn(name="process-task-workflow-agnostic")
+class WorkflowAgnosticTaskProcessingWorkflow(PostHogWorkflow):
+    """Workflow-agnostic task processing that adapts to any workflow configuration."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> TaskProcessingInputs:
@@ -41,388 +40,265 @@ class IssueProcessingIntegratedWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: TaskProcessingInputs) -> str:
         """
-        Main workflow execution.
+        Main workflow execution that adapts to workflow configuration.
 
-        When an issue moves to 'todo', this workflow will:
-        1. Create a branch
-        2. Process the issue with AI Agent
-        3. Commit changes
-        4. Create a pull request
+        This workflow:
+        1. Checks if agent automation should be triggered
+        2. Gets workflow configuration for the task
+        3. Executes the appropriate agents based on transitions
+        4. Moves the task through configured stages
         """
-        logger.info(f"Processing task {inputs.task_id}")
+        logger.info(f"Starting workflow-agnostic processing for task {inputs.task_id}")
 
-        # Only process if the issue was moved to 'todo' status
-        if inputs.new_status == "todo":
-            logger.info(f"Task {inputs.task_id} moved to TODO")
+        try:
+            permission_check = await workflow.execute_activity(
+                "check_temporal_workflow_permissions",
+                {
+                    "task_id": inputs.task_id,
+                    "team_id": inputs.team_id,
+                    "user_id": inputs.user_id,
+                },
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_interval=timedelta(seconds=15),
+                    maximum_attempts=2,
+                ),
+            )
 
-            try:
-                # Step 1: Create branch
-                logger.info(f"Step 1: Creating branch for issue {inputs.task_id}")
-                branch_result = await workflow.execute_activity(
-                    create_branch_activity,
-                    inputs,
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=10),
-                        maximum_interval=timedelta(minutes=1),
-                        maximum_attempts=3,
-                    ),
+            if not permission_check.get("allowed", False):
+                error_msg = (
+                    f"Workflow execution not permitted: {permission_check.get('reason', 'Feature flag not enabled')}"
                 )
+                logger.warning(error_msg)
+                return error_msg
+            # Step 1: Check if we should trigger agent processing
+            logger.info(f"Step 1: Checking if agent workflow should be triggered for task {inputs.task_id}")
+            trigger_check = await workflow.execute_activity(
+                should_trigger_agent_workflow_activity,
+                {
+                    "task_id": inputs.task_id,
+                    "team_id": inputs.team_id,
+                },
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=10),
+                    maximum_interval=timedelta(seconds=30),
+                    maximum_attempts=3,
+                ),
+            )
 
-                if not branch_result.get("success"):
-                    error_msg = f"Failed to create branch: {branch_result.get('error', 'Unknown error')}"
+            if not trigger_check.get("should_trigger", False):
+                logger.info(f"Agent workflow not triggered: {trigger_check.get('trigger_reason', 'Unknown reason')}")
+                return f"No agent processing needed: {trigger_check.get('trigger_reason', 'Unknown reason')}"
+
+            logger.info(f"Agent workflow triggered: {trigger_check.get('trigger_reason', '')}")
+
+            # Step 2: Get workflow configuration
+            logger.info(f"Step 2: Getting workflow configuration for task {inputs.task_id}")
+            workflow_config = await workflow.execute_activity(
+                get_workflow_configuration_activity,
+                {
+                    "task_id": inputs.task_id,
+                    "team_id": inputs.team_id,
+                },
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=10),
+                    maximum_interval=timedelta(seconds=30),
+                    maximum_attempts=3,
+                ),
+            )
+
+            if not workflow_config.get("has_workflow", False):
+                logger.info("No workflow configuration found")
+                raise ValueError("No workflow configuration found")
+
+            current_stage_key = workflow_config.get("current_stage_key")
+            logger.info(f"Current stage: {current_stage_key} in workflow: {workflow_config.get('workflow_name')}")
+
+            # Step 3: If current stage has an agent, execute it once and advance
+            agent_info = await workflow.execute_activity(
+                get_agent_triggered_transition_activity,
+                {
+                    "task_id": inputs.task_id,
+                    "team_id": inputs.team_id,
+                },
+                start_to_close_timeout=timedelta(minutes=2),
+            )
+
+            if not agent_info:
+                msg = f"No agent configured for stage {current_stage_key}. Nothing to do."
+                logger.info(msg)
+                return msg
+
+            logger.info(f"Executing agent '{agent_info['agent_name']}' for stage '{current_stage_key}'")
+
+            # Set up repository if this is a code generation agent
+            repo_info = None
+            if agent_info.get("agent_type") == "code_generation":
+                repo_info = await self._setup_repository(inputs)
+                if not repo_info.get("success"):
+                    error_msg = f"Failed to setup repository: {repo_info.get('error')}"
                     logger.error(error_msg)
                     return error_msg
 
-                branch_name: str = branch_result["branch_name"]
-                repository: str = branch_result["repository"]
-                logger.info(f"Branch created successfully: {branch_name} in repository {repository}")
+            agent_result = await workflow.execute_activity(
+                execute_agent_for_transition_activity,
+                {
+                    "task_id": inputs.task_id,
+                    "team_id": inputs.team_id,
+                    "user_id": inputs.user_id,
+                    "transition_config": agent_info,
+                    "repo_info": repo_info,
+                },
+                start_to_close_timeout=timedelta(minutes=30),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(minutes=1),
+                    maximum_interval=timedelta(minutes=5),
+                    maximum_attempts=2,
+                ),
+            )
 
-                # Step 2: Move issue to in_progress status
-                logger.info(f"Step 2: Moving issue {inputs.task_id} to in_progress status")
-                await workflow.execute_activity(
-                    update_issue_status_activity,
-                    {"task_id": inputs.task_id, "team_id": inputs.team_id, "new_status": "in_progress"},
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=10),
-                        maximum_interval=timedelta(seconds=30),
-                        maximum_attempts=3,
-                    ),
-                )
-
-                # Step 3: Execute background processing
-                logger.info(f"Step 3: Running background processing for issue {inputs.task_id}")
-                processing_result = await workflow.execute_activity(
-                    process_task_moved_to_todo_activity,
-                    inputs,
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=30),
-                        maximum_interval=timedelta(minutes=2),
-                        maximum_attempts=3,
-                    ),
-                )
-
-                logger.info(f"Background processing completed: {processing_result}")
-
-                # Step 4: Get issue details for commits and PR
-                task_details = await workflow.execute_activity(
-                    get_task_details_activity,
-                    {"task_id": inputs.task_id, "team_id": inputs.team_id},
-                    start_to_close_timeout=timedelta(minutes=1),
-                )
-
-                # Step 5: Commit sample changes
-                logger.info(f"Step 5: Committing changes for issue {inputs.task_id}")
-
-                # Example file changes - in real implementation, these would come from AI agent
-                sample_file_changes = [
-                    {
-                        "path": f"tasks/{inputs.task_id}/README.md",
-                        "content": f"""# Task: {task_details['title']}
-
-## Description
-{task_details.get('description', 'No description provided')}
-
-## Status
-{inputs.new_status}
-
-## Auto-generated by PostHog Issue Tracker
-        This file was created automatically when the task was moved to TODO status.
-""",
-                        "message": f"Add documentation for task #{inputs.task_id}: {task_details['title']}",
-                    }
-                ]
-
-                commit_result = await workflow.execute_activity(
-                    commit_changes_activity,
-                    CommitChangesInputs(
-                        task_processing_inputs=inputs, branch_name=branch_name, file_changes=sample_file_changes
-                    ),
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=30),
-                        maximum_interval=timedelta(minutes=2),
-                        maximum_attempts=3,
-                    ),
-                )
-
-                if not commit_result.get("success"):
-                    logger.warning(f"Failed to commit changes: {commit_result.get('error')}")
-                    # Continue workflow even if commits fail
-                else:
-                    logger.info(f"Changes committed successfully: {commit_result['total_files']} files")
-
-                # Step 6: Create pull request
-                logger.info(f"Step 6: Creating pull request for issue {inputs.task_id}")
-                pr_result = await workflow.execute_activity(
-                    create_pr_activity,
-                    CreatePRInputs(task_processing_inputs=inputs, branch_name=branch_name),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=30),
-                        maximum_interval=timedelta(minutes=1),
-                        maximum_attempts=2,
-                    ),
-                )
-
-                if pr_result.get("success"):
-                    logger.info(f"Pull request created successfully: {pr_result['pr_url']}")
-                else:
-                    logger.warning(f"Failed to create pull request: {pr_result.get('error')}")
-
-                # Step 7: Update issue status to testing
-                logger.info(f"Step 7: Moving issue {inputs.task_id} to testing status")
-                await workflow.execute_activity(
-                    update_issue_status_activity,
-                    {"task_id": inputs.task_id, "team_id": inputs.team_id, "new_status": "testing"},
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=10),
-                        maximum_interval=timedelta(seconds=30),
-                        maximum_attempts=3,
-                    ),
-                )
-
-                success_msg = f"Task {inputs.task_id} processed successfully using integrated GitHub system. Branch: {branch_name}"
-                if pr_result.get("success"):
-                    success_msg += f", PR: {pr_result['pr_url']}"
-
-                logger.info(success_msg)
-                return success_msg
-
-            except Exception as e:
-                error_msg = f"Integrated workflow failed for task {inputs.task_id}: {str(e)}"
-                logger.exception(error_msg)
+            if not agent_result.get("success"):
+                error_msg = f"Agent execution failed: {agent_result.get('error', 'Unknown error')}"
+                logger.error(error_msg)
                 return error_msg
 
-        else:
-            logger.info(f"Task {inputs.task_id} status changed to {inputs.new_status}, no processing needed")
-            return f"No processing required for status: {inputs.new_status}"
+            logger.info("Agent completed successfully")
 
+            # Create PR if repository was set up (any agent that works with code)
+            if repo_info and repo_info.get("success") and repo_info.get("branch_name"):
+                logger.info(f"Repository was set up for {agent_info.get('agent_type', 'unknown')} agent work")
+                logger.info(f"Checking if PR should be created for branch: {repo_info.get('branch_name')}")
 
-@temporalio.workflow.defn(name="process-task-status-change")
-class TaskProcessingWorkflow(PostHogWorkflow):
-    """Workflow to handle background processing when an issue status changes."""
-
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> TaskProcessingInputs:
-        """Parse inputs from the management command CLI."""
-        loaded = json.loads(inputs[0])
-        return TaskProcessingInputs(**loaded)
-
-    @temporalio.workflow.run
-    async def run(self, inputs: TaskProcessingInputs) -> str:
-        """
-        Main workflow execution for processing issue status changes using hybrid approach.
-
-        When an issue moves to 'todo', this workflow will:
-        1. Clone the GitHub repository locally for fast file operations
-        2. Create a new branch using GitHub integration
-        3. Run AI agent with local file access + GitHub MCP integration
-        4. Scan local changes and commit via GitHub integration
-        5. Create pull request using GitHub integration
-        6. Clean up local repository
-        """
-        logger.info(f"Processing task status change for task {inputs.task_id}")
-
-        # Only process if the issue was moved to 'todo' status
-        if inputs.new_status == "todo":
-            logger.info(f"Task {inputs.task_id} moved to TODO, starting GitHub workflow")
-
-            repo_info = None
-            try:
-                # Step 1: Clone repository and create branch
-                logger.info(f"Step 1: Cloning repository and creating branch for issue {inputs.task_id}")
-                repo_info = await workflow.execute_activity(
-                    clone_repo_and_create_branch_activity,
-                    inputs,
-                    start_to_close_timeout=timedelta(minutes=10),  # Allow time for large repos
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=30),
-                        maximum_interval=timedelta(minutes=2),
-                        maximum_attempts=2,  # Don't retry too many times for git operations
-                    ),
-                )
-
-                if not repo_info.get("success"):
-                    error_msg = f"Failed to clone repository: {repo_info.get('error', 'Unknown error')}"
-                    logger.error(error_msg)
-                    return error_msg
-
-                logger.info(f"Repository cloned successfully. Branch: {repo_info['branch_name']}")
-
-                # Step 2: Move issue to in_progress status
-                logger.info(f"Step 2: Moving issue {inputs.task_id} to in_progress status")
-                await workflow.execute_activity(
-                    update_issue_status_activity,
-                    {"task_id": inputs.task_id, "team_id": inputs.team_id, "new_status": "in_progress"},
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=10),
-                        maximum_interval=timedelta(seconds=30),
-                        maximum_attempts=3,
-                    ),
-                )
-
-                # Step 3: Execute initial background processing
-                logger.info(f"Step 3: Running initial background processing for issue {inputs.task_id}")
-                processing_result = await workflow.execute_activity(
-                    process_task_moved_to_todo_activity,
-                    inputs,
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=30),
-                        maximum_interval=timedelta(minutes=2),
-                        maximum_attempts=3,
-                    ),
-                )
-
-                logger.info(f"Background processing completed: {processing_result}")
-
-                # Step 4: Execute AI agent work with hybrid local + GitHub MCP access
-                logger.info(f"Step 4: Starting AI agent work for issue {inputs.task_id}")
-                ai_result = await workflow.execute_activity(
-                    ai_agent_work_activity,
-                    {
-                        "inputs": inputs,
-                        "repo_path": repo_info["repo_path"],
-                        "repository": repo_info["repository"],
-                        "branch_name": repo_info["branch_name"],
-                    },
-                    start_to_close_timeout=timedelta(minutes=30),  # Allow more time for AI work
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(minutes=1),
-                        maximum_interval=timedelta(minutes=5),
-                        maximum_attempts=2,  # Don't retry too many times for expensive operations
-                    ),
-                )
-
-                if not ai_result.get("success"):
-                    error_msg = f"AI agent work failed: {ai_result.get('error', 'Unknown error')}"
-                    logger.error(error_msg)
-                    return error_msg
-
-                logger.info(f"AI agent work completed successfully for issue {inputs.task_id}")
-
-                # Step 5: Commit local changes using GitHub integration
-                logger.info(f"Step 5: Committing local changes via GitHub API for issue {inputs.task_id}")
-
-                # Get task details for commit message
-                task_details = await workflow.execute_activity(
-                    get_task_details_activity,
-                    {"task_id": inputs.task_id, "team_id": inputs.team_id},
-                    start_to_close_timeout=timedelta(minutes=1),
-                )
-
-                commit_result = await workflow.execute_activity(
-                    commit_local_changes_activity,
-                    {
-                        "inputs": inputs,
-                        "repo_path": repo_info["repo_path"],
-                        "branch_name": repo_info["branch_name"],
-                        "task_title": task_details["title"],
-                    },
-                    start_to_close_timeout=timedelta(minutes=10),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=30),
-                        maximum_interval=timedelta(minutes=2),
-                        maximum_attempts=3,
-                    ),
-                )
-
-                if not commit_result.get("success"):
-                    error_msg = f"Failed to commit changes via GitHub integration: {commit_result.get('error', 'Unknown error')}"
-                    logger.error(error_msg)
-                    return error_msg
-
-                logger.info(
-                    f"Changes committed successfully via GitHub API for issue {inputs.task_id}: {commit_result.get('message')}"
-                )
-
-                # Step 6: Update issue with GitHub branch info
-                logger.info(f"Step 6: Updating issue {inputs.task_id} with GitHub branch info")
-                await workflow.execute_activity(
-                    update_issue_github_info_activity,
-                    {"task_id": inputs.task_id, "team_id": inputs.team_id, "branch_name": repo_info["branch_name"]},
-                    start_to_close_timeout=timedelta(minutes=2),
-                )
-
-                # Step 7: Create pull request using GitHub integration
-                logger.info(f"Step 7: Creating pull request via GitHub API for issue {inputs.task_id}")
-                pr_result = await workflow.execute_activity(
-                    create_pr_activity,
-                    CreatePRInputs(task_processing_inputs=inputs, branch_name=repo_info["branch_name"]),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=30),
-                        maximum_interval=timedelta(minutes=1),
-                        maximum_attempts=2,
-                    ),
-                )
-
-                # Update issue with PR URL if PR was created successfully
-                if pr_result.get("success") and pr_result.get("pr_url"):
-                    logger.info(f"Pull request created: {pr_result['pr_url']}")
-                    await workflow.execute_activity(
-                        update_issue_github_info_activity,
+                # Check for commits ahead of origin and create PR if changes exist
+                try:
+                    # Use the commit activity to handle both local changes and checking for commits ahead of origin
+                    commit_result = await workflow.execute_activity(
+                        commit_local_changes_activity,
                         {
-                            "task_id": inputs.task_id,
-                            "team_id": inputs.team_id,
+                            "inputs": inputs.__dict__,
+                            "repo_path": repo_info["repo_path"],
                             "branch_name": repo_info["branch_name"],
-                            "pr_url": pr_result["pr_url"],
+                            "task_title": f"Task: {inputs.task_id}",
                         },
+                        start_to_close_timeout=timedelta(minutes=10),
+                        retry_policy=RetryPolicy(
+                            initial_interval=timedelta(seconds=10),
+                            maximum_interval=timedelta(seconds=30),
+                            maximum_attempts=2,
+                        ),
+                    )
+
+                    # Create PR if there were changes (either local files committed or existing commits ahead of origin)
+                    if commit_result.get("success"):
+                        # Check if there were any changes at all (local commits or pushed commits)
+                        has_changes = (
+                            commit_result.get("committed_files")  # New local changes were committed
+                            or "pushed" in commit_result.get("message", "").lower()  # Existing commits were pushed
+                            or commit_result.get("total_files", 0) > 0  # Any files were processed
+                        )
+
+                        if has_changes:
+                            logger.info(
+                                f"Changes detected on branch, creating PR. Commit result: {commit_result.get('message', 'Unknown')}"
+                            )
+                            try:
+                                pr_result = await workflow.execute_activity(
+                                    create_pr_and_update_task_activity,
+                                    {
+                                        "task_id": inputs.task_id,
+                                        "team_id": inputs.team_id,
+                                        "branch_name": repo_info["branch_name"],
+                                    },
+                                    start_to_close_timeout=timedelta(minutes=5),
+                                    retry_policy=RetryPolicy(
+                                        initial_interval=timedelta(seconds=10),
+                                        maximum_interval=timedelta(seconds=30),
+                                        maximum_attempts=2,
+                                    ),
+                                )
+
+                                if pr_result.get("success"):
+                                    logger.info(f"PR created successfully: {pr_result.get('pr_url')}")
+                                else:
+                                    logger.warning(f"PR creation failed: {pr_result.get('error')}")
+
+                            except Exception as pr_error:
+                                logger.warning(f"PR creation failed with exception: {pr_error}")
+                        else:
+                            logger.info("No changes detected on branch, skipping PR creation")
+                            logger.info(f"Commit result details: {commit_result}")
+                    else:
+                        logger.warning(f"Commit activity failed: {commit_result.get('error', 'Unknown error')}")
+
+                except Exception as commit_error:
+                    logger.warning(f"Failed to check for changes: {commit_error}")
+                    # Don't fail the workflow just because commit/PR creation failed
+
+            logger.info("Moving to next stage")
+            move_result = await workflow.execute_activity(
+                move_task_to_stage_activity,
+                {
+                    "task_id": inputs.task_id,
+                    "team_id": inputs.team_id,
+                },
+                start_to_close_timeout=timedelta(minutes=2),
+            )
+
+            if not move_result.get("success"):
+                error_msg = f"Failed to move task to next stage: {move_result.get('error', 'Unknown error')}"
+                logger.error(error_msg)
+                return error_msg
+
+            # Cleanup repository if created
+            if repo_info and repo_info.get("repo_path"):
+                try:
+                    await workflow.execute_activity(
+                        cleanup_repo_activity,
+                        repo_info["repo_path"],
                         start_to_close_timeout=timedelta(minutes=2),
                     )
-                else:
-                    logger.info(
-                        f"Pull request creation skipped or failed: {pr_result.get('message', 'Unknown reason')}"
-                    )
+                except Exception as cleanup_error:
+                    logger.warning(f"Repository cleanup failed: {cleanup_error}")
 
-                # Step 8: Update issue status to testing
-                logger.info(f"Step 8: Moving issue {inputs.task_id} to testing status")
-                await workflow.execute_activity(
-                    update_issue_status_activity,
-                    {"task_id": inputs.task_id, "team_id": inputs.team_id, "new_status": "testing"},
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=10),
-                        maximum_interval=timedelta(seconds=30),
-                        maximum_attempts=3,
-                    ),
-                )
+            # Confirm new stage
+            new_stage = move_result.get("new_stage")
+            logger.info(f"Successfully moved to stage: {new_stage}")
 
-                success_msg = f"Task {inputs.task_id} processed successfully using hybrid approach. Branch: {repo_info['branch_name']}"
-                if pr_result.get("success"):
-                    success_msg += f", PR: {pr_result['pr_url']}"
-                logger.info(success_msg)
-                return success_msg
+            # Trigger processing again for the next stage (fire-and-forget)
+            await workflow.execute_activity(
+                trigger_task_processing_activity,
+                {
+                    "task_id": inputs.task_id,
+                    "team_id": inputs.team_id,
+                    "user_id": inputs.user_id,
+                },
+                start_to_close_timeout=timedelta(minutes=1),
+            )
 
-            except Exception as e:
-                error_msg = f"Workflow failed for task {inputs.task_id}: {str(e)}"
-                logger.exception(error_msg)
-                return error_msg
+            return f"Agent executed and task advanced to stage: {new_stage} (next run enqueued)"
 
-            finally:
-                # Step 9: Always clean up the cloned repository
-                if repo_info and repo_info.get("repo_path"):
-                    logger.info(f"Step 9: Cleaning up repository at {repo_info['repo_path']}")
-                    try:
-                        await workflow.execute_activity(
-                            cleanup_repo_activity,
-                            repo_info["repo_path"],
-                            start_to_close_timeout=timedelta(minutes=2),
-                            retry_policy=RetryPolicy(
-                                initial_interval=timedelta(seconds=10),
-                                maximum_interval=timedelta(seconds=30),
-                                maximum_attempts=2,
-                            ),
-                        )
-                        logger.info("Repository cleanup completed")
-                    except Exception as cleanup_error:
-                        logger.warning(f"Failed to cleanup repository: {cleanup_error}")
-                        # Don't fail the whole workflow for cleanup issues
-        else:
-            logger.info(f"Task {inputs.task_id} status changed to {inputs.new_status}, no processing needed")
-            return f"No processing required for status: {inputs.new_status}"
+        except Exception as e:
+            error_msg = f"Workflow-agnostic processing failed for task {inputs.task_id}: {str(e)}"
+            logger.exception(error_msg)
+            return error_msg
+
+    async def _setup_repository(self, inputs: TaskProcessingInputs) -> dict:
+        """Set up repository for code generation agents."""
+        try:
+            repo_info = await workflow.execute_activity(
+                clone_repo_and_create_branch_activity,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=30),
+                    maximum_interval=timedelta(minutes=2),
+                    maximum_attempts=2,
+                ),
+            )
+            return repo_info
+        except Exception as e:
+            logger.exception(f"Failed to setup repository: {e}")
+            return {"success": False, "error": str(e)}

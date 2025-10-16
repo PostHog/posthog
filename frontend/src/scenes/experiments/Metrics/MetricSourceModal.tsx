@@ -2,53 +2,25 @@ import { useActions, useValues } from 'kea'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { Experiment } from '~/types'
-
-import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { getDefaultFunnelMetric, getDefaultFunnelsMetric } from '../utils'
+import { experimentMetricModalLogic } from './experimentMetricModalLogic'
+import { metricSourceModalLogic } from './metricSourceModalLogic'
 
-export function MetricSourceModal({
-    experimentId,
-    isSecondary,
-}: {
-    experimentId: Experiment['id']
-    isSecondary?: boolean
-}): JSX.Element {
-    const { experiment, usesNewQueryRunner } = useValues(experimentLogic({ experimentId }))
-    const { setExperiment } = useActions(experimentLogic({ experimentId }))
-    const {
-        closePrimaryMetricSourceModal,
-        closeSecondaryMetricSourceModal,
-        openPrimaryMetricModal,
-        openSecondaryMetricModal,
-        openPrimarySharedMetricModal,
-        openSecondarySharedMetricModal,
-    } = useActions(modalsLogic)
-    const { isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen } = useValues(modalsLogic)
+export const MetricSourceModal = (): JSX.Element => {
+    const { isModalOpen, context } = useValues(metricSourceModalLogic)
+    const { closeMetricSourceModal } = useActions(metricSourceModalLogic)
 
-    const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
-    const isOpen = isSecondary ? isSecondaryMetricSourceModalOpen : isPrimaryMetricSourceModalOpen
-    const closeCurrentModal = isSecondary ? closeSecondaryMetricSourceModal : closePrimaryMetricSourceModal
-    const openMetricModal = isSecondary ? openSecondaryMetricModal : openPrimaryMetricModal
-    const openSharedMetricModal = isSecondary ? openSecondarySharedMetricModal : openPrimarySharedMetricModal
+    const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
+    const { openPrimarySharedMetricModal, openSecondarySharedMetricModal } = useActions(modalsLogic)
 
     return (
-        <LemonModal isOpen={isOpen} onClose={closeCurrentModal} width={1000} title="Choose metric source">
+        <LemonModal isOpen={isModalOpen} onClose={closeMetricSourceModal} width={1000} title="Choose metric source">
             <div className="flex gap-4 mb-4">
                 <div
                     className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
                     onClick={() => {
-                        closeCurrentModal()
-
-                        const defaultMetric = usesNewQueryRunner ? getDefaultFunnelMetric() : getDefaultFunnelsMetric()
-                        const newMetrics = [...experiment[metricsField], defaultMetric]
-                        setExperiment({
-                            [metricsField]: newMetrics,
-                        })
-                        if (defaultMetric.uuid) {
-                            openMetricModal(defaultMetric.uuid)
-                        }
+                        closeMetricSourceModal()
+                        openExperimentMetricModal(context)
                     }}
                 >
                     <div className="font-semibold">
@@ -61,8 +33,10 @@ export function MetricSourceModal({
                 <div
                     className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
                     onClick={() => {
-                        closeCurrentModal()
-                        openSharedMetricModal(null)
+                        closeMetricSourceModal()
+                        context.type === 'primary'
+                            ? openPrimarySharedMetricModal(null)
+                            : openSecondarySharedMetricModal(null)
                     }}
                 >
                     <div className="font-semibold">

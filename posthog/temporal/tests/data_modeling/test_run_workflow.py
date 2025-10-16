@@ -136,7 +136,11 @@ async def test_create_table_activity(minio_client, activity_environment, ateam, 
         query={"query": query, "kind": "HogQLQuery"},
     )
 
-    create_table_activity_inputs = CreateTableActivityInputs(team_id=ateam.pk, models=[saved_query.id.hex])
+    job = await DataModelingJob.objects.acreate(team=ateam, saved_query=saved_query)
+
+    create_table_activity_inputs = CreateTableActivityInputs(
+        team_id=ateam.pk, models=[saved_query.id.hex], job_id=str(job.id)
+    )
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
@@ -519,26 +523,38 @@ async def saved_queries(ateam):
       from events
       where events.event = '$pageview'
     """
-    parent_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+    parent_saved_query = DataWarehouseSavedQuery(
         team=ateam,
         name="my_model",
         query={"query": parent_query, "kind": "HogQLQuery"},
     )
-    child_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+    parent_saved_query.columns = await sync_to_async(parent_saved_query.get_columns)()
+    await parent_saved_query.asave()
+
+    child_saved_query = DataWarehouseSavedQuery(
         team=ateam,
         name="my_model_child",
         query={"query": "select * from my_model where distinct_id = 'b'", "kind": "HogQLQuery"},
     )
-    child_2_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+    child_saved_query.columns = await sync_to_async(child_saved_query.get_columns)()
+    await child_saved_query.asave()
+
+    child_2_saved_query = DataWarehouseSavedQuery(
         team=ateam,
         name="my_model_child_2",
         query={"query": "select * from my_model where distinct_id = 'a'", "kind": "HogQLQuery"},
     )
-    grand_child_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+    child_2_saved_query.columns = await sync_to_async(child_2_saved_query.get_columns)()
+    await child_2_saved_query.asave()
+
+    grand_child_saved_query = DataWarehouseSavedQuery(
         team=ateam,
         name="my_model_grand_child",
         query={"query": "select * from my_model_child union all select * from my_model_child_2", "kind": "HogQLQuery"},
     )
+    grand_child_saved_query.columns = await sync_to_async(grand_child_saved_query.get_columns)()
+    await grand_child_saved_query.asave()
+
     await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(parent_saved_query)
     await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(child_saved_query)
     await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(child_2_saved_query)
@@ -767,20 +783,11 @@ async def test_run_workflow_with_minio_bucket(
     expected_events_a = [event for event in all_expected_events if event["distinct_id"] == "a"]
     expected_events_b = [event for event in all_expected_events if event["distinct_id"] == "b"]
 
-    for query in saved_queries:
-        attached_table = await DataWarehouseTable.objects.acreate(
-            name=query.name,
-            team=ateam,
-            format="Delta",
-            url_pattern=f"s3://{bucket_name}/team_{ateam.pk}_model_{query.id.hex}/modeling/{query.normalized_name}",
-            credential=None,
-        )
-        # link the saved query to the table
-        query.table_id = attached_table.id
-        await database_sync_to_async(query.save)()
-
     workflow_id = str(uuid.uuid4())
-    inputs = RunWorkflowInputs(team_id=ateam.pk)
+    inputs = RunWorkflowInputs(
+        team_id=ateam.pk,
+        select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0) for saved_query in saved_queries],
+    )
 
     with (
         override_settings(
@@ -823,10 +830,9 @@ async def test_run_workflow_with_minio_bucket(
 
             for query in saved_queries:
                 await database_sync_to_async(query.refresh_from_db)()
-                db_table = await DataWarehouseTable.objects.aget(id=query.table_id)
 
                 delta_table = deltalake.DeltaTable(
-                    table_uri=db_table.url_pattern,
+                    table_uri=f"s3://{bucket_name}/team_{ateam.pk}_model_{query.id.hex}/modeling/{query.normalized_name}",
                     storage_options={
                         "aws_access_key_id": str(settings.AIRBYTE_BUCKET_KEY),
                         "aws_secret_access_key": str(settings.AIRBYTE_BUCKET_SECRET),
@@ -858,6 +864,7 @@ async def test_run_workflow_with_minio_bucket(
                 assert sorted(table.to_pylist(), key=lambda d: (d["distinct_id"], d["timestamp"])) == expected_data
                 assert query.status == DataWarehouseSavedQuery.Status.COMPLETED
                 assert query.last_run_at == TEST_TIME
+                assert query.is_materialized is True
 
                 # Verify row count was updated in the DataWarehouseTable
                 warehouse_table = await DataWarehouseTable.objects.aget(team_id=ateam.pk, id=query.table_id)
@@ -866,6 +873,12 @@ async def test_run_workflow_with_minio_bucket(
                 assert warehouse_table.row_count == len(
                     expected_data
                 ), f"Row count for {query.name} not the expected value"
+                assert (
+                    warehouse_table.size_in_s3_mib is not None and warehouse_table.size_in_s3_mib != 0
+                ), f"Table size in mib for {query.name} is not set"
+
+            job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
+            assert job.storage_delta_mib is not None and job.storage_delta_mib != 0, f"Job storage delta is not set"
 
 
 async def test_run_workflow_with_minio_bucket_with_errors(
@@ -876,21 +889,11 @@ async def test_run_workflow_with_minio_bucket_with_errors(
     saved_queries,
     temporal_client,
 ):
-    """Test run workflow end-to-end using a local MinIO bucket."""
-    for query in saved_queries:
-        attached_table = await DataWarehouseTable.objects.acreate(
-            name=query.name,
-            team=ateam,
-            format="Delta",
-            url_pattern=f"s3://{bucket_name}/team_{ateam.pk}_model_{query.id.hex}",
-            credential=None,
-        )
-        # link the saved query to the table
-        query.table_id = attached_table.id
-        await database_sync_to_async(query.save)()
-
     workflow_id = str(uuid.uuid4())
-    inputs = RunWorkflowInputs(team_id=ateam.pk)
+    inputs = RunWorkflowInputs(
+        team_id=ateam.pk,
+        select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0) for saved_query in saved_queries],
+    )
 
     async def mock_materialize_model(model_label, team, saved_query, job):
         raise Exception("testing exception")
@@ -936,6 +939,67 @@ async def test_run_workflow_with_minio_bucket_with_errors(
     job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
     assert job is not None
     assert job.status == DataModelingJob.Status.FAILED
+
+
+async def test_run_workflow_revert_materialization(
+    minio_client,
+    ateam,
+    bucket_name,
+    pageview_events,
+    saved_queries,
+    temporal_client,
+):
+    workflow_id = str(uuid.uuid4())
+    inputs = RunWorkflowInputs(team_id=ateam.pk)
+
+    async def mock_hogql_table(_query, _team, _logger):
+        raise Exception("Unknown table")
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        freeze_time(TEST_TIME),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+    ):
+        async with temporalio.worker.Worker(
+            temporal_client,
+            task_queue=constants.DATA_MODELING_TASK_QUEUE,
+            workflows=[RunWorkflow],
+            activities=[
+                start_run_activity,
+                build_dag_activity,
+                run_dag_activity,
+                finish_run_activity,
+                create_table_activity,
+                create_job_model_activity,
+                fail_jobs_activity,
+                cleanup_running_jobs_activity,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            # Ensure the team exists in the DB context before running workflow
+            await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
+            await temporal_client.execute_workflow(
+                RunWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=constants.DATA_MODELING_TASK_QUEUE,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+
+    job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
+    assert job is not None
+    assert job.status == DataModelingJob.Status.FAILED
+
+    for query in saved_queries:
+        await database_sync_to_async(query.refresh_from_db)()
+        assert query.is_materialized is False
 
 
 async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_events):
@@ -986,6 +1050,9 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
             unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
+
+    await database_sync_to_async(saved_query.refresh_from_db)()
+    assert saved_query.is_materialized is True
 
     # Check that the column names maintain their original casing
     table_columns = delta_table.to_pyarrow_table().column_names
@@ -1065,6 +1132,9 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED
 
+        await database_sync_to_async(saved_query.refresh_from_db)()
+        assert saved_query.is_materialized is True
+
 
 async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, bucket_name, minio_client):
     """Test that materialize_model successfully downscales Decimal256 to Decimal128 when the value fits."""
@@ -1134,6 +1204,9 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
 
         await database_sync_to_async(job.refresh_from_db)()
         assert job.status == DataModelingJob.Status.COMPLETED
+
+        await database_sync_to_async(saved_query.refresh_from_db)()
+        assert saved_query.is_materialized is True
 
 
 async def test_cleanup_running_jobs_activity(activity_environment, ateam):
@@ -1288,9 +1361,12 @@ async def test_create_table_activity_row_count_functionality(minio_client, activ
     saved_query.table = table
     await saved_query.asave()
 
+    job = await DataModelingJob.objects.acreate(team=ateam, saved_query=saved_query)
+
     create_table_activity_inputs = CreateTableActivityInputs(
         models=[str(saved_query.id)],  # Pass UUID, not name
         team_id=ateam.pk,
+        job_id=str(job.id),
     )
 
     with (
@@ -1300,7 +1376,7 @@ async def test_create_table_activity_row_count_functionality(minio_client, activ
         async with asyncio.timeout(10):
             await activity_environment.run(create_table_activity, create_table_activity_inputs)
 
-    mock_create_table.assert_called_once_with(str(saved_query.id), ateam.pk)
+    mock_create_table.assert_called_once_with(str(job.id), str(saved_query.id), ateam.pk)
     mock_get_count.assert_called_once()
     await table.arefresh_from_db()
     assert table.row_count == 42
@@ -1310,9 +1386,12 @@ async def test_create_table_activity_row_count_functionality(minio_client, activ
 async def test_create_table_activity_invalid_uuid_fails(activity_environment, ateam):
     """Test that create_table_activity fails fast when given non-UUID model identifier."""
 
+    job = await DataModelingJob.objects.acreate(team=ateam)
+
     create_table_activity_inputs = CreateTableActivityInputs(
         models=["invalid_model_name"],  # Name instead of UUID
         team_id=ateam.pk,
+        job_id=str(job.id),
     )
 
     with (

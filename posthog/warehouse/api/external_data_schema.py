@@ -13,7 +13,6 @@ from rest_framework.response import Response
 
 from posthog.hogql.database.database import create_hogql_database
 
-from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
@@ -106,6 +105,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         hogql_context = self.context.get("database", None)
         if not hogql_context:
             hogql_context = create_hogql_database(team_id=self.context["team_id"])
+
+        if schema.table and schema.table.deleted:
+            return None
 
         return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
@@ -216,14 +218,13 @@ class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "should_sync", "last_synced_at"]
 
 
-class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
+class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ExternalDataSchema.objects.all()
     serializer_class = ExternalDataSchemaSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
     ordering = "-created_at"
-    log_source = "external_data_jobs"
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()

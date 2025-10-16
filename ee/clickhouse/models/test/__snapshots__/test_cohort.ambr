@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestCohort.test_cohortpeople_basic
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
   INSERT INTO cohortpeople
   SELECT id,
          99999 as cohort_id,
@@ -44,7 +44,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_basic.1
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
   INSERT INTO cohortpeople
   SELECT id,
          99999 as cohort_id,
@@ -87,7 +87,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
   INSERT INTO cohortpeople
   SELECT id,
          99999 as cohort_id,
@@ -115,7 +115,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator.1
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
   INSERT INTO cohortpeople
   SELECT id,
          99999 as cohort_id,
@@ -143,7 +143,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator.2
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
   INSERT INTO cohortpeople
   SELECT id,
          99999 as cohort_id,
@@ -190,7 +190,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator.3
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
   INSERT INTO cohortpeople
   SELECT id,
          99999 as cohort_id,
@@ -290,117 +290,9 @@
                                                                        join_algorithm = 'auto' ) ))
   '''
 # ---
-# name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation.1
-  '''
-  /* cohort_calculation: */
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = 2
-  '''
-# ---
-# name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation.2
-  '''
-  /* cohort_calculation: */
-  SELECT DISTINCT person_id
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = 2
-  ORDER BY person_id
-  '''
-# ---
-# name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation.3
-  '''
-  /* cohort_calculation: */
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = 2
-  '''
-# ---
-# name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation.4
-  '''
-  /* cohort_calculation: */
-  SELECT count(DISTINCT person_id)
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = 3
-  '''
-# ---
-# name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation.5
-  '''
-  /* cohort_calculation: */
-  SELECT DISTINCT person_id
-  FROM cohortpeople
-  WHERE team_id = 99999
-    AND cohort_id = 99999
-    AND version = 3
-  ORDER BY person_id
-  '''
-# ---
-# name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation.6
-  '''
-  /* cohort_calculation: */
-  SELECT uuid,
-         distinct_id
-  FROM events
-  WHERE team_id = 99999
-    AND (distinct_id IN
-           (SELECT distinct_id
-            FROM
-              (SELECT distinct_id,
-                      argMax(person_id, version) as person_id
-               FROM person_distinct_id2
-               WHERE team_id = 99999
-               GROUP BY distinct_id
-               HAVING argMax(is_deleted, version) = 0)
-            WHERE person_id IN
-                (SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
-                 FROM
-                   (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
-                           countIf(timestamp > now() - INTERVAL 2 year
-                                   AND timestamp < now()
-                                   AND event = '$pageview'
-                                   AND 1=1) > 0 AS performed_event_condition_X_level_level_0_level_0_level_0_0
-                    FROM events e
-                    LEFT OUTER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 99999
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    WHERE team_id = 99999
-                      AND event IN ['$pageview']
-                      AND timestamp <= now()
-                      AND timestamp >= now() - INTERVAL 2 year
-                    GROUP BY person_id) behavior_query
-                 FULL OUTER JOIN
-                   (SELECT *,
-                           id AS person_id
-                    FROM
-                      (SELECT id
-                       FROM person
-                       WHERE team_id = 99999
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
-                 WHERE 1 = 1
-                   AND ((((performed_event_condition_X_level_level_0_level_0_level_0_0))
-                         AND ((id NOT IN
-                                 (SELECT person_id
-                                  FROM cohortpeople
-                                  WHERE cohort_id = 99999
-                                    AND team_id = 99999 ))))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                       join_algorithm = 'auto' ) ))
-  '''
-# ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
   INSERT INTO cohortpeople
   SELECT id,
          99999 as cohort_id,
@@ -442,7 +334,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts.1
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
   INSERT INTO cohortpeople
   SELECT id,
          99999 as cohort_id,
@@ -484,7 +376,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts.2
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
   INSERT INTO cohortpeople
   SELECT id,
          99999 as cohort_id,
@@ -531,7 +423,7 @@
 # ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts.3
   '''
-  /* cohort_calculation: */
+  /* cohort_calculation:cohort_calc:00000000 */
   INSERT INTO cohortpeople
   SELECT id,
          99999 as cohort_id,

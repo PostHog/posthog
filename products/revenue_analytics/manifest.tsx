@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -12,7 +11,8 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/RevenueAnalyticsScene'),
             projectBased: true,
             defaultDocsPath: '/docs/revenue-analytics',
-            activityScope: 'RevenueAnalytics',
+            iconType: 'revenue_analytics',
+            description: 'Track and analyze your revenue metrics to understand your business performance and growth.',
         },
     },
     routes: {
@@ -28,7 +28,6 @@ export const manifest: ProductManifest = {
             href: urls.revenueAnalytics(),
             type: 'revenue',
             tags: ['beta'],
-            flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
         },
     ],
     fileSystemTypes: {
@@ -44,18 +43,8 @@ export const manifest: ProductManifest = {
         {
             path: 'Revenue settings',
             category: 'Definitions',
-            iconType: 'revenue_analytics' as FileSystemIconType,
-            iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
+            iconType: 'revenue_analytics_metadata' as FileSystemIconType,
             href: urls.revenueSettings(),
-            flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
-        },
-        {
-            path: 'Marketing settings',
-            category: 'Definitions',
-            iconType: 'revenue_analytics' as FileSystemIconType,
-            iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
-            href: urls.marketingAnalytics(),
-            flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
         },
     ],
 }

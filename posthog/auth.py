@@ -20,6 +20,7 @@ from rest_framework.request import Request
 from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
@@ -67,7 +68,20 @@ class SessionAuthentication(authentication.SessionAuthentication):
 
     We do set authenticate_header function in SessionAuthentication, so that a value for the WWW-Authenticate
     header can be retrieved and the response code is automatically set to 401 in case of unauthenticated requests.
+
+    This class is also used to enforce Two-Factor Authentication for session-based authentication.
     """
+
+    def authenticate(self, request):
+        auth_result = super().authenticate(request)
+
+        if not auth_result:
+            return None
+
+        user, auth = auth_result
+        enforce_two_factor(request, user)
+
+        return (user, auth)
 
     def authenticate_header(self, request):
         return "Session"

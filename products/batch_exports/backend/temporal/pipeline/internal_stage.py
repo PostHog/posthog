@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from django.conf import settings
 
 import aioboto3
+from aiobotocore.config import AioConfig
 from temporalio import activity
 
 from posthog.clickhouse import query_tagging
@@ -69,6 +70,9 @@ async def get_s3_client():
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         endpoint_url=_get_s3_endpoint_url(),
         region_name=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
+        # aiobotocore defaults keepalive_timeout to 12 seconds, which can be low for
+        # slower batch exports.
+        config=AioConfig(connect_timeout=60, read_timeout=300, connector_args={"keepalive_timeout": 300}),
     ) as s3_client:
         yield s3_client
 

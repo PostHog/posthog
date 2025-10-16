@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
@@ -6,6 +5,7 @@ import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -16,10 +16,10 @@ import { TimestampFormat, playerSettingsLogic } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
 
 function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Element {
-    const { logicProps, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
-    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
+    const { logicProps, currentPlayerTimeSeconds, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { isScrubbing, scrubbingTimeSeconds } = useValues(seekbarLogic(logicProps))
 
-    const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
+    const startTimeSeconds = (isScrubbing ? scrubbingTimeSeconds : currentPlayerTimeSeconds) ?? 0
     const endTimeSeconds = Math.floor(sessionPlayerData.durationMs / 1000)
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
@@ -115,11 +115,12 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 size="xsmall"
                 noPadding={true}
                 onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}
+                className="ph-no-rageclick"
             >
                 <div className="PlayerControlSeekIcon">
                     <span className="PlayerControlSeekIcon__seconds">{jumpTimeSeconds}</span>
                     <IconSkipBackward
-                        className={clsx('PlayerControlSeekIcon__icon', {
+                        className={cn('text-2xl PlayerControlSeekIcon__icon', {
                             'PlayerControlSeekIcon__icon--forward': direction === 'forward',
                         })}
                     />

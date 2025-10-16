@@ -427,11 +427,11 @@ const APPROVED_DESTINATIONS: string[] = [
     'segment-actions-pushwoosh',
     'segment-actions-schematic',
     'segment-actions-usermotion',
-    'segment-actions-accoil-analytics',
 ]
 
 const HIDDEN_DESTINATIONS = [
     // duplicate destinations
+    'segment-actions-accoil-analytics',
     'segment-actions-snap-conversions',
     'segment-hubspot-cloud',
     'segment-june-actions',

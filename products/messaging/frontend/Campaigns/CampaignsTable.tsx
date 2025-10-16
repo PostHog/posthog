@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonDialog, LemonDivider, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -66,7 +66,7 @@ function CampaignActionsSummary({ campaign }: { campaign: HogFlow }): JSX.Elemen
 export function CampaignsTable(): JSX.Element {
     useMountedLogic(campaignsLogic)
     const { campaigns, campaignsLoading } = useValues(campaignsLogic)
-    const { deleteCampaign } = useActions(campaignsLogic)
+    const { toggleCampaignStatus, duplicateCampaign, deleteCampaign } = useActions(campaignsLogic)
 
     const columns: LemonTableColumns<HogFlow> = [
         {
@@ -74,12 +74,29 @@ export function CampaignsTable(): JSX.Element {
             key: 'name',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: (_, item) => {
-                return <LemonTableLink to={urls.messagingCampaign(item.id)} title={item.name} />
+                return (
+                    <LemonTableLink
+                        to={urls.messagingCampaign(item.id)}
+                        title={item.name}
+                        description={item.description}
+                    />
+                )
             },
         },
 
         {
-            title: 'Actions',
+            title: 'Trigger',
+            width: 0,
+            render: (_, item) => {
+                return (
+                    <Link to={urls.messagingCampaign(item.id, 'workflow') + '?node=trigger_node'}>
+                        <LemonTag type="default">{capitalizeFirstLetter(item.trigger?.type ?? 'unknown')}</LemonTag>
+                    </Link>
+                )
+            },
+        },
+        {
+            title: 'Dispatches',
             width: 0,
             render: (_, item) => {
                 return <CampaignActionsSummary campaign={item} />
@@ -132,10 +149,50 @@ export function CampaignsTable(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
+                                    data-attr="campaign-edit"
+                                    fullWidth
+                                    status={campaign.status === 'draft' ? 'default' : 'danger'}
+                                    onClick={() => toggleCampaignStatus(campaign)}
+                                    tooltip={
+                                        campaign.status === 'draft'
+                                            ? 'Enables the campaign to start sending messages'
+                                            : 'Disables the campaign from sending any new messages. In-progress workflows will end immediately.'
+                                    }
+                                >
+                                    {campaign.status === 'draft' ? 'Enable' : 'Disable'}
+                                </LemonButton>
+                                <LemonButton
+                                    data-attr="campaign-duplicate"
+                                    fullWidth
+                                    onClick={() => duplicateCampaign(campaign)}
+                                >
+                                    Duplicate
+                                </LemonButton>
+                                <LemonDivider />
+                                <LemonButton
                                     data-attr="campaign-delete"
                                     fullWidth
                                     status="danger"
-                                    onClick={() => deleteCampaign(campaign)}
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Delete campaign',
+                                            description: (
+                                                <p>
+                                                    Are you sure you want to delete the campaign "
+                                                    <strong>{campaign.name}</strong>"? This action cannot be undone.
+                                                    In-progress workflows will end immediately.
+                                                </p>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () => {
+                                                    deleteCampaign(campaign)
+                                                },
+                                            },
+                                            secondaryButton: { children: 'Cancel' },
+                                        })
+                                    }}
                                 >
                                     Delete
                                 </LemonButton>
@@ -153,7 +210,7 @@ export function CampaignsTable(): JSX.Element {
                 dataSource={campaigns}
                 loading={campaignsLoading}
                 columns={columns}
-                defaultSorting={{ columnKey: 'status', order: -1 }}
+                defaultSorting={{ columnKey: 'status', order: 1 }}
             />
         </div>
     )

@@ -4,6 +4,7 @@ import { useCallback } from 'react'
 import { IconComment, IconEmoji } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -11,6 +12,7 @@ import { playerCommentOverlayLogic } from 'scenes/session-recordings/player/comm
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void }): JSX.Element {
     const {
@@ -46,7 +48,10 @@ export function CommentOnRecordingButton({ className }: { className?: string }):
     const { isCommenting } = useValues(sessionRecordingPlayerLogic)
 
     return (
-        <>
+        <AccessControlAction
+            resourceType={AccessControlResourceType.SessionRecording}
+            minAccessLevel={AccessControlLevel.Editor}
+        >
             <LemonButton
                 size="xsmall"
                 onClick={(e) => {
@@ -68,7 +73,7 @@ export function CommentOnRecordingButton({ className }: { className?: string }):
                 active={isCommenting}
                 icon={<IconComment className={cn('text-lg', className)} />}
             />
-        </>
+        </AccessControlAction>
     )
 }
 

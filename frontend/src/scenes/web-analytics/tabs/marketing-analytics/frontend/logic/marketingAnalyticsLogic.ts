@@ -1,8 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 
-import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils'
-import { uuid } from 'lib/utils'
+import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval, uuid } from 'lib/utils'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,18 +13,15 @@ import {
     CurrencyCode,
     DataWarehouseNode,
     DatabaseSchemaDataWarehouseTable,
+    DateRange,
+    MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsColumnsSchemaNames,
+    NodeKind,
     SourceMap,
 } from '~/queries/schema/schema-general'
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
-import {
-    ChartDisplayType,
-    DataWarehouseSettingsTab,
-    ExternalDataSource,
-    IntervalType,
-    PipelineNodeTab,
-    PipelineStage,
-} from '~/types'
+import { DataWarehouseSettingsTab, ExternalDataSource, IntervalType } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 import { defaultConversionGoalFilter } from '../components/settings/constants'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
@@ -37,6 +33,7 @@ import {
     NativeMarketingSource,
     VALID_NATIVE_MARKETING_SOURCES,
     generateUniqueName,
+    validColumnsForTiles,
 } from './utils'
 
 export type ExternalTable = {
@@ -57,6 +54,10 @@ export type ExternalTable = {
 export type NativeSource = {
     source: ExternalDataSource
     tables: DatabaseSchemaDataWarehouseTable[]
+}
+
+export interface DateFilterState extends DateRange {
+    interval: IntervalType
 }
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -94,6 +95,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         showColumnConfigModal: true,
         hideColumnConfigModal: true,
         setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
+        setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
     }),
     reducers({
         draftConversionGoal: [
@@ -136,7 +138,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
             persistConfig,
             {
-                setDates: (_, { dateTo, dateFrom }) => {
+                setDates: (_, { dateFrom, dateTo }) => {
                     if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
                         dateTo = INITIAL_DATE_TO
                     }
@@ -144,20 +146,20 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         dateFrom = INITIAL_DATE_FROM
                     }
                     return {
-                        dateTo,
                         dateFrom,
+                        dateTo,
                         interval: getDefaultInterval(dateFrom, dateTo),
                     }
                 },
-                setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
-                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
+                setInterval: (state, { interval }) => {
+                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, state.dateFrom, state.dateTo)
                     return {
-                        dateTo,
                         dateFrom,
+                        dateTo,
                         interval,
                     }
                 },
-                setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
+                setDatesAndInterval: (_, { dateFrom, dateTo, interval }) => {
                     if (!dateFrom && !dateTo) {
                         dateFrom = INITIAL_DATE_FROM
                         dateTo = INITIAL_DATE_TO
@@ -169,8 +171,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         dateFrom = INITIAL_DATE_FROM
                     }
                     return {
-                        dateTo,
                         dateFrom,
+                        dateTo,
                         interval: interval || getDefaultInterval(dateFrom, dateTo),
                     }
                 },
@@ -188,6 +190,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             persistConfig,
             {
                 setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
+            },
+        ],
+        tileColumnSelection: [
+            MarketingAnalyticsColumnsSchemaNames.Cost as validColumnsForTiles,
+            persistConfig,
+            {
+                setTileColumnSelection: (_, { column }) => column,
             },
         ],
     }),
@@ -250,10 +259,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                                 name: table.fields[field].hogql_value,
                                 type: table.fields[field].type,
                             })),
-                            sourceUrl: urls.pipelineNode(
-                                PipelineStage.Source,
-                                `${tableType}-${dataWarehouseSource?.id || table.source?.id || table.id}`,
-                                isDataWarehouse ? PipelineNodeTab.Schemas : PipelineNodeTab.SourceConfiguration
+                            sourceUrl: urls.dataWarehouseSource(
+                                `${tableType}-${dataWarehouseSource?.id || table.source?.id || table.id}`
                             ),
                             external_type: tableType,
                             source_map: sourceMap,
@@ -324,22 +331,36 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             (dataWarehouseSourcesLoading: boolean) => dataWarehouseSourcesLoading,
         ],
         createMarketingDataWarehouseNodes: [
-            (s) => [s.validExternalTables, s.baseCurrency, s.validNativeSources],
+            (s) => [s.validExternalTables, s.baseCurrency, s.validNativeSources, s.tileColumnSelection],
             (
                 validExternalTables: ExternalTable[],
                 baseCurrency: CurrencyCode,
-                validNativeSources: NativeSource[]
+                validNativeSources: NativeSource[],
+                tileColumnSelection: validColumnsForTiles
             ): DataWarehouseNode[] => {
                 const nonNativeNodeList: DataWarehouseNode[] = validExternalTables
-                    .map((table) => externalAdsCostTile(table, baseCurrency))
+                    .map((table) => externalAdsCostTile(table, baseCurrency, tileColumnSelection))
                     .filter(Boolean) as DataWarehouseNode[]
 
                 const nativeNodeList: DataWarehouseNode[] = validNativeSources
-                    .map((source) => MarketingDashboardMapper(source))
+                    .map((source) => MarketingDashboardMapper(source, tileColumnSelection))
                     .filter(Boolean) as DataWarehouseNode[]
 
                 return [...nativeNodeList, ...nonNativeNodeList]
             },
+        ],
+        overviewQuery: [
+            (s) => [s.dateFilter, s.compareFilter, s.draftConversionGoal],
+            (dateFilter, compareFilter, draftConversionGoal): MarketingAnalyticsAggregatedQuery => ({
+                kind: NodeKind.MarketingAnalyticsAggregatedQuery,
+                dateRange: {
+                    date_from: dateFilter.dateFrom,
+                    date_to: dateFilter.dateTo,
+                },
+                compareFilter,
+                properties: [],
+                draftConversionGoal: draftConversionGoal || undefined,
+            }),
         ],
     }),
     actionToUrl(({ values }) => ({

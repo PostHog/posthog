@@ -17,6 +17,8 @@ from posthog.schema import AssistantMessage, AssistantToolCallMessage
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.state import PartialAssistantState
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..root.nodes import RootNode
 from .prompts import INKEEP_DATA_CONTINUATION_PHRASE, INKEEP_DOCS_SYSTEM_PROMPT
@@ -24,6 +26,10 @@ from .prompts import INKEEP_DATA_CONTINUATION_PHRASE, INKEEP_DOCS_SYSTEM_PROMPT
 
 class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same message construction
     """Node for searching PostHog documentation using Inkeep."""
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.INKEEP_DOCS
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
@@ -58,7 +64,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
 
     def _get_model(self):  # type: ignore
         return MaxChatOpenAI(
-            model="inkeep-qa-sonnet-4",
+            model="inkeep-qa-expert",
             base_url="https://api.inkeep.com/v1/",
             api_key=settings.INKEEP_API_KEY,
             streaming=True,

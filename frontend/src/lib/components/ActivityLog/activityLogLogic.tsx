@@ -2,7 +2,7 @@ import { actions, events, kea, key, listeners, path, props, reducers, selectors 
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import { errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/errorTrackingActivityDescriber'
+import { ActivityDescriber as errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/components/ActivityDescriber'
 
 import api, { ActivityLogPaginatedResponse } from 'lib/api'
 import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
@@ -15,6 +15,7 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { actionActivityDescriber } from 'scenes/actions/actionActivityDescriber'
 import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescriptions'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
@@ -30,7 +31,6 @@ import { groupActivityDescriber } from 'scenes/groups/activityDescriptions'
 import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
-import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
@@ -38,7 +38,7 @@ import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
+import { ActivityScope } from '~/types'
 
 import type { activityLogLogicType } from './activityLogLogicType'
 
@@ -100,6 +100,8 @@ export const activityLogTransforms = {
  * **/
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
     switch (logItem?.scope) {
+        case ActivityScope.ACTION:
+            return actionActivityDescriber
         case ActivityScope.ALERT_CONFIGURATION:
             return alertConfigurationActivityDescriber
         case ActivityScope.ANNOTATION:
@@ -112,9 +114,6 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return dashboardActivityDescriber
         case ActivityScope.FEATURE_FLAG:
             return flagActivityDescriber
-        case ActivityScope.PLUGIN:
-        case ActivityScope.PLUGIN_CONFIG:
-            return pluginActivityDescriber
         case ActivityScope.HOG_FUNCTION:
             return hogFunctionActivityDescriber
         case ActivityScope.COHORT:
@@ -267,12 +266,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
             [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
-            [urls.pipelineNode(PipelineStage.Destination, ':id', PipelineNodeTab.History)]: (
-                _,
-                searchParams,
-                hashParams
-            ) => onPageChange(searchParams, hashParams, ActivityScope.HOG_FUNCTION),
-            [urls.pipeline(PipelineTab.History)]: (_, searchParams, hashParams) =>
+            [urls.dataPipelines('history')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
         }
     }),

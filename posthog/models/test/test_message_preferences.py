@@ -77,7 +77,7 @@ class TestMessagePreferences(BaseTest):
         )
 
         # Test non-existent preference
-        self.assertEqual(recipient.get_preference(uuid.uuid4()), PreferenceStatus.NO_PREFERENCE)
+        self.assertEqual(recipient.get_preference(str(uuid.uuid4())), PreferenceStatus.NO_PREFERENCE)
 
         # Test existing preference
         recipient.set_preference(self.category.id, PreferenceStatus.OPTED_IN)

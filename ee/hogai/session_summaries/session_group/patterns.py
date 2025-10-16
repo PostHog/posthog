@@ -1,9 +1,8 @@
 import dataclasses
 from enum import Enum
-from math import ceil
+from math import floor
 from typing import Any
 
-import yaml
 import structlog
 from pydantic import BaseModel, Field, ValidationError, field_serializer, field_validator
 from temporalio.exceptions import ApplicationError
@@ -12,7 +11,8 @@ from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ENRICHMENT_MIN_RATIO
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
-from ee.hogai.session_summaries.utils import logging_session_ids, strip_raw_llm_content
+from ee.hogai.session_summaries.utils import logging_session_ids
+from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 
 logger = structlog.get_logger(__name__)
 
@@ -155,7 +155,10 @@ def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -
             f"No LLM content found when extracting patterns for sessions {sessions_identifier}"
         )
     try:
-        json_content: dict = yaml.safe_load(strip_raw_llm_content(raw_content))
+        # Patterns aren't streamed, so the initial state is the final one
+        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=True)
+        if not isinstance(json_content, dict):
+            raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
         raise SummaryValidationError(
             f"Error loading YAML content into JSON when extracting patterns for sessions {sessions_identifier}: {err}"
@@ -179,7 +182,10 @@ def load_pattern_assignments_from_llm_content(
             f"No LLM content found when extracting pattern assignments for sessions {sessions_identifier}"
         )
     try:
-        json_content: dict = yaml.safe_load(strip_raw_llm_content(raw_content))
+        # Patterns aren't streamed, so the initial state is the final one
+        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=True)
+        if not isinstance(json_content, dict):
+            raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
         raise SummaryValidationError(
             f"Error loading YAML content into JSON when extracting pattern assignments for sessions {sessions_identifier}: {err}"
@@ -437,7 +443,8 @@ def combine_patterns_with_events_context(
         )
         combined_patterns.append(enriched_pattern)
     # If not enough patterns were properly enriched - fail the activity
-    minimum_expected_patterns_count = ceil(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO)
+    # Using `floor` as for small numbers of patterns - >30% could be filtered as "non-blocking only"
+    minimum_expected_patterns_count = max(1, floor(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO))
     successful_patterns_count = len(combined_patterns) + non_failed_empty_patterns_count
     failed_patterns_count = len(patterns.patterns) - successful_patterns_count
     if minimum_expected_patterns_count > successful_patterns_count:

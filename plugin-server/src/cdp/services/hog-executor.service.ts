@@ -597,7 +597,11 @@ export class HogExecutorService {
 
         if (Object.keys(integrationInputs).length > 0) {
             for (const [key, value] of Object.entries(integrationInputs)) {
-                const accessToken: string = value.value.access_token_raw
+                const accessToken: string = value.value?.access_token_raw
+                if (!accessToken) {
+                    continue
+                }
+
                 const placeholder: string = ACCESS_TOKEN_PLACEHOLDER + invocation.hogFunction.inputs?.[key]?.value
 
                 if (placeholder && accessToken) {
@@ -658,6 +662,7 @@ export class HogExecutorService {
             addLog('warn', message)
 
             if (canRetry && result.invocation.state.attempts < this.hub.CDP_FETCH_RETRIES) {
+                await fetchResponse?.dump()
                 result.invocation.queue = 'hog'
                 result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1

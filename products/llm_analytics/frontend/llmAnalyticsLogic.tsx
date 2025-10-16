@@ -1,12 +1,14 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -20,6 +22,7 @@ import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
     BaseMathType,
+    Breadcrumb,
     ChartDisplayType,
     EventDefinitionType,
     HogQLMathType,
@@ -47,6 +50,11 @@ export interface QueryTile {
     }
 }
 
+export interface LLMAnalyticsLogicProps {
+    personId?: string
+    tabId?: string
+}
+
 /**
  * Helper function to get date range for a specific day.
  * @param day - The day string from the chart (e.g., "2024-01-15")
@@ -62,7 +70,8 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 
 export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
-
+    props({} as LLMAnalyticsLogicProps),
+    key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
     connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
 
     actions({
@@ -186,6 +195,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'playground'
                 } else if (sceneKey === 'llmAnalyticsDatasets') {
                     return 'datasets'
+                } else if (sceneKey === 'llmAnalyticsEvaluations') {
+                    return 'evaluations'
                 }
                 return 'dashboard'
             },
@@ -591,6 +602,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
+                (_, props) => props.personId,
                 groupsModel.selectors.groupsTaxonomicTypes,
                 featureFlagLogic.selectors.featureFlags,
             ],
@@ -598,6 +610,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 dateFilter,
                 shouldFilterTestAccounts,
                 propertyFilters,
+                personId,
                 groupsTaxonomicTypes,
                 featureFlags
             ): DataTableNode => ({
@@ -610,6 +623,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                     filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
+                    ...(personId ? { personId } : {}),
                 },
                 columns: [
                     'id',
@@ -719,7 +733,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
                 FROM (
-                    SELECT 
+                    SELECT
                         distinct_id,
                         timestamp,
                         JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
@@ -765,9 +779,21 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             (s) => [s.refreshStatus],
             (refreshStatus) => Object.values(refreshStatus).some((status) => status.loading),
         ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        key: 'llm_analytics',
+                        name: 'LLM Analytics',
+                        iconType: 'llm_analytics',
+                    },
+                ]
+            },
+        ],
     }),
 
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         function applySearchParams({ filters, date_from, date_to, filter_test_accounts }: Record<string, any>): void {
             // Normal parameter handling
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
@@ -797,7 +823,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         }
     }),
 
-    actionToUrl(() => ({
+    tabAwareActionToUrl(() => ({
         setPropertyFilters: ({ propertyFilters }) => [
             router.values.location.pathname,
             {

@@ -21,7 +21,9 @@ export const API_SCOPES: APIScope[] = [
     { key: 'cohort', objectPlural: 'cohorts' },
     { key: 'dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectPlural: 'dashboard templates' },
+    { key: 'dataset', objectPlural: 'datasets' },
     { key: 'early_access_feature', objectPlural: 'early access features' },
+    { key: 'endpoint', objectPlural: 'endpoints' },
     { key: 'event_definition', objectPlural: 'event definitions' },
     { key: 'error_tracking', objectPlural: 'error tracking' },
     { key: 'experiment', objectPlural: 'experiments' },
@@ -30,6 +32,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'group', objectPlural: 'groups' },
     { key: 'hog_function', objectPlural: 'hog functions' },
     { key: 'insight', objectPlural: 'insights' },
+    { key: 'integration', disabledActions: ['write'], objectPlural: 'integrations' },
     { key: 'notebook', objectPlural: 'notebooks' },
     { key: 'organization', disabledWhenProjectScoped: true, objectPlural: 'organizations' },
     {
@@ -76,6 +79,7 @@ export const API_SCOPES: APIScope[] = [
             ),
         },
     },
+    { key: 'task', objectPlural: 'tasks' },
     {
         key: 'webhook',
         info: 'Webhook configuration is currently only enabled for the Zapier integration.',

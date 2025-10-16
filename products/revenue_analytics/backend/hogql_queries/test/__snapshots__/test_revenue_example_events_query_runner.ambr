@@ -21,7 +21,7 @@
             view.currency AS currency,
             tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
             view.session_id AS session_id,
-            view.timestamp AS timestamp
+            toTimeZone(view.timestamp, 'UTC') AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
                'revenue_analytics.events.purchase_a' AS source_label,
@@ -70,7 +70,7 @@
                       view.currency AS currency,
                       tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
                       view.session_id AS session_id,
-                      view.timestamp AS timestamp
+                      toTimeZone(view.timestamp, 'UTC') AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
                'revenue_analytics.events.purchase_b' AS source_label,
@@ -172,7 +172,7 @@
             view.currency AS currency,
             tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
             view.session_id AS session_id,
-            view.timestamp AS timestamp
+            toTimeZone(view.timestamp, 'UTC') AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
                'revenue_analytics.events.purchase_a' AS source_label,
@@ -222,7 +222,7 @@
                       view.currency AS currency,
                       tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
                       view.session_id AS session_id,
-                      view.timestamp AS timestamp
+                      toTimeZone(view.timestamp, 'UTC') AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
                'revenue_analytics.events.purchase_b' AS source_label,
@@ -272,7 +272,7 @@
                       view.currency AS currency,
                       tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
                       view.session_id AS session_id,
-                      view.timestamp AS timestamp
+                      toTimeZone(view.timestamp, 'UTC') AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
                'revenue_analytics.events.purchase_c' AS source_label,
@@ -349,7 +349,7 @@
             view.currency AS currency,
             tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
             view.session_id AS session_id,
-            view.timestamp AS timestamp
+            toTimeZone(view.timestamp, 'UTC') AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
                'revenue_analytics.events.purchase_a' AS source_label,
@@ -399,7 +399,7 @@
                       view.currency AS currency,
                       tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
                       view.session_id AS session_id,
-                      view.timestamp AS timestamp
+                      toTimeZone(view.timestamp, 'UTC') AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
                'revenue_analytics.events.purchase_b' AS source_label,
@@ -449,7 +449,7 @@
                       view.currency AS currency,
                       tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
                       view.session_id AS session_id,
-                      view.timestamp AS timestamp
+                      toTimeZone(view.timestamp, 'UTC') AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
                'revenue_analytics.events.purchase_c' AS source_label,
@@ -526,7 +526,7 @@
             view.currency AS currency,
             tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
             view.session_id AS session_id,
-            view.timestamp AS timestamp
+            toTimeZone(view.timestamp, 'UTC') AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
                'revenue_analytics.events.purchase_a' AS source_label,
@@ -575,7 +575,7 @@
                       view.currency AS currency,
                       tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
                       view.session_id AS session_id,
-                      view.timestamp AS timestamp
+                      toTimeZone(view.timestamp, 'UTC') AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
                'revenue_analytics.events.purchase_b' AS source_label,
@@ -624,7 +624,7 @@
                       view.currency AS currency,
                       tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
                       view.session_id AS session_id,
-                      view.timestamp AS timestamp
+                      toTimeZone(view.timestamp, 'UTC') AS timestamp
      FROM
        (SELECT toString(events.uuid) AS id,
                'revenue_analytics.events.purchase_c' AS source_label,
@@ -689,7 +689,7 @@
          view.currency AS currency,
          tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
          view.session_id AS session_id,
-         view.timestamp AS timestamp
+         toTimeZone(view.timestamp, 'UTC') AS timestamp
   FROM
     (SELECT toString(events.uuid) AS id,
             'revenue_analytics.events.purchase' AS source_label,
@@ -753,7 +753,7 @@
          view.currency AS currency,
          tuple(events__person.id, events__person.created_at, events.distinct_id, events__person.properties) AS `tuple(events.person.id, events.person.created_at, events.distinct_id, events.person.properties)`,
          view.session_id AS session_id,
-         view.timestamp AS timestamp
+         toTimeZone(view.timestamp, 'UTC') AS timestamp
   FROM
     (SELECT toString(events.uuid) AS id,
             'revenue_analytics.events.purchase' AS source_label,

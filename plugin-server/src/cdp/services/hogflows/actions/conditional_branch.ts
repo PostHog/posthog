@@ -5,16 +5,18 @@ import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { findContinueAction, findNextAction } from '../hogflow-utils'
-import { ActionHandler, ActionHandlerResult } from './action.interface'
+import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
 const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
 
 export class ConditionalBranchHandler implements ActionHandler {
-    async execute(
-        invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
-    ): Promise<ActionHandlerResult> {
+    async execute({
+        invocation,
+        action,
+    }: ActionHandlerOptions<
+        Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
+    >): Promise<ActionHandlerResult> {
         const conditionResult = await checkConditions(
             invocation,
             action.type === 'conditional_branch'

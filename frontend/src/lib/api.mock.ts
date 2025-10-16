@@ -49,7 +49,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     api_token: 'default-team-api-token',
     secret_api_token: 'phs_default-team-secret-api-token',
     secret_api_token_backup: 'phs_default-team-secret-api-token-backup',
-    app_urls: ['https://posthog.com/', 'https://app.posthog.com'],
+    app_urls: ['https://posthog.com/', 'https://app.posthog.com', 'https://example.com'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
     slack_incoming_webhook: '',
@@ -86,6 +86,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_masking_config: {
         maskAllInputs: true,
     },
+    session_recording_retention_period: '30d',
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
@@ -95,7 +96,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
     user_access_level: AccessControlLevel.Admin,
-    access_control: true,
     group_types: [
         {
             group_type: 'organization',
@@ -243,6 +243,8 @@ export const MOCK_DEFAULT_USER: UserType = {
         plugin_disabled: false,
         project_weekly_digest_disabled: {},
         all_weekly_digest_disabled: false,
+        error_tracking_issue_assigned: false,
+        discussions_mentioned: false,
     },
     anonymize_data: false,
     toolbar_mode: 'toolbar',

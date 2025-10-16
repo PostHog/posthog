@@ -88,6 +88,15 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(len(charge_views), 1)
         self.assertEqual(charge_views[0].name, "stripe.charge_revenue_view")
 
+    def test_revenue_view_with_disabled_source(self):
+        """Test that the orchestrator returns None for disabled sources"""
+        self.source.revenue_analytics_config.enabled = False
+        self.source.revenue_analytics_config.save()
+
+        views = build_all_revenue_analytics_views(self.team, self.timings)
+        source_views = [v for v in views if v.source_id == str(self.source.id)]
+        self.assertEqual(len(source_views), 0)
+
     def test_revenue_view_non_stripe_source(self):
         """Test that the orchestrator returns None for non-Stripe sources"""
         self.source.source_type = "Salesforce"

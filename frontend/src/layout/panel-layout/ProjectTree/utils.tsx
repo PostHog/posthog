@@ -262,6 +262,18 @@ export function convertFileSystemEntryToTreeDataItem({
                 return a.record.category.localeCompare(b.record.category, undefined, { sensitivity: 'accent' })
             }
 
+            // Sort by visualOrder if both items have it
+            if (a.visualOrder !== undefined && b.visualOrder !== undefined) {
+                return a.visualOrder - b.visualOrder
+            }
+            // If only one has visualOrder, prioritize it
+            if (a.visualOrder !== undefined) {
+                return -1
+            }
+            if (b.visualOrder !== undefined) {
+                return 1
+            }
+
             if (a.id.startsWith(`${root}-load-more/`) || a.id.startsWith(`${root}-loading/`)) {
                 return 1
             }
@@ -334,7 +346,10 @@ export function convertFileSystemEntryToTreeDataItem({
  *   - splitPath("a")              => ["a"]
  *   - splitPath("")               => []
  */
-export function splitPath(path: string): string[] {
+export function splitPath(path: string | undefined): string[] {
+    if (!path) {
+        return []
+    }
     const segments: string[] = []
     let current = ''
     for (let i = 0; i < path.length; i++) {

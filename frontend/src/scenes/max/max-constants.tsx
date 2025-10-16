@@ -62,6 +62,11 @@ export const TOOL_DEFINITIONS: Omit<
         product: null,
         flag: 'max-session-summarization',
     },
+    create_dashboard: {
+        name: 'Create dashboards',
+        description: 'Create dashboards with insights based on your requirements',
+        product: null,
+    },
     search_docs: {
         name: 'Search docs',
         description: 'Search docs for answers regarding PostHog',
@@ -117,7 +122,7 @@ export const TOOL_DEFINITIONS: Omit<
         name: 'Find impactful issues',
         description: 'Find impactful issues affecting your conversion, activation, or any other events',
         product: Scene.ErrorTracking,
-        flag: FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL,
+        flag: FEATURE_FLAGS.ERROR_TRACKING_ISSUE_CORRELATION,
     },
     experiment_results_summary: {
         name: 'Summarize experiment results',
@@ -130,10 +135,20 @@ export const TOOL_DEFINITIONS: Omit<
         description: 'Create surveys in seconds',
         product: Scene.Surveys,
     },
+    analyze_survey_responses: {
+        name: 'Analyze survey responses',
+        description: 'Analyze survey responses to extract themes and actionable insights',
+        product: Scene.Surveys,
+    },
     create_message_template: {
         name: 'Create email templates',
         description: 'Create email templates from scratch or using a URL for inspiration',
         product: Scene.Messaging,
+    },
+    filter_revenue_analytics: {
+        name: 'Filter revenue analytics',
+        description: 'Filter revenue analytics to find the most impactful revenue insights',
+        product: Scene.RevenueAnalytics,
     },
 }
 

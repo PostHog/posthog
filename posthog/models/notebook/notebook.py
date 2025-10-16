@@ -53,5 +53,5 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             name=self.title or "Untitled",
             href=f"/notebooks/{self.short_id}",
             meta={"created_at": str(self.created_at), "created_by": self.created_by_id},
-            should_delete=self.deleted,
+            should_delete=self.deleted or self.visibility == self.Visibility.INTERNAL,
         )

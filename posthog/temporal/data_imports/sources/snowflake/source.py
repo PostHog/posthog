@@ -44,6 +44,8 @@ class SnowflakeSource(BaseSource[SnowflakeSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.SNOWFLAKE,
             caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",
+            iconPath="/static/services/snowflake.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/snowflake",
             fields=cast(
                 list[FieldType],
                 [

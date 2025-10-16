@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardBasicType } from '~/types'
 
 import type { sceneDashboardChoiceModalLogicType } from './sceneDashboardChoiceModalLogicType'
 
@@ -35,7 +36,7 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
     actions({
         showSceneDashboardChoiceModal: () => true,
         closeSceneDashboardChoiceModal: () => true,
-        setSceneDashboardChoice: (dashboardId: number) => ({ dashboardId }),
+        setSceneDashboardChoice: (dashboardId: number | null) => ({ dashboardId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     reducers({
@@ -46,12 +47,11 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
         currentDashboardId: [
             (s) => [s.currentTeam, s.user],
             (currentTeam, user) => {
-                let currentDashboard = user?.scene_personalisation?.find(
-                    (choice) => choice.scene === props.scene
-                )?.dashboard
+                let currentDashboard: number | DashboardBasicType | null =
+                    user?.scene_personalisation?.find((choice) => choice.scene === props.scene)?.dashboard ?? null
 
                 if (!currentDashboard && props.scene === Scene.ProjectHomepage) {
-                    currentDashboard = currentTeam?.primary_dashboard
+                    currentDashboard = currentTeam?.primary_dashboard ?? null
                 }
 
                 return (typeof currentDashboard === 'number' ? currentDashboard : currentDashboard?.id) ?? null
@@ -80,10 +80,10 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
             // TODO needs to report scene and dashboard
             if (props.scene === Scene.ProjectHomepage) {
                 // TODO be able to save individual or team level home dashboard
-                actions.updateCurrentTeam({ primary_dashboard: dashboardId })
+                actions.updateCurrentTeam({ primary_dashboard: dashboardId ?? null })
                 posthog.capture('primary dashboard changed')
             } else {
-                actions.setUserScenePersonalisation(props.scene, dashboardId)
+                actions.setUserScenePersonalisation(props.scene, dashboardId ?? 0)
                 posthog.capture('scene dashboard choice set', { scene: props.scene, dashboardId: dashboardId })
             }
         },

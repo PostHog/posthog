@@ -42,6 +42,34 @@ const HOG_STL_EXAMPLES: CyclotronJobTemplateOption[] = Object.entries(HOG_STL).m
     description: value.description,
 }))
 
+const LIQUID_USAGE_EXAMPLES: CyclotronJobTemplateOption[] = [
+    {
+        key: 'property',
+        example: `{{ person.properties.email }}`,
+        description: 'Access a property of an event or person',
+    },
+    {
+        key: 'if',
+        example: `{% if condition %} Yes {% else %} No {% endif %}`,
+        description: 'Conditional (if this then that else other)',
+    },
+    {
+        key: 'date',
+        example: `{{ person.properties.signed_up_at | date: '%Y-%m-%d' }}`,
+        description: 'Format a timestamp',
+    },
+    {
+        key: 'join',
+        example: `{{ 'John, Paul, George, Ringo' | split: ', ' | join: ' and ' }}`,
+        description: 'Join an array of values into a string',
+    },
+    {
+        key: 'default',
+        example: `{{ person.properties.created_at | default: 'Default value' }}`,
+        description: 'Default value (if value is null or undefined, use this)',
+    },
+]
+
 export const cyclotronJobTemplateSuggestionsLogic = kea<cyclotronJobTemplateSuggestionsLogicType>([
     props({} as CyclotronJobTemplateSuggestionsLogicProps),
     key(({ templating }: CyclotronJobTemplateSuggestionsLogicProps) => templating),
@@ -58,7 +86,7 @@ export const cyclotronJobTemplateSuggestionsLogic = kea<cyclotronJobTemplateSugg
         allOptions: [
             (_, p) => [p.templating],
             (templating): CyclotronJobTemplateOption[] => {
-                return templating === 'hog' ? [...HOG_USAGE_EXAMPLES, ...HOG_STL_EXAMPLES] : []
+                return templating === 'hog' ? [...HOG_USAGE_EXAMPLES, ...HOG_STL_EXAMPLES] : LIQUID_USAGE_EXAMPLES
             },
         ],
 

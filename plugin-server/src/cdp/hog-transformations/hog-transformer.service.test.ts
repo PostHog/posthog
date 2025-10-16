@@ -648,7 +648,7 @@ describe('HogTransformer', () => {
             expect(result.event?.properties).not.toHaveProperty('$transformations_failed')
         })
 
-        it('should preserve existing transformation results when adding new ones', async () => {
+        it('should ignore existing transformation results when adding new ones', async () => {
             const successTemplate: HogFunctionTemplate = {
                 free: true,
                 status: 'beta',
@@ -685,7 +685,7 @@ describe('HogTransformer', () => {
                     event: 'test',
                     properties: {
                         $transformations_succeeded: ['Previous Success (prev-id)'],
-                        $transformations_failed: ['Previous Failure (prev-id)'],
+                        $transformations_failed: {}, // malformed value
                     },
                 },
                 teamId
@@ -695,10 +695,9 @@ describe('HogTransformer', () => {
 
             // Verify new results are appended to existing ones
             expect(result?.event?.properties?.$transformations_succeeded).toEqual([
-                'Previous Success (prev-id)',
                 `Success Template (${successFunction.id})`,
             ])
-            expect(result?.event?.properties?.$transformations_failed).toEqual(['Previous Failure (prev-id)'])
+            expect(result?.event?.properties?.$transformations_failed).toEqual(undefined)
         })
 
         it('should track skipped transformations when filter does not match', async () => {
@@ -740,7 +739,6 @@ describe('HogTransformer', () => {
                     event: 'does-not-match-me',
                     properties: {
                         original: true,
-                        $transformations_skipped: ['Previous Skip (prev-id)'],
                     },
                 },
                 teamId
@@ -751,7 +749,6 @@ describe('HogTransformer', () => {
             // Verify transformation was skipped and tracked
             expect(result.event?.properties?.should_not_be_set).toBeUndefined()
             expect(result.event?.properties?.$transformations_skipped).toEqual([
-                'Previous Skip (prev-id)',
                 `${hogFunction.name} (${hogFunction.id})`,
             ])
             expect(result.event?.properties?.original).toBe(true)
@@ -1217,20 +1214,40 @@ describe('HogTransformer', () => {
                 workingFunction.id,
             ])
 
+            const queueAppMetricsSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'queueAppMetrics')
+            const queueLogsSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'queueLogs')
+
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
             // Verify one transformation was applied and the other was skipped
-            expect(result.event?.properties?.error_filter_property).toBeUndefined()
-            expect(result.invocationResults[0].error).toContain('Global variable not found')
             expect(result.event?.properties?.$transformations_skipped).toContain(
                 `${errorFunction.name} (${errorFunction.id})`
+            )
+            expect(queueAppMetricsSpy).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        metric_name: 'filtering_failed',
+                    }),
+                ]),
+                'hog_function'
+            )
+            expect(queueLogsSpy).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        message: expect.stringContaining('Global variable not found'),
+                    }),
+                ]),
+                'hog_function'
             )
 
             expect(result.event?.properties?.working_property).toBe('working')
             expect(result.event?.properties?.$transformations_succeeded).toContain(
                 `${workingFunction.name} (${workingFunction.id})`
             )
+
+            queueAppMetricsSpy.mockRestore()
+            queueLogsSpy.mockRestore()
         })
 
         it('should skip transformation when none of multiple filters match', async () => {

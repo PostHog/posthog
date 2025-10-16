@@ -17,6 +17,7 @@ use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
 use serde_json;
 use std::collections::HashMap;
+use std::net::IpAddr;
 use tracing::Instrument;
 use uuid::Uuid;
 
@@ -32,8 +33,76 @@ struct LogContext<'a> {
     response_format: &'a str,
 }
 
-fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceResponse>, FlagError> {
-    let request_id = Uuid::new_v4();
+/// Extracts request ID from X-REQUEST-ID header, falling back to generating a new UUID if not present or invalid
+/// Good for tracing logs from the Contour layer all the way to the property evaluation
+fn extract_request_id(headers: &HeaderMap) -> Uuid {
+    headers
+        .get("X-REQUEST-ID")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<Uuid>().ok())
+        .unwrap_or_else(Uuid::new_v4)
+}
+
+/// Extracts client IP address from request headers, checking X-Forwarded-For first
+/// then falling back to the direct client IP. Matches Python's get_ip_address function.
+fn extract_client_ip(headers: &HeaderMap, fallback_ip: IpAddr) -> IpAddr {
+    // Check X-Forwarded-For header first (case-insensitive)
+    if let Some(forwarded_for) = headers.get("X-Forwarded-For") {
+        if let Ok(forwarded_str) = forwarded_for.to_str() {
+            // Take the first IP from the comma-separated list
+            if let Some(first_ip) = forwarded_str.split(',').next() {
+                let trimmed = first_ip.trim();
+
+                // Strip port from IP address if present (Azure gateway compatibility)
+                let ip_without_port = if trimmed.starts_with('[') {
+                    // IPv6 with port (e.g., "[::1]:8080")
+                    trimmed
+                        .split(']')
+                        .next()
+                        .and_then(|s| s.strip_prefix('['))
+                        .unwrap_or(trimmed)
+                } else if trimmed.contains('.') {
+                    // Likely IPv4 - check for port after the last dot
+                    if let Some(colon_idx) = trimmed.rfind(':') {
+                        if let Some(last_dot_idx) = trimmed.rfind('.') {
+                            if colon_idx > last_dot_idx {
+                                // Port comes after the last dot, so this is IPv4:port
+                                &trimmed[..colon_idx]
+                            } else {
+                                // Colon before last dot? Malformed, return as-is
+                                trimmed
+                            }
+                        } else {
+                            // Has colon but no dot? Shouldn't happen for IPv4
+                            trimmed
+                        }
+                    } else {
+                        // No colon, just return the IP
+                        trimmed
+                    }
+                } else {
+                    // No dots and no brackets - assume IPv6 without port
+                    // IPv6 can have colons as part of the address, so don't strip
+                    trimmed
+                };
+
+                // Try to parse the IP address
+                if let Ok(parsed_ip) = ip_without_port.parse::<IpAddr>() {
+                    return parsed_ip;
+                }
+            }
+        }
+    }
+
+    // Fall back to the direct client IP
+    fallback_ip
+}
+
+fn get_minimal_flags_response(
+    headers: &HeaderMap,
+    version: Option<&str>,
+) -> Result<Json<ServiceResponse>, FlagError> {
+    let request_id = extract_request_id(headers);
 
     // Parse version string to determine response format
     let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1)).unwrap_or(1);
@@ -130,20 +199,26 @@ fn get_versioned_response(
 #[debug_handler]
 pub async fn flags(
     state: State<router::State>,
-    InsecureClientIp(ip): InsecureClientIp,
+    InsecureClientIp(direct_ip): InsecureClientIp,
     Query(query_params): Query<FlagsQueryParams>,
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Response, FlagError> {
-    let request_id = Uuid::new_v4();
+    let request_id = extract_request_id(&headers);
+
+    // Extract client IP, checking X-Forwarded-For header first
+    let ip = extract_client_ip(&headers, direct_ip);
 
     // Handle different HTTP methods
     match method {
         Method::GET => {
             // GET requests return minimal flags response
-            return Ok(get_minimal_flags_response(query_params.version.as_deref())?.into_response());
+            return Ok(
+                get_minimal_flags_response(&headers, query_params.version.as_deref())?
+                    .into_response(),
+            );
         }
         Method::POST => {
             // POST requests continue with full processing logic below
@@ -434,5 +509,127 @@ mod tests {
 
         assert_eq!(params_config_missing.version, Some("1".to_string()));
         assert_eq!(params_config_missing.config, None);
+    }
+
+    #[test]
+    fn test_extract_client_ip() {
+        use axum::http::HeaderValue;
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+        let fallback = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+
+        // Test case 1: X-Forwarded-For with single IP
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("192.168.1.1").unwrap(),
+        );
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)));
+
+        // Test case 2: X-Forwarded-For with multiple IPs (should take the first)
+        headers.clear();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("10.0.0.1, 192.168.1.1, 172.16.0.1").unwrap(),
+        );
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)));
+
+        // Test case 3: X-Forwarded-For with IPv4 and port (Azure gateway compatibility)
+        headers.clear();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("203.0.113.195:8080").unwrap(),
+        );
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, IpAddr::V4(Ipv4Addr::new(203, 0, 113, 195)));
+
+        // Test case 4: X-Forwarded-For with IPv6
+        headers.clear();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("2001:db8::8a2e:370:7334").unwrap(),
+        );
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(
+            ip,
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0x8a2e, 0x370, 0x7334))
+        );
+
+        // Test case 5: X-Forwarded-For with IPv6 and port
+        headers.clear();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("[2001:db8::1]:8080").unwrap(),
+        );
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(
+            ip,
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))
+        );
+
+        // Test case 6: No X-Forwarded-For header (should use fallback)
+        headers.clear();
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, fallback);
+
+        // Test case 7: Invalid IP in X-Forwarded-For (should use fallback)
+        headers.clear();
+        headers.insert(
+            "X-Forwarded-For",
+            HeaderValue::from_str("invalid-ip").unwrap(),
+        );
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, fallback);
+
+        // Test case 8: Empty X-Forwarded-For (should use fallback)
+        headers.clear();
+        headers.insert("X-Forwarded-For", HeaderValue::from_str("").unwrap());
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, fallback);
+
+        // Test case 9: IPv6 address that could be confused with IPv4:port
+        headers.clear();
+        headers.insert("X-Forwarded-For", HeaderValue::from_str("::1").unwrap());
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)));
+
+        // Test case 10: Compact IPv6 address with few colons
+        headers.clear();
+        headers.insert("X-Forwarded-For", HeaderValue::from_str("fe80::1").unwrap());
+        let ip = extract_client_ip(&headers, fallback);
+        assert_eq!(ip, IpAddr::V6(Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1)));
+    }
+
+    #[test]
+    fn test_extract_request_id() {
+        use axum::http::HeaderValue;
+
+        // Test with valid UUID in header
+        let mut headers = HeaderMap::new();
+        let valid_uuid = "550e8400-e29b-41d4-a716-446655440000";
+        headers.insert("x-request-id", HeaderValue::from_static(valid_uuid));
+
+        let extracted_id = extract_request_id(&headers);
+        assert_eq!(extracted_id.to_string(), valid_uuid);
+
+        // Test with invalid UUID in header - should generate new UUID
+        let mut headers_invalid = HeaderMap::new();
+        headers_invalid.insert("x-request-id", HeaderValue::from_static("invalid-uuid"));
+
+        let extracted_id_invalid = extract_request_id(&headers_invalid);
+        // Should be a valid UUID (not the invalid string)
+        assert_ne!(extracted_id_invalid.to_string(), "invalid-uuid");
+        assert!(extracted_id_invalid.to_string().len() == 36); // UUID format
+
+        // Test without header - should generate new UUID
+        let empty_headers = HeaderMap::new();
+        let extracted_id_empty = extract_request_id(&empty_headers);
+        assert!(extracted_id_empty.to_string().len() == 36); // UUID format
+
+        // Two calls without header should generate different UUIDs
+        let extracted_id_empty2 = extract_request_id(&empty_headers);
+        assert_ne!(extracted_id_empty, extracted_id_empty2);
     }
 }

@@ -40,9 +40,9 @@ class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
     exceptions: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
-    surveys: Optional[OrganizationUsageResource]
+    survey_responses: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
-    cdp_invocations: Optional[OrganizationUsageResource]
+    cdp_trigger_events: Optional[OrganizationUsageResource]
     rows_exported: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]
     api_queries_read_bytes: Optional[OrganizationUsageResource]
@@ -260,10 +260,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
         return self.available_product_features
 
-    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> Optional[dict]:
-        vals: list[dict[str, Any]] = self.available_product_features or []
+    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> Optional[ProductFeature]:
         return next(
-            filter(lambda f: f and f.get("key") == feature, vals),
+            filter(lambda f: f and f.get("key") == feature, self.available_product_features or []),
             None,
         )
 

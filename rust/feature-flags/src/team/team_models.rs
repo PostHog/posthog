@@ -1,4 +1,4 @@
-use common_types::{ProjectId, TeamId};
+use common_types::{ProjectId, TeamId, TeamIdentifier};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::types::{Json, Uuid};
@@ -67,5 +67,15 @@ mod option_i16_as_i16 {
         D: Deserializer<'de>,
     {
         Option::<i16>::deserialize(deserializer).map(|opt| opt.unwrap_or(0))
+    }
+}
+
+impl TeamIdentifier for Team {
+    fn team_id(&self) -> TeamId {
+        self.id
+    }
+
+    fn api_token(&self) -> &str {
+        &self.api_token
     }
 }

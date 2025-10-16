@@ -5,15 +5,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isAddonVisible } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { BillingSpendResponse, billingSpendLogic } from 'scenes/billing/billingSpendLogic'
-import { billingUsageLogic } from 'scenes/billing/billingUsageLogic'
-import { BillingUsageResponse } from 'scenes/billing/billingUsageLogic'
+import { BillingUsageResponse, billingUsageLogic } from 'scenes/billing/billingUsageLogic'
+import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { DESTINATION_TYPES } from 'scenes/pipeline/destinations/constants'
-import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
-import { Destination } from 'scenes/pipeline/types'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { BillingType, TeamType } from '~/types'
+import { BillingType, HogFunctionType, TeamType } from '~/types'
 
 import type { maxBillingContextLogicType } from './maxBillingContextLogicType'
 
@@ -121,7 +118,7 @@ export const billingToMaxContext = (
     billing: BillingType | null,
     featureFlags: Record<string, any>,
     currentTeam: TeamType,
-    destinations: Destination[],
+    destinations: HogFunctionType[],
     usageResponse?: BillingUsageResponse | null,
     spendResponse?: BillingSpendResponse | null
 ): MaxBillingContext | null => {
@@ -210,7 +207,9 @@ export const billingToMaxContext = (
 
     return {
         has_active_subscription: billing.has_active_subscription || false,
-        subscription_level: billing.subscription_level as MaxBillingContextSubscriptionLevel,
+        subscription_level:
+            (billing.subscription_level as MaxBillingContextSubscriptionLevel) ||
+            MaxBillingContextSubscriptionLevel.FREE,
         billing_plan: billing.billing_plan || null,
         is_deactivated: billing.deactivated,
         products: maxProducts,
@@ -240,7 +239,7 @@ export const billingToMaxContext = (
         spend_history: spendResponse?.results,
         settings: {
             autocapture_on: !currentTeam.autocapture_opt_out,
-            active_destinations: destinations.length,
+            active_destinations: destinations.filter((destination) => destination.enabled).length,
         },
     }
 }
@@ -271,8 +270,8 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
             ['currentTeam'],
             featureFlagLogic,
             ['featureFlags'],
-            pipelineDestinationsLogic({ types: DESTINATION_TYPES }),
-            ['destinations'],
+            hogFunctionsListLogic({ type: 'destination' }),
+            ['hogFunctions'],
         ],
     })),
     selectors({
@@ -284,7 +283,7 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                 s.isAdminOrOwner,
                 s.currentTeam,
                 s.featureFlags,
-                s.destinations,
+                s.hogFunctions,
             ],
             (
                 billing: BillingType | null,
@@ -293,7 +292,7 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                 isAdminOrOwner: boolean,
                 currentTeam: TeamType,
                 featureFlags: Record<string, any>,
-                destinations: Destination[]
+                destinations: HogFunctionType[]
             ): MaxBillingContext | null => {
                 if (!isAdminOrOwner) {
                     return null
@@ -313,13 +312,13 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                         return prev === next
                     }
                     return (
-                        prev[0] === next[0] && // billing
-                        prev[1] === next[1] && // billingUsageResponse
-                        prev[2] === next[2] && // billingSpendResponse
-                        prev[3] === next[3] && // isAdminOrOwner
-                        prev[4]?.autocapture_opt_out === next[4]?.autocapture_opt_out && // currentTeam
-                        prev[5] === next[5] && // featureFlags
-                        prev[6]?.length === next[6]?.length // destinations
+                        prev[0] === next[0] /* billing */ &&
+                        prev[1] === next[1] /* billingUsageResponse */ &&
+                        prev[2] === next[2] /* billingSpendResponse */ &&
+                        prev[3] === next[3] /* isAdminOrOwner */ &&
+                        prev[4]?.autocapture_opt_out === next[4]?.autocapture_opt_out /* currentTeam */ &&
+                        prev[5] === next[5] /* featureFlags */ &&
+                        prev[6]?.length === next[6]?.length /* destinations */
                     )
                 },
             },

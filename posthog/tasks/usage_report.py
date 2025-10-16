@@ -6,7 +6,7 @@ import logging
 import dataclasses
 from collections import Counter
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
@@ -35,7 +35,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
-from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.organization import Organization
@@ -49,6 +48,8 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -137,6 +138,7 @@ class UsageReportCounters:
     survey_responses_count_in_period: int
     # Data Warehouse
     rows_synced_in_period: int
+    free_historical_rows_synced_in_period: int
 
     # Data Warehouse metadata
     active_external_data_schemas_in_period: int
@@ -573,6 +575,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
                 {lib_expression} = 'posthog-ios', 'ios_events',
                 {lib_expression} = 'posthog-go', 'go_events',
                 {lib_expression} = 'posthog-java', 'java_events',
+                {lib_expression} = 'posthog-server', 'java_events',
                 {lib_expression} = 'posthog-react-native', 'react_native_events',
                 {lib_expression} = 'posthog-ruby', 'ruby_events',
                 {lib_expression} = 'posthog-python', 'python_events',
@@ -934,6 +937,22 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: datetime) -> list:
+    return list(
+        ExternalDataJob.objects.filter(
+            finished_at__gte=begin,
+            finished_at__lte=end,
+            billable=True,
+            status=ExternalDataJob.Status.COMPLETED,
+            pipeline__created_at__gte=end - timedelta(days=7),
+        )
+        .values("team_id")
+        .annotate(total=Sum("rows_synced"))
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> list:
     return list(
         BatchExportRun.objects.filter(
@@ -1011,11 +1030,16 @@ def get_teams_with_exceptions_captured_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
+    # We are excluding "persistence.isDisabled is not a function" errors because of a bug in our own SDK
+    # Can be eventually removed once we're happy that the usage report for 3rd October 2025 does not need to be rerun
     results = sync_execute(
         """
         SELECT team_id, COUNT() as count
         FROM events
-        WHERE event = '$exception' AND timestamp >= %(begin)s AND timestamp < %(end)s
+        WHERE
+            event = '$exception' AND
+            not arrayExists(x -> x != '' AND position(x, 'persistence.isDisabled is not a function') > 0, JSONExtract(coalesce(mat_$exception_values, '[]'), 'Array(String)')) AND
+            timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -1196,8 +1220,10 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
+        or report.cdp_billable_invocations_in_period > 0
         or report.rows_exported_in_period > 0
         or report.exceptions_captured_in_period > 0
+        or report.ai_event_count_in_period > 0
     )
 
 
@@ -1400,6 +1426,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
+        "teams_with_free_historical_rows_synced_in_period": get_teams_with_free_historical_rows_synced_in_period(
+            period_start, period_end
+        ),
         "teams_with_rows_exported_in_period": get_teams_with_rows_exported_in_period(period_start, period_end),
         "teams_with_active_external_data_schemas_in_period": get_teams_with_active_external_data_schemas_in_period(),
         "teams_with_active_batch_exports_in_period": get_teams_with_active_batch_exports_in_period(),
@@ -1500,6 +1529,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
+        free_historical_rows_synced_in_period=all_data["teams_with_free_historical_rows_synced_in_period"].get(
+            team.id, 0
+        ),
         rows_exported_in_period=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
         active_external_data_schemas_in_period=all_data["teams_with_active_external_data_schemas_in_period"].get(
             team.id, 0
@@ -1631,6 +1663,7 @@ def send_all_org_usage_reports(
     dry_run: bool = False,
     at: Optional[str] = None,
     skip_capture_event: bool = False,
+    organization_ids: Optional[list[str]] = None,
 ) -> None:
     import posthoganalytics
 
@@ -1656,10 +1689,34 @@ def send_all_org_usage_reports(
 
     pha_client = get_ph_client(sync_mode=True)
 
+    if organization_ids:
+        logger.info(
+            "Sending usage reports for specific organizations",
+            org_count=len(organization_ids),
+            organization_ids=organization_ids,
+        )
+
     logger.info("Querying usage report data")
     query_time_start = datetime.now()
 
     org_reports = _get_all_org_reports(period_start, period_end)
+
+    if organization_ids:
+        original_count = len(org_reports)
+        org_reports = {org_id: report for org_id, report in org_reports.items() if org_id in organization_ids}
+        filtered_count = len(org_reports)
+        missing_orgs = set(organization_ids) - set(org_reports.keys())
+        logger.info(
+            f"Filtered org reports from {original_count} to {filtered_count} organizations",
+            requested_org_count=len(organization_ids),
+            found_org_count=filtered_count,
+            missing_orgs=missing_orgs or None,
+        )
+
+    filtering_properties: dict[str, Any] = {"filtered": organization_ids is not None}
+    if organization_ids:
+        filtering_properties["requested_org_count"] = len(organization_ids)
+        filtering_properties["requested_missing_org_count"] = len(missing_orgs) if missing_orgs else None
 
     query_time_duration = (datetime.now() - query_time_start).total_seconds()
     logger.info(f"Found {len(org_reports)} org reports. It took {query_time_duration} seconds.")
@@ -1676,6 +1733,7 @@ def send_all_org_usage_reports(
         properties={
             "total_orgs": total_orgs,
             "region": get_instance_region(),
+            **filtering_properties,
         },
         groups={"instance": settings.SITE_URL},
     )
@@ -1727,6 +1785,7 @@ def send_all_org_usage_reports(
             "queue_time": queue_time_duration,
             "total_time": query_time_duration + queue_time_duration,
             "region": get_instance_region(),
+            **filtering_properties,
         },
         groups={"instance": settings.SITE_URL},
     )

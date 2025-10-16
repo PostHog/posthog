@@ -17,7 +17,7 @@ import { PropertyFilterType } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
+import { INTEGER_REGEX_MATCH_GROUPS, OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
     const { id } = attributes
@@ -169,7 +169,7 @@ export const NotebookNodeCohort = createPostHogWidgetNode<NotebookNodeCohortAttr
         id: {},
     },
     pasteOptions: {
-        find: urls.cohort(INTEGER_REGEX_MATCH_GROUPS),
+        find: OPTIONAL_PROJECT_NON_CAPTURE_GROUP + urls.cohort(INTEGER_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
             return { id: parseInt(match[1]) }
         },

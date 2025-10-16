@@ -5,7 +5,6 @@ import { IconArrowLeft, IconChevronLeft, IconClockRewind, IconExternal, IconPlus
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -157,28 +156,41 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                     </div>
                 </SidePanelPaneHeader>
             )}
-            <PageHeader buttons={headerButtons} />
+            {!sidePanel && <div className="flex justify-end gap-2 pt-1 px-4">{headerButtons}</div>}
+
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                {conversationHistoryVisible ? (
-                    <ConversationHistory sidePanel={sidePanel} />
-                ) : !threadVisible ? (
-                    // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
-                    // is at the same viewport height as the QuestionInput text that appear after going into a thread.
-                    // This makes the transition from one view into another just that bit smoother visually.
-                    <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow">
-                        <div className="flex-1 items-center justify-center flex flex-col gap-3">
-                            <Intro />
-                            <SidebarQuestionInputWithSuggestions />
+                <div
+                    style={
+                        {
+                            // Max has larger border radiuses than rest of the app, for a friendlier, rounder AI vibe
+                            display: 'contents',
+                            '--radius': '0.5rem',
+                            '--radius-sm': '0.375rem',
+                            '--radius-lg': '0.75rem',
+                        } as React.CSSProperties
+                    }
+                >
+                    {conversationHistoryVisible ? (
+                        <ConversationHistory sidePanel={sidePanel} />
+                    ) : !threadVisible ? (
+                        // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
+                        // is at the same viewport height as the QuestionInput text that appear after going into a thread.
+                        // This makes the transition from one view into another just that bit smoother visually.
+                        <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow min-h-[calc(100vh-var(--scene-layout-header-height))]">
+                            <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                                <Intro />
+                                <SidebarQuestionInputWithSuggestions />
+                            </div>
+                            <HistoryPreview sidePanel={sidePanel} />
                         </div>
-                        <HistoryPreview sidePanel={sidePanel} />
-                    </div>
-                ) : (
-                    /** Must be the last child and be a direct descendant of the scrollable element */
-                    <ThreadAutoScroller>
-                        <Thread className="p-3" />
-                        <SidebarQuestionInput isSticky />
-                    </ThreadAutoScroller>
-                )}
+                    ) : (
+                        /** Must be the last child and be a direct descendant of the scrollable element */
+                        <ThreadAutoScroller>
+                            <Thread className="p-3" />
+                            <SidebarQuestionInput isSticky />
+                        </ThreadAutoScroller>
+                    )}
+                </div>
             </BindLogic>
         </>
     )

@@ -76,18 +76,7 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs
-                tabKey={`groups-${groupTypeIndex}`}
-                buttons={
-                    <LemonButton
-                        type="primary"
-                        data-attr={`new-group-${groupTypeIndex}`}
-                        onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
-                    >
-                        New {aggregationLabel(groupTypeIndex).singular}
-                    </LemonButton>
-                }
-            />
+            <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
 
             <SceneTitleSection
                 name={capitalizeFirstLetter(groupTypeNamePlural)}
@@ -96,6 +85,16 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     type: groupTypeName,
                     forceIcon: <IconPeople />,
                 }}
+                actions={
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        data-attr={`new-group-${groupTypeIndex}`}
+                        onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                    >
+                        New {aggregationLabel(groupTypeIndex).singular}
+                    </LemonButton>
+                }
             />
             <SceneDivider />
 

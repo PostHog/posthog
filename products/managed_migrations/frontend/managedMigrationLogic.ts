@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { managedMigrationLogicType } from './managedMigrationLogicType'
@@ -30,6 +31,7 @@ export interface ManagedMigrationForm {
     // Amplitude-specific options
     import_events?: boolean
     generate_identify_events?: boolean
+    generate_group_identify_events?: boolean
 }
 
 const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
@@ -45,6 +47,7 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     is_eu_region: false,
     import_events: true,
     generate_identify_events: true,
+    generate_group_identify_events: true,
 }
 
 export const managedMigrationLogic = kea<managedMigrationLogicType>([
@@ -86,6 +89,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 end_date,
                 import_events,
                 generate_identify_events,
+                generate_group_identify_events,
             }: ManagedMigrationForm) => {
                 const errors: Record<string, string | null> = {
                     access_key: !access_key ? 'Access key is required' : null,
@@ -111,11 +115,11 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         }
                     }
 
-                    // For Amplitude, ensure at least one of import_events or generate_identify_events is enabled
+                    // For Amplitude, ensure at least one of import_events, generate_identify_events, or generate_group_identify_events is enabled
                     if (source_type === 'amplitude') {
-                        if (!import_events && !generate_identify_events) {
+                        if (!import_events && !generate_identify_events && !generate_group_identify_events) {
                             errors.import_events =
-                                'At least one of "Import events" or "Generate identify events" must be enabled'
+                                'At least one of "Import events", "Generate identify events", or "Generate group identify events" must be enabled'
                         }
                     }
                 }
@@ -148,6 +152,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     if (values.source_type === 'amplitude') {
                         payload.import_events = values.import_events
                         payload.generate_identify_events = values.generate_identify_events
+                        payload.generate_group_identify_events = values.generate_group_identify_events
                     }
                 }
                 try {
@@ -210,6 +215,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                     key: 'managed-migrations',
                     name: 'Managed Migrations',
                     path: urls.managedMigration(),
+                    iconType: 'data_pipeline_metadata',
                 },
                 ...(managedMigrationId
                     ? [
@@ -217,6 +223,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                               key: 'edit-migration',
                               name: 'Manage migration',
                               path: urls.managedMigration(),
+                              iconType: 'data_pipeline_metadata' as FileSystemIconType,
                           },
                       ]
                     : []),

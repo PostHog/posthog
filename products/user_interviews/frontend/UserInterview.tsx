@@ -6,7 +6,6 @@ import { IconCheck, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonWidget } from 'lib/lemon-ui/LemonWidget/LemonWidget'
@@ -32,7 +31,6 @@ export function UserInterview(): JSX.Element {
     if (userInterviewLoading && !userInterview) {
         return (
             <div className="@container">
-                <PageHeader caption={<LemonSkeleton.Text className="w-48 h-4" />} />
                 <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-3">
                     <LemonWidget title="Summary" className="col-span-2">
                         <div className="space-y-1.5 p-3">
@@ -68,7 +66,7 @@ export function UserInterview(): JSX.Element {
 
     return (
         <div className="@container">
-            <PageHeader caption={<InterviewMetadata interview={userInterview} />} />
+            <InterviewMetadata interview={userInterview} />
             <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-3">
                 <LemonWidget
                     title="Summary"

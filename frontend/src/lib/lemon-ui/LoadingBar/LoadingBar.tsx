@@ -1,7 +1,8 @@
 import './LoadingBar.scss'
 
 import { useEffect, useState } from 'react'
-import { twMerge } from 'tailwind-merge'
+
+import { cn } from 'lib/utils/css-classes'
 
 export interface SpinnerProps {
     textColored?: boolean
@@ -54,8 +55,8 @@ export function LoadingBar({ className, loadId, setProgress, progress, wrapperCl
     }, [loadId])
 
     return (
-        <div className={twMerge(`progress-outer max-w-120 w-full my-3`, wrapperClassName)}>
-            <div className={twMerge(`progress`, className)}>
+        <div className={cn(`progress-outer max-w-120 w-full my-3`, wrapperClassName)} data-attr="loading-bar">
+            <div className={cn(`progress`, className)}>
                 <div
                     className="progress-bar"
                     // eslint-disable-next-line react/forbid-dom-props

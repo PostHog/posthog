@@ -1,12 +1,13 @@
 import structlog
 
-from posthog.schema_migrations import MIGRATIONS
+from posthog.schema_migrations import MIGRATIONS, _discover_migrations
 
 logger = structlog.get_logger(__name__)
 
 
 def validate_migrations():
     """Validate that all migrations are linear and in strictly increasing order."""
+    _discover_migrations()  # Lazy load migrations on first use
     for kind, migrations in MIGRATIONS.items():
         versions = list(migrations.keys())
         sorted_versions = sorted(versions)

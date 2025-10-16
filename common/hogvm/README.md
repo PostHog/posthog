@@ -6,7 +6,7 @@ A HogVM is a 🦔 that runs Hog bytecode. It's purpose is to locally evaluate Ho
 
 Hog Bytecode is a compact representation of a subset of the Hog AST nodes. It follows a certain structure:
 
-```
+```python
 1 + 2                  # [_H, op.INTEGER, 2, op.INTEGER, 1, op.PLUS]
 1 and 2                # [_H, op.INTEGER, 2, op.INTEGER, 1, op.AND, 2]
 1 or 2                 # [_H, op.INTEGER, 2, op.INTEGER, 1, op.OR, 2]

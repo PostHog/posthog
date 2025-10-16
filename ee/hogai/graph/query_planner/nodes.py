@@ -32,6 +32,8 @@ from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     ACTIONS_EXPLANATION_PROMPT,
@@ -56,6 +58,10 @@ from .toolkit import (
 
 
 class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.QUERY_PLANNER
+
     def _get_dynamic_entity_tools(self):
         """Create dynamic Pydantic models with correct entity types for this team."""
         # Create Literal type with actual entity names
@@ -149,6 +155,7 @@ class QueryPlannerNode(TaxonomyReasoningNodeMixin, AssistantNode):
             reasoning={
                 "summary": "auto",  # Without this, there's no reasoning summaries! Only works with reasoning models
             },
+            include=["reasoning.encrypted_content"],
             team=self._team,
             user=self._user,
         ).bind_tools(
@@ -241,6 +248,10 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
     the agent will terminate the conversation and return a message to the root node
     to request additional information.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.QUERY_PLANNER_TOOLS
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = TaxonomyAgentToolkit(self._team)

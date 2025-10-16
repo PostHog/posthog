@@ -133,6 +133,33 @@ export function tryDecodeURIComponent(value: string): string {
     }
 }
 
+// Parse a tags filter value coming from URL search params.
+// Supports:
+// - Repeated params handled upstream and aggregated as an array
+// - JSON array string (e.g. "[\"a\",\"b\"]")
+// - Comma-separated string (e.g. "a,b")
+export function parseTagsFilter(raw: unknown): string[] | undefined {
+    if (Array.isArray(raw)) {
+        return (raw as unknown[]).map((v) => String(v)).filter(Boolean)
+    }
+    if (typeof raw === 'string') {
+        // Try JSON first
+        try {
+            const parsed = JSON.parse(raw)
+            if (Array.isArray(parsed)) {
+                return parsed.map((v) => String(v)).filter(Boolean)
+            }
+        } catch {
+            // Fall through to comma-separated
+        }
+        return raw
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+    }
+    return undefined
+}
+
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
 export function percentage(
     division: number,
@@ -790,7 +817,7 @@ export function isExternalLink(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^(https?:|mailto:)/
+    const regexp = /^(https?:|mailto:|\/api\/)/
     return !!input.trim().match(regexp)
 }
 
@@ -1817,10 +1844,6 @@ export function tryJsonParse(value: string, fallback?: any): any {
     }
 }
 
-export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
-    return validateJson(value) ? Promise.resolve() : Promise.reject('Not valid JSON!')
-}
-
 export function ensureStringIsNotBlank(s?: string | null): string | null {
     return typeof s === 'string' && s.trim() !== '' ? s : null
 }
@@ -1852,10 +1875,6 @@ export function findLastIndex<T>(array: Array<T>, predicate: (value: T, index: n
     return -1
 }
 
-export function isEllipsisActive(e: HTMLElement | null): boolean {
-    return !!e && e.offsetWidth < e.scrollWidth
-}
-
 export function isGroupType(actor: ActorType): actor is GroupActorType {
     return actor.type === 'group'
 }
@@ -1869,20 +1888,15 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
 
-/** Sorting function for Array.prototype.sort that works for numbers and strings automatically. */
-export const autoSorter = (a: any, b: any): number => {
-    return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))
-}
-
 // https://stackoverflow.com/questions/175739/how-can-i-check-if-a-string-is-a-valid-number
-export function isNumeric(x: any): boolean {
+export function isNumeric(x: unknown): x is number {
     if (typeof x === 'number') {
-        return true
+        return !isNaN(x) && isFinite(x)
     }
-    if (typeof x != 'string') {
+    if (typeof x !== 'string' || x.trim() === '') {
         return false
     }
-    return !isNaN(Number(x)) && !isNaN(parseFloat(x))
+    return !isNaN(Number(x))
 }
 
 /**

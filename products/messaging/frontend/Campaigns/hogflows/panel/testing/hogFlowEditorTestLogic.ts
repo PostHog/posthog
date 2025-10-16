@@ -24,7 +24,6 @@ import {
 import { CampaignLogicProps, campaignLogic } from '../../../campaignLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogflowTestResult } from '../../steps/types'
-import { HogFlow } from '../../types'
 import type { hogFlowEditorTestLogicType } from './hogFlowEditorTestLogicType'
 
 export interface HogflowTestInvocation {
@@ -37,13 +36,19 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     props({} as CampaignLogicProps),
     key((props) => `${props.id}`),
     connect((props: CampaignLogicProps) => ({
-        values: [campaignLogic(props), ['campaign'], hogFlowEditorLogic, ['selectedNodeId']],
+        values: [
+            campaignLogic(props),
+            ['campaign', 'campaignSanitized', 'triggerAction'],
+            hogFlowEditorLogic,
+            ['selectedNodeId'],
+        ],
         actions: [hogFlowEditorLogic, ['setSelectedNodeId']],
     })),
     actions({
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
+        setSampleGlobals: (globals?: string | null) => ({ globals }),
         setSampleGlobalsError: (error: string | null) => ({ error }),
         cancelSampleGlobalsLoading: true,
         receiveExampleGlobals: (globals: object | null) => ({ globals }),
@@ -82,6 +87,18 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 setNextActionId: (_, { nextActionId }) => nextActionId,
             },
         ],
+        sampleGlobals: [
+            null as CyclotronJobInvocationGlobals | null,
+            {
+                setSampleGlobals: (previousGlobals, { globals }) => {
+                    try {
+                        return globals ? JSON.parse(globals) : previousGlobals
+                    } catch {
+                        return previousGlobals
+                    }
+                },
+            },
+        ],
     }),
 
     loaders(({ actions, values }) => ({
@@ -89,7 +106,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             null as CyclotronJobInvocationGlobals | null,
             {
                 loadSampleGlobals: async () => {
-                    if (!values.campaign.trigger?.filters) {
+                    if (!values.shouldLoadSampleGlobals) {
                         return null
                     }
 
@@ -162,15 +179,25 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     })),
     selectors(() => ({
         shouldLoadSampleGlobals: [
-            (s) => [s.campaign],
-            (campaign: HogFlow): boolean => {
-                return !!campaign.trigger?.filters?.events?.length || !!campaign.trigger?.filters?.actions?.length
+            (s) => [s.triggerAction],
+            (triggerAction): boolean => {
+                // Only load samples if the trigger is event
+                return !!(triggerAction && triggerAction.config.type === 'event')
             },
         ],
         // TODO(messaging): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic
         matchingFilters: [
-            (s) => [s.campaign],
-            (campaign: HogFlow): PropertyGroupFilter => {
+            (s) => [s.triggerAction],
+            (triggerAction): PropertyGroupFilter => {
+                if (!triggerAction || triggerAction.config.type !== 'event') {
+                    return {
+                        type: FilterLogicalOperator.And,
+                        values: [],
+                    }
+                }
+
+                const triggerActionConfig = triggerAction.config
+
                 const seriesProperties: PropertyGroupFilterValue = {
                     type: FilterLogicalOperator.Or,
                     values: [],
@@ -179,8 +206,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                     type: FilterLogicalOperator.And,
                     values: [seriesProperties],
                 }
-                const allPossibleEventFilters = campaign.trigger.filters?.events ?? []
-                const allPossibleActionFilters = campaign.trigger.filters?.actions ?? []
+                const allPossibleEventFilters = triggerActionConfig.filters?.events ?? []
+                const allPossibleActionFilters = triggerActionConfig.filters?.actions ?? []
 
                 for (const event of allPossibleEventFilters) {
                     const eventProperties: AnyPropertyFilter[] = [...(event.properties ?? [])]
@@ -214,12 +241,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         values: actionProperties,
                     })
                 }
-                if ((campaign.trigger.filters?.properties?.length ?? 0) > 0) {
+                if ((triggerActionConfig.filters?.properties?.length ?? 0) > 0) {
                     const globalProperties: PropertyGroupFilterValue = {
                         type: FilterLogicalOperator.And,
                         values: [],
                     }
-                    for (const property of campaign.trigger.filters?.properties ?? []) {
+                    for (const property of triggerActionConfig.filters?.properties ?? []) {
                         globalProperties.values.push(property as AnyPropertyFilter)
                     }
                     properties.values.push(globalProperties)
@@ -246,7 +273,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             submit: async (testInvocation: HogflowTestInvocation) => {
                 try {
                     const apiResponse = await api.hogFlows.createTestInvocation(values.campaign.id, {
-                        configuration: values.campaign,
+                        configuration: values.campaignSanitized,
                         globals: JSON.parse(testInvocation.globals),
                         mock_async_functions: testInvocation.mock_async_functions,
                         current_action_id: values.selectedNodeId ?? undefined,
@@ -278,6 +305,9 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     })),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
+            actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
+        },
+        setSampleGlobals: () => {
             actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
         },
         cancelSampleGlobalsLoading: () => {

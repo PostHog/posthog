@@ -307,13 +307,17 @@ function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
             and came back to perform
             <EntityDisplay
                 entity={
-                    {
-                        ...query.retentionFilter.returningEntity,
-                        kind:
-                            query.retentionFilter.returningEntity?.type === 'actions'
-                                ? NodeKind.ActionsNode
-                                : NodeKind.EventsNode,
-                    } as AnyEntityNode
+                    query.retentionFilter.returningEntity?.type === 'actions'
+                        ? {
+                              kind: NodeKind.ActionsNode,
+                              name: query.retentionFilter.returningEntity.name,
+                              id: query.retentionFilter.returningEntity.id as number,
+                          }
+                        : {
+                              kind: NodeKind.EventsNode,
+                              name: query.retentionFilter.returningEntity?.name,
+                              event: query.retentionFilter.returningEntity?.id as string,
+                          }
                 }
             />
             in any of the next periods

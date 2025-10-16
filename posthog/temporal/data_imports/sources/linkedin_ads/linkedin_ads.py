@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.models.integration import Integration
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value, initial_datetime
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 from posthog.warehouse.types import IncrementalFieldType
@@ -136,8 +136,7 @@ def linkedin_ads_source(
                 date_start = last_value
 
         else:
-            # Default to last 5 years for analytics resources
-            start_date = now - dt.timedelta(days=365 * 5)
+            start_date = initial_datetime
             date_start = start_date.strftime("%Y-%m-%d")
 
         data_pages = client.get_data_by_resource(

@@ -164,7 +164,8 @@ export function SceneNotebookMenuItems({
                                                                     data-attr={`${dataAttrKey}-continue-in-notebook-dropdown-menu-item`}
                                                                 >
                                                                     <IconNotebook />
-                                                                    {notebook.title}
+                                                                    {notebook.title ||
+                                                                        `Untitled (${notebook.short_id})`}
                                                                 </ButtonPrimitive>
                                                             </Combobox.Item>
                                                         </Combobox.Group>
@@ -197,7 +198,8 @@ export function SceneNotebookMenuItems({
                                                                     data-attr={`${dataAttrKey}-add-to-notebook-dropdown-menu-item`}
                                                                 >
                                                                     <IconNotebook />
-                                                                    {notebook.title}
+                                                                    {notebook.title ||
+                                                                        `Untitled (${notebook.short_id})`}
                                                                 </ButtonPrimitive>
                                                             </Combobox.Item>
                                                         </Combobox.Group>

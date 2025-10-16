@@ -33,6 +33,10 @@ from posthog.schema import (
     MaxUIContext,
     ReasoningMessage,
     RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsTopCustomersQuery,
     TrendsQuery,
 )
 
@@ -49,7 +53,8 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
+from ee.hogai.utils.types.base import AssistantNodeName, BaseState, BaseStateWithMessages, InsightQuery
+from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
@@ -74,6 +79,10 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
     "FunnelsQuery": FunnelsQuery,
     "RetentionQuery": RetentionQuery,
     "HogQLQuery": HogQLQuery,
+    "RevenueAnalyticsGrossRevenueQuery": RevenueAnalyticsGrossRevenueQuery,
+    "RevenueAnalyticsMetricsQuery": RevenueAnalyticsMetricsQuery,
+    "RevenueAnalyticsMRRQuery": RevenueAnalyticsMRRQuery,
+    "RevenueAnalyticsTopCustomersQuery": RevenueAnalyticsTopCustomersQuery,
 }
 
 SLASH_COMMAND_INIT = "/init"
@@ -88,6 +97,7 @@ RouteName = Literal[
     "insights_search",
     "billing",
     "session_summarization",
+    "create_dashboard",
 ]
 
 
@@ -303,6 +313,10 @@ class RootNode(RootNodeUIContextMixin):
     """
     CONVERSATION_WINDOW_SIZE = 64000
 
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.ROOT
+
     async def get_reasoning_message(
         self, input: BaseState, default_message: Optional[str] = None
     ) -> ReasoningMessage | None:
@@ -481,6 +495,7 @@ class RootNode(RootNodeUIContextMixin):
 
         from ee.hogai.tool import (
             create_and_query_insight,
+            create_dashboard,
             get_contextual_tool_class,
             search_documentation,
             search_insights,
@@ -494,6 +509,8 @@ class RootNode(RootNodeUIContextMixin):
         # Check if session summarization is enabled for the user
         if self._has_session_summarization_feature_flag():
             available_tools.append(session_summarization)
+        # Add dashboard creation tool (always available)
+        available_tools.append(create_dashboard)
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         tool_names = self._get_contextual_tools(config).keys()
@@ -643,6 +660,10 @@ class RootNode(RootNodeUIContextMixin):
 
 
 class RootNodeTools(AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.ROOT_TOOLS
+
     async def get_reasoning_message(
         self, input: BaseState, default_message: Optional[str] = None
     ) -> ReasoningMessage | None:
@@ -719,26 +740,43 @@ class RootNodeTools(AssistantNode):
                 summary_title=tool_call.args.get("summary_title"),
                 root_tool_calls_count=tool_call_count + 1,
             )
+        elif tool_call.name == "create_dashboard":
+            raw_queries = tool_call.args["search_insights_queries"]
+            search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
+
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                dashboard_name=tool_call.args.get("dashboard_name"),
+                search_insights_queries=search_insights_queries,
+                root_tool_calls_count=tool_call_count + 1,
+            )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
             tool_class = ToolClass(team=self._team, user=self._user, state=state)
             try:
-                result = await tool_class.ainvoke(tool_call.model_dump(), config)
+                result: LangchainToolMessage = await tool_class.ainvoke(tool_call.model_dump(), config)
             except Exception as e:
                 capture_exception(
                     e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
                 )
-                result = AssistantToolCallMessage(
-                    content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
-                    id=str(uuid4()),
-                    tool_call_id=tool_call.id,
-                    visible=False,
+                return PartialAssistantState(
+                    # we send all messages from the tool call onwards
+                    messages=[
+                        AssistantToolCallMessage(
+                            content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
+                            id=str(uuid4()),
+                            tool_call_id=tool_call.id,
+                            visible=False,
+                        )
+                    ],
+                    root_tool_calls_count=tool_call_count + 1,
                 )
-            if not isinstance(result, LangchainToolMessage | AssistantToolCallMessage):
-                raise TypeError(f"Expected a {LangchainToolMessage} or {AssistantToolCallMessage}, got {type(result)}")
+            # MaxTool will always return a LangchainToolMessage so raise an exception if it doesn't
+            if not isinstance(result, LangchainToolMessage):
+                raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")
 
             # If this is a navigation tool call, pause the graph execution
             # so that the frontend can re-initialise Max with a new set of contextual tools.
-            if tool_call.name == "navigate" and not isinstance(result, AssistantToolCallMessage):
+            if tool_call.name == "navigate":
                 navigate_message = AssistantToolCallMessage(
                     content=str(result.content) if result.content else "",
                     ui_payload={tool_call.name: result.artifact},
@@ -761,18 +799,16 @@ class RootNodeTools(AssistantNode):
                     root_tool_calls_count=tool_call_count + 1,
                 )
 
+            tool_message = AssistantToolCallMessage(
+                content=str(result.content) if result.content else "",
+                ui_payload={tool_call.name: result.artifact},
+                id=str(uuid4()),
+                tool_call_id=tool_call.id,
+                visible=tool_class.show_tool_call_message,
+            )
+
             return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=str(result.content) if result.content else "",
-                        ui_payload={tool_call.name: result.artifact},
-                        id=str(uuid4()),
-                        tool_call_id=tool_call.id,
-                        visible=tool_class.show_tool_call_message,
-                    )
-                    if not isinstance(result, AssistantToolCallMessage)
-                    else result
-                ],
+                messages=[tool_message],
                 root_tool_calls_count=tool_call_count + 1,
             )
         else:
@@ -790,6 +826,8 @@ class RootNodeTools(AssistantNode):
                 tool_call_name = tool_call.name
                 if tool_call_name == "retrieve_billing_information":
                     return "billing"
+                if tool_call_name == "create_dashboard":
+                    return "create_dashboard"
             if state.root_tool_insight_plan:
                 return "insights"
             elif state.search_insights_query:

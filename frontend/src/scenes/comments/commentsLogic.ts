@@ -3,14 +3,18 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { isEmptyObject } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
 import { CommentType } from '~/types'
 
 import type { commentsLogicType } from './commentsLogicType'
+import { discussionsSlug, getTextContent } from './utils'
 
 export type CommentsLogicProps = {
     scope: CommentType['scope']
@@ -36,15 +40,19 @@ export const commentsLogic = kea<commentsLogicType>([
     key((props) => `${props.scope}-${props.item_id || ''}`),
 
     connect(() => ({
-        actions: [sidePanelDiscussionLogic, ['incrementCommentCount']],
-        values: [userLogic, ['user']],
+        actions: [sidePanelDiscussionLogic, ['incrementCommentCount', 'scrollToLastComment']],
+        values: [userLogic, ['user'], sceneLogic, ['activeTab'], membersLogic, ['meFirstMembers']],
     })),
 
     actions({
         loadComments: true,
+        focusComposer: true,
+        clearItemContext: true,
         maybeLoadComments: true,
-        setComposedComment: (content: string) => ({ content }),
         sendComposedContent: true,
+        persistEditedComment: true,
+        onRichContentEditorUpdate: (isEmpty: boolean) => ({ isEmpty }),
+        onEditingCommentRichContentEditorUpdate: (isEmpty: boolean) => ({ isEmpty }),
         sendEmojiReaction: (emoji: string, sourceCommentId: string) => ({ emoji, sourceCommentId }),
         deleteComment: (comment: CommentType) => ({ comment }),
         setEditingComment: (comment: CommentType | null) => ({ comment }),
@@ -53,10 +61,8 @@ export const commentsLogic = kea<commentsLogicType>([
             context,
             callback,
         }),
-        clearItemContext: true,
-        persistEditedComment: true,
-        setComposerRef: (ref: HTMLTextAreaElement | null) => ({ ref }),
-        focusComposer: true,
+        setRichContentEditor: (editor: RichContentEditorType) => ({ editor }),
+        setEditingCommentRichContentEditor: (editor: RichContentEditorType | null) => ({ editor }),
     }),
     reducers({
         replyingCommentId: [
@@ -73,6 +79,18 @@ export const commentsLogic = kea<commentsLogicType>([
                 sendComposedContentSuccess: () => null,
             },
         ],
+        richContentEditor: [
+            null as RichContentEditorType | null,
+            {
+                setRichContentEditor: (_, { editor }) => editor,
+            },
+        ],
+        isEmpty: [
+            true as boolean,
+            {
+                onRichContentEditorUpdate: (_, { isEmpty }) => isEmpty,
+            },
+        ],
         editingComment: [
             null as CommentType | null,
             {
@@ -80,18 +98,25 @@ export const commentsLogic = kea<commentsLogicType>([
                 persistEditedCommentSuccess: () => null,
             },
         ],
-        composedComment: [
-            '',
-            { persist: true },
+        editingCommentRichContentEditor: [
+            null as RichContentEditorType | null,
             {
-                setComposedComment: (_, { content }) => content,
-                sendComposedContentSuccess: () => '',
+                setEditingCommentRichContentEditor: (_, { editor }) => editor,
+                persistEditedCommentSuccess: () => null,
             },
         ],
-        composerRef: [
-            null as HTMLTextAreaElement | null,
+        editingCommentExistingMentions: [
+            null as number[] | null,
             {
-                setComposerRef: (_, { ref }) => ref,
+                setEditingCommentRichContentEditor: (_, { editor }) => editor?.getMentions() ?? [],
+                persistEditedCommentSuccess: () => null,
+            },
+        ],
+        isEditingCommentEmpty: [
+            false as boolean,
+            {
+                onEditingCommentRichContentEditorUpdate: (_, { isEmpty }) => isEmpty,
+                persistEditedCommentSuccess: () => false,
             },
         ],
     }),
@@ -110,6 +135,11 @@ export const commentsLogic = kea<commentsLogicType>([
                 sendComposedContent: async () => {
                     const existingComments = values.comments ?? []
 
+                    if (values.richContentEditor?.isEmpty()) {
+                        console.error('Failed to create a comment because the content was empty')
+                        return existingComments
+                    }
+
                     let itemContext: Record<string, any> | undefined = {
                         ...values.itemContext?.context,
                         ...props.item_context,
@@ -118,12 +148,21 @@ export const commentsLogic = kea<commentsLogicType>([
                         itemContext = undefined
                     }
 
+                    const mentions = values.richContentEditor?.getMentions() ?? []
+
+                    const content = values.richContentEditor?.getJSON()
+
+                    const textContent = getTextContent(content, values.meFirstMembers)
+
                     const newComment = await api.comments.create({
-                        content: values.composedComment,
+                        rich_content: content,
+                        content: textContent,
                         scope: props.scope,
                         item_id: props.item_id,
                         item_context: itemContext,
                         source_comment: values.replyingCommentId ?? undefined,
+                        mentions,
+                        slug: discussionsSlug(),
                     })
 
                     values.itemContext?.callback?.({ sent: true })
@@ -131,14 +170,32 @@ export const commentsLogic = kea<commentsLogicType>([
                 },
 
                 persistEditedComment: async () => {
+                    const existingComments = values.comments ?? []
                     const editedComment = values.editingComment
+
                     if (!editedComment) {
-                        return values.comments
+                        return existingComments
                     }
 
-                    const existingComments = values.comments ?? []
-                    const updatedComment = await api.comments.update(editedComment.id, {
-                        content: editedComment.content,
+                    const originalComment = existingComments.find((c) => c.id === editedComment.id)
+
+                    if (!originalComment) {
+                        return existingComments
+                    }
+
+                    const previousMentions = values.editingCommentExistingMentions ?? []
+                    const currentMentions = values.editingCommentRichContentEditor?.getMentions() ?? []
+                    const newMentions = currentMentions.filter((m) => !previousMentions.includes(m))
+
+                    const { id, rich_content } = editedComment
+
+                    const textContent = getTextContent(rich_content, values.meFirstMembers)
+
+                    const updatedComment = await api.comments.update(id, {
+                        rich_content,
+                        content: textContent,
+                        mentions: newMentions,
+                        slug: discussionsSlug(),
                     })
                     return [...existingComments.filter((c) => c.id !== editedComment.id), updatedComment]
                 },
@@ -171,6 +228,7 @@ export const commentsLogic = kea<commentsLogicType>([
                         item_context: {
                             is_emoji: true,
                         },
+                        mentions: [],
                     })
 
                     return [...existingComments, newComment]
@@ -189,11 +247,11 @@ export const commentsLogic = kea<commentsLogicType>([
         },
         setItemContext: ({ context }) => {
             if (context) {
-                values.composerRef?.focus()
+                values.richContentEditor?.focus()
             }
         },
         focusComposer: () => {
-            values.composerRef?.focus()
+            values.richContentEditor?.focus()
         },
         maybeLoadComments: () => {
             if (!values.comments && !values.commentsLoading) {
@@ -201,7 +259,12 @@ export const commentsLogic = kea<commentsLogicType>([
             }
         },
         sendComposedContentSuccess: () => {
+            actions.scrollToLastComment()
             actions.incrementCommentCount()
+            values.richContentEditor?.clear()
+        },
+        loadCommentsSuccess: () => {
+            actions.scrollToLastComment()
         },
     })),
 
@@ -260,7 +323,8 @@ export const commentsLogic = kea<commentsLogicType>([
                         if (!reactions[comment.source_comment]) {
                             reactions[comment.source_comment] = {}
                         }
-                        const emoji = comment.content
+                        // TODO: emoji reactions still use the content field for now
+                        const emoji = comment.content!
                         if (!reactions[comment.source_comment][emoji]) {
                             reactions[comment.source_comment][emoji] = []
                         }

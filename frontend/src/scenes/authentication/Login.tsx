@@ -45,6 +45,13 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     ),
     jit_not_enabled:
         'We could not find an account with your email address and your organization does not support automatic enrollment. Please contact your administrator for an invite.',
+    saml_sso_enforced:
+        'Your organization requires SAML SSO authentication. Please enter your email address to access your account.',
+    google_sso_enforced: 'Your organization does not allow this authentication method. Please log in with Google.',
+    github_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitHub.',
+    gitlab_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitLab.',
+    // our catch-all case, so the message is generic
+    sso_enforced: "Please log in with your organization's required SSO method.",
 }
 
 export const scene: SceneExport = {
