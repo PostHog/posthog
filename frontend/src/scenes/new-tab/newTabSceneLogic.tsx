@@ -87,6 +87,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         debouncedPropertyDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
         setNewTabSceneDataInclude: (include: NEW_TAB_INCLUDE_ITEM[]) => ({ include }),
         toggleNewTabSceneDataInclude: (item: NEW_TAB_INCLUDE_ITEM) => ({ item }),
+        triggerSearchForIncludedItems: true,
     }),
     loaders(({ values }) => ({
         recents: [
@@ -154,22 +155,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     return response.results
                 },
-                loadMorePersonSearchResults: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
-                    if (searchTerm.trim() === '') {
-                        return values.personSearchResults
-                    }
-
-                    const currentResults = values.personSearchResults
-
+                loadInitialPersons: async (_, breakpoint) => {
                     const url = api.persons.determineListUrl({
-                        search: searchTerm.trim(),
                         limit: PAGINATION_LIMIT,
-                        offset: currentResults.length,
                     })
                     const response = await api.get(url)
                     breakpoint()
 
-                    return [...currentResults, ...response.results]
+                    return response.results
                 },
             },
         ],
@@ -188,6 +181,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     return response.results ?? []
                 },
+                loadInitialEventDefinitions: async (_, breakpoint) => {
+                    const response = await api.eventDefinitions.list({
+                        limit: PAGINATION_LIMIT,
+                    })
+                    breakpoint()
+
+                    return response.results ?? []
+                },
             },
         ],
         propertyDefinitionSearchResults: [
@@ -199,6 +200,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     const response = await api.propertyDefinitions.list({
                         search: trimmed || undefined,
+                        limit: PAGINATION_LIMIT,
+                    })
+                    breakpoint()
+
+                    return response.results ?? []
+                },
+                loadInitialPropertyDefinitions: async (_, breakpoint) => {
+                    const response = await api.propertyDefinitions.list({
                         limit: PAGINATION_LIMIT,
                     })
                     breakpoint()
@@ -626,18 +635,17 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 // Add persons section if filter is enabled
                 if (includePersons) {
-                    // Only show person results if there's a search term, otherwise empty array
-                    grouped['persons'] = search.trim() ? personSearchItems : []
+                    grouped['persons'] = personSearchItems
                 }
 
                 // Add event definitions section if filter is enabled
                 if (includeEventDefinitions) {
-                    grouped['eventDefinitions'] = search.trim() ? eventDefinitionSearchItems : []
+                    grouped['eventDefinitions'] = eventDefinitionSearchItems
                 }
 
                 // Add property definitions section if filter is enabled
                 if (includePropertyDefinitions) {
-                    grouped['propertyDefinitions'] = search.trim() ? propertyDefinitionSearchItems : []
+                    grouped['propertyDefinitions'] = propertyDefinitionSearchItems
                 }
 
                 return grouped
@@ -664,6 +672,25 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        triggerSearchForIncludedItems: () => {
+            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+
+            if (newTabSceneData) {
+                const searchTerm = values.search.trim()
+
+                values.newTabSceneDataInclude.forEach((item) => {
+                    if (searchTerm !== '') {
+                        if (item === 'persons') {
+                            actions.debouncedPersonSearch(searchTerm)
+                        } else if (item === 'eventDefinitions') {
+                            actions.debouncedEventDefinitionSearch(searchTerm)
+                        } else if (item === 'propertyDefinitions') {
+                            actions.debouncedPropertyDefinitionSearch(searchTerm)
+                        }
+                    }
+                })
+            }
+        },
         onSubmit: () => {
             if (values.selectedItem?.href) {
                 router.actions.push(values.selectedItem.href)
@@ -700,39 +727,28 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 })
             }
         },
-        toggleNewTabSceneDataInclude: ({ item }) => {
-            const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+        toggleNewTabSceneDataInclude: async ({ item }) => {
+            const willBeIncluded = !values.newTabSceneDataInclude.includes(item)
 
-            if (newTabSceneData) {
-                const willBeIncluded = !values.newTabSceneDataInclude.includes(item)
+            if (willBeIncluded) {
+                // When enabling an item, switch to its category
+                actions.setSelectedCategory(item as NEW_TAB_CATEGORY_ITEMS)
+            } else {
+                // When disabling an item, clear its search results and go to 'all'
+                actions.setSelectedCategory('all')
 
-                if (willBeIncluded) {
-                    // When enabling an item, switch to its category
-                    actions.setSelectedCategory(item as NEW_TAB_CATEGORY_ITEMS)
-
-                    // If there's a search term, trigger the appropriate search
-                    if (values.search.trim() !== '') {
-                        if (item === 'persons') {
-                            actions.debouncedPersonSearch(values.search.trim())
-                        } else if (item === 'eventDefinitions') {
-                            actions.debouncedEventDefinitionSearch(values.search.trim())
-                        } else if (item === 'propertyDefinitions') {
-                            actions.debouncedPropertyDefinitionSearch(values.search.trim())
-                        }
-                    }
-                } else {
-                    // When disabling an item, clear its search results and go to 'all'
-                    actions.setSelectedCategory('all')
-
-                    if (item === 'persons') {
-                        actions.loadPersonSearchResultsSuccess([])
-                    } else if (item === 'eventDefinitions') {
-                        actions.loadEventDefinitionSearchResultsSuccess([])
-                    } else if (item === 'propertyDefinitions') {
-                        actions.loadPropertyDefinitionSearchResultsSuccess([])
-                    }
+                if (item === 'persons') {
+                    actions.loadPersonSearchResultsSuccess([])
+                } else if (item === 'eventDefinitions') {
+                    actions.loadEventDefinitionSearchResultsSuccess([])
+                } else if (item === 'propertyDefinitions') {
+                    actions.loadPropertyDefinitionSearchResultsSuccess([])
                 }
             }
+
+            // Wait for state to update, then trigger search
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            actions.triggerSearchForIncludedItems()
         },
         debouncedPersonSearch: async ({ searchTerm }, breakpoint) => {
             // Debounce for 300ms
@@ -813,7 +829,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             router.values.location.pathname,
             {
                 search: values.search || undefined,
-                category: values.selectedCategory !== 'all' ? values.selectedCategory : undefined,
                 include: values.newTabSceneDataInclude.length > 0 ? values.newTabSceneDataInclude.join(',') : undefined,
             },
         ],
@@ -823,6 +838,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             // Update search if URL search param differs from current state
             if (searchParams.search && searchParams.search !== values.search) {
                 actions.setSearch(String(searchParams.search))
+
+                // Trigger searches for already included items when search term changes
+                const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+                if (newTabSceneData && values.newTabSceneDataInclude.length > 0) {
+                    const searchTerm = String(searchParams.search).trim()
+                    if (searchTerm !== '') {
+                        values.newTabSceneDataInclude.forEach((item) => {
+                            if (item === 'persons') {
+                                actions.debouncedPersonSearch(searchTerm)
+                            } else if (item === 'eventDefinitions') {
+                                actions.debouncedEventDefinitionSearch(searchTerm)
+                            } else if (item === 'propertyDefinitions') {
+                                actions.debouncedPropertyDefinitionSearch(searchTerm)
+                            }
+                        })
+                    }
+                }
             }
 
             // Update category if URL category param differs from current state
@@ -844,6 +876,34 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
             if (currentIncludeString !== urlIncludeString) {
                 actions.setNewTabSceneDataInclude(includeFromUrl)
+
+                // Load data for included items
+                const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+                if (newTabSceneData) {
+                    const searchTerm = searchParams.search ? String(searchParams.search).trim() : ''
+
+                    includeFromUrl.forEach((item) => {
+                        if (searchTerm !== '') {
+                            // If there's a search term, trigger search
+                            if (item === 'persons') {
+                                actions.debouncedPersonSearch(searchTerm)
+                            } else if (item === 'eventDefinitions') {
+                                actions.debouncedEventDefinitionSearch(searchTerm)
+                            } else if (item === 'propertyDefinitions') {
+                                actions.debouncedPropertyDefinitionSearch(searchTerm)
+                            }
+                        } else {
+                            // Load initial data when no search term
+                            if (item === 'persons') {
+                                actions.loadInitialPersons({})
+                            } else if (item === 'eventDefinitions') {
+                                actions.loadInitialEventDefinitions({})
+                            } else if (item === 'propertyDefinitions') {
+                                actions.loadInitialPropertyDefinitions({})
+                            }
+                        }
+                    })
+                }
             }
 
             // Reset search, category, and include array to defaults if no URL params

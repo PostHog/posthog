@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useMemo } from 'react'
 
 import { IconArrowRight, IconEllipsis, IconInfo } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
@@ -14,7 +15,7 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
-import { ListBox } from 'lib/ui/ListBox/ListBox'
+import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
@@ -32,11 +33,13 @@ function Category({
     items,
     category,
     columnIndex,
+    isFirstCategoryWithResults,
 }: {
     tabId: string
     items: NewTabTreeDataItem[]
     category: string
     columnIndex: number
+    isFirstCategoryWithResults: boolean
 }): JSX.Element {
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
@@ -151,79 +154,87 @@ function Category({
                             )}
                         </div>
                     ) : (
-                        typedItems.map((item, index) => (
-                            // If we have filtered results set virtual focus to first item
-                            <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
-                                <ContextMenu>
-                                    <ContextMenuTrigger asChild>
-                                        <ListBox.Item
-                                            asChild
-                                            focusFirst={
-                                                (newTabSceneData && !isSearching) ||
-                                                (filteredItemsGrid.length > 0 && isFirstCategory && index === 0)
-                                            }
-                                            row={index}
-                                            column={columnIndex}
-                                        >
-                                            <Link
-                                                to={item.href || '#'}
-                                                className="w-full"
-                                                buttonProps={{
-                                                    size: 'base',
-                                                    hasSideActionRight: true,
-                                                }}
+                        typedItems.map((item, index) => {
+                            const focusFirst =
+                                (newTabSceneData && isFirstCategoryWithResults && index === 0) ||
+                                (filteredItemsGrid.length > 0 && isFirstCategory && index === 0)
+
+                            if (focusFirst) {
+                            }
+
+                            return (
+                                // If we have filtered results set virtual focus to first item
+                                <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
+                                    <ContextMenu>
+                                        <ContextMenuTrigger asChild>
+                                            <ListBox.Item
+                                                asChild
+                                                focusFirst={focusFirst}
+                                                row={index}
+                                                column={columnIndex}
                                             >
-                                                <span className="text-sm">{item.icon ?? item.name[0]}</span>
-                                                <span className="text-sm truncate text-primary">
-                                                    {search ? (
-                                                        <SearchHighlightMultiple
-                                                            string={item.name}
-                                                            substring={search}
-                                                        />
-                                                    ) : (
-                                                        item.displayName || item.name
-                                                    )}
-                                                </span>
-                                            </Link>
-                                        </ListBox.Item>
-                                    </ContextMenuTrigger>
-                                    <ContextMenuContent loop className="max-w-[250px]">
-                                        <ContextMenuGroup>
-                                            <MenuItems
-                                                item={convertToTreeDataItem(item)}
-                                                type="context"
-                                                root="project://"
-                                                onlyTree={false}
-                                                showSelectMenuOption={false}
-                                            />
-                                        </ContextMenuGroup>
-                                    </ContextMenuContent>
-                                </ContextMenu>
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <ButtonPrimitive
-                                            size="xs"
-                                            iconOnly
-                                            isSideActionRight
-                                            className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
-                                        >
-                                            <IconEllipsis className="size-3" />
-                                        </ButtonPrimitive>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
-                                        <DropdownMenuGroup>
-                                            <MenuItems
-                                                item={convertToTreeDataItem(item)}
-                                                type="dropdown"
-                                                root="project://"
-                                                onlyTree={false}
-                                                showSelectMenuOption={false}
-                                            />
-                                        </DropdownMenuGroup>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            </ButtonGroupPrimitive>
-                        ))
+                                                <Link
+                                                    to={item.href || '#'}
+                                                    className="w-full"
+                                                    buttonProps={{
+                                                        size: 'base',
+                                                        hasSideActionRight: true,
+                                                        className:
+                                                            'data-[focused=true]:outline-2 data-[focused=true]:outline-accent',
+                                                    }}
+                                                >
+                                                    <span className="text-sm">{item.icon ?? item.name[0]}</span>
+                                                    <span className="text-sm truncate text-primary">
+                                                        {search ? (
+                                                            <SearchHighlightMultiple
+                                                                string={item.name}
+                                                                substring={search}
+                                                            />
+                                                        ) : (
+                                                            item.displayName || item.name
+                                                        )}
+                                                    </span>
+                                                </Link>
+                                            </ListBox.Item>
+                                        </ContextMenuTrigger>
+                                        <ContextMenuContent loop className="max-w-[250px]">
+                                            <ContextMenuGroup>
+                                                <MenuItems
+                                                    item={convertToTreeDataItem(item)}
+                                                    type="context"
+                                                    root="project://"
+                                                    onlyTree={false}
+                                                    showSelectMenuOption={false}
+                                                />
+                                            </ContextMenuGroup>
+                                        </ContextMenuContent>
+                                    </ContextMenu>
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <ButtonPrimitive
+                                                size="xs"
+                                                iconOnly
+                                                isSideActionRight
+                                                className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
+                                            >
+                                                <IconEllipsis className="size-3" />
+                                            </ButtonPrimitive>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
+                                            <DropdownMenuGroup>
+                                                <MenuItems
+                                                    item={convertToTreeDataItem(item)}
+                                                    type="dropdown"
+                                                    root="project://"
+                                                    onlyTree={false}
+                                                    showSelectMenuOption={false}
+                                                />
+                                            </DropdownMenuGroup>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </ButtonGroupPrimitive>
+                            )
+                        })
                     )}
                     {newTabSceneData && (
                         <>
@@ -232,7 +243,8 @@ function Category({
                                     <Link
                                         to={urls.persons()}
                                         buttonProps={{
-                                            className: 'w-full text-tertiary',
+                                            className:
+                                                'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
                                         }}
                                     >
                                         <IconArrowRight className="size-4" /> See all persons
@@ -244,7 +256,8 @@ function Category({
                                     <Link
                                         to={urls.eventDefinitions()}
                                         buttonProps={{
-                                            className: 'w-full text-tertiary',
+                                            className:
+                                                'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
                                         }}
                                     >
                                         <IconArrowRight className="size-4" /> See all events
@@ -256,7 +269,8 @@ function Category({
                                     <Link
                                         to={urls.propertyDefinitions()}
                                         buttonProps={{
-                                            className: 'w-full text-tertiary',
+                                            className:
+                                                'w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary',
                                         }}
                                     >
                                         <IconArrowRight className="size-4" /> See all properties
@@ -274,9 +288,11 @@ function Category({
 export function Results({
     tabId,
     searchInputRef,
+    listboxRef,
 }: {
     tabId: string
     searchInputRef: React.RefObject<HTMLInputElement>
+    listboxRef: React.RefObject<ListBoxHandle>
 }): JSX.Element {
     const {
         filteredItemsGrid,
@@ -296,46 +312,75 @@ export function Results({
     const typedItems = items as NewTabTreeDataItem[]
 
     // For newTabSceneData, use the new grouped items with section ordering
-    const allCategories = newTabSceneData
-        ? (() => {
-              const orderedSections: string[] = []
+    const allCategories = useMemo(() => {
+        if (!newTabSceneData) {
+            return Object.entries(groupedFilteredItems)
+        }
 
-              // Add sections in order: persons, events, properties (if enabled), new, apps, data-management, recents
-              if (newTabSceneDataIncludePersons) {
-                  orderedSections.push('persons')
-              }
-              if (newTabSceneDataIncludeEventDefinitions) {
-                  orderedSections.push('eventDefinitions')
-              }
-              if (newTabSceneDataIncludePropertyDefinitions) {
-                  orderedSections.push('propertyDefinitions')
-              }
+        const orderedSections: string[] = []
 
-              const mainSections = ['create-new', 'apps', 'data-management', 'recents']
-              mainSections.forEach((section) => {
-                  orderedSections.push(section)
-              })
+        // Add sections in order: persons, events, properties (if enabled), new, apps, data-management, recents
+        if (newTabSceneDataIncludePersons) {
+            orderedSections.push('persons')
+        }
+        if (newTabSceneDataIncludeEventDefinitions) {
+            orderedSections.push('eventDefinitions')
+        }
+        if (newTabSceneDataIncludePropertyDefinitions) {
+            orderedSections.push('propertyDefinitions')
+        }
 
-              const result = orderedSections
-                  .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
-                  .filter(([section, items]) => {
-                      // Always show enabled sections (even when empty)
-                      if (section === 'persons' && newTabSceneDataIncludePersons) {
-                          return true
-                      }
-                      if (section === 'eventDefinitions' && newTabSceneDataIncludeEventDefinitions) {
-                          return true
-                      }
-                      if (section === 'propertyDefinitions' && newTabSceneDataIncludePropertyDefinitions) {
-                          return true
-                      }
-                      // Hide empty categories for other sections
-                      return items.length > 0
-                  })
+        const mainSections = ['create-new', 'apps', 'data-management', 'recents']
+        mainSections.forEach((section) => {
+            orderedSections.push(section)
+        })
 
-              return result
-          })()
-        : Object.entries(groupedFilteredItems)
+        return orderedSections
+            .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
+            .filter(([section, items]) => {
+                // Always show enabled sections (even when empty)
+                if (section === 'persons' && newTabSceneDataIncludePersons) {
+                    return true
+                }
+                if (section === 'eventDefinitions' && newTabSceneDataIncludeEventDefinitions) {
+                    return true
+                }
+                if (section === 'propertyDefinitions' && newTabSceneDataIncludePropertyDefinitions) {
+                    return true
+                }
+                // Hide empty categories for other sections
+                return items.length > 0
+            })
+    }, [
+        newTabSceneData,
+        groupedFilteredItems,
+        newTabSceneDataGroupedItems,
+        newTabSceneDataIncludePersons,
+        newTabSceneDataIncludeEventDefinitions,
+        newTabSceneDataIncludePropertyDefinitions,
+    ])
+
+    // Memoized helper to determine which category should get first focus
+    const firstCategoryWithResults = useMemo((): string | null => {
+        for (const [category, items] of allCategories) {
+            // Check if any category has items
+            if (items.length > 0) {
+                return category
+            }
+        }
+
+        return null
+    }, [allCategories])
+
+    // Track whether we have any results
+    const hasResults = allCategories.some(([, items]) => items.length > 0)
+
+    // Focus first item when search is complete and we have results
+    useEffect(() => {
+        if (newTabSceneData && !isSearching && hasResults && firstCategoryWithResults) {
+            listboxRef.current?.focusFirstItem()
+        }
+    }, [newTabSceneData, isSearching, hasResults, firstCategoryWithResults, listboxRef])
 
     if (!newTabSceneData && selectedCategory !== 'all') {
         return (
@@ -355,76 +400,78 @@ export function Results({
                             {isSearching ? 'Searching...' : 'No results found'}
                         </div>
                     ) : (
-                        typedItems.map((item, index) => (
-                            // If we have filtered results set virtual focus to first item
-                            <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
-                                <ContextMenu>
-                                    <ContextMenuTrigger asChild>
-                                        <ListBox.Item
-                                            asChild
-                                            focusFirst={filteredItemsGrid.length > 0 && index === 0}
-                                            row={index}
-                                            column={0}
-                                        >
-                                            <Link
-                                                to={item.href || '#'}
-                                                className="w-full"
-                                                buttonProps={{
-                                                    size: 'base',
-                                                    hasSideActionRight: true,
-                                                }}
+                        typedItems.map((item, index) => {
+                            return (
+                                // If we have filtered results set virtual focus to first item
+                                <ButtonGroupPrimitive key={item.id} className="group w-full border-0">
+                                    <ContextMenu>
+                                        <ContextMenuTrigger asChild>
+                                            <ListBox.Item
+                                                asChild
+                                                focusFirst={filteredItemsGrid.length > 0 && index === 0}
+                                                row={index}
+                                                column={0}
                                             >
-                                                <span className="text-sm">{item.icon ?? item.name[0]}</span>
-                                                <span className="text-sm truncate text-primary">
-                                                    {search ? (
-                                                        <SearchHighlightMultiple
-                                                            string={item.name}
-                                                            substring={search}
-                                                        />
-                                                    ) : (
-                                                        item.displayName || item.name
-                                                    )}
-                                                </span>
-                                            </Link>
-                                        </ListBox.Item>
-                                    </ContextMenuTrigger>
-                                    <ContextMenuContent loop className="max-w-[250px]">
-                                        <ContextMenuGroup>
-                                            <MenuItems
-                                                item={convertToTreeDataItem(item)}
-                                                type="context"
-                                                root="project://"
-                                                onlyTree={false}
-                                                showSelectMenuOption={false}
-                                            />
-                                        </ContextMenuGroup>
-                                    </ContextMenuContent>
-                                </ContextMenu>
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <ButtonPrimitive
-                                            size="xs"
-                                            iconOnly
-                                            isSideActionRight
-                                            className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
-                                        >
-                                            <IconEllipsis className="size-3" />
-                                        </ButtonPrimitive>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
-                                        <DropdownMenuGroup>
-                                            <MenuItems
-                                                item={convertToTreeDataItem(item)}
-                                                type="dropdown"
-                                                root="project://"
-                                                onlyTree={false}
-                                                showSelectMenuOption={false}
-                                            />
-                                        </DropdownMenuGroup>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
-                            </ButtonGroupPrimitive>
-                        ))
+                                                <Link
+                                                    to={item.href || '#'}
+                                                    className="w-full"
+                                                    buttonProps={{
+                                                        size: 'base',
+                                                        hasSideActionRight: true,
+                                                    }}
+                                                >
+                                                    <span className="text-sm">{item.icon ?? item.name[0]}</span>
+                                                    <span className="text-sm truncate text-primary">
+                                                        {search ? (
+                                                            <SearchHighlightMultiple
+                                                                string={item.name}
+                                                                substring={search}
+                                                            />
+                                                        ) : (
+                                                            item.displayName || item.name
+                                                        )}
+                                                    </span>
+                                                </Link>
+                                            </ListBox.Item>
+                                        </ContextMenuTrigger>
+                                        <ContextMenuContent loop className="max-w-[250px]">
+                                            <ContextMenuGroup>
+                                                <MenuItems
+                                                    item={convertToTreeDataItem(item)}
+                                                    type="context"
+                                                    root="project://"
+                                                    onlyTree={false}
+                                                    showSelectMenuOption={false}
+                                                />
+                                            </ContextMenuGroup>
+                                        </ContextMenuContent>
+                                    </ContextMenu>
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <ButtonPrimitive
+                                                size="xs"
+                                                iconOnly
+                                                isSideActionRight
+                                                className="opacity-0 group-hover:opacity-100 group-has-[button[data-state=open]]:opacity-100 mt-px"
+                                            >
+                                                <IconEllipsis className="size-3" />
+                                            </ButtonPrimitive>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
+                                            <DropdownMenuGroup>
+                                                <MenuItems
+                                                    item={convertToTreeDataItem(item)}
+                                                    type="dropdown"
+                                                    root="project://"
+                                                    onlyTree={false}
+                                                    showSelectMenuOption={false}
+                                                />
+                                            </DropdownMenuGroup>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </ButtonGroupPrimitive>
+                            )
+                        })
                     )}
                 </div>
             </div>
@@ -434,7 +481,14 @@ export function Results({
     return (
         <>
             {allCategories.map(([category, items], columnIndex) => (
-                <Category tabId={tabId} items={items} category={category} columnIndex={columnIndex} key={category} />
+                <Category
+                    tabId={tabId}
+                    items={items}
+                    category={category}
+                    columnIndex={columnIndex}
+                    isFirstCategoryWithResults={category === firstCategoryWithResults}
+                    key={category}
+                />
             ))}
 
             {/* Show "No results found" for non-flagged version when no results and not searching */}

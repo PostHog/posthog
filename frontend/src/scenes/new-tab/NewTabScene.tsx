@@ -167,6 +167,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         size="sm"
                                         active={newTabSceneDataIncludePersons}
                                         onClick={() => toggleNewTabSceneDataInclude('persons')}
+                                        className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                     >
                                         <IconPerson className="size-4" /> Persons
                                         {newTabSceneDataIncludePersons && <IconCheck className="size-3 text-success" />}
@@ -177,6 +178,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         size="sm"
                                         active={newTabSceneDataIncludeEventDefinitions}
                                         onClick={() => toggleNewTabSceneDataInclude('eventDefinitions')}
+                                        className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                     >
                                         <IconToggle className="size-4" /> Events
                                         {newTabSceneDataIncludeEventDefinitions && (
@@ -189,6 +191,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         size="sm"
                                         active={newTabSceneDataIncludePropertyDefinitions}
                                         onClick={() => toggleNewTabSceneDataInclude('propertyDefinitions')}
+                                        className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                     >
                                         <IconApps className="size-4" /> Properties
                                         {newTabSceneDataIncludePropertyDefinitions && (
@@ -253,7 +256,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 </p>
                             </div>
                         )}
-                        <Results tabId={tabId || ''} searchInputRef={inputRef} />
+                        <Results tabId={tabId || ''} searchInputRef={inputRef} listboxRef={listboxRef} />
                     </div>
                     {/* )} */}
                 </div>
