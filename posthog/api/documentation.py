@@ -310,7 +310,7 @@ def custom_postprocessing_hook(result, generator, request, public):
                 ]
             paths[path][method] = definition
 
-    # Fix all component schemas to be OpenAPI 3.0 compatible
+    # Fix type schemas to be OpenAPI 3.0 compatible in a postprocessing hook
     if "components" in result and "schemas" in result["components"]:
         result["components"]["schemas"] = {
             name: _fix_pydantic_schema_for_openapi(schema) for name, schema in result["components"]["schemas"].items()
