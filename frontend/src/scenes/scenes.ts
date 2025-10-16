@@ -406,12 +406,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Analyze your web analytics data to understand website performance and user behavior.',
         iconType: 'web_analytics',
     },
-    [Scene.EmbeddedAnalytics]: {
-        projectBased: true,
-        name: 'Embedded analytics',
-        description: 'Define queries your application will use via the API and monitor their cost and usage.',
-        layout: 'app-container',
-    },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     ...productConfiguration,
 }
