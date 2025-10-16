@@ -27,6 +27,7 @@ impl DatabasePools {
         // Use different configurations for read vs write pools
         let read_pool_config = PoolConfig {
             max_connections: config.max_pg_connections,
+            min_connections: config.min_pg_connections,  // Keep connections warm to avoid cold starts
             acquire_timeout: Duration::from_secs(config.acquire_timeout_secs),
             idle_timeout: if config.idle_timeout_secs > 0 {
                 Some(Duration::from_secs(config.idle_timeout_secs))
@@ -43,6 +44,7 @@ impl DatabasePools {
 
         let write_pool_config = PoolConfig {
             max_connections: config.max_pg_connections_write,
+            min_connections: config.min_pg_connections_write,  // Keep fewer write connections warm
             acquire_timeout: Duration::from_secs(config.acquire_timeout_secs_write),
             idle_timeout: if config.idle_timeout_secs > 0 {
                 Some(Duration::from_secs(config.idle_timeout_secs * 2))
@@ -119,7 +121,9 @@ impl DatabasePools {
         // Log pool configuration at startup
         info!(
             max_pg_connections = config.max_pg_connections,
+            min_pg_connections = config.min_pg_connections,
             max_pg_connections_write = config.max_pg_connections_write,
+            min_pg_connections_write = config.min_pg_connections_write,
             acquire_timeout_secs = config.acquire_timeout_secs,
             acquire_timeout_secs_write = config.acquire_timeout_secs_write,
             idle_timeout_secs = config.idle_timeout_secs,

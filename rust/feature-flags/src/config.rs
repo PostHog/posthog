@@ -136,6 +136,15 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub max_pg_connections_write: u32,
 
+    // Minimum connections to keep warm in read pools to avoid cold starts
+    // Set to 0 to disable minimum (connections created on demand)
+    #[envconfig(default = "5")]
+    pub min_pg_connections: u32,
+
+    // Minimum connections to keep warm in write pools
+    #[envconfig(default = "2")]
+    pub min_pg_connections_write: u32,
+
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
 
@@ -367,6 +376,8 @@ impl Config {
             flag_query_slow_error_threshold_ms: 1000,
             flag_total_execution_warn_threshold_ms: 1000,
             flag_total_execution_error_threshold_ms: 2000,
+            min_pg_connections: 5,
+            min_pg_connections_write: 2,
         }
     }
 
