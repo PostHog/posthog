@@ -670,6 +670,7 @@ class TestTask(TestCase):
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_minimal(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
 
         task = Task.create_and_run(
             team=self.team,
@@ -698,6 +699,7 @@ class TestTask(TestCase):
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_with_repository(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
 
         task = Task.create_and_run(
             team=self.team,
@@ -716,6 +718,7 @@ class TestTask(TestCase):
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_invalid_repository_format(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
 
         with self.assertRaises(ValueError) as cm:
             Task.create_and_run(
@@ -732,6 +735,7 @@ class TestTask(TestCase):
 
     def test_create_and_run_no_workflow_raises_error(self):
         user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
 
         self.workflow.is_default = False
         self.workflow.save()
