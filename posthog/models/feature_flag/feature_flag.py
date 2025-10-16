@@ -94,6 +94,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # temporarily to avoid N+1 queries when accessing evaluation tags.
     _evaluation_tag_names: Optional[list[str]] = None
 
+    last_called_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time this feature flag was called (from $feature_flag_called events)",
+    )
+
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 

@@ -18,9 +18,9 @@ class InsightVariableSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
 
-        # Strips non alphanumeric values from name (other than spaces)
+        # Strips non alphanumeric values from name (other than spaces and underscores)
         validated_data["code_name"] = (
-            "".join(n for n in validated_data["name"] if n.isalnum() or n == " ").replace(" ", "_").lower()
+            "".join(n for n in validated_data["name"] if n.isalnum() or n == " " or n == "_").replace(" ", "_").lower()
         )
 
         count = InsightVariable.objects.filter(
