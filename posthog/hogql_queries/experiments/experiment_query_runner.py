@@ -118,46 +118,12 @@ class ExperimentQueryRunner(QueryRunner):
         # Just to simplify access
         self.metric = self.query.metric
 
-    @property
-    def is_new_query_builder_supported(self) -> bool:
-        """
-        Determines whether to use the map aggregation query builder.
-        Only enabled for mean metrics without data warehouse support (MVP scope).
-        """
-        # Only for mean metrics (MVP scope)
-        if not isinstance(self.metric, ExperimentMeanMetric):
-            return False
-
-        # No data warehouse support yet
-        if self.is_data_warehouse_query:
-            return False
-
-        # No outlier handling supported yet
-        if isinstance(self.metric, ExperimentMeanMetric) and (
-            self.metric.lower_bound_percentile or self.metric.upper_bound_percentile
-        ):
-            return False
-
-        return self.use_new_query_builder is True
-
     def _should_use_new_query_builder(self) -> bool:
         """
         Determines whether to use the new CTE-based query builder.
-        Supports both mean and funnel metrics.
         """
-        # Check if metric type is supported
-        if not isinstance(self.metric, ExperimentMeanMetric | ExperimentFunnelMetric):
+        if not isinstance(self.metric, ExperimentFunnelMetric):
             return False
-
-        # No data warehouse support yet
-        if self.is_data_warehouse_query:
-            return False
-
-        # Mean metric-specific checks
-        if isinstance(self.metric, ExperimentMeanMetric):
-            # No outlier handling supported yet for mean metrics
-            if self.metric.lower_bound_percentile or self.metric.upper_bound_percentile:
-                return False
 
         return self.use_new_query_builder is True
 

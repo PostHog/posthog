@@ -22,10 +22,7 @@ from posthog.schema import (
 
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
-from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import (
-    add_query_builder_flag,
-    create_standard_group_test_events,
-)
+from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import create_standard_group_test_events
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
@@ -958,127 +955,123 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 10)
 
     @parameterized.expand(
-        add_query_builder_flag(
+        [
             [
-                (
-                    "person_properties",
-                    {
-                        "key": "email",
-                        "value": "@posthog.com",
-                        "operator": "not_icontains",
-                        "type": "person",
-                    },
-                    {
-                        "control_absolute_exposure": 12,
-                        "test_absolute_exposure": 15,
-                    },
-                ),
-                (
-                    "event_properties",
-                    {
-                        "key": "$host",
-                        "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
-                        "operator": "not_regex",
-                        "type": "event",
-                    },
-                    {
-                        "control_absolute_exposure": 6,
-                        "test_absolute_exposure": 6,
-                    },
-                ),
-                (
-                    "feature_flags",
-                    {
-                        "key": "$feature/flag_doesnt_exist",
-                        "type": "event",
-                        "value": ["test", "control"],
-                        "operator": "exact",
-                    },
-                    {
-                        "control_absolute_exposure": 0,
-                        "test_absolute_exposure": 0,
-                    },
-                ),
-                (
-                    "cohort_static",
-                    {
-                        "key": "id",
-                        "type": "static-cohort",
-                        "value": None,  # value is generated in the test
-                        "operator": "exact",
-                    },
-                    {
-                        "control_absolute_exposure": 2,
-                        "test_absolute_exposure": 1,
-                    },
-                ),
-                (
-                    "cohort_dynamic",
-                    {
-                        "key": "id",
-                        "type": "cohort",
-                        "value": None,  # value is generated in the test
-                        "operator": "exact",
-                    },
-                    {
-                        "control_absolute_exposure": 12,
-                        "test_absolute_exposure": 15,
-                    },
-                ),
-                (
-                    "group",
-                    {
-                        "key": "name",
-                        "type": "group",
-                        "value": None,  # value is generated in the test
-                        "operator": "exact",
-                        "group_type_index": 0,
-                    },
-                    {
-                        "control_absolute_exposure": 8,
-                        "test_absolute_exposure": 10,
-                    },
-                ),
-                (
-                    "element",
-                    {
-                        "key": "tag_name",
-                        "type": "element",
-                        "value": ["button"],
-                        "operator": "exact",
-                    },
-                    {
-                        "control_absolute_exposure": 0,
-                        "test_absolute_exposure": 0,
-                    },
-                ),
-            ]
-        )
+                "person_properties",
+                {
+                    "key": "email",
+                    "value": "@posthog.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_absolute_exposure": 12,
+                    "test_absolute_exposure": 15,
+                },
+            ],
+            [
+                "event_properties",
+                {
+                    "key": "$host",
+                    "value": "^(localhost|127\\.0\\.0\\.1)($|:)",
+                    "operator": "not_regex",
+                    "type": "event",
+                },
+                {
+                    "control_absolute_exposure": 6,
+                    "test_absolute_exposure": 6,
+                },
+            ],
+            [
+                "feature_flags",
+                {
+                    "key": "$feature/flag_doesnt_exist",
+                    "type": "event",
+                    "value": ["test", "control"],
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 0,
+                    "test_absolute_exposure": 0,
+                },
+            ],
+            [
+                "cohort_static",
+                {
+                    "key": "id",
+                    "type": "static-cohort",
+                    # value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 2,
+                    "test_absolute_exposure": 1,
+                },
+            ],
+            [
+                "cohort_dynamic",
+                {
+                    "key": "id",
+                    "type": "cohort",
+                    # value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 12,
+                    "test_absolute_exposure": 15,
+                },
+            ],
+            [
+                "group",
+                {
+                    "key": "name",
+                    "type": "group",
+                    # Value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                    "group_type_index": 0,
+                },
+                {
+                    "control_absolute_exposure": 8,
+                    "test_absolute_exposure": 10,
+                },
+            ],
+            [
+                "element",
+                {
+                    "key": "tag_name",
+                    "type": "element",
+                    "value": ["button"],
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 0,
+                    "test_absolute_exposure": 0,
+                },
+            ],
+        ]
     )
     @snapshot_clickhouse_queries
-    def test_query_runner_with_internal_filters(
-        self, name: str, filter: dict, expected_results: dict, use_new_query_builder: bool
-    ):
+    def test_query_runner_with_internal_filters(self, name: str, filter: dict, expected_results: dict):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
         )
 
-        # Create a local copy to avoid mutating the shared parameter dict
-        test_filter = filter.copy()
-
         cohort = None
-        if "cohort_static" in name:
+        if name == "cohort_static":
             cohort = Cohort.objects.create(
                 team=self.team,
-                name=f"cohort_static_{name}",
+                name="cohort_static",
                 is_static=True,
             )
-            test_filter["value"] = cohort.pk
-        elif "cohort_dynamic" in name:
+            filter["value"] = cohort.pk
+        elif name == "cohort_dynamic":
             cohort = Cohort.objects.create(
                 team=self.team,
-                name=f"cohort_dynamic_{name}",
+                name="cohort_dynamic",
                 groups=[
                     {
                         "properties": [
@@ -1087,8 +1080,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     }
                 ],
             )
-            test_filter["value"] = cohort.pk
-        elif "group" in name:
+            filter["value"] = cohort.pk
+        elif name == "group":
             create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
             )
@@ -1098,9 +1091,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 group_key="my_awesome_group",
                 properties={"name": "Test Group"},
             )
-            test_filter["value"] = ["Test Group"]
+            filter["value"] = ["Test Group"]
 
-        self.team.test_account_filters = [test_filter]
+        self.team.test_account_filters = [filter]
         self.team.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -1175,16 +1168,13 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        if "cohort_static" in name and cohort:
+        if name == "cohort_static" and cohort:
             cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
             self.assertEqual(cohort.people.count(), 3)
-            cohort.calculate_people_ch(pending_version=0)
-        elif "cohort_dynamic" in name and cohort:
+        elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
 
         # Handle cases where filters result in no exposures
         if expected_results["control_absolute_exposure"] == 0 and expected_results["test_absolute_exposure"] == 0:
@@ -1223,9 +1213,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
         control_result = result.baseline
@@ -1237,46 +1225,44 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_result.number_of_samples, 16)
 
     @parameterized.expand(
-        add_query_builder_flag(
+        [
             [
-                (
-                    "experiment_duration",
-                    None,
-                    {
-                        "control_count": 3,
-                        "test_count": 3,
-                    },
-                ),
-                (
-                    "24_hour_window",
-                    24,
-                    {
-                        "control_count": 1,
-                        "test_count": 1,
-                    },
-                ),
-                (
-                    "48_hour_window",
-                    48,
-                    {
-                        "control_count": 6,
-                        "test_count": 6,
-                    },
-                ),
-                (
-                    "72_hour_window",
-                    72,
-                    {
-                        "control_count": 7,
-                        "test_count": 7,
-                    },
-                ),
-            ]
-        )
+                "experiment_duration",
+                None,
+                {
+                    "control_count": 3,
+                    "test_count": 3,
+                },
+            ],
+            [
+                "24_hour_window",
+                24,
+                {
+                    "control_count": 1,
+                    "test_count": 1,
+                },
+            ],
+            [
+                "48_hour_window",
+                48,
+                {
+                    "control_count": 6,
+                    "test_count": 6,
+                },
+            ],
+            [
+                "72_hour_window",
+                72,
+                {
+                    "control_count": 7,
+                    "test_count": 7,
+                },
+            ],
+        ]
     )
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_with_time_window(self, name, time_window_hours, expected_results, use_new_query_builder):
+    def test_query_runner_with_time_window(self, name, time_window_hours, expected_results):
         feature_flag = self.create_feature_flag()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -1329,9 +1315,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
         self.assertEqual(len(result.variant_results), 1)
@@ -1478,26 +1462,22 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 3)  # 3 test users
 
     @parameterized.expand(
-        add_query_builder_flag(
+        [
             [
-                (
-                    "exclude",
-                    MultipleVariantHandling.EXCLUDE,
-                    {"control_count": 3, "test_count": 3, "control_exposure": 2, "test_exposure": 2},
-                ),
-                (
-                    "first_seen",
-                    MultipleVariantHandling.FIRST_SEEN,
-                    {"control_count": 6, "test_count": 5, "control_exposure": 3, "test_exposure": 3},
-                ),
-            ]
-        )
+                "exclude",
+                MultipleVariantHandling.EXCLUDE,
+                {"control_count": 3, "test_count": 3, "control_exposure": 2, "test_exposure": 2},
+            ],
+            [
+                "first_seen",
+                MultipleVariantHandling.FIRST_SEEN,
+                {"control_count": 6, "test_count": 5, "control_exposure": 3, "test_exposure": 3},
+            ],
+        ]
     )
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_multiple_variant_handling_options(
-        self, name, multiple_variant_handling, expected_results, use_new_query_builder
-    ):
+    def test_query_runner_multiple_variant_handling_options(self, name, multiple_variant_handling, expected_results):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
 
@@ -1661,9 +1641,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, use_new_query_builder=use_new_query_builder
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
         assert result.variant_results is not None
         self.assertEqual(len(result.variant_results), 1)
