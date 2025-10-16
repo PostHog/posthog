@@ -80,7 +80,7 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
                     )}
                     {lastRefreshedAt ? (
                         <div className="text-xs items-center flex flex-row gap-x-1">
-                            Last refreshed: <TZLabel time={lastRefreshedAt} showPopover={false} />
+                            Last refreshed: <TZLabel time={lastRefreshedAt} noPopover />
                         </div>
                     ) : null}
                 </div>

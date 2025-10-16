@@ -26,8 +26,8 @@ export function MoreThanADayAgo(): JSX.Element {
     return <TZLabel time={now().subtract(2, 'day')} />
 }
 
-export function MoreThanADayAgoWithPopover(): JSX.Element {
-    return <TZLabel time={now().subtract(2, 'day')} showPopover={false} />
+export function MoreThanADayAgoWithoutPopover(): JSX.Element {
+    return <TZLabel time={now().subtract(2, 'day')} noPopover />
 }
 
 export function WithMoreThanOne(): JSX.Element {
