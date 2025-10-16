@@ -183,7 +183,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=False)
     def validate(self, request, *args, **kwargs):
-        response_data = {"is_valid": False, "msg": None, "hogql": None}
+        response_data = {"is_valid": False, "msg": None, "hogql": None, "results": []}
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -206,7 +206,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             join_function=join.join_function(),
         )
         validation_query = parse_select(
-            "SELECT {to_field} " "FROM {source_table_name} " "LIMIT 10",
+            "SELECT {to_field} FROM {source_table_name} WHERE {to_field} != '' LIMIT 10",
             placeholders={
                 "to_field": ast.Field(chain=["validation", *to_field]),
                 "source_table_name": parse_expr(source_table_name),
@@ -218,6 +218,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 query=validation_query, team=self.team, context=HogQLContext(database=database)
             )
             response_data["hogql"] = query_response.hogql
+            response_data["results"] = query_response.results
             if len(query_response.results) == 0:
                 response_data["msg"] = "Validation query returned no results"
         except Exception as e:
