@@ -427,7 +427,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 team=instance.team, project_id=instance.team.project_id, detail_dashboard=instance
             ).first()
             if group_type_mapping:
-                group_type_mapping.detail_dashboard_id = None
+                group_type_mapping.detail_dashboard = None
                 group_type_mapping.save()
 
         request_filters = initial_data.get("filters")
