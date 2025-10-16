@@ -120,6 +120,8 @@ class ImportTransformer(cst.CSTTransformer):
             self.imports_to_add.append(moved_stmt)
         else:
             # No-merge mode: each model comes from its own file
+            import re
+
             for model_name in moved_imports:
                 # Look up the actual filename from the mapping
                 # If mapping is available, use it; otherwise fall back to snake_case
@@ -127,8 +129,6 @@ class ImportTransformer(cst.CSTTransformer):
                     filename = self.filename_to_model_mapping[model_name]
                 else:
                     # Fallback: convert model name to snake_case for filename
-                    import re
-
                     filename = re.sub(r"(?<!^)(?=[A-Z])", "_", model_name).lower()
 
                 moved_module = cst.parse_expression(f"products.{self.target_app}.backend.models.{filename}")
@@ -305,12 +305,15 @@ class ModelMigrator:
     def _build_model_to_filename_mapping(self, source_files: list[str]) -> dict[str, str]:
         """Build mapping of model names to their actual filenames (without .py).
 
-        For no-merge mode, we need to map model names to their actual filenames.
+        For no-merge mode, we need to map model names to their actual filenames as they
+        will appear after being moved and converted to snake_case.
         Example: DataWarehouseTable -> table (not data_warehouse_table)
 
         Returns a dict like:
             {"DataWarehouseTable": "table", "DataWarehouseJoin": "join", ...}
         """
+        import re
+
         mapping = {}
         for source_file in source_files:
             source_path = self.root_dir / Path(self.source_base_path) / source_file
@@ -325,7 +328,10 @@ class ModelMigrator:
                 # Get all class names from this file
                 for node in tree.body:
                     if isinstance(node, ast.ClassDef):
-                        mapping[node.name] = source_file.replace(".py", "")
+                        # Apply snake_case conversion to match what happens during file movement
+                        filename_without_ext = source_file.replace(".py", "")
+                        snake_name = re.sub(r"(?<!^)(?=[A-Z])", "_", filename_without_ext).lower()
+                        mapping[node.name] = snake_name
             except (FileNotFoundError, SyntaxError):
                 continue
 
