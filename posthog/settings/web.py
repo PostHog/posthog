@@ -37,6 +37,8 @@ PRODUCTS_APPS = [
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
     "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
+    "products.error_tracking.backend.apps.ErrorTrackingConfig",
+    "products.notebooks.backend.apps.NotebooksConfig",
 ]
 
 INSTALLED_APPS = [
@@ -105,7 +107,7 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
-    "posthog.middleware.AdminCSPMiddleware",
+    "posthog.middleware.CSPMiddleware",
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
 

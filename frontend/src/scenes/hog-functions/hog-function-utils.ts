@@ -1,8 +1,8 @@
 import { HogFunctionTypeType } from '~/types'
 
-export function humanizeHogFunctionType(type: HogFunctionTypeType): string {
+export function humanizeHogFunctionType(type: HogFunctionTypeType, plural: boolean = false): string {
     if (type === 'source_webhook') {
-        return 'source'
+        return 'source' + (plural ? 's' : '')
     }
-    return type.replaceAll('_', ' ')
+    return type.replaceAll('_', ' ') + (plural ? 's' : '')
 }

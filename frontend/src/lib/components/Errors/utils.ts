@@ -4,6 +4,7 @@ import {
     ErrorEventProperties,
     ErrorTrackingException,
     ErrorTrackingRuntime,
+    ErrorTrackingStackFrame,
     ExceptionAttributes,
     FingerprintRecordPart,
 } from './types'
@@ -112,6 +113,8 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
 
     const handled = exceptionList?.[0]?.mechanism?.handled ?? false
     const runtime: ErrorTrackingRuntime = getRuntimeFromLib(lib)
+    const appNamespace = properties.$app_namespace
+    const appVersion = properties.$app_version
 
     return {
         type,
@@ -129,6 +132,8 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         handled,
         level,
         ingestionErrors,
+        appNamespace,
+        appVersion,
     }
 }
 
@@ -196,4 +201,19 @@ export function stringify(value: any): string {
     } catch {}
 
     return ''
+}
+
+export function formatResolvedName(
+    frame: Pick<ErrorTrackingStackFrame, 'module' | 'resolved_name' | 'lang'>
+): string | null {
+    if (!frame.resolved_name || frame.resolved_name === '?') {
+        return null
+    }
+    return frame.module && frame.lang === 'java' ? `${frame.module}.${frame.resolved_name}` : frame.resolved_name
+}
+
+export function formatType(exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace'>): string {
+    const hasJavaFrames = exception.stacktrace?.frames?.some((frame) => frame.lang === 'java')
+
+    return exception.module && hasJavaFrames ? `${exception.module}.${exception.type}` : exception.type
 }
