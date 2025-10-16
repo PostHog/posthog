@@ -626,7 +626,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             If you do not enable the checkbox for a table or configure its sync method, it will be
                             ignored.{' '}
                             {ignoredTables.length > 0 ? (
-                                <>The following tables are set to be ignored:</>
+                                <>
+                                    You currently have {ignoredTables.length} tables set to be ignored from future
+                                    syncs.
+                                </>
                             ) : (
                                 <>You are syncing all of your tables. You'll be bathing in data soon.</>
                             )}
