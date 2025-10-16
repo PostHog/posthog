@@ -2611,6 +2611,7 @@ dependencies = [
  "moka",
  "posthog-rs",
  "reqwest 0.12.15",
+ "serde",
  "sqlx",
  "tiktoken-rs",
  "tokio",
