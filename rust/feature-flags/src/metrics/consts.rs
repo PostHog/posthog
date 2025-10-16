@@ -64,3 +64,11 @@ pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
 
 // Error classification
 pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
+
+// Cache miss notification metrics
+pub const FLAG_CACHE_MISS_NOTIFICATION_SENT_COUNTER: &str =
+    "flags_cache_miss_notification_sent_total";
+pub const FLAG_CACHE_MISS_NOTIFICATION_ERROR_COUNTER: &str =
+    "flags_cache_miss_notification_error_total";
+pub const FLAG_CACHE_MISS_NOTIFICATION_DROPPED_COUNTER: &str =
+    "flags_cache_miss_notification_dropped_total";

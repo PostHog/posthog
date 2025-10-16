@@ -172,6 +172,9 @@ pub trait Client {
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;
+    async fn lpush(&self, k: String, v: String) -> Result<(), CustomRedisError>;
+    async fn rpop(&self, k: String) -> Result<Option<String>, CustomRedisError>;
+    async fn llen(&self, k: String) -> Result<u64, CustomRedisError>;
 }
 
 pub struct RedisClient {
@@ -496,6 +499,27 @@ impl Client for RedisClient {
             .await?
             .map_err(|e| CustomRedisError::Other(e.to_string()))
     }
+
+    async fn lpush(&self, k: String, v: String) -> Result<(), CustomRedisError> {
+        let mut conn = self.connection.clone();
+        let results = conn.lpush(k, v);
+        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
+        fut.map_err(|e| CustomRedisError::Other(e.to_string()))
+    }
+
+    async fn rpop(&self, k: String) -> Result<Option<String>, CustomRedisError> {
+        let mut conn = self.connection.clone();
+        let results = conn.rpop(k, None);
+        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
+        Ok(fut?)
+    }
+
+    async fn llen(&self, k: String) -> Result<u64, CustomRedisError> {
+        let mut conn = self.connection.clone();
+        let results = conn.llen(k);
+        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
+        Ok(fut?)
+    }
 }
 
 #[derive(Clone)]
@@ -509,6 +533,9 @@ pub struct MockRedisClient {
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
     scard_ret: HashMap<String, Result<u64, CustomRedisError>>,
+    lpush_ret: HashMap<String, Result<(), CustomRedisError>>,
+    rpop_ret: HashMap<String, Result<Option<String>, CustomRedisError>>,
+    llen_ret: HashMap<String, Result<u64, CustomRedisError>>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
 }
 
@@ -524,6 +551,9 @@ impl Default for MockRedisClient {
             del_ret: HashMap::new(),
             hget_ret: HashMap::new(),
             scard_ret: HashMap::new(),
+            lpush_ret: HashMap::new(),
+            rpop_ret: HashMap::new(),
+            llen_ret: HashMap::new(),
             calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -589,6 +619,21 @@ impl MockRedisClient {
 
     pub fn set_nx_ex_ret(&mut self, key: &str, ret: Result<bool, CustomRedisError>) -> Self {
         self.set_nx_ex_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn lpush_ret(&mut self, key: &str, ret: Result<(), CustomRedisError>) -> Self {
+        self.lpush_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn rpop_ret(&mut self, key: &str, ret: Result<Option<String>, CustomRedisError>) -> Self {
+        self.rpop_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn llen_ret(&mut self, key: &str, ret: Result<u64, CustomRedisError>) -> Self {
+        self.llen_ret.insert(key.to_owned(), ret);
         self.clone()
     }
 }
@@ -842,6 +887,48 @@ impl Client for MockRedisClient {
         match self.scard_ret.get(&key) {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
+        }
+    }
+
+    async fn lpush(&self, key: String, value: String) -> Result<(), CustomRedisError> {
+        let mut calls = self.lock_calls();
+        calls.push(MockRedisCall {
+            op: "lpush".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::String(value),
+        });
+
+        match self.lpush_ret.get(&key) {
+            Some(result) => result.clone(),
+            None => Ok(()),
+        }
+    }
+
+    async fn rpop(&self, key: String) -> Result<Option<String>, CustomRedisError> {
+        let mut calls = self.lock_calls();
+        calls.push(MockRedisCall {
+            op: "rpop".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::None,
+        });
+
+        match self.rpop_ret.get(&key) {
+            Some(result) => result.clone(),
+            None => Ok(None),
+        }
+    }
+
+    async fn llen(&self, key: String) -> Result<u64, CustomRedisError> {
+        let mut calls = self.lock_calls();
+        calls.push(MockRedisCall {
+            op: "llen".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::None,
+        });
+
+        match self.llen_ret.get(&key) {
+            Some(result) => result.clone(),
+            None => Ok(0),
         }
     }
 }

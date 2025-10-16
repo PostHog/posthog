@@ -1,12 +1,13 @@
 use crate::{
     api::{auth, errors::FlagError},
+    cache::notification::notify_cache_miss,
     router::State as AppState,
     team::{team_models::Team, team_operations},
 };
 use axum::{
     debug_handler,
     extract::{Query, State},
-    http::{HeaderMap, Method, StatusCode},
+    http::{header::RETRY_AFTER, HeaderMap, Method, StatusCode},
     response::{IntoResponse, Json, Response},
 };
 use common_hypercache::{CacheSource, HyperCacheConfig, HyperCacheReader, KeyType};
@@ -73,9 +74,39 @@ pub async fn flags_definitions(
     state.flag_definitions_limiter.check_rate_limit(team.id)?;
 
     // Retrieve cached response from HyperCache (always with cohorts)
-    let cached_response = get_from_cache(&state, &team).await?;
-
-    Ok(Json(cached_response).into_response())
+    match get_from_cache(&state, &team).await {
+        Ok((cached_response, source)) => {
+            // If serving from S3, trigger cache warming to populate Redis
+            // This is fire-and-forget - we still return 200 OK immediately
+            if source == CacheSource::S3 {
+                info!(
+                    team_id = team.id,
+                    "Triggering cache warming for S3 fallback"
+                );
+                tokio::spawn({
+                    let redis = state.redis_writer.clone();
+                    let team_id = team.id;
+                    async move {
+                        if let Err(e) = notify_cache_miss(redis, team_id).await {
+                            warn!(error = %e, "Failed to send cache warming notification");
+                        }
+                    }
+                });
+            }
+            Ok(Json(cached_response).into_response())
+        }
+        Err(FlagError::CacheMiss) => {
+            // Return 503 with Retry-After header to tell clients when to retry
+            let retry_after = state.config.flag_definitions_cache_miss_retry_after_seconds;
+            Ok((
+                StatusCode::SERVICE_UNAVAILABLE,
+                [(RETRY_AFTER, retry_after.to_string())],
+                "Flag definitions cache is warming. Please retry after the specified duration.",
+            )
+                .into_response())
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Handles non-GET HTTP methods (HEAD, OPTIONS, and unsupported methods)
@@ -123,10 +154,12 @@ async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, Flag
 /// Always uses the cache with cohorts included to match Django's behavior and ensure
 /// consistency across all clients accessing the same team's data. The cohorts are required
 /// for proper local evaluation of flags that depend on cohort membership.
+///
+/// Returns both the cached data and the source (Redis or S3) it was retrieved from.
 async fn get_from_cache(
     state: &AppState,
     team: &Team,
-) -> Result<FlagDefinitionsResponse, FlagError> {
+) -> Result<(FlagDefinitionsResponse, CacheSource), FlagError> {
     // Configure HyperCache to use the flags_with_cohorts.json cache key
     // This ensures we always return cohort definitions along with flag definitions
     let hypercache_config = HyperCacheConfig::new(
@@ -154,19 +187,36 @@ async fn get_from_cache(
     let team_key = KeyType::team(team.clone());
 
     // Try to get data from cache (Redis first, then S3 fallback)
-    let (data, source) = hypercache_reader.get_with_source(&team_key).await?;
+    match hypercache_reader.get_with_source(&team_key).await {
+        Ok((data, source)) => {
+            let source_name = match source {
+                CacheSource::Redis => "Redis",
+                CacheSource::S3 => "S3",
+            };
+            info!(
+                team_id = team.id,
+                source = source_name,
+                "Cache hit for flag definitions (with cohorts)"
+            );
+            Ok((data, source))
+        }
+        Err(e) => {
+            warn!(team_id = team.id, error = %e, "Cache miss for local evaluation");
 
-    let source_name = match source {
-        CacheSource::Redis => "Redis",
-        CacheSource::S3 => "S3",
-    };
-    info!(
-        team_id = team.id,
-        source = source_name,
-        "Cache hit for flag definitions (with cohorts)"
-    );
+            // Notify about cache miss (fire-and-forget)
+            tokio::spawn({
+                let redis = state.redis_writer.clone();
+                let team_id = team.id;
+                async move {
+                    if let Err(e) = notify_cache_miss(redis, team_id).await {
+                        warn!(error = %e, "Failed to send cache miss notification");
+                    }
+                }
+            });
 
-    Ok(data)
+            Err(FlagError::CacheMiss)
+        }
+    }
 }
 
 /// Authenticates flag definitions requests using team secret API tokens or personal API keys
