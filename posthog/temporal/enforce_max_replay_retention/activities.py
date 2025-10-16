@@ -20,6 +20,7 @@ async def enforce_max_replay_retention(input: EnforceMaxReplayRetentionInput) ->
     async with Heartbeater():
         logger = LOGGER.bind()
         teams_to_update = []
+        query_counter = 0
 
         logger.info("Querying teams...")
         async for team in (
@@ -40,6 +41,7 @@ async def enforce_max_replay_retention(input: EnforceMaxReplayRetentionInput) ->
                     team_name=team.name,
                     organization_id=organization.id,
                     retention_entitlement=highest_retention_entitlement,
+                    raw_retention_feature=retention_feature,
                 )
                 continue
 
@@ -69,6 +71,11 @@ async def enforce_max_replay_retention(input: EnforceMaxReplayRetentionInput) ->
                     retention_period_before=current_retention,
                     retention_period_after=highest_retention_entitlement,
                 )
+
+            query_counter += 1
+            if query_counter >= input.batch_size:
+                query_counter = 0
+                logger.info(f"Processed {input.batch_size} teams...")
 
         if not input.dry_run:
             logger.info(f"Updating {len(teams_to_update)} teams...")

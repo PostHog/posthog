@@ -5,6 +5,7 @@ import { processResultsForSurveyQuestions, surveyLogic } from 'scenes/surveys/su
 
 import { initKeaTests } from '~/test/init'
 import {
+    AccessControlLevel,
     AnyPropertyFilter,
     ChoiceQuestionProcessedResponses,
     EventPropertyFilter,
@@ -72,6 +73,7 @@ const MULTIPLE_CHOICE_SURVEY: Survey = {
     iteration_count: null,
     iteration_frequency_days: null,
     schedule: SurveySchedule.Once,
+    user_access_level: AccessControlLevel.Editor,
 }
 
 describe('set response-based survey branching', () => {
@@ -121,6 +123,7 @@ describe('set response-based survey branching', () => {
         targeting_flag_filters: undefined,
         responses_limit: null,
         schedule: SurveySchedule.Once,
+        user_access_level: AccessControlLevel.Editor,
     }
 
     describe('main', () => {
@@ -1315,6 +1318,72 @@ describe('survey filters', () => {
                     }),
                 }),
             })
+    })
+})
+
+describe('URL parameter synchronization', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = surveyLogic({ id: MULTIPLE_CHOICE_SURVEY.id })
+        logic.mount()
+    })
+
+    it('only includes non-empty filters in URL', async () => {
+        const propertyFilters: AnyPropertyFilter[] = [
+            {
+                key: 'email',
+                value: 'test@posthog.com',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Person,
+            },
+        ]
+
+        const emptyAnswerFilters: EventPropertyFilter[] = [
+            {
+                key: SurveyEventProperties.SURVEY_RESPONSE,
+                value: [],
+                operator: PropertyOperator.IContains,
+                type: PropertyFilterType.Event,
+            },
+        ]
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setPropertyFilters(propertyFilters)
+            logic.actions.setAnswerFilters(emptyAnswerFilters)
+        }).toMatchValues({
+            urlSearchParams: expect.objectContaining({
+                propertyFilters: JSON.stringify(propertyFilters),
+            }),
+        })
+
+        expect(logic.values.urlSearchParams).not.toHaveProperty('answerFilters')
+    })
+
+    it('excludes default date range from URL', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+        })
+
+        const defaultDateFrom = logic.values.dateRange?.date_from
+        const defaultDateTo = logic.values.dateRange?.date_to
+
+        await expectLogic(logic, () => {
+            logic.actions.setDateRange(
+                {
+                    date_from: defaultDateFrom || null,
+                    date_to: defaultDateTo || null,
+                },
+                false
+            )
+        }).toMatchValues({
+            urlSearchParams: expect.not.objectContaining({
+                date_from: expect.anything(),
+                date_to: expect.anything(),
+            }),
+        })
     })
 })
 

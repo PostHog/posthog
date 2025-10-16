@@ -12,6 +12,22 @@ jest.mock('v8', () => ({
             '{"snapshot":{"meta":{"node_fields":["type","name","id","self_size","edge_count","trace_node_id"],"node_types":[["hidden","array","string","object","code","closure","regexp","number","native","synthetic","concatenated string","sliced string","symbol","bigint"],"bigint"],"edge_fields":["type","name_or_index","to_node"],"edge_types":[["context","element","property","internal","hidden","shortcut","weak"]]},"node_count":1,"edge_count":0},"nodes":[0,0,0,0,0,0],"edges":[],"strings":[""]}'
         return Readable.from([Buffer.from(mockSnapshot)])
     }),
+    getHeapStatistics: jest.fn(() => ({
+        total_heap_size: 100000000,
+        total_heap_size_executable: 5000000,
+        total_physical_size: 80000000,
+        total_available_size: 1500000000,
+        used_heap_size: 70000000,
+        heap_size_limit: 2000000000,
+        malloced_memory: 8000000,
+        peak_malloced_memory: 10000000,
+        does_zap_garbage: 0,
+        number_of_native_contexts: 2,
+        number_of_detached_contexts: 0,
+        total_global_handles_size: 16384,
+        used_global_handles_size: 8192,
+        external_memory: 20000000,
+    })),
 }))
 
 jest.setTimeout(1000)

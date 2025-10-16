@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
     eval:
-        timeout-minutes: 30
+        timeout-minutes: 45
         name: Run AI evals
         runs-on: ubuntu-latest
         # Skipping on forks as Braintrust credentials are not available there
@@ -46,6 +46,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
+                  version: 0.8.19
                   pyproject-file: 'pyproject.toml'
 
             - name: Install python dependencies
@@ -76,7 +77,7 @@ jobs:
               if: always() && github.event_name == 'pull_request'
               uses: actions/github-script@v6
               with:
-                  github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       const fs = require("fs")
 

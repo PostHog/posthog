@@ -14,6 +14,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Error tracking',
             defaultDocsPath: '/docs/error-tracking',
+            iconType: 'error_tracking',
         },
         ErrorTrackingIssue: {
             import: () => import('./frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),

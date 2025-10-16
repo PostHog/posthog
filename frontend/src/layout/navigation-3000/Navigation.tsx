@@ -95,6 +95,9 @@ export function Navigation({
                             '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
                                 ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
                                 : '0px',
+                            '--scene-layout-background': sceneConfig?.canvasBackground
+                                ? 'var(--color-bg-surface-primary)'
+                                : 'var(--color-bg-primary)',
                         } as React.CSSProperties
                     }
                 >

@@ -35,6 +35,10 @@ PRODUCTS_APPS = [
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
+    "products.endpoints.backend.apps.EndpointsConfig",
+    "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
+    "products.error_tracking.backend.apps.ErrorTrackingConfig",
+    "products.notebooks.backend.apps.NotebooksConfig",
 ]
 
 INSTALLED_APPS = [
@@ -65,7 +69,6 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
     "oauth2_provider",
-    "mcp_server",
     "django_admin_inline_paginator",
 ]
 
@@ -104,7 +107,7 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
-    "posthog.middleware.AdminCSPMiddleware",
+    "posthog.middleware.CSPMiddleware",
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
 

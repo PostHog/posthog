@@ -94,6 +94,7 @@ export function cleanupTooltip(id: string): void {
         if (instance.hideTimeout) {
             clearTimeout(instance.hideTimeout)
         }
+        instance.root.unmount()
         instance.element.remove()
         tooltipInstances.delete(id)
     }

@@ -574,6 +574,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     **batch_export.destination.config,
                     **destination_data.get("config", {}),
                 }
+                integration = destination_data.get("integration", batch_export.destination.integration)
+                batch_export.destination.integration = integration
 
             if hogql_query := validated_data.pop("hogql_query", None):
                 batch_export_schema = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
@@ -691,6 +693,12 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             destination=serializer.validated_data["destination"]["type"],
         )
         test_configuration = serializer.validated_data["destination"]["config"]
+
+        # if we have an integration, add its config and sensitive_config to test_configuration
+        integration: Integration | None = serializer.validated_data["destination"].get("integration")
+        if integration:
+            test_configuration = {**test_configuration, **integration.config, **integration.sensitive_config}
+
         destination_test.configure(**test_configuration)
 
         result = destination_test.run_step(test_step)
@@ -719,6 +727,12 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             destination=serializer.validated_data["destination"]["type"],
         )
         test_configuration = serializer.validated_data["destination"]["config"]
+
+        # if we have an integration, add its config and sensitive_config to test_configuration
+        integration: Integration | None = serializer.validated_data["destination"].get("integration")
+        if integration:
+            test_configuration = {**test_configuration, **integration.config, **integration.sensitive_config}
+
         destination_test.configure(**test_configuration)
 
         result = destination_test.run_step(test_step)

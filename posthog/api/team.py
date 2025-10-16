@@ -4,11 +4,14 @@ from functools import cached_property
 from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
+
+from posthog.schema import AttributionMode
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
@@ -24,11 +27,13 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.feature_flag import TeamDefaultEvaluationTag
 from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
 from posthog.models.signals import mute_selected_signals
+from posthog.models.tag import Tag
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.util import actions_that_require_current_team, delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import UUIDT
@@ -159,6 +164,7 @@ TEAM_CONFIG_FIELDS = (
     "flags_persistence_default",
     "feature_flag_confirmation_enabled",
     "feature_flag_confirmation_message",
+    "default_evaluation_environments_enabled",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
@@ -166,6 +172,7 @@ TEAM_CONFIG_FIELDS = (
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
+    "experiment_recalculation_time",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -200,10 +207,14 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
 class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
     sources_map = serializers.JSONField(required=False)
     conversion_goals = serializers.JSONField(required=False)
+    attribution_window_days = serializers.IntegerField(required=False, min_value=1, max_value=90)
+    attribution_mode = serializers.ChoiceField(
+        choices=[(mode.value, mode.value.replace("_", " ").title()) for mode in AttributionMode], required=False
+    )
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
-        fields = ["sources_map", "conversion_goals"]
+        fields = ["sources_map", "conversion_goals", "attribution_window_days", "attribution_mode"]
 
     def update(self, instance, validated_data):
         # Handle sources_map with partial updates
@@ -221,6 +232,13 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
 
         if "conversion_goals" in validated_data:
             instance.conversion_goals = validated_data["conversion_goals"]
+
+        # Handle attribution settings
+        if "attribution_window_days" in validated_data:
+            instance.attribution_window_days = validated_data["attribution_window_days"]
+
+        if "attribution_mode" in validated_data:
+            instance.attribution_mode = validated_data["attribution_mode"]
 
         instance.save()
         return instance
@@ -672,6 +690,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 if instance.marketing_analytics_config.sources_map
                 else {}
             ),
+            "attribution_window_days": instance.marketing_analytics_config.attribution_window_days,
+            "attribution_mode": instance.marketing_analytics_config.attribution_mode,
             # Add other fields as they're added to the model
             # "conversion_goals": instance.marketing_analytics_config.conversion_goals.copy() if instance.marketing_analytics_config.conversion_goals else [],
         }
@@ -687,6 +707,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Log activity for marketing analytics config changes
         new_config = {
             "sources_map": validated_data.get("sources_map", {}),
+            "attribution_window_days": validated_data.get("attribution_window_days"),
+            "attribution_mode": validated_data.get("attribution_mode"),
             # Add other fields as they're added to the model
             # "conversion_goals": validated_data.get("conversion_goals", []),
         }
@@ -904,6 +926,71 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             user=request.user, is_impersonated_session=is_impersonated_session(request)
         )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["GET", "POST", "DELETE"],
+        detail=True,
+        permission_classes=[IsAuthenticated],
+    )
+    def default_evaluation_tags(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage default evaluation tags for a team"""
+        team = self.get_object()
+
+        if request.method == "GET":
+            # Return list of default evaluation tags
+            default_tags = TeamDefaultEvaluationTag.objects.filter(team=team).select_related("tag")
+            tags_data = [{"id": dt.id, "name": dt.tag.name} for dt in default_tags]
+            return response.Response(
+                {"default_evaluation_tags": tags_data, "enabled": team.default_evaluation_environments_enabled}
+            )
+
+        elif request.method == "POST":
+            # Add a default evaluation tag
+            tag_name = request.data.get("tag_name", "").strip().lower()
+            if not tag_name:
+                return response.Response({"error": "tag_name is required"}, status=400)
+
+            with transaction.atomic():
+                # Select and lock all existing tags for this team
+                existing_tags = list(TeamDefaultEvaluationTag.objects.filter(team=team).select_for_update())
+                if len(existing_tags) >= 10:
+                    return response.Response({"error": "Maximum of 10 default evaluation tags allowed"}, status=400)
+
+                tag, _ = Tag.objects.get_or_create(name=tag_name, team=team)
+                default_tag, created = TeamDefaultEvaluationTag.objects.get_or_create(team=team, tag=tag)
+
+                if created:
+                    report_user_action(
+                        cast(User, request.user),
+                        "default evaluation tag added",
+                        {"team_id": team.id, "tag_name": tag_name},
+                    )
+
+            return response.Response({"id": default_tag.id, "name": tag.name, "created": created})
+
+        else:  # DELETE
+            # Remove a default evaluation tag
+            # Handle both request.data and query params for DELETE (test client compatibility)
+            tag_name = request.data.get("tag_name", "") or request.GET.get("tag_name", "")
+            tag_name = tag_name.strip().lower()
+            if not tag_name:
+                return response.Response({"error": "tag_name is required"}, status=400)
+
+            with transaction.atomic():
+                try:
+                    tag = Tag.objects.get(name=tag_name, team=team)
+                    deleted_count, _ = TeamDefaultEvaluationTag.objects.filter(team=team, tag=tag).delete()
+
+                    if deleted_count > 0:
+                        report_user_action(
+                            cast(User, request.user),
+                            "default evaluation tag removed",
+                            {"team_id": team.id, "tag_name": tag_name},
+                        )
+
+                    return response.Response({"success": True})
+                except Tag.DoesNotExist:
+                    return response.Response({"error": "Tag not found"}, status=404)
 
     @action(
         methods=["GET"],

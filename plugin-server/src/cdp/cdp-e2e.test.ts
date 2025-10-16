@@ -145,6 +145,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 json: () => Promise.resolve({ success: true }),
                 text: () => Promise.resolve(JSON.stringify({ success: true })),
                 headers: { 'Content-Type': 'application/json' },
+                dump: () => Promise.resolve(),
             })
 
             expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
@@ -281,6 +282,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                     headers: {},
                     json: () => Promise.resolve({ error: 'Server error' }),
                     text: () => Promise.resolve(JSON.stringify({ error: 'Server error' })),
+                    dump: () => Promise.resolve(),
                 })
             })
 

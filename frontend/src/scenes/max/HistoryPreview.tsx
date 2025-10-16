@@ -44,7 +44,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                 conversationHistory.slice(0, 3).map((conversation) => (
                     <Link
                         key={conversation.id}
-                        className="text-sm flex items-center text-primary hover:text-accent-hover active:text-accent-active justify-between"
+                        className="text-sm flex items-center gap-2 text-primary hover:text-accent-hover active:text-accent-active justify-between"
                         to={getConversationUrl({
                             pathname: location.pathname,
                             search: location.search,

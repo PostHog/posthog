@@ -8,6 +8,7 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from posthog.models import Integration, Organization, Team
+from posthog.models.user import User
 
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowStageTemplate, WorkflowTemplate
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskProgress, TaskWorkflow, WorkflowStage
@@ -513,7 +514,7 @@ class TestTask(TestCase):
         self.assertEqual(repo_list[0]["org"], "PostHog")
         self.assertEqual(repo_list[0]["repo"], "posthog")
         self.assertEqual(repo_list[0]["integration_id"], integration.id)
-        self.assertEqual(repo_list[0]["full_name"], "PostHog/posthog")
+        self.assertEqual(repo_list[0]["full_name"], "posthog/posthog")
 
     def test_repository_list_empty(self):
         task = Task.objects.create(
@@ -665,6 +666,108 @@ class TestTask(TestCase):
         self.assertEqual(task.workflow, self.workflow)
         assert task.workflow is not None
         self.assertTrue(task.workflow.is_default)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_minimal(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Test Create and Run",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/posthog",
+        )
+
+        self.assertIsNotNone(task.id)
+        self.assertEqual(task.title, "Test Create and Run")
+        self.assertEqual(task.description, "Test Description")
+        self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+        self.assertEqual(task.team, self.team)
+        self.assertEqual(task.created_by, user)
+        self.assertEqual(task.workflow, self.workflow)
+        self.assertEqual(task.repository_config, {"organization": "posthog", "repository": "posthog"})
+
+        mock_execute_workflow.assert_called_once_with(
+            task_id=str(task.id),
+            team_id=self.team.id,
+            user_id=user.id,
+        )
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_with_repository(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/posthog-js",
+        )
+
+        self.assertEqual(task.repository_config["organization"], "posthog")
+        self.assertEqual(task.repository_config["repository"], "posthog-js")
+
+        mock_execute_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_invalid_repository_format(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with self.assertRaises(ValueError) as cm:
+            Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="invalid-format",
+            )
+
+        self.assertIn("Repository must be in format 'organization/repository'", str(cm.exception))
+        mock_execute_workflow.assert_not_called()
+
+    def test_create_and_run_no_workflow_raises_error(self):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        self.workflow.is_default = False
+        self.workflow.save()
+
+        with self.assertRaises(ValueError) as cm:
+            Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
+
+        self.assertIn("Task has no workflow configured", str(cm.exception))
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_with_github_integration(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/posthog",
+        )
+
+        self.assertEqual(task.github_integration, integration)
+        mock_execute_workflow.assert_called_once()
 
 
 class TestTaskSlug(TestCase):
@@ -1137,3 +1240,10 @@ class TestSandboxSnapshot(TestCase):
         self.integration.delete()
 
         self.assertEqual(SandboxSnapshot.objects.filter(integration__isnull=True).count(), 2)
+
+    def test_delete_without_external_id_succeeds(self):
+        snapshot = SandboxSnapshot.objects.create(integration=self.integration)
+
+        snapshot.delete()
+
+        self.assertEqual(SandboxSnapshot.objects.filter(id=snapshot.id).count(), 0)
