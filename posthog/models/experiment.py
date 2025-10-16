@@ -186,9 +186,9 @@ class ExperimentMetricResult(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ["experiment", "metric_uuid", "query_to", "fingerprint"]
+        unique_together = ["experiment", "metric_uuid", "query_to"]
         indexes = [
-            models.Index(fields=["experiment", "metric_uuid", "query_to", "fingerprint"]),
+            models.Index(fields=["experiment", "metric_uuid", "query_to"]),
         ]
 
     def __str__(self):
