@@ -908,7 +908,8 @@ class InsightSearchNode(AssistantNode):
             model="gpt-4.1-mini",
             temperature=0.7,
             max_completion_tokens=1000,
-            streaming=True,
-            stream_usage=True,
+            streaming=False,
+            stream_usage=False,
             max_retries=3,
+            disable_streaming=True,
         )
