@@ -4271,12 +4271,7 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/LogMessage"
-                    },
-                    "type": "array"
-                },
+                "results": {},
                 "timezone": {
                     "type": "string"
                 },
@@ -12995,7 +12990,7 @@
                 "task",
                 "link",
                 "logs",
-                "messaging",
+                "workflows",
                 "notebook",
                 "action",
                 "comment",
@@ -16154,12 +16149,7 @@
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
                     "description": "The date range used for the query"
                 },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/LogMessage"
-                    },
-                    "type": "array"
-                },
+                "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -21411,12 +21401,7 @@
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
                             "description": "The date range used for the query"
                         },
-                        "results": {
-                            "items": {
-                                "$ref": "#/definitions/LogMessage"
-                            },
-                            "type": "array"
-                        },
+                        "results": {},
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
                             "items": {

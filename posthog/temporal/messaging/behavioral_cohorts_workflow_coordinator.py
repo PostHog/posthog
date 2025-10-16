@@ -13,6 +13,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import MESSAGING_TASK_QUEUE
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
@@ -45,6 +46,13 @@ class ConditionsCountResult:
     """Result from counting total conditions."""
 
     count: int
+
+
+@dataclasses.dataclass
+class RunningWorkflowsResult:
+    """Result from checking running workflows."""
+
+    has_running_workflows: bool
 
 
 @temporalio.activity.defn
@@ -96,6 +104,38 @@ async def get_conditions_count_activity(inputs: CoordinatorWorkflowInputs) -> Co
         raise
 
 
+@temporalio.activity.defn
+async def check_running_workflows_activity(inputs: CoordinatorWorkflowInputs) -> RunningWorkflowsResult:
+    """Check for running behavioral cohorts workflows."""
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    logger.info("Checking for running behavioral cohorts workflows")
+
+    try:
+        client = await async_connect()
+
+        # Search for running workflows with behavioral-cohorts prefix
+        workflow_iter = client.list_workflows(
+            query="WorkflowType = 'behavioral-cohorts-analysis' AND ExecutionStatus = 'Running'"
+        )
+
+        # Check if there's at least one running workflow
+        try:
+            await workflow_iter.__anext__()
+            has_running_workflows = True
+            logger.info("Found running behavioral cohorts workflows")
+        except StopAsyncIteration:
+            has_running_workflows = False
+            logger.info("No running behavioral cohorts workflows found")
+
+        return RunningWorkflowsResult(has_running_workflows=has_running_workflows)
+
+    except Exception as e:
+        logger.exception("Error checking running workflows", error=str(e))
+        raise
+
+
 @temporalio.workflow.defn(name="behavioral-cohorts-coordinator")
 class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
     """Coordinator workflow that spawns multiple child workflows for true parallelism."""
@@ -111,7 +151,21 @@ class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
         workflow_logger = temporalio.workflow.logger
         workflow_logger.info(f"Starting coordinator with parallelism={inputs.parallelism}")
 
-        # Step 1: Get total count of conditions
+        # Step 1: Check for running workflows to avoid scheduling too many
+        running_workflows_result = await temporalio.workflow.execute_activity(
+            check_running_workflows_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+        )
+
+        if running_workflows_result.has_running_workflows:
+            workflow_logger.warning(
+                "Found running behavioral cohorts workflows. " "Skipping scheduling new workflows to avoid overload."
+            )
+            return
+
+        # Step 2: Get total count of conditions
         count_result = await temporalio.workflow.execute_activity(
             get_conditions_count_activity,
             inputs,
@@ -126,16 +180,16 @@ class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
 
         workflow_logger.info(f"Scheduling {total_conditions} conditions across {inputs.parallelism} child workflows")
 
-        # Step 2: Calculate ranges for each child workflow
+        # Step 3: Calculate ranges for each child workflow
         conditions_per_workflow = math.ceil(total_conditions / inputs.parallelism)
 
-        # Step 3: Import the child workflow inputs and workflow class
+        # Step 4: Import the child workflow inputs and workflow class
         from posthog.temporal.messaging.behavioral_cohorts_workflow import (
             BehavioralCohortsWorkflow,
             BehavioralCohortsWorkflowInputs,
         )
 
-        # Step 4: Launch child workflows - fire and forget
+        # Step 5: Launch child workflows - fire and forget
         workflows_scheduled = 0
         for i in range(inputs.parallelism):
             offset = i * conditions_per_workflow
