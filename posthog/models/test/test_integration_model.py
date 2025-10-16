@@ -610,6 +610,18 @@ class TestDatabricksIntegrationModel(BaseTest):
 
 
 class TestEmailIntegrationDomainValidation(BaseTest):
+    @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    def test_successful_domain_creation_ses(self, mock_create_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
+        integration = EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+        assert integration.team == self.team
+        assert integration.config["email"] == "user@successdomain.com"
+        assert integration.config["provider"] == "ses"
+        assert integration.config["domain"] == "successdomain.com"
+        assert integration.config["name"] == "Test User"
+        assert integration.config["verified"] is False
+
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
     def test_duplicate_domain_in_another_team(self):
         # Create an integration with a domain in another team
