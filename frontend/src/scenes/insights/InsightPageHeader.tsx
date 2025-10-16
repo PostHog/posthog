@@ -321,7 +321,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <TemplateLinkSection
                                                 templateLink={templateLink}
                                                 heading={undefined}
-                                                tooltip={undefined}
                                                 piiWarning={TEMPLATE_LINK_PII_WARNING}
                                             />
                                         ),

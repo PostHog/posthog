@@ -11,11 +11,7 @@ import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, Lemo
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
-import {
-    TEMPLATE_LINK_HEADING,
-    TEMPLATE_LINK_PII_WARNING,
-    TEMPLATE_LINK_TOOLTIP,
-} from 'lib/components/Sharing/templateLinkMessages'
+import { TEMPLATE_LINK_HEADING, TEMPLATE_LINK_PII_WARNING } from 'lib/components/Sharing/templateLinkMessages'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -29,6 +25,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
@@ -125,6 +122,7 @@ export function SharingModalContent({
     const siteUrl = preflight?.site_url || window.location.origin
     const { featureFlags } = useValues(featureFlagLogic)
     const passwordProtectedSharesEnabled = !!featureFlags[FEATURE_FLAGS.PASSWORD_PROTECTED_SHARES]
+    const { currentProjectId } = useValues(projectLogic)
 
     const { push } = useActions(router)
 
@@ -140,7 +138,10 @@ export function SharingModalContent({
           })
         : null
 
-    const apiQueryUrl = insight?.query ? new URL('api/query/', siteUrl).toString() : null
+    const apiQueryUrl =
+        insight?.query && currentProjectId
+            ? new URL(`api/projects/${currentProjectId}/query/`, siteUrl).toString()
+            : null
     const apiQuerySnippet = apiQueryUrl
         ? createApiQuerySnippet({
               apiQueryUrl,
@@ -414,31 +415,31 @@ export function SharingModalContent({
                     <LemonDivider />
                     <TemplateLinkSection
                         collapsible
+                        defaultExpanded={false}
                         templateLink={getInsightDefinitionUrl({ query: insight.query }, siteUrl)}
                         heading={TEMPLATE_LINK_HEADING}
-                        tooltip={TEMPLATE_LINK_TOOLTIP}
                         piiWarning={TEMPLATE_LINK_PII_WARNING}
                         copyButtonLabel="Copy link"
                     />
                     {renderQuerySnippet && (
-                        <TemplateLinkSection
-                            templateLink={renderQuerySnippet}
-                            heading="Share as template with cached results"
-                            tooltip="Use this snippet on a website to embed the insight via an iframe, and send it cached results via postMessage."
-                            piiWarning="This snipped contains the full insight, including all filters and results. If any of these are sensitive, consider editing before sharing."
-                            collapsible
-                            defaultExpanded={false}
-                        />
-                    )}
-                    {apiQuerySnippet && (
-                        <TemplateLinkSection
-                            templateLink={apiQuerySnippet}
-                            heading="Fetch latest results for shared template"
-                            piiWarning="Use this snippet to call the Query API directly and retrieve the freshest results for this insight."
-                            tooltip="This request shares the full insight query, including filters and properties. Review it before sharing."
-                            collapsible
-                            defaultExpanded={false}
-                        />
+                        <>
+                            <TemplateLinkSection
+                                collapsible
+                                defaultExpanded={false}
+                                templateLink={renderQuerySnippet}
+                                heading="Static iframe embed with pre-computed data"
+                                piiWarning="Add this iframe to any site to embed a static PostHog chart. It will look identical to the chart you see here, but nothing will be editable. If any data is sensitive, consider that before sharing."
+                            />
+                            {apiQuerySnippet && (
+                                <TemplateLinkSection
+                                    templateLink={apiQuerySnippet}
+                                    heading="Fetch latest results for this insight"
+                                    piiWarning='Use this snippet to retrieve the freshest results for the insight. Replace the "cachedResults" section in the iframe&apos;s payload with the results of this call to update it.'
+                                    collapsible
+                                    defaultExpanded={false}
+                                />
+                            )}
+                        </>
                     )}
                 </>
             )}

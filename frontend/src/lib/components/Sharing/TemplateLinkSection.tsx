@@ -28,7 +28,7 @@ export function TemplateLinkSection({
     onShortenLink,
     showShortenButton = false,
     heading,
-    tooltip = 'Share this link to let others create a copy of this insight with the same configuration.',
+    tooltip,
     piiWarning = 'Be aware that you may be sharing sensitive data if contained in your event, property names or filters.',
     collapsible = false,
     defaultExpanded = true,
@@ -74,10 +74,14 @@ export function TemplateLinkSection({
                                 'rotate-90': isExpanded,
                             })}
                         />
-                        <span className="flex items-center gap-2">
-                            {headingIcon ?? <span className="w-4" />}
+                        {headingIcon ? (
+                            <span className="flex items-center gap-2">
+                                {headingIcon}
+                                <b>{heading}</b>
+                            </span>
+                        ) : (
                             <b>{heading}</b>
-                        </span>
+                        )}
                     </button>
                 ) : (
                     <TitleWithIcon icon={headingIcon ?? <span />}>
