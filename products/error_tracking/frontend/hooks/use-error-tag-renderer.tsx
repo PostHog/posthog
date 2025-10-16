@@ -55,28 +55,3 @@ export function useErrorTagRenderer(): (evt: ErrorEventType | null) => JSX.Eleme
         [lastSeen, firstSeen, selectedEvent]
     )
 }
-
-export function useExceptionLabelRenderer(): (
-    evt: ErrorEventType | null
-) => 'first_seen' | 'last_seen' | 'current' | null {
-    const { lastSeen, firstSeen, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
-
-    return useCallback(
-        (evt: ErrorEventType | null) => {
-            if (!evt) {
-                return null
-            }
-            if (lastSeen && evt.timestamp && dayjs(evt.timestamp).isSame(lastSeen)) {
-                return 'last_seen'
-            }
-            if (firstSeen && evt.timestamp && dayjs(evt.timestamp).isSame(firstSeen)) {
-                return 'first_seen'
-            }
-            if (selectedEvent && selectedEvent.uuid == evt.uuid) {
-                return 'current'
-            }
-            return null
-        },
-        [lastSeen, firstSeen, selectedEvent]
-    )
-}
