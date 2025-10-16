@@ -10,14 +10,16 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconComment } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
-    SelectPrimitive,
-    SelectPrimitiveContent,
-    SelectPrimitiveGroup,
-    SelectPrimitiveItem,
-    SelectPrimitiveLabel,
-    SelectPrimitiveSeparator,
-    SelectPrimitiveTrigger,
-} from 'lib/ui/SelectPrimitive/SelectPrimitive'
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuOpenIndicator,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -30,13 +32,9 @@ import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
 import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
-import { isLastSeenException, useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
+import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
-import {
-    ErrorTrackingIssueSceneCategory,
-    ErrorTrackingIssueSceneExceptionsCategory,
-    errorTrackingIssueSceneLogic,
-} from './errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 export function V2Layout(): JSX.Element {
     const { issue, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
@@ -158,115 +156,71 @@ const CategoryContent = (): JSX.Element => {
 }
 
 const Breadcrumbs = (): JSX.Element => {
-    const { category } = useValues(errorTrackingIssueSceneLogic)
+    const { category, exceptionsCategory } = useValues(errorTrackingIssueSceneLogic)
+    const { setCategory, setExceptionsCategory } = useActions(errorTrackingIssueSceneLogic)
 
     return (
         <div className="flex items-center gap-x-2 border bg-surface-tertiary py-1 px-2 rounded">
             <div>Issue</div>
             <div>/</div>
-            <CategorySelect />
-            {category === 'exceptions' && (
+            <div className="flex items-center">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive size="xs">
+                            <span className="capitalize">{category}</span>
+                            <DropdownMenuOpenIndicator />
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+
+                    <DropdownMenuContent loop align="start" side="bottom">
+                        <DropdownMenuGroup>
+                            <DropdownMenuSub>
+                                <DropdownMenuSubTrigger asChild>
+                                    <ButtonPrimitive menuItem>
+                                        Exceptions
+                                        <DropdownMenuOpenIndicator intent="sub" />
+                                    </ButtonPrimitive>
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                    <DropdownMenuItem asChild>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => {
+                                                setCategory('exceptions')
+                                                setExceptionsCategory('exception')
+                                            }}
+                                        >
+                                            Last seen
+                                        </ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem asChild>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => {
+                                                setCategory('exceptions')
+                                                setExceptionsCategory('all')
+                                            }}
+                                        >
+                                            All
+                                        </ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                            <DropdownMenuItem asChild>
+                                <ButtonPrimitive menuItem onClick={() => setCategory('breakdowns')}>
+                                    Breakdowns
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+            {category === 'exceptions' && exceptionsCategory != 'all' ? (
                 <>
                     <div>/</div>
-                    <ExceptionsCategorySelect />
+                    <div>Exception</div>
                 </>
-            )}
+            ) : null}
         </div>
-    )
-}
-
-const CategorySelect = (): JSX.Element => {
-    const { category, exceptionsCategory, initialEvent } = useValues(errorTrackingIssueSceneLogic)
-    const { setCategory, setExceptionsCategory, selectEvent } = useActions(errorTrackingIssueSceneLogic)
-
-    const exceptions = category === 'exceptions'
-    const exceptionsButNotAll = exceptions && exceptionsCategory != 'all'
-
-    return (
-        <div className="flex items-center">
-            {exceptionsButNotAll && (
-                <ButtonPrimitive
-                    size="xs"
-                    onClick={() => {
-                        setCategory('exceptions')
-                        setExceptionsCategory('all')
-                    }}
-                >
-                    Exceptions
-                </ButtonPrimitive>
-            )}
-            <SelectPrimitive
-                value={category}
-                onValueChange={(value) => {
-                    if (['all', 'exception'].includes(value)) {
-                        setCategory('exceptions')
-                        setExceptionsCategory(value as ErrorTrackingIssueSceneExceptionsCategory)
-
-                        if (initialEvent) {
-                            selectEvent(initialEvent)
-                        }
-
-                        return
-                    }
-                    setCategory(value as ErrorTrackingIssueSceneCategory)
-                }}
-            >
-                <SelectPrimitiveTrigger buttonProps={{ size: 'xs' }}>
-                    {exceptionsButNotAll ? <></> : <span className="capitalize">{category}</span>}
-                </SelectPrimitiveTrigger>
-                <SelectPrimitiveContent matchTriggerWidth>
-                    {!exceptions && (
-                        <>
-                            <SelectPrimitiveGroup>
-                                <SelectPrimitiveLabel>Exceptions</SelectPrimitiveLabel>
-                                <SelectPrimitiveItem value="all">All</SelectPrimitiveItem>
-                                <SelectPrimitiveItem value="exception">Last seen</SelectPrimitiveItem>
-                            </SelectPrimitiveGroup>
-                            <SelectPrimitiveSeparator />
-                        </>
-                    )}
-                    <SelectPrimitiveGroup>
-                        <SelectPrimitiveItem value="breakdowns">Breakdowns</SelectPrimitiveItem>
-                    </SelectPrimitiveGroup>
-                </SelectPrimitiveContent>
-            </SelectPrimitive>
-        </div>
-    )
-}
-
-const ExceptionsCategorySelect = (): JSX.Element => {
-    const { exceptionsCategory, initialEvent, lastSeen, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
-    const { setExceptionsCategory, selectEvent } = useActions(errorTrackingIssueSceneLogic)
-
-    const isLastSeenExceptionSelected = selectedEvent && isLastSeenException(lastSeen, selectedEvent)
-
-    const label: string = {
-        all: 'All',
-        exception: isLastSeenExceptionSelected ? 'Last seen' : (selectedEvent?.uuid ?? 'Exception'),
-    }[exceptionsCategory]
-
-    return isLastSeenExceptionSelected ? (
-        <div>{label}</div>
-    ) : (
-        <SelectPrimitive
-            value={exceptionsCategory}
-            onValueChange={(value) => {
-                if (initialEvent) {
-                    setExceptionsCategory(value === 'all' ? 'all' : 'exception')
-                    selectEvent(initialEvent)
-                }
-            }}
-        >
-            <SelectPrimitiveTrigger buttonProps={{ size: 'xs' }}>
-                <div>{label}</div>
-            </SelectPrimitiveTrigger>
-            <SelectPrimitiveContent matchTriggerWidth>
-                {!isLastSeenExceptionSelected && selectedEvent ? (
-                    <SelectPrimitiveItem value={selectedEvent.uuid}>{selectedEvent.uuid}</SelectPrimitiveItem>
-                ) : null}
-                {initialEvent && <SelectPrimitiveItem value={initialEvent.uuid}>Last seen</SelectPrimitiveItem>}
-                <SelectPrimitiveItem value="all">All</SelectPrimitiveItem>
-            </SelectPrimitiveContent>
-        </SelectPrimitive>
     )
 }

@@ -53,7 +53,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         v.includes('persistence.isDisabled is not a function')
     )
 
-    if (true) {
+    if (hasNewIssueLayout) {
         return (
             <ErrorTrackingSetupPrompt>
                 <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>

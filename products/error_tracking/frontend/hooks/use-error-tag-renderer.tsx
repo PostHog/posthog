@@ -4,7 +4,7 @@ import { useCallback } from 'react'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
@@ -66,7 +66,7 @@ export function useExceptionLabelRenderer(): (
             if (!evt) {
                 return null
             }
-            if (isLastSeenException(lastSeen, evt)) {
+            if (lastSeen && evt.timestamp && dayjs(evt.timestamp).isSame(lastSeen)) {
                 return 'last_seen'
             }
             if (firstSeen && evt.timestamp && dayjs(evt.timestamp).isSame(firstSeen)) {
@@ -79,8 +79,4 @@ export function useExceptionLabelRenderer(): (
         },
         [lastSeen, firstSeen, selectedEvent]
     )
-}
-
-export const isLastSeenException = (lastSeen: Dayjs | null, evt: ErrorEventType): boolean => {
-    return !!lastSeen && !!evt.timestamp && dayjs(evt.timestamp).isSame(lastSeen)
 }
