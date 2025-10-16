@@ -410,7 +410,7 @@ class Task(models.Model):
         team: Team,
         title: str,
         description: str,
-        origin_product: str,
+        origin_product: "Task.OriginProduct",
         user_id: int,  # Will be used to validate the feature flag and create a personal api key for interacting with PostHog.
         repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
     ) -> "Task":
@@ -418,7 +418,13 @@ class Task(models.Model):
 
         created_by = User.objects.get(id=user_id)
 
+        if not created_by:
+            raise ValueError(f"User {user_id} does not exist")
+
         github_integration = Integration.objects.filter(team=team, kind="github").first()
+
+        if not github_integration:
+            raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         repository_config = {}
 
