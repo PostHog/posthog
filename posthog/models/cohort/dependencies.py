@@ -4,6 +4,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from prometheus_client import Counter
+from rest_framework.exceptions import ValidationError
 from structlog import get_logger
 
 from posthog.models.cohort.cohort import Cohort
@@ -34,13 +35,17 @@ def extract_cohort_dependencies(cohort: Cohort) -> set[int]:
     """
     dependencies = set()
     if not cohort.deleted:
-        for prop in cohort.properties.flat:
-            if prop.type == "cohort" and isinstance(prop.value, int) and prop.value != cohort.id:
-                dependencies.add(prop.value)
+        try:
+            for prop in cohort.properties.flat:
+                if prop.type == "cohort" and isinstance(prop.value, int) and prop.value != cohort.id:
+                    dependencies.add(prop.value)
+        except ValidationError as e:
+            COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="invalid").inc()
+            logger.warning("Skipping cohort with invalid filters", cohort_id=cohort.id, error=str(e))
     return dependencies
 
 
-def get_cohort_dependencies(cohort: Cohort) -> list[int]:
+def get_cohort_dependencies(cohort: Cohort, _warming: bool = False) -> list[int]:
     """
     Get the list of cohort IDs that the given cohort depends on.
     """
@@ -50,10 +55,11 @@ def get_cohort_dependencies(cohort: Cohort) -> list[int]:
     cache_hit = cache.has_key(cache_key)
 
     def compute_dependencies():
-        COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss").inc()
+        if not _warming:
+            COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss").inc()
         return list(extract_cohort_dependencies(cohort))
 
-    if cache_hit:
+    if cache_hit and not _warming:
         COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="hit").inc()
 
     result = cache.get_or_set(
@@ -114,7 +120,7 @@ def warm_team_cohort_dependency_cache(team_id: int, batch_size: int = 1000):
     for cohort in Cohort.objects.filter(team_id=team_id, deleted=False).iterator(chunk_size=batch_size):
         # Any invalidated dependencies cache is rebuilt here
         dependents_map.setdefault(_cohort_dependents_key(cohort.id), [])
-        dependencies = get_cohort_dependencies(cohort)
+        dependencies = get_cohort_dependencies(cohort, _warming=True)
         # Dependency keys aren't fully invalidated; make sure they don't expire.
         cache.touch(_cohort_dependencies_key(cohort.id), timeout=DEPENDENCY_CACHE_TIMEOUT)
         # Build reverse map

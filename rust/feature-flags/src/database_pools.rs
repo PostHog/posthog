@@ -4,6 +4,7 @@ use common_database::{get_pool_with_config, PoolConfig};
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::info;
 
 /// Direct database pool access for different operation types
 #[derive(Clone)]
@@ -95,6 +96,25 @@ impl DatabasePools {
             non_persons_writer.clone()
         };
 
+        // Log pool configuration at startup
+        info!(
+            max_connections = config.max_pg_connections,
+            acquire_timeout_secs = config.acquire_timeout_secs,
+            idle_timeout_secs = config.idle_timeout_secs,
+            max_lifetime_secs = config.max_lifetime_secs,
+            test_before_acquire = config.test_before_acquire.0,
+            persons_routing_enabled = config.is_persons_db_routing_enabled(),
+            "Database pool configuration"
+        );
+
+        // Log whether pools are actually separate or aliased
+        let pools_are_separate = config.is_persons_db_routing_enabled();
+        if pools_are_separate {
+            info!("Using separate persons database pools");
+        } else {
+            info!("Persons pools are aliased to non-persons pools (persons DB routing disabled)");
+        }
+
         Ok(DatabasePools {
             non_persons_reader,
             non_persons_writer,
@@ -110,7 +130,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_database_routing_disabled() {
-        let config = Config::default_test_config();
+        let config = Config {
+            persons_read_database_url: "".to_string(),
+            persons_write_database_url: "".to_string(),
+            ..Config::default_test_config()
+        };
 
         assert!(!config.is_persons_db_routing_enabled());
         assert_eq!(
@@ -125,20 +149,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_database_routing_enabled() {
-        let config = Config {
-            persons_read_database_url: "postgres://user:pass@persons-reader:5432/db".to_string(),
-            persons_write_database_url: "postgres://user:pass@persons-writer:5432/db".to_string(),
-            ..Config::default_test_config()
-        };
+        let config = Config::default_test_config();
 
         assert!(config.is_persons_db_routing_enabled());
         assert_eq!(
             config.get_persons_read_database_url(),
-            "postgres://user:pass@persons-reader:5432/db"
+            "postgres://posthog:posthog@localhost:5432/posthog_persons"
         );
         assert_eq!(
             config.get_persons_write_database_url(),
-            "postgres://user:pass@persons-writer:5432/db"
+            "postgres://posthog:posthog@localhost:5432/posthog_persons"
         );
     }
 }

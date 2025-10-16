@@ -513,7 +513,7 @@ class TestTask(TestCase):
         self.assertEqual(repo_list[0]["org"], "PostHog")
         self.assertEqual(repo_list[0]["repo"], "posthog")
         self.assertEqual(repo_list[0]["integration_id"], integration.id)
-        self.assertEqual(repo_list[0]["full_name"], "PostHog/posthog")
+        self.assertEqual(repo_list[0]["full_name"], "posthog/posthog")
 
     def test_repository_list_empty(self):
         task = Task.objects.create(
@@ -1137,3 +1137,10 @@ class TestSandboxSnapshot(TestCase):
         self.integration.delete()
 
         self.assertEqual(SandboxSnapshot.objects.filter(integration__isnull=True).count(), 2)
+
+    def test_delete_without_external_id_succeeds(self):
+        snapshot = SandboxSnapshot.objects.create(integration=self.integration)
+
+        snapshot.delete()
+
+        self.assertEqual(SandboxSnapshot.objects.filter(id=snapshot.id).count(), 0)

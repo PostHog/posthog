@@ -14,7 +14,8 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Breadcrumb, Experiment, ExperimentsTabs, FeatureFlagType, ProgressStatus } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityScope, Breadcrumb, Experiment, ExperimentsTabs, FeatureFlagType, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
 
@@ -210,7 +211,9 @@ export const experimentsLogic = kea<experimentsLogicType>([
             {
                 loadFeatureFlagModalFeatureFlags: async () => {
                     const response = await api.get(
-                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams(values.featureFlagModalParamsFromFilters)}`
+                        `api/projects/${values.currentProjectId}/experiments/eligible_feature_flags/?${toParams({
+                            ...values.featureFlagModalParamsFromFilters,
+                        })}`
                     )
                     return response
                 },
@@ -315,6 +318,12 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     iconType: 'experiment',
                 },
             ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.EXPERIMENT,
+            }),
         ],
     }),
     afterMount(({ actions, values }) => {

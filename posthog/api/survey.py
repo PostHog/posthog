@@ -52,6 +52,8 @@ from posthog.models.surveys.util import (
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
@@ -108,7 +110,7 @@ SurveyStats = TypedDict(
 )
 
 
-class SurveySerializer(serializers.ModelSerializer):
+class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -170,6 +172,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "user_access_level",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -804,7 +807,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError("Targeting flag for survey failed, invalid parameters.")
 
 
-class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").all()
     filter_backends = [filters.SearchFilter]

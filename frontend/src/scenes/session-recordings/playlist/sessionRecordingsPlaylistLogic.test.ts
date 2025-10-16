@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
 import { playlistLogic } from './playlistLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
@@ -182,7 +182,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             it('mounts and loads the recording when a recording is opened', () => {
                 expectLogic(logic, async () => logic.asyncActions.setSelectedRecordingId('abcd'))
-                    .toMount(sessionRecordingDataLogic({ sessionRecordingId: 'abcd' }))
+                    .toMount(sessionRecordingDataCoordinatorLogic({ sessionRecordingId: 'abcd' }))
                     .toDispatchActions(['loadEntireRecording'])
             })
 

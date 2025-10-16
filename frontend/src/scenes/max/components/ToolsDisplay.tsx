@@ -54,8 +54,8 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
                     className={clsx(
                         'relative flex items-center text-xs font-medium justify-between gap-1 overflow-hidden',
                         !isFloating
-                            ? 'w-[calc(100%-1rem)] px-1.5 py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
-                            : `w-full px-2 pb-1`
+                            ? 'w-[calc(100%-1rem)] px-1.5 pt-2 pb-1 -m-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                            : `w-full px-2 pb-1 pt-0.5`
                     )}
                 >
                     <TruncatedHorizontalCollection>
@@ -103,9 +103,9 @@ function TruncatedHorizontalCollection<Children extends React.ReactElement>({
         let foundOverflow = false
         for (let i = 0; i < collectionRef.current.length; i++) {
             const toolEl = collectionRef.current[i]
-            if (toolEl) {
+            if (toolEl && containerRef.current) {
                 const rightOverflow =
-                    toolEl.getBoundingClientRect().right - containerRef.current!.getBoundingClientRect().right
+                    toolEl.getBoundingClientRect().right - containerRef.current.getBoundingClientRect().right
                 // Items other than the last one need overflowIndicatorWidth px of space to the right to safely show "+ n more"
                 const requiredSpacePx =
                     i === collectionRef.current.length - 1 ? 0 : overflowIndicatorRef.current?.clientWidth || 0

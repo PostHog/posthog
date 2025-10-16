@@ -636,7 +636,7 @@ def databricks_integration(team, user):
     return Integration.objects.create(
         team=team,
         kind=Integration.IntegrationKind.DATABRICKS,
-        integration_id=str(team.pk),
+        integration_id="my-server-hostname",
         config={"server_hostname": "my-server-hostname"},
         sensitive_config={"client_id": "my-client-id", "client_secret": "my-client-secret"},
         created_by=user,
@@ -798,7 +798,7 @@ def test_creating_databricks_batch_export_fails_if_integration_is_invalid(
     integration = Integration.objects.create(
         team=team,
         kind=Integration.IntegrationKind.DATABRICKS,
-        integration_id=str(team.pk),
+        integration_id="my-server-hostname",
         config={"server_hostname": "my-server-hostname"},
         sensitive_config={"client_id": "my-client-id"},
         created_by=user,
@@ -889,7 +889,7 @@ def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correc
     integration = Integration.objects.create(
         team=team,
         kind=Integration.IntegrationKind.SLACK,
-        integration_id=str(team.pk),
+        integration_id="my-server-hostname",
         config={"server_hostname": "my-server-hostname"},
         sensitive_config={"client_id": "my-client-id"},
         created_by=user,

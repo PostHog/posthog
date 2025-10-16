@@ -12,6 +12,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { BatchExportConfigurationForm } from './types'
@@ -85,9 +86,11 @@ export function BatchExportGeneralEditFields({
 export function BatchExportsEditFields({
     isNew,
     batchExportConfigForm,
+    configurationChanged,
 }: {
     isNew: boolean
     batchExportConfigForm: BatchExportConfigurationForm
+    configurationChanged: boolean
 }): JSX.Element {
     return (
         <>
@@ -223,6 +226,10 @@ export function BatchExportsEditFields({
 
                                     // Set defaults when file format changes for new destinations
                                     React.useEffect(() => {
+                                        // Only run when configuration changes
+                                        if (!configurationChanged) {
+                                            return
+                                        }
                                         if (isNew && batchExportConfigForm.file_format === 'JSONLines') {
                                             onChange(null)
                                         } else if (isNew && batchExportConfigForm.file_format === 'Parquet') {
@@ -231,7 +238,7 @@ export function BatchExportsEditFields({
                                             // if file format is changed but existing compression is not valid, set to null
                                             onChange(null)
                                         }
-                                    }, [batchExportConfigForm.file_format, isNew]) // oxlint-disable-line react-hooks/exhaustive-deps
+                                    }, [configurationChanged, batchExportConfigForm.file_format, isNew]) // oxlint-disable-line react-hooks/exhaustive-deps
 
                                     return (
                                         <LemonSelect
@@ -484,6 +491,102 @@ export function BatchExportsEditFields({
                                         </span>
                                     }
                                 />
+                            </LemonField>
+                        ) : null}
+                    </>
+                ) : batchExportConfigForm.destination === 'Databricks' ? (
+                    <>
+                        <LemonField name="integration_id" label="Integration">
+                            {({ value, onChange }) => (
+                                <IntegrationChoice integration="databricks" value={value} onChange={onChange} />
+                            )}
+                        </LemonField>
+
+                        <LemonField
+                            name="http_path"
+                            label="HTTP Path"
+                            info={<>HTTP Path value for your all-purpose compute or SQL warehouse.</>}
+                        >
+                            <LemonInput placeholder="/sql/1.0/warehouses/my-warehouse" />
+                        </LemonField>
+
+                        <LemonField name="catalog" label="Catalog">
+                            <LemonInput placeholder="workspace" />
+                        </LemonField>
+
+                        <LemonField name="schema" label="Schema">
+                            <LemonInput placeholder="default" />
+                        </LemonField>
+
+                        <LemonField name="table_name" label="Table name">
+                            <LemonInput placeholder="my-table" />
+                        </LemonField>
+
+                        {isNew ? (
+                            <LemonField
+                                name="table_partition_field"
+                                label="Table partition field"
+                                showOptional
+                                info={
+                                    <>
+                                        The field to partition the table by. If left empty, the default partition by
+                                        field for the model will be used (if applicable). For more information, refer to
+                                        the{' '}
+                                        <Link
+                                            to="https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-partition"
+                                            target="_blank"
+                                        >
+                                            Databricks documentation
+                                        </Link>
+                                        .
+                                        <br />
+                                        <strong>
+                                            This setting cannot be changed after the batch export is created.
+                                        </strong>
+                                    </>
+                                }
+                            >
+                                <LemonInput placeholder="my-partition-field" />
+                            </LemonField>
+                        ) : null}
+
+                        {isNew ? (
+                            <LemonField name="use_variant_type">
+                                {({ value, onChange }) => (
+                                    <LemonCheckbox
+                                        checked={!!value}
+                                        onChange={onChange}
+                                        bordered
+                                        label={
+                                            <span className="flex gap-2 items-center">
+                                                Use VARIANT type for storing JSON data
+                                                <Tooltip
+                                                    title={
+                                                        <>
+                                                            Using VARIANT for storing JSON data is{' '}
+                                                            <Link
+                                                                to="https://docs.databricks.com/aws/en/semi-structured/variant"
+                                                                target="_blank"
+                                                            >
+                                                                recommended by Databricks
+                                                            </Link>{' '}
+                                                            , however, the VARIANT data type is only available in
+                                                            Databricks Runtime 15.3 and above. If left unchecked, JSON
+                                                            data will be stored using the STRING type.
+                                                            <br />
+                                                            <strong>
+                                                                This setting cannot be changed after the batch export is
+                                                                created.
+                                                            </strong>
+                                                        </>
+                                                    }
+                                                >
+                                                    <IconInfo className="text-lg text-secondary" />
+                                                </Tooltip>
+                                            </span>
+                                        }
+                                    />
+                                )}
                             </LemonField>
                         ) : null}
                     </>

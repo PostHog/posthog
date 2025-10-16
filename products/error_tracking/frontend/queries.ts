@@ -26,13 +26,22 @@ export const errorTrackingQuery = ({
     volumeResolution = ERROR_TRACKING_LISTING_RESOLUTION,
     columns,
     orderDirection,
+    personId,
     limit = 50,
 }: Pick<
     ErrorTrackingQuery,
-    'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery' | 'orderDirection'
+    | 'orderBy'
+    | 'status'
+    | 'dateRange'
+    | 'assignee'
+    | 'filterTestAccounts'
+    | 'limit'
+    | 'searchQuery'
+    | 'orderDirection'
+    | 'personId'
 > & {
     filterGroup: UniversalFiltersGroup
-    columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee' | 'library')[]
+    columns: string[]
     volumeResolution?: number
 }): DataTableNode => {
     return {
@@ -51,6 +60,7 @@ export const errorTrackingQuery = ({
             orderDirection,
             withAggregations: true,
             withFirstEvent: false,
+            personId,
             tags: {
                 productKey: ProductKey.ERROR_TRACKING,
             },
@@ -87,6 +97,7 @@ export const errorTrackingIssueQuery = ({
         issueId,
         dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,
+        orderBy: 'last_seen',
         filterTestAccounts,
         searchQuery,
         volumeResolution,

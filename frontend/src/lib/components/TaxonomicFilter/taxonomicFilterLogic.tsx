@@ -30,7 +30,7 @@ import {
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
@@ -121,7 +121,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['currentProjectId'],
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
-            dataWarehouseSceneLogic, // This logic needs to be connected to stop the popover from erroring out
+            dataWarehouseSettingsSceneLogic, // This logic needs to be connected to stop the popover from erroring out
             ['dataWarehouseTables'],
             dataWarehouseJoinsLogic,
             ['columnsJoinedToPersons'],
@@ -296,7 +296,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Data warehouse tables',
                         searchPlaceholder: 'data warehouse tables',
                         type: TaxonomicFilterGroupType.DataWarehouse,
-                        logic: dataWarehouseSceneLogic,
+                        logic: dataWarehouseSettingsSceneLogic,
                         value: 'dataWarehouseTablesAndViews',
                         getName: (table: DatabaseSchemaTable) => table.name,
                         getValue: (table: DatabaseSchemaTable) => table.name,

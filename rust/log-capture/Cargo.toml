@@ -31,6 +31,7 @@ rdkafka = { workspace = true }
 sha2 = "0.10.8"
 uuid = { workspace = true }
 chrono = { workspace = true }
+apache-avro = { version = "0.18.0", features = ["zstandard"] }
 
 [dev-dependencies]
 

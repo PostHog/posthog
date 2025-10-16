@@ -62,4 +62,23 @@ impl S3Impl {
             .fin();
         res
     }
+
+    // Simply assert we can do a ListBucket operation, returning an error if not. This is
+    // useful during app startup to ensure the bucket is accessible.
+    #[allow(dead_code)]
+    pub async fn ping_bucket(&self, bucket: &str) -> Result<(), UnhandledError> {
+        let res = self
+            .inner
+            .list_objects_v2()
+            .bucket(bucket)
+            .prefix("")
+            .send()
+            .await;
+
+        if let Err(e) = res {
+            Err(S3Error::from(e).into())
+        } else {
+            Ok(())
+        }
+    }
 }

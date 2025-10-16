@@ -1,6 +1,6 @@
 from typing import Optional
 
-from django.db import transaction
+from django.db import router, transaction
 
 import structlog
 from rest_framework.exceptions import NotFound
@@ -62,13 +62,16 @@ def _get_version_for_distinct_id(team_id: int, distinct_id: str) -> int:
 
 
 def _updated_distinct_ids(team_id: int, distinct_id_versions: list[tuple[str, int]]):
+    # Determine the correct database for PersonDistinctId writes (handles persons_db_writer routing in production)
+    db_alias = router.db_for_write(PersonDistinctId) or "default"
+
     for distinct_id, version in distinct_id_versions:
         # this can throw but this script can safely be re-run as
         # updated distinct_ids won't show up in the search anymore
         # since they no longer belong to deleted persons
         # it's safer to throw and exit if anything went wrong
 
-        with transaction.atomic():
+        with transaction.atomic(using=db_alias):
             person_distinct_id = _update_distinct_id_in_postgres(distinct_id, version, team_id)
 
         # Update ClickHouse via Kafka message

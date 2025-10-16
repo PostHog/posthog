@@ -15,7 +15,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { CodeEditorLogicProps, codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQuery } from '~/queries/schema/schema-general'
@@ -78,7 +78,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const { hasErrors, error } = useValues(codeEditorLogic(codeEditorLogicProps))
 
     const { editingView } = useValues(
-        dataWarehouseSceneLogic({
+        dataWarehouseSettingsSceneLogic({
             monaco,
             editor,
         })

@@ -363,13 +363,12 @@ def get_experiment_exposure_query(
         variant
         first_exposure_time
     """
-    event, feature_flag_variant_property = get_exposure_event_and_property(
+    _, feature_flag_variant_property = get_exposure_event_and_property(
         feature_flag_key=feature_flag.key, exposure_criteria=experiment.exposure_criteria
     )
 
     # Build common exposure conditions
     exposure_conditions = build_common_exposure_conditions(
-        event=event,
         feature_flag_variant_property=feature_flag_variant_property,
         variants=variants,
         date_range_query=date_range_query,

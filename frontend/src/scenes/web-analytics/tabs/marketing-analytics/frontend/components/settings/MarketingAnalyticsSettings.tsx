@@ -4,6 +4,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { AttributionSettings } from './AttributionSettings'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
 import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourceConfiguration'
 import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
@@ -33,6 +34,8 @@ export function MarketingAnalyticsSettings({
                     <BaseCurrency />
                 </>
             )}
+            <SceneDivider />
+            <AttributionSettings />
             <SceneDivider />
             <ConversionGoalsConfiguration />
             <SceneDivider />

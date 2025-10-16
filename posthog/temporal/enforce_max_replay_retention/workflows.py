@@ -21,7 +21,7 @@ class EnforceMaxReplayRetentionWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             enforce_max_replay_retention,
             input,
-            start_to_close_timeout=timedelta(minutes=60),
+            start_to_close_timeout=timedelta(minutes=120),
             retry_policy=common.RetryPolicy(
                 maximum_attempts=2,
                 initial_interval=timedelta(minutes=1),

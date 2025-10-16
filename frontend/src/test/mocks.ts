@@ -3,6 +3,7 @@ import { PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 
 import {
+    AccessControlLevel,
     BehavioralEventType,
     CohortType,
     EventDefinition,
@@ -143,6 +144,7 @@ export const mockActionDefinition = {
     team_id: 1,
     created_by: null,
     pinned_at: null,
+    user_access_level: AccessControlLevel.Editor,
 }
 
 export const mockCohort: CohortType = {

@@ -31,26 +31,39 @@ export function getDefaultConfig(): PluginsServerConfig {
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
         PERSONS_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
+            ? 'postgres://posthog:posthog@localhost:5432/test_persons'
             : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
               : '',
-        PERSONS_READONLY_DATABASE_URL: '',
+        PERSONS_READONLY_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_persons'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+              : '',
+        BEHAVIORAL_COHORTS_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/behavioral_cohorts'
+              : '',
         PERSONS_MIGRATION_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_posthog_persons_migration'
+            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
             : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons_migration'
+              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
               : '',
-        PERSONS_MIGRATION_READONLY_DATABASE_URL: '',
+        PERSONS_MIGRATION_READONLY_DATABASE_URL: isTestEnv()
+            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
+            : isDevEnv()
+              ? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+              : '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
         POSTHOG_DB_PASSWORD: '',
         POSTHOG_POSTGRES_HOST: 'localhost',
         POSTHOG_POSTGRES_PORT: 5432,
-        POSTGRES_COUNTERS_HOST: 'localhost',
-        POSTGRES_COUNTERS_USER: 'postgres',
-        POSTGRES_COUNTERS_PASSWORD: '',
+        POSTGRES_BEHAVIORAL_COHORTS_HOST: 'localhost',
+        POSTGRES_BEHAVIORAL_COHORTS_USER: 'postgres',
+        POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: '',
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
@@ -119,6 +132,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000, // 3 seconds
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000, // 3 seconds
+        EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000, // 10 seconds
+        EXTERNAL_REQUEST_CONNECTIONS: 500, // 500 connections
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
@@ -262,6 +277,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
+        SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: Number.MAX_SAFE_INTEGER,
         // in both the PostHog cloud environment and development
         // we want this metadata switchover to be in blob ingestion v2 mode
         // hobby installs will set this metadata value to a datetime
@@ -316,7 +332,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
-        // Messaging
+        // Workflows
         MAILJET_PUBLIC_KEY: '',
         MAILJET_SECRET_KEY: '',
 
@@ -324,7 +340,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
-        SES_REGION: 'us-east-1',
+        SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
+
+        // Pod termination
+        POD_TERMINATION_ENABLED: false,
+        POD_TERMINATION_BASE_TIMEOUT_MINUTES: 30, // Default: 30 minutes
+        POD_TERMINATION_JITTER_MINUTES: 45, // Default: 45 hour, so timeout is between 30 minutes and 1h15m
     }
 }
 
@@ -374,6 +395,18 @@ export function overrideWithEnv(
             ).join(', ')}`
         )
     }
+
+    if (
+        !newConfig.BEHAVIORAL_COHORTS_DATABASE_URL &&
+        newConfig.POSTGRES_BEHAVIORAL_COHORTS_HOST &&
+        newConfig.POSTGRES_BEHAVIORAL_COHORTS_USER &&
+        newConfig.POSTGRES_BEHAVIORAL_COHORTS_PASSWORD
+    ) {
+        const encodedUser = encodeURIComponent(newConfig.POSTGRES_BEHAVIORAL_COHORTS_USER)
+        const encodedPassword = encodeURIComponent(newConfig.POSTGRES_BEHAVIORAL_COHORTS_PASSWORD)
+        newConfig.BEHAVIORAL_COHORTS_DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTGRES_BEHAVIORAL_COHORTS_HOST}:5432/behavioral_cohorts`
+    }
+
     return newConfig
 }
 

@@ -14,7 +14,7 @@ import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
@@ -49,9 +49,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     const { setActions, insertAfter, setMessageListeners, setExpanded, scrollIntoView } = useActions(notebookNodeLogic)
 
     const { sessionPlayerMetaData, sessionPlayerMetaDataLoading, sessionPlayerData } = useValues(
-        sessionRecordingDataLogic(recordingLogicProps)
+        sessionRecordingDataCoordinatorLogic(recordingLogicProps)
     )
-    const { loadRecordingMeta, loadSnapshots } = useActions(sessionRecordingDataLogic(recordingLogicProps))
+    const { loadRecordingMeta, loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(recordingLogicProps))
     const { seekToTimestamp, seekToTime, setPlay, setPause } = useActions(
         sessionRecordingPlayerLogic(recordingLogicProps)
     )

@@ -118,8 +118,8 @@ class ErrorTrackingIssueImpactToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
-    def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
-        return super().handle_tools(tool_name, tool_input)
+    async def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
+        return await super().handle_tools(tool_name, tool_input)
 
     def _get_custom_tools(self) -> list:
         return [final_answer]
