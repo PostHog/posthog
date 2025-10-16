@@ -71,14 +71,14 @@ export function HeatmapsBrowserNoPageSelected(): JSX.Element {
     return <App />
 }
 
-export const HeatmapsBrowserWithUnauthorizedPageSelected: Story = {
-    parameters: {
-        pageUrl: urls.heatmaps('pageURL=https://random.example.com'),
-    },
-}
-
 export const HeatmapsBrowserWithPageSelected: Story = {
     parameters: {
         pageUrl: urls.heatmaps('pageURL=https://example.com&heatmapPalette=red&heatmapFilters={"type"%3A"mousemove"}'),
+    },
+}
+
+export const HeatmapsBrowserWithUnauthorizedPageSelected: Story = {
+    parameters: {
+        pageUrl: urls.heatmaps('pageURL=https://random.example.com'),
     },
 }

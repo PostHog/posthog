@@ -64,6 +64,7 @@
           ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
           ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
           ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
+          ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
           ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
           ExternalDataSourceType.STRIPE: StripeSourceConfig,
           ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,

@@ -2,12 +2,18 @@ from itertools import cycle
 from typing import Any, Literal, Optional, cast
 from uuid import uuid4
 
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
+from posthog.test.base import (
+    ClickhouseTestMixin,
+    NonAtomicBaseTest,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
@@ -138,6 +144,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             team=self.team,
             properties={"$host": "us.posthog.com"},
         )
+        await sync_to_async(flush_persons_and_events)()
 
     async def _run_assistant_graph(
         self,
@@ -206,9 +213,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 msg_dict = (
                     expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
                 )
-                self.assertDictContainsSubset(
-                    msg_dict,
-                    cast(BaseModel, output_msg).model_dump(exclude_none=True),
+                self.assertLessEqual(
+                    msg_dict.items(),
+                    cast(BaseModel, output_msg).model_dump(exclude_none=True).items(),
                     f"Message content mismatch at index {i}",
                 )
             else:
@@ -223,7 +230,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 else expected_message
             )
             msg_dict = message.model_dump(exclude_none=True) if isinstance(message, BaseModel) else message
-            self.assertDictContainsSubset(expected_msg_dict, msg_dict, f"Message content mismatch at index {i}")
+            self.assertLessEqual(expected_msg_dict.items(), msg_dict.items(), f"Message content mismatch at index {i}")
 
     @patch(
         "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
@@ -1680,6 +1687,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     visible=False,
                 ),
             ),
+            ("message", AssistantMessage(content="Everything is fine")),
         ]
         self.assertConversationEqual(output, expected_output)
 
@@ -1704,6 +1712,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ui_payload={"create_and_query_insight": query.model_dump()},
                 visible=False,
             ),
+            AssistantMessage(content="Everything is fine"),
         ]
         state = cast(AssistantState, state)
         self.assertStateMessagesEqual(cast(list[Any], state.messages), expected_state_messages)

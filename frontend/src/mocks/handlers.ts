@@ -14,6 +14,8 @@ import {
 
 import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
+import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
+import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
 import { SharingConfigurationType } from '~/types'
 
 import { getAvailableProductFeatures } from './features'
@@ -214,6 +216,8 @@ export const defaultMocks: Mocks = {
         'api/projects/@current/resource_access_controls': EMPTY_PAGINATED_RESPONSE,
         'api/projects/@current/access_controls': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
+        '/api/sdk_versions/': sdkVersions,
+        '/api/team_sdk_versions/': teamSdkVersions,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),

@@ -145,8 +145,7 @@ fn detect_group_changes(
 
 /// Create a PostHog group identify event
 fn create_group_identify_event(
-    team_id: i32,
-    token: String,
+    context: &TransformContext,
     distinct_id: String,
     group_type: String,
     group_key: String,
@@ -179,6 +178,10 @@ fn create_group_identify_event(
         "analytics_source".to_string(),
         Value::String("amplitude".to_string()),
     );
+    properties.insert(
+        "$import_job_id".to_string(),
+        Value::String(context.job_id.to_string()),
+    );
 
     let raw_event = RawEvent {
         event: "$groupidentify".to_string(),
@@ -186,7 +189,7 @@ fn create_group_identify_event(
         timestamp: Some(timestamp.to_rfc3339()),
         distinct_id: Some(Value::String(distinct_id.clone())),
         uuid: Some(event_uuid),
-        token: Some(token.clone()),
+        token: Some(context.token.clone()),
         offset: None,
         set: None,
         set_once: None,
@@ -199,12 +202,12 @@ fn create_group_identify_event(
         data: serde_json::to_string(&raw_event)?,
         now: timestamp.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
         sent_at: None,
-        token,
+        token: context.token.clone(),
         is_cookieless_mode: false,
     };
 
     Ok(InternallyCapturedEvent {
-        team_id,
+        team_id: context.team_id,
         inner: captured_event,
     })
 }
@@ -453,6 +456,10 @@ impl AmplitudeEvent {
                 "analytics_source".to_string(),
                 Value::String("amplitude".to_string()),
             );
+            properties.insert(
+                "$import_job_id".to_string(),
+                Value::String(context.job_id.to_string()),
+            );
 
             // Add groups to the regular event properties BEFORE creating RawEvent
             if !amp.groups.is_empty() {
@@ -538,8 +545,7 @@ impl AmplitudeEvent {
                     Ok(changed_groups) => {
                         for changed_group in changed_groups {
                             match create_group_identify_event(
-                                team_id,
-                                token.clone(),
+                                &context,
                                 distinct_id.clone(),
                                 changed_group.group_type,
                                 changed_group.group_key,
@@ -639,6 +645,7 @@ mod tests {
         TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -999,6 +1006,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1074,6 +1082,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: cache.clone(),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1116,6 +1125,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1155,6 +1165,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1218,6 +1229,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: true,
@@ -1274,6 +1286,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(crate::cache::MockGroupCache::new()),
             import_events: false, // Disabled
@@ -1327,6 +1340,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1424,6 +1438,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: group_cache.clone(),
             import_events: true,
@@ -1498,6 +1513,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: group_cache.clone(),
             import_events: true,
@@ -1566,6 +1582,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1629,6 +1646,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1688,6 +1706,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1738,6 +1757,7 @@ mod tests {
         let context = TransformContext {
             team_id: 123,
             token: "test_token".to_string(),
+            job_id: Uuid::now_v7(),
             identify_cache: Arc::new(MockIdentifyCache::new()),
             group_cache: Arc::new(MockGroupCache::new()),
             import_events: true,
@@ -1756,6 +1776,101 @@ mod tests {
         assert_eq!(
             original_data["properties"]["$groups"]["company"],
             "acme-corp"
+        );
+    }
+
+    #[test]
+    fn test_job_id_in_amplitude_event() {
+        use crate::cache::{MockGroupCache, MockIdentifyCache};
+        use std::sync::Arc;
+
+        let test_job_id = Uuid::now_v7();
+
+        let amp_event = AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            ..Default::default()
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            group_cache: Arc::new(MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: false,
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+        let result = parser(amp_event).unwrap();
+
+        assert_eq!(result.len(), 1);
+
+        let data: RawEvent = serde_json::from_str(&result[0].inner.data).unwrap();
+        assert_eq!(
+            data.properties.get("$import_job_id"),
+            Some(&json!(test_job_id.to_string()))
+        );
+    }
+
+    #[test]
+    fn test_job_id_in_group_identify_event() {
+        use crate::cache::{MockGroupCache, MockIdentifyCache};
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let test_job_id = Uuid::now_v7();
+
+        let mut groups = HashMap::new();
+        groups.insert("company".to_string(), vec!["acme-corp".to_string()]);
+
+        let mut group_properties = HashMap::new();
+        let mut company_props = HashMap::new();
+        company_props.insert("acme-corp".to_string(), {
+            let mut props = HashMap::new();
+            props.insert("name".to_string(), json!("Acme Corporation"));
+            props
+        });
+        group_properties.insert("company".to_string(), company_props);
+
+        let amp_event = AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            groups,
+            group_properties,
+            ..Default::default()
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            group_cache: Arc::new(MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: true,
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+        let result = parser(amp_event).unwrap();
+
+        assert_eq!(result.len(), 2);
+
+        let group_identify_data: serde_json::Value =
+            serde_json::from_str(&result[0].inner.data).unwrap();
+        assert_eq!(group_identify_data["event"], "$groupidentify");
+        assert_eq!(
+            group_identify_data["properties"]["$import_job_id"],
+            json!(test_job_id.to_string())
+        );
+
+        let original_data: serde_json::Value = serde_json::from_str(&result[1].inner.data).unwrap();
+        assert_eq!(
+            original_data["properties"]["$import_job_id"],
+            json!(test_job_id.to_string())
         );
     }
 }
