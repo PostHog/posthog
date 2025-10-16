@@ -12,7 +12,6 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
-    conversion_window_to_seconds,
     event_or_action_to_filter,
     funnel_evaluation_expr,
     funnel_steps_to_filter,
@@ -137,7 +136,6 @@ class ExperimentQueryBuilder:
                 "funnel_steps_filter": self._build_funnel_steps_filter(),
                 "funnel_aggregation": self._build_funnel_aggregation_expr(),
                 "num_steps_minus_1": ast.Constant(value=num_steps - 1),
-                "conversion_window_predicate": self._build_conversion_window_predicate(),
                 "uuid_to_session_map": self._build_uuid_to_session_map(),
             },
         )
@@ -181,24 +179,6 @@ class ExperimentQueryBuilder:
         query.select.extend([parse_expr(step_counts_expr), parse_expr(event_uuids_exprs_sql)])
 
         return query
-
-    def _build_conversion_window_predicate(self) -> ast.Expr:
-        """
-        Build the predicate for limiting metric events to the conversion window for the user.
-        """
-        expr = "metric_events.timestamp >= exposures.first_exposure_time"
-
-        conversion_window_seconds = 0
-        if self.metric.conversion_window and self.metric.conversion_window_unit:
-            conversion_window_seconds = conversion_window_to_seconds(
-                self.metric.conversion_window,
-                self.metric.conversion_window_unit,
-            )
-
-            if conversion_window_seconds > 0:
-                expr += f""" AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})"""
-
-        return parse_expr(expr)
 
     def _build_test_accounts_filter(self) -> ast.Expr:
         if (
