@@ -50,6 +50,9 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         setEventTriggerConfig: (eventTriggerConfig: string[]) => ({ eventTriggerConfig }),
         updateEventTriggerConfig: (eventTriggerConfig: string[]) => ({ eventTriggerConfig }),
         selectPlatform: (platform: ReplayPlatform) => ({ platform }),
+        setCheckUrlTrigger: (url: string) => ({ url }),
+        setCheckUrlBlocklist: (url: string) => ({ url }),
+        validateUrlInput: (url: string, type: 'trigger' | 'blocklist') => ({ url, type }),
     }),
     connect(() => ({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] })),
     reducers({
@@ -126,6 +129,52 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                 selectPlatform: (_, { platform }) => platform,
             },
         ],
+        checkUrlTrigger: [
+            '' as string,
+            {
+                setCheckUrlTrigger: (_, { url }) => url,
+            },
+        ],
+        checkUrlBlocklist: [
+            '' as string,
+            {
+                setCheckUrlBlocklist: (_, { url }) => url,
+            },
+        ],
+        urlTriggerInputValidationWarning: [
+            null as string | null,
+            {
+                validateUrlInput: (_, { url, type }) => {
+                    if (type !== 'trigger') {
+                        return _
+                    }
+                    // Check if it ends with a TLD
+                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
+                        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
+                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
+                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
+                    }
+                    return null
+                },
+            },
+        ],
+        urlBlocklistInputValidationWarning: [
+            null as string | null,
+            {
+                validateUrlInput: (_, { url, type }) => {
+                    if (type !== 'blocklist') {
+                        return _
+                    }
+                    // Check if it ends with a TLD
+                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
+                        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
+                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
+                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
+                    }
+                    return null
+                },
+            },
+        ],
     }),
     selectors({
         remoteUrlTriggerConfig: [
@@ -171,6 +220,46 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                 return urlBlocklistConfig[editUrlBlocklistIndex]
             },
         ],
+
+        checkUrlTriggerResults: [
+            (s) => [s.checkUrlTrigger, s.urlTriggerConfig],
+            (checkUrl, urlTriggerConfig): { [key: number]: boolean } => {
+                if (!checkUrl.trim() || !urlTriggerConfig) {
+                    return {}
+                }
+
+                const results: { [key: number]: boolean } = {}
+                urlTriggerConfig.forEach((trigger, index) => {
+                    try {
+                        const regex = new RegExp(trigger.url)
+                        results[index] = regex.test(checkUrl)
+                    } catch {
+                        results[index] = false
+                    }
+                })
+                return results
+            },
+        ],
+
+        checkUrlBlocklistResults: [
+            (s) => [s.checkUrlBlocklist, s.urlBlocklistConfig],
+            (checkUrl, urlBlocklistConfig): { [key: number]: boolean } => {
+                if (!checkUrl.trim() || !urlBlocklistConfig) {
+                    return {}
+                }
+
+                const results: { [key: number]: boolean } = {}
+                urlBlocklistConfig.forEach((trigger, index) => {
+                    try {
+                        const regex = new RegExp(trigger.url)
+                        results[index] = regex.test(checkUrl)
+                    } catch {
+                        results[index] = false
+                    }
+                })
+                return results
+            },
+        ],
     }),
     subscriptions(({ actions }) => ({
         currentTeam: (currentTeam: TeamPublicType | TeamType | null) => {
@@ -185,7 +274,16 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         proposedUrlTrigger: {
             defaults: { url: '', matching: 'regex' } as SessionReplayUrlTriggerConfig,
             errors: ({ url }) => ({
-                url: !url ? 'Must have a URL' : undefined,
+                url: !url
+                    ? 'Must have a URL'
+                    : (() => {
+                          try {
+                              new RegExp(url)
+                              return undefined
+                          } catch {
+                              return 'Invalid regex pattern'
+                          }
+                      })(),
             }),
             submit: async ({ url, matching }) => {
                 if (values.editUrlTriggerIndex !== null && values.editUrlTriggerIndex >= 0) {
@@ -233,6 +331,12 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
             actions.setEditUrlTriggerIndex(null)
             actions.resetProposedUrlTrigger()
         },
+        setProposedUrlTriggerValue: ({ name, value }) => {
+            const fieldName = Array.isArray(name) ? name[0] : name
+            if (fieldName === 'url') {
+                actions.validateUrlInput(value || '', 'trigger')
+            }
+        },
 
         setEditUrlBlocklistIndex: () => {
             actions.setProposedUrlBlocklistValue('url', values.urlBlocklistToEdit.url)
@@ -244,6 +348,12 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         submitProposedUrlBlocklistSuccess: () => {
             actions.setEditUrlBlocklistIndex(null)
             actions.resetProposedUrlBlocklist()
+        },
+        setProposedUrlBlocklistValue: ({ name, value }) => {
+            const fieldName = Array.isArray(name) ? name[0] : name
+            if (fieldName === 'url') {
+                actions.validateUrlInput(value || '', 'blocklist')
+            }
         },
         updateEventTriggerConfig: async ({ eventTriggerConfig }) => {
             actions.setEventTriggerConfig(eventTriggerConfig)
