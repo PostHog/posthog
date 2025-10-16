@@ -1,3 +1,4 @@
+import os
 import uuid
 import datetime as dt
 
@@ -13,11 +14,13 @@ from posthog.temporal.tests.utils.persons import (
 )
 
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
+    AWSCredentials,
     ConnectionParameters,
-    RedshiftInsertInputs,
+    CopyParameters,
+    RedshiftCopyActivityInputs,
+    S3StageBucketParameters,
     TableParameters,
-    insert_into_redshift_activity,
-    insert_into_redshift_activity_from_stage,
+    copy_into_redshift_activity_from_stage,
     redshift_default_fields,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
@@ -28,14 +31,28 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
+    delete_all_from_s3_prefix,
+    has_valid_credentials,
 )
 
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    # While we migrate to the new workflow, we need to test both new and old activities
-    pytest.mark.parametrize("use_internal_stage", [False, True]),
+    pytest.mark.skipif(
+        "S3_TEST_BUCKET" not in os.environ or not has_valid_credentials() or MISSING_REQUIRED_ENV_VARS,
+        reason="AWS credentials not set in environment or missing S3_TEST_BUCKET variable",
+    ),
 ]
+
+
+@pytest.fixture(autouse=True)
+async def clean_up_s3_bucket(s3_client, bucket_name, key_prefix):
+    """Clean-up S3 bucket used in Redshift copy activity."""
+    yield
+
+    assert s3_client is not None
+
+    await delete_all_from_s3_prefix(s3_client, bucket_name, key_prefix)
 
 
 async def _run_activity(
@@ -47,6 +64,10 @@ async def _run_activity(
     data_interval_start,
     data_interval_end,
     table_name: str,
+    bucket_name: str,
+    bucket_region: str,
+    key_prefix: str,
+    credentials: AWSCredentials,
     properties_data_type: str,
     batch_export_model: BatchExportModel | None = None,
     batch_export_schema: BatchExportSchema | None = None,
@@ -55,13 +76,8 @@ async def _run_activity(
     sort_key: str = "event",
     expected_fields=None,
     expect_duplicates: bool = False,
-    use_internal_stage: bool = False,
 ):
-    """Helper function to run Redshift main activity and assert records are exported.
-
-    This function executes either `insert_into_redshift_activity`, or
-    `insert_into_internal_stage_activity` and `insert_into_redshift_activity_from_stage`
-    depending on the value of `use_internal_stage`.
+    """Helper function to run Redshift main COPY activity and assert records exported.
 
     This allows using a single function to test both versions of the pipeline.
     """
@@ -92,34 +108,41 @@ async def _run_activity(
         properties_data_type=properties_data_type,
     )
 
-    insert_inputs = RedshiftInsertInputs(
+    copy_parameters = CopyParameters(
+        s3_bucket=S3StageBucketParameters(
+            name=bucket_name,
+            region_name=bucket_region,
+            credentials=credentials,
+        ),
+        s3_key_prefix=key_prefix,
+        authorization=credentials,
+    )
+
+    copy_inputs = RedshiftCopyActivityInputs(
         batch_export=batch_export_inputs,
         connection=connection_parameters,
         table=table_parameters,
+        copy=copy_parameters,
     )
 
-    if use_internal_stage:
-        assert insert_inputs.batch_export.batch_export_id is not None
-        # we first need to run the insert_into_internal_stage_activity so that we have data to export
-        await activity_environment.run(
-            insert_into_internal_stage_activity,
-            BatchExportInsertIntoInternalStageInputs(
-                team_id=insert_inputs.batch_export.team_id,
-                batch_export_id=insert_inputs.batch_export.batch_export_id,
-                data_interval_start=insert_inputs.batch_export.data_interval_start,
-                data_interval_end=insert_inputs.batch_export.data_interval_end,
-                exclude_events=insert_inputs.batch_export.exclude_events,
-                include_events=None,
-                run_id=None,
-                backfill_details=None,
-                batch_export_model=insert_inputs.batch_export.batch_export_model,
-                batch_export_schema=insert_inputs.batch_export.batch_export_schema,
-                destination_default_fields=redshift_default_fields(),
-            ),
-        )
-        result = await activity_environment.run(insert_into_redshift_activity_from_stage, insert_inputs)
-    else:
-        result = await activity_environment.run(insert_into_redshift_activity, insert_inputs)
+    assert copy_inputs.batch_export.batch_export_id is not None
+    await activity_environment.run(
+        insert_into_internal_stage_activity,
+        BatchExportInsertIntoInternalStageInputs(
+            team_id=copy_inputs.batch_export.team_id,
+            batch_export_id=copy_inputs.batch_export.batch_export_id,
+            data_interval_start=copy_inputs.batch_export.data_interval_start,
+            data_interval_end=copy_inputs.batch_export.data_interval_end,
+            exclude_events=copy_inputs.batch_export.exclude_events,
+            include_events=None,
+            run_id=None,
+            backfill_details=None,
+            batch_export_model=copy_inputs.batch_export.batch_export_model,
+            batch_export_schema=copy_inputs.batch_export.batch_export_schema,
+            destination_default_fields=redshift_default_fields(),
+        ),
+    )
+    result = await activity_environment.run(copy_into_redshift_activity_from_stage, copy_inputs)
 
     await assert_clickhouse_records_in_redshift(
         redshift_connection=redshift_connection,
@@ -133,6 +156,7 @@ async def _run_activity(
         properties_data_type=properties_data_type,
         sort_key=sort_key,
         expected_fields=expected_fields,
+        copy=True,
     )
 
     return result
@@ -141,49 +165,30 @@ async def _run_activity(
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("properties_data_type", ["super", "varchar"], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
-async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
+async def test_copy_into_redshift_activity_inserts_data_into_redshift_table(
     clickhouse_client,
     activity_environment,
     psycopg_connection,
     redshift_config,
+    bucket_name,
+    bucket_region,
     exclude_events,
     model: BatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
     properties_data_type,
+    aws_credentials,
+    key_prefix,
     ateam,
-    use_internal_stage,
 ):
-    """Test that the insert_into_redshift_activity function inserts data into a Redshift table.
-
-    We use the generate_test_events_in_clickhouse function to generate several sets
-    of events. Some of these sets are expected to be exported, and others not. Expected
-    events are those that:
-    * Are created for the team_id of the batch export.
-    * Are created in the date range of the batch export.
-    * Are not duplicates of other events that are in the same batch.
-    * Do not have an event name contained in the batch export's exclude_events.
-
-    Once we have these events, we pass them to the assert_events_in_redshift function to check
-    that they appear in the expected Redshift table.
-    """
+    """Test that the copy_into_redshift_activity function inserts data into a Redshift table."""
     if (
         isinstance(model, BatchExportModel)
         and (model.name == "persons" or model.name == "sessions")
         and exclude_events is not None
     ):
         pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
-
-    if (
-        isinstance(model, BatchExportModel)
-        and (model.name == "persons" or model.name == "sessions")
-        and MISSING_REQUIRED_ENV_VARS
-    ):
-        pytest.skip(f"Batch export model {model.name} cannot be tested in PostgreSQL")
-
-    if properties_data_type == "super" and MISSING_REQUIRED_ENV_VARS:
-        pytest.skip("SUPER type is only available in Redshift")
 
     await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -210,7 +215,7 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
     elif model is not None:
         batch_export_schema = model
 
-    table_name = f"test_insert_activity_table__{ateam.pk}"
+    table_name = f"test_copy_activity_table__{ateam.pk}"
 
     sort_key = "event"
     if batch_export_model is not None:
@@ -225,6 +230,10 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         clickhouse_client=clickhouse_client,
         team=ateam,
         table_name=table_name,
+        bucket_name=bucket_name,
+        bucket_region=bucket_region,
+        key_prefix=key_prefix,
+        credentials=aws_credentials,
         properties_data_type=properties_data_type,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -233,22 +242,24 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         batch_export_model=batch_export_model,
         redshift_config=redshift_config,
         sort_key=sort_key,
-        use_internal_stage=use_internal_stage,
     )
 
 
-async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_runs(
+async def test_copy_into_redshift_activity_merges_persons_data_in_follow_up_runs(
     clickhouse_client,
     activity_environment,
     psycopg_connection,
     redshift_config,
+    bucket_name,
+    bucket_region,
     generate_test_persons_data,
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
+    aws_credentials,
+    key_prefix,
 ):
-    """Test that the `insert_into_redshift_activity` merges new versions of rows.
+    """Test that the `copy_into_redshift_activity` merges new versions of rows.
 
     This unit test looks at the mutability handling capabilities of the aforementioned activity.
     We will generate a new entry in the persons table for half of the persons exported in a first
@@ -259,8 +270,8 @@ async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_ru
         pytest.skip("Persons batch export cannot be tested in PostgreSQL")
 
     model = BatchExportModel(name="persons", schema=None)
-    properties_data_type = "varchar"
-    table_name = f"test_insert_activity_mutability_table_{ateam.pk}"
+    properties_data_type = "super"
+    table_name = f"test_copy_activity_mutability_table_{ateam.pk}"
 
     await _run_activity(
         activity_environment,
@@ -268,13 +279,16 @@ async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_ru
         clickhouse_client=clickhouse_client,
         team=ateam,
         table_name=table_name,
+        bucket_name=bucket_name,
+        credentials=aws_credentials,
+        bucket_region=bucket_region,
+        key_prefix=key_prefix,
         properties_data_type=properties_data_type,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         batch_export_model=model,
         redshift_config=redshift_config,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
     )
 
     persons_to_export_created = generate_test_persons_data
@@ -309,13 +323,16 @@ async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_ru
         clickhouse_client=clickhouse_client,
         team=ateam,
         table_name=table_name,
+        bucket_name=bucket_name,
+        bucket_region=bucket_region,
+        key_prefix=key_prefix,
+        credentials=aws_credentials,
         properties_data_type=properties_data_type,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         batch_export_model=model,
         redshift_config=redshift_config,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
     )
 
     rows = []
@@ -340,7 +357,7 @@ async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_ru
     assert not new_distinct_id_to_person_id, "One or more persons were not updated"
 
 
-async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_runs(
+async def test_copy_into_redshift_activity_merges_sessions_data_in_follow_up_runs(
     clickhouse_client,
     activity_environment,
     psycopg_connection,
@@ -349,9 +366,12 @@ async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_r
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
+    bucket_name,
+    bucket_region,
+    aws_credentials,
+    key_prefix,
 ):
-    """Test that the `insert_into_redshift_activity` merges new versions of rows.
+    """Test that the `copy_into_redshift_activity` merges new versions of rows.
 
     This unit test looks at the mutability handling capabilities of the aforementioned activity.
     We will generate a new entry in the raw_sessions table for the only row exported in a first
@@ -363,7 +383,7 @@ async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_r
 
     model = BatchExportModel(name="sessions", schema=None)
     properties_data_type = "varchar"
-    table_name = f"test_insert_activity_mutability_table_sessions_{ateam.pk}"
+    table_name = f"test_copy_activity_mutability_table_sessions_{ateam.pk}"
 
     await _run_activity(
         activity_environment,
@@ -371,13 +391,16 @@ async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_r
         clickhouse_client=clickhouse_client,
         team=ateam,
         table_name=table_name,
+        bucket_name=bucket_name,
+        bucket_region=bucket_region,
+        key_prefix=key_prefix,
+        credentials=aws_credentials,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         batch_export_model=model,
         redshift_config=redshift_config,
         properties_data_type=properties_data_type,
         sort_key="session_id",
-        use_internal_stage=use_internal_stage,
     )
 
     events_to_export_created, _ = generate_test_data
@@ -410,13 +433,16 @@ async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_r
         clickhouse_client=clickhouse_client,
         team=ateam,
         table_name=table_name,
+        bucket_name=bucket_name,
+        bucket_region=bucket_region,
+        key_prefix=key_prefix,
+        credentials=aws_credentials,
         data_interval_start=new_data_interval_start,
         data_interval_end=new_data_interval_end,
         batch_export_model=model,
         redshift_config=redshift_config,
         properties_data_type=properties_data_type,
         sort_key="session_id",
-        use_internal_stage=use_internal_stage,
     )
 
     rows = []
@@ -440,7 +466,7 @@ async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_r
     ), "Redshift data was not updated with new timestamp"
 
 
-async def test_insert_into_redshift_activity_handles_person_schema_changes(
+async def test_copy_into_redshift_activity_handles_person_schema_changes(
     clickhouse_client,
     activity_environment,
     psycopg_connection,
@@ -449,9 +475,12 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
     data_interval_start,
     data_interval_end,
     ateam,
-    use_internal_stage,
+    bucket_name,
+    bucket_region,
+    aws_credentials,
+    key_prefix,
 ):
-    """Test that the `insert_into_redshift_activity` handles changes to the
+    """Test that the `copy_into_redshift_activity` handles changes to the
     person schema.
 
     If we update the schema of the persons model we export, we should still be
@@ -467,7 +496,7 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
 
     model = BatchExportModel(name="persons", schema=None)
     properties_data_type = "varchar"
-    table_name = f"test_insert_activity_migration_table__{ateam.pk}"
+    table_name = f"test_copy_activity_migration_table__{ateam.pk}"
     expected_fields = [
         "team_id",
         "distinct_id",
@@ -485,13 +514,16 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
         clickhouse_client=clickhouse_client,
         team=ateam,
         table_name=table_name,
+        bucket_name=bucket_name,
+        bucket_region=bucket_region,
+        key_prefix=key_prefix,
+        credentials=aws_credentials,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         batch_export_model=model,
         redshift_config=redshift_config,
         properties_data_type=properties_data_type,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
         expected_fields=expected_fields,
     )
 
@@ -500,7 +532,7 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
         async with psycopg_connection.cursor() as cursor:
             await cursor.execute(
                 sql.SQL("ALTER TABLE {table} DROP COLUMN created_at").format(
-                    table=sql.Identifier(redshift_config["schema"], f"test_insert_activity_migration_table__{ateam.pk}")
+                    table=sql.Identifier(redshift_config["schema"], f"test_copy_activity_migration_table__{ateam.pk}")
                 )
             )
 
@@ -536,12 +568,15 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
         clickhouse_client=clickhouse_client,
         team=ateam,
         table_name=table_name,
+        bucket_name=bucket_name,
+        bucket_region=bucket_region,
+        key_prefix=key_prefix,
+        credentials=aws_credentials,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         batch_export_model=model,
         redshift_config=redshift_config,
         properties_data_type=properties_data_type,
         sort_key="person_id",
-        use_internal_stage=use_internal_stage,
         expected_fields=expected_fields,
     )
