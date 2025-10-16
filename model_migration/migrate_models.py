@@ -151,27 +151,46 @@ class ImportTransformer(cst.CSTTransformer):
 
         module_str = self._get_module_string(node.module)
 
-        # Handle sub-modules: preserve the sub-module part
-        if "/" in self.module_name:
-            subdirectory_name = self.module_name.split("/")[0]
-            base_path = f"{self.import_base_path}.{subdirectory_name}"
+        # In no-merge mode, preserve the file-specific import path
+        # Example: posthog.warehouse.models.external_data_schema -> products.data_warehouse.backend.models.external_data_schema
+        if not self.merge_models:
+            # Extract the file-specific part after the base path
+            if "/" in self.module_name:
+                subdirectory_name = self.module_name.split("/")[0]
+                base_path = f"{self.import_base_path}.{subdirectory_name}"
+            else:
+                base_path = f"{self.import_base_path}.{self.module_name}"
 
             if module_str.startswith(base_path + "."):
-                sub_module = module_str[len(base_path) :]  # Gets ".error_tracking", ".sql", or ".hogvm_stl"
-
-                # Check if this is the main model file (same name as subdirectory)
-                if sub_module == f".{subdirectory_name}":
-                    # Main model file - goes to models.py
-                    new_module_str = f"products.{self.target_app}.backend.models"
-                else:
-                    # Real sub-module like .sql or .hogvm_stl - preserve the name
-                    new_module_str = f"products.{self.target_app}.backend{sub_module}"
+                # Get the file-specific part (e.g., ".external_data_schema")
+                file_part = module_str[len(base_path) :]
+                new_module_str = f"products.{self.target_app}.backend.models{file_part}"
             else:
-                # Just the base subdirectory import
+                # Fallback for exact match
                 new_module_str = f"products.{self.target_app}.backend.models"
         else:
-            # Direct file case
-            new_module_str = f"products.{self.target_app}.backend.models"
+            # Merge mode: all imports go to products.<app>.backend.models
+            # Handle sub-modules: preserve the sub-module part
+            if "/" in self.module_name:
+                subdirectory_name = self.module_name.split("/")[0]
+                base_path = f"{self.import_base_path}.{subdirectory_name}"
+
+                if module_str.startswith(base_path + "."):
+                    sub_module = module_str[len(base_path) :]  # Gets ".error_tracking", ".sql", or ".hogvm_stl"
+
+                    # Check if this is the main model file (same name as subdirectory)
+                    if sub_module == f".{subdirectory_name}":
+                        # Main model file - goes to models.py
+                        new_module_str = f"products.{self.target_app}.backend.models"
+                    else:
+                        # Real sub-module like .sql or .hogvm_stl - preserve the name
+                        new_module_str = f"products.{self.target_app}.backend{sub_module}"
+                else:
+                    # Just the base subdirectory import
+                    new_module_str = f"products.{self.target_app}.backend.models"
+            else:
+                # Direct file case
+                new_module_str = f"products.{self.target_app}.backend.models"
 
         new_module = cst.parse_expression(new_module_str)
         return node.with_changes(module=new_module)
