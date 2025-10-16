@@ -1,8 +1,8 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from django.db import connection
 from django.db.models import Count, Q, Sum
-from django.utils import timezone
 
 import structlog
 from dateutil import parser
@@ -200,7 +200,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except (ValueError, TypeError):
             return Response({"error": "Invalid days parameter"}, status=status.HTTP_400_BAD_REQUEST)
 
-        cutoff_time = timezone.now() - timedelta(days=days)
+        project_tz = ZoneInfo(self.team.timezone) if self.team.timezone else ZoneInfo("UTC")
+        now = datetime.now(project_tz)
+        cutoff_time = now - timedelta(days=days)
 
         try:
             external_jobs = ExternalDataJob.objects.filter(team_id=self.team_id, created_at__gte=cutoff_time)
@@ -226,7 +228,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             breakdown = {}
             if days == 1:
                 for i in range(24):
-                    hour_start = timezone.now().replace(minute=0, second=0, microsecond=0) - timedelta(hours=i)
+                    hour_start = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=i)
                     hour_end = hour_start + timedelta(hours=1)
 
                     hour_external = external_jobs.filter(created_at__gte=hour_start, created_at__lt=hour_end).aggregate(
@@ -245,8 +247,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     }
             else:
                 for i in range(days):
-                    date = (timezone.now() - timedelta(days=i)).date()
-                    day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
+                    day_start = (now - timedelta(days=i)).date()
                     day_end = day_start + timedelta(days=1)
 
                     day_external = external_jobs.filter(created_at__gte=day_start, created_at__lt=day_end).aggregate(
@@ -259,7 +260,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         failed=Count("id", filter=Q(status=DataModelingJob.Status.FAILED)),
                     )
 
-                    breakdown[str(date)] = {
+                    breakdown[str(day_start)] = {
                         "successful": day_external["successful"] + day_modeling["successful"],
                         "failed": day_external["failed"] + day_modeling["failed"],
                     }

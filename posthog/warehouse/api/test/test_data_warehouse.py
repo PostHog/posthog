@@ -326,8 +326,7 @@ class TestDataWarehouseAPI(APIBaseTest):
         )
         schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
 
-        today = timezone.now().date()
-        today_start = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.min.time()))
+        today_start = timezone.now().date()
 
         job1 = ExternalDataJob.objects.create(
             pipeline_id=source.pk,
@@ -358,7 +357,7 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(data["total_jobs"], 3)
 
-        today_key = str(today)
+        today_key = str(today_start)
         self.assertIn(today_key, data["breakdown"])
         self.assertEqual(data["breakdown"][today_key]["successful"], 2)
         self.assertEqual(data["breakdown"][today_key]["failed"], 1)
