@@ -172,7 +172,7 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
 }
 
 const isTimestampType = (field: IncrementalField): boolean => {
-    const type = field.field_type || field.type
+    const type = field.type || field.field_type
     return type === 'timestamp' || type === 'datetime' || type === 'date'
 }
 
@@ -180,7 +180,7 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     // check for timestamp field matching "updated_at" or "updatedAt" case insensitive
     const updatedAt = fields.find((field) => {
         const regex = /^updated/i
-        return regex.test(field.field) && isTimestampType(field)
+        return regex.test(field.label) && isTimestampType(field)
     })
     if (updatedAt) {
         return updatedAt
@@ -188,7 +188,7 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     // fallback to timestamp field matching "created_at" or "createdAt" case insensitive
     const createdAt = fields.find((field) => {
         const regex = /^created/i
-        return regex.test(field.field) && isTimestampType(field)
+        return regex.test(field.label) && isTimestampType(field)
     })
     if (createdAt) {
         return createdAt
@@ -202,7 +202,7 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     const id = fields.find((field) => {
         const idRegex = /^id/i
         const uuidRegex = /^uuid/i
-        return (idRegex.test(field.field) || uuidRegex.test(field.field)) && field.field_type === 'integer'
+        return (idRegex.test(field.label) || uuidRegex.test(field.label)) && field.type === 'integer'
     })
     if (id) {
         return id
@@ -800,11 +800,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         // Use incremental if available
                         if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
-                            const field = resolveIncrementalField(schema.incremental_fields)
+                            const resolvedField = resolveIncrementalField(schema.incremental_fields)
                             schema.sync_type = method
-                            if (field) {
-                                schema.incremental_field = field.field
-                                schema.incremental_field_type = field.field_type
+                            if (resolvedField) {
+                                schema.incremental_field = resolvedField.field
+                                schema.incremental_field_type = resolvedField.field_type
+                            } else {
+                                schema.sync_type = 'full_refresh'
                             }
                         } else {
                             schema.sync_type = 'full_refresh'
