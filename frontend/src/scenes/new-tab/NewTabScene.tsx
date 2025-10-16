@@ -54,15 +54,8 @@ export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
 export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
-    const {
-        filteredItemsGrid,
-        search,
-        selectedItem,
-        categories,
-        selectedCategory,
-        specialSearchMode,
-        newTabSceneDataIncludePersons,
-    } = useValues(newTabSceneLogic({ tabId }))
+    const { filteredItemsGrid, search, selectedItem, categories, selectedCategory, newTabSceneDataIncludePersons } =
+        useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
     const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic)
     const { setSearch, setSelectedCategory, setNewTabSceneDataIncludePersons } = useActions(newTabSceneLogic({ tabId }))
@@ -103,7 +96,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                     </ListBox.Item>
                     <div className="mx-1.5">
                         <SearchHints
-                            specialSearchMode={specialSearchMode}
                             search={search}
                             filteredItemsGridLength={filteredItemsGrid.length}
                             setSearch={setSearch}
