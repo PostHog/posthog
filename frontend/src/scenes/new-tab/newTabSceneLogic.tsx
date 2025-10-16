@@ -146,16 +146,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         return []
                     }
 
-                    const url =
-                        api.persons.determineListUrl({ search: searchTerm.trim() }) + `&limit=${PAGINATION_LIMIT}`
-                    const response = await api.get(url)
+                    const response = await api.persons.list({ search: searchTerm.trim() })
                     breakpoint()
 
                     return response.results
                 },
                 loadInitialPersons: async (_, breakpoint) => {
-                    const url = api.persons.determineListUrl() + `&limit=${PAGINATION_LIMIT}`
-                    const response = await api.get(url)
+                    const response = await api.persons.list()
                     breakpoint()
 
                     return response.results
@@ -782,8 +779,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
             try {
                 // Manually trigger the search and handle the result
-                const url = api.persons.determineListUrl({ search: searchTerm.trim() }) + `&limit=${PAGINATION_LIMIT}`
-                const response = await api.get(url)
+                const response = await api.persons.list({ search: searchTerm.trim() })
                 breakpoint()
 
                 // Manually set the results instead of relying on the loader
