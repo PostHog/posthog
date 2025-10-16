@@ -14,12 +14,9 @@ from pathlib import Path
 
 import libcst as cst
 
-from model_migration.import_patterns import (
-    FileSpecificImport,
-    ImportTargetResolver,
-    MigrationContext,
-    PackageLevelImport,
-)
+# Import from same directory
+sys.path.insert(0, str(Path(__file__).parent))
+from import_patterns import FileSpecificImport, ImportTargetResolver, MigrationContext, PackageLevelImport
 
 logger = logging.getLogger(__name__)
 
