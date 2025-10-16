@@ -54,7 +54,9 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         window_start_id: str | None = None,
         tool_calls_count: int | None = None,
     ) -> list[BaseMessage]:
-        conversation_window = self._window_manager.get_messages_in_window(messages, window_start_id)[-28:]
+        conversation_window = self._window_manager.get_messages_in_window(messages, window_start_id)
+        # Inkeep supports maximum 30 messages. Two are reserved for system prompts.
+        conversation_window = conversation_window[-28:]
         langchain_messages = self._convert_to_langchain_messages(
             conversation_window, self._get_tool_map(conversation_window)
         )
