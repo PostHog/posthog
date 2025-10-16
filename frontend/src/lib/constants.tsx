@@ -263,7 +263,8 @@ export const FEATURE_FLAGS = {
     LINKS: 'links', // owner: @marconlp #team-link
     GAME_CENTER: 'game-center', // owner: everybody
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
-    LOGS: 'logs', // owner: @david @frank @olly @ross
+    LOGS: 'logs', // owner: #team-logs
+    LOGS_PRE_EARLY_ACCESS: 'logs-internal', // owner: #team-logs
     CSP_REPORTING: 'mexicspo', // owner @pauldambra @lricoy @robbiec
     LLM_OBSERVABILITY_PLAYGROUND: 'llm-observability-playground', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS: 'llm-analytics-evaluations', // owner: #team-llm-analytics
