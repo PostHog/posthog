@@ -54,8 +54,13 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
 
 export const TOOL_DEFINITIONS: Omit<
     Record<AssistantContextualTool, ToolDefinition>,
-    'fix_hogql_query' | 'search_insights'
+    'fix_hogql_query' | 'search_insights' | 'read_data' | 'read_taxonomy' | 'todo_write'
 > = {
+    search: {
+        name: 'Search',
+        description: 'Search documentation and your data in PostHog',
+        product: null,
+    },
     session_summarization: {
         name: 'Summarize sessions',
         description: 'Summarize sessions to analyze real user behavior',
