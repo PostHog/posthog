@@ -41,7 +41,14 @@ function Category({
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
-    const { filteredItemsGrid, search, isSearching, personSearchResults } = useValues(newTabSceneLogic({ tabId }))
+    const {
+        filteredItemsGrid,
+        search,
+        isSearching,
+        personSearchResults,
+        eventDefinitionSearchResults,
+        propertyDefinitionSearchResults,
+    } = useValues(newTabSceneLogic({ tabId }))
 
     return (
         <>
@@ -71,6 +78,52 @@ function Category({
                                             {personSearchResults.length > 0 ? (
                                                 <LemonTag className="text-xs text-tertiary" size="small">
                                                     Showing {personSearchResults.length} results
+                                                </LemonTag>
+                                            ) : (
+                                                <LemonTag className="text-xs text-tertiary" size="small">
+                                                    No results found
+                                                </LemonTag>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            )}
+                            {newTabSceneData && category === 'eventDefinitions' && (
+                                <div className="flex items-center gap-1">
+                                    {isSearching ? (
+                                        <WrappingLoadingSkeleton className="h-[18px]">
+                                            <LemonTag className="text-xs text-tertiary" size="small">
+                                                Showing {eventDefinitionSearchResults.length} results
+                                            </LemonTag>
+                                        </WrappingLoadingSkeleton>
+                                    ) : (
+                                        <>
+                                            {eventDefinitionSearchResults.length > 0 ? (
+                                                <LemonTag className="text-xs text-tertiary" size="small">
+                                                    Showing {eventDefinitionSearchResults.length} results
+                                                </LemonTag>
+                                            ) : (
+                                                <LemonTag className="text-xs text-tertiary" size="small">
+                                                    No results found
+                                                </LemonTag>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            )}
+                            {newTabSceneData && category === 'propertyDefinitions' && (
+                                <div className="flex items-center gap-1">
+                                    {isSearching ? (
+                                        <WrappingLoadingSkeleton className="h-[18px]">
+                                            <LemonTag className="text-xs text-tertiary" size="small">
+                                                Showing {propertyDefinitionSearchResults.length} results
+                                            </LemonTag>
+                                        </WrappingLoadingSkeleton>
+                                    ) : (
+                                        <>
+                                            {propertyDefinitionSearchResults.length > 0 ? (
+                                                <LemonTag className="text-xs text-tertiary" size="small">
+                                                    Showing {propertyDefinitionSearchResults.length} results
                                                 </LemonTag>
                                             ) : (
                                                 <LemonTag className="text-xs text-tertiary" size="small">
@@ -172,17 +225,45 @@ function Category({
                             </ButtonGroupPrimitive>
                         ))
                     )}
-                    {newTabSceneData && category === 'persons' && (
-                        <ListBox.Item asChild>
-                            <Link
-                                to={urls.persons()}
-                                buttonProps={{
-                                    className: 'w-full text-tertiary',
-                                }}
-                            >
-                                <IconArrowRight className="size-4" /> See all persons
-                            </Link>
-                        </ListBox.Item>
+                    {newTabSceneData && (
+                        <>
+                            {category === 'persons' && (
+                                <ListBox.Item asChild>
+                                    <Link
+                                        to={urls.persons()}
+                                        buttonProps={{
+                                            className: 'w-full text-tertiary',
+                                        }}
+                                    >
+                                        <IconArrowRight className="size-4" /> See all persons
+                                    </Link>
+                                </ListBox.Item>
+                            )}
+                            {category === 'eventDefinitions' && (
+                                <ListBox.Item asChild>
+                                    <Link
+                                        to={urls.eventDefinitions()}
+                                        buttonProps={{
+                                            className: 'w-full text-tertiary',
+                                        }}
+                                    >
+                                        <IconArrowRight className="size-4" /> See all events
+                                    </Link>
+                                </ListBox.Item>
+                            )}
+                            {category === 'propertyDefinitions' && (
+                                <ListBox.Item asChild>
+                                    <Link
+                                        to={urls.propertyDefinitions()}
+                                        buttonProps={{
+                                            className: 'w-full text-tertiary',
+                                        }}
+                                    >
+                                        <IconArrowRight className="size-4" /> See all properties
+                                    </Link>
+                                </ListBox.Item>
+                            )}
+                        </>
                     )}
                 </div>
             </div>
@@ -205,6 +286,8 @@ export function Results({
         selectedCategory,
         isSearching,
         newTabSceneDataIncludePersons,
+        newTabSceneDataIncludeEventDefinitions,
+        newTabSceneDataIncludePropertyDefinitions,
     } = useValues(newTabSceneLogic({ tabId }))
     const { setSearch } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -217,9 +300,15 @@ export function Results({
         ? (() => {
               const orderedSections: string[] = []
 
-              // Add sections in order: persons (if enabled), new, apps, data-management, recents
+              // Add sections in order: persons, events, properties (if enabled), new, apps, data-management, recents
               if (newTabSceneDataIncludePersons) {
                   orderedSections.push('persons')
+              }
+              if (newTabSceneDataIncludeEventDefinitions) {
+                  orderedSections.push('eventDefinitions')
+              }
+              if (newTabSceneDataIncludePropertyDefinitions) {
+                  orderedSections.push('propertyDefinitions')
               }
 
               const mainSections = ['create-new', 'apps', 'data-management', 'recents']
@@ -230,13 +319,14 @@ export function Results({
               const result = orderedSections
                   .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
                   .filter(([section, items]) => {
-                      // Always show persons section if filter is enabled (even when empty)
-                      if (
-                          (section === 'persons' ||
-                              section === 'eventDefinitions' ||
-                              section === 'propertyDefinitions') &&
-                          newTabSceneDataIncludePersons
-                      ) {
+                      // Always show enabled sections (even when empty)
+                      if (section === 'persons' && newTabSceneDataIncludePersons) {
+                          return true
+                      }
+                      if (section === 'eventDefinitions' && newTabSceneDataIncludeEventDefinitions) {
+                          return true
+                      }
+                      if (section === 'propertyDefinitions' && newTabSceneDataIncludePropertyDefinitions) {
                           return true
                       }
                       // Hide empty categories for other sections
