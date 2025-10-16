@@ -237,6 +237,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     if (currentValue.includes(update.content)) {
                         return value
                     }
+
                     value.set(update.parent_tool_call_id, [...currentValue, update.content])
                     return value
                 },
@@ -514,14 +515,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const isHumanMessageType = (message?: ThreadMessage): boolean =>
                     message?.type === AssistantMessageType.Human
 
-                // First, enhance assistant messages with tool call completion status
-                const enhancedThread = enhanceThreadToolCalls(thread, threadLoading, toolCallUpdateMap)
+                let threadGrouped: ThreadMessage[][] = []
 
-                const threadGrouped: ThreadMessage[][] = []
-
-                for (let i = 0; i < enhancedThread.length; i++) {
-                    const currentMessage: ThreadMessage = enhancedThread[i]
-                    const previousMessage = enhancedThread[i - 1] as ThreadMessage | undefined
+                for (let i = 0; i < thread.length; i++) {
+                    const currentMessage: ThreadMessage = thread[i]
+                    const previousMessage = thread[i - 1] as ThreadMessage | undefined
 
                     // Skip AssistantToolCallMessage - they're now merged into AssistantMessage tool_calls
                     if (currentMessage.type === AssistantMessageType.ToolCall) {
@@ -546,6 +544,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         threadGrouped.push([currentMessage])
                     }
                 }
+                threadGrouped = threadGrouped.map((group, index) =>
+                    enhanceThreadToolCalls(group, threadLoading, toolCallUpdateMap, index === threadGrouped.length - 1)
+                )
 
                 if (threadLoading) {
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
@@ -567,7 +568,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const toolCallsInProgress = threadGrouped.flatMap((group) =>
                         group
                             .flatMap((message) => (isAssistantMessage(message) ? message.tool_calls : []))
-                            .filter((toolCall) => toolCall && (toolCall as any).status !== 'in_progress')
+                            .filter((toolCall) => toolCall && (toolCall as any).status === 'in_progress')
                     )
 
                     if (
@@ -695,7 +696,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 function enhanceThreadToolCalls(
     thread: ThreadMessage[],
     isLoading: boolean,
-    toolCallUpdateMap: Map<string, string[]>
+    toolCallUpdateMap: Map<string, string[]>,
+    isFinalGroup: boolean
 ): ThreadMessage[] {
     // Create a map of tool_call_id -> AssistantToolCallMessage for quick lookup
     const toolCallCompletions = new Map<string, ThreadMessage>()
@@ -727,9 +729,8 @@ function enhanceThreadToolCalls(
         if (isAssistantMessage(message) && message.tool_calls && message.tool_calls.length > 0) {
             const isLastPlanningMessage = message.id === lastPlanningMessageId
             const enhancedToolCalls = message.tool_calls.map((toolCall) => {
-                const completion = toolCallCompletions.get(toolCall.id)
-                const isFailed = !isLoading && !completion
-                const isCompleted = !!completion
+                const isCompleted = !!toolCallCompletions.get(toolCall.id)
+                const isFailed = !isCompleted && (!isFinalGroup || !isLoading)
                 return {
                     ...toolCall,
                     status: isFailed

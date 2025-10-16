@@ -7,7 +7,7 @@ from typing import Any, Literal, Self
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from posthog.schema import AssistantContextualTool
 
@@ -64,8 +64,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
-
-    show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
     _config: RunnableConfig
     _state: AssistantState
@@ -154,10 +152,11 @@ class MaxTool(AssistantContextMixin, BaseTool):
         user: User,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
     ) -> Self:
         """
         Factory that creates a tool class.
 
         Override this factory to dynamically modify the tool name, description, args schema, etc.
         """
-        raise NotImplementedError
+        return cls(team=team, user=user, state=state, config=config, context_manager=context_manager)

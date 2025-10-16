@@ -175,7 +175,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
         <MessageGroupContainer groupType={groupType}>
             <div
                 className={clsx(
-                    'flex flex-col min-w-0 w-full [&>*+*]:mt-1.5 mt-1.5',
+                    'flex flex-col min-w-0 w-full [&>*+*]:mt-2',
                     groupType === 'human' ? 'items-end' : 'items-start'
                 )}
             >
@@ -285,12 +285,12 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         })()
 
                         return (
-                            <React.Fragment key={key}>
+                            <div key={key} className="flex flex-col gap-2">
                                 {thinkingElement}
                                 {textElement}
                                 {toolCallElements}
                                 {actionsElement}
-                            </React.Fragment>
+                            </div>
                         )
                     } else if (isAssistantToolCallMessage(message) || isFailureMessage(message)) {
                         return (
@@ -591,10 +591,12 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     const hasMultipleSteps = steps.length > 1
 
     return (
-        <>
+        <div className="flex flex-col">
             <div className="flex items-center">
-                <div className="relative flex-shrink-0 flex items-center justify-center size-7">
-                    <IconNotebook />
+                <div className="relative flex-shrink-0 flex items-start justify-center size-7 h-full">
+                    <div className="p-1 flex items-center justify-center">
+                        <IconNotebook />
+                    </div>
                 </div>
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
                     <span>Planning</span>
@@ -640,7 +642,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                     })}
                 </div>
             )}
-        </>
+        </div>
     )
 }
 
@@ -836,6 +838,9 @@ function ToolCallsAnswer({ toolCalls }: ToolCallsAnswerProps): JSX.Element {
         <>
             {/* Render planning messages for todo_write tool calls */}
             {todoWriteToolCalls.map((toolCall) => {
+                if (!toolCall.args.todos || (toolCall.args.todos as any[]).length === 0) {
+                    return null
+                }
                 return (
                     <PlanningAnswer
                         key={toolCall.id}

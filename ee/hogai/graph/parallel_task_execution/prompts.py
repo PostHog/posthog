@@ -25,7 +25,6 @@ Remember: Your role is to execute the research task efficiently without back-and
 
 
 AGENT_TASK_PROMPT_TEMPLATE = (
-    AGENT_SUBGRAPH_SYSTEM_PROMPT + "\n\nCurrent task: {task_description}\n"
-    "Task instructions: {task_prompt}\n\n"
+    AGENT_SUBGRAPH_SYSTEM_PROMPT + "\n\nCurrent task: {task_prompt}\n"
     "Execute this analysis task completely and autonomously. Use your best judgment for any unclear aspects and provide comprehensive insights."
 )

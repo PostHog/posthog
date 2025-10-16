@@ -26,7 +26,7 @@ class AssistantSSESerializer:
             output += f"event: {AssistantEventType.STATUS}\n"
         else:
             output += f"event: {AssistantEventType.MESSAGE}\n"
-        return output + f"data: {message.model_dump_json(exclude_none=True, exclude={'tool_calls'})}\n\n"
+        return output + f"data: {message.model_dump_json(exclude_none=True)}\n\n"
 
     def _serialize_conversation(self, conversation: Conversation) -> str:
         output = f"event: {AssistantEventType.CONVERSATION}\n"

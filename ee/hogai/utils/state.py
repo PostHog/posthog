@@ -5,6 +5,7 @@ from structlog import get_logger
 
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, PartialDeepResearchState
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
+from ee.hogai.utils.dispatcher import AssistantDispatcherEvent
 from ee.hogai.utils.types import PartialAssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState, MaxNodeName
 
@@ -83,6 +84,16 @@ def is_task_started_update(
     Streaming of messages.
     """
     return len(update) == 2 and update[0] == "debug" and update[1]["type"] == "task"
+
+
+GraphDispatcherActionUpdateTuple = tuple[Literal["action"], tuple[AssistantDispatcherEvent, LangGraphState]]
+
+
+def is_dispatcher_update(update: list[Any]) -> TypeGuard[GraphDispatcherActionUpdateTuple]:
+    """
+    Custom dispatched actions from nodes.
+    """
+    return len(update) == 2 and update[0] == "action"
 
 
 def prepare_reasoning_progress_message(content: str) -> str | None:

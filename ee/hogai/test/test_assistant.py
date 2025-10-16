@@ -3,7 +3,7 @@ from typing import Any, Literal, Optional, cast
 from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -46,10 +46,6 @@ from posthog.schema import (
     MaxInsightContext,
     MaxProductInfo,
     MaxUIContext,
-    ReasoningMessage,
-    TaskExecutionItem,
-    TaskExecutionMessage,
-    TaskExecutionStatus,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -58,9 +54,7 @@ from posthog.models import Action
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.graph.graph import AssistantCompiledStateGraph
 from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
@@ -74,7 +68,6 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
-from ee.hogai.utils.types.base import ReplaceMessages
 from ee.models.assistant import Conversation, CoreMemory
 
 from ..assistant import Assistant
@@ -169,13 +162,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Override the graph if a test graph is provided
         if test_graph:
-            # Wrap the test graph if needed
-            if isinstance(test_graph, AssistantCompiledStateGraph):
-                assistant._graph = test_graph
-            else:
-                # Try to get the reasoning message mapping from the original graph if available
-                reasoning_mapping = getattr(test_graph, "aget_reasoning_message_by_node_name", {})
-                assistant._graph = AssistantCompiledStateGraph(test_graph, reasoning_mapping)
+            assistant._graph = test_graph
 
         # Capture and parse output of assistant.astream()
         output: list[AssistantOutput] = []
@@ -224,296 +211,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             )
             msg_dict = message.model_dump(exclude_none=True) if isinstance(message, BaseModel) else message
             self.assertDictContainsSubset(expected_msg_dict, msg_dict, f"Message content mismatch at index {i}")
-
-    @patch(
-        "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
-        return_value=FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "final_answer",
-                            "args": {"query_kind": "trends", "plan": "Plan"},
-                        }
-                    ],
-                )
-            ]
-        ),
-    )
-    @patch(
-        "ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun",
-        return_value=PartialAssistantState(
-            messages=[AssistantMessage(content="Foobar")],
-        ),
-    )
-    async def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_query_planner_run):
-        output, _ = await self._run_assistant_graph(
-            InsightsAssistantGraph(self.team, self.user)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
-            .add_query_planner(
-                {
-                    "continue": AssistantNodeName.QUERY_PLANNER,
-                    "trends": AssistantNodeName.END,
-                    "funnel": AssistantNodeName.END,
-                    "retention": AssistantNodeName.END,
-                    "sql": AssistantNodeName.END,
-                    "end": AssistantNodeName.END,
-                }
-            )
-            .compile(),
-            conversation=self.conversation,
-            mode=AssistantMode.INSIGHTS_TOOL,
-        )
-
-        # Assert that ReasoningMessages are added
-        # Note: InsightsAssistant doesn't stream the first HumanMessage
-        expected_output = [
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [],
-                },
-            ),
-        ]
-        self.assertConversationEqual(output, expected_output)
-
-    @patch(
-        "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
-        return_value=FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "retrieve_entity_properties",
-                            "args": {"entity": "session"},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_2",
-                            "name": "retrieve_event_properties",
-                            "args": {"event_name": "$pageview"},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_3",
-                            "name": "retrieve_event_property_values",
-                            "args": {"event_name": "purchase", "property_name": "currency"},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_4",
-                            "name": "retrieve_entity_property_values",
-                            "args": {"entity": "person", "property_name": "country_of_birth"},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_6",
-                            "name": "final_answer",
-                            "args": {"query_kind": "trends", "plan": "Plan"},
-                        }
-                    ],
-                ),
-            ]
-        ),
-    )
-    async def test_reasoning_messages_with_substeps_added(self, _mock_query_planner_run):
-        output, _ = await self._run_assistant_graph(
-            InsightsAssistantGraph(self.team, self.user)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
-            .add_query_planner(
-                {
-                    "continue": AssistantNodeName.QUERY_PLANNER,
-                    "trends": AssistantNodeName.END,
-                    "funnel": AssistantNodeName.END,
-                    "retention": AssistantNodeName.END,
-                    "sql": AssistantNodeName.END,
-                    "end": AssistantNodeName.END,
-                }
-            )
-            .compile(),
-            conversation=self.conversation,
-            tool_call_partial_state=AssistantState(root_tool_call_id="foo"),
-            mode=AssistantMode.INSIGHTS_TOOL,
-        )
-
-        # Assert that ReasoningMessages are added
-        # Note: InsightsAssistant doesn't stream the first HumanMessage
-        expected_output = [
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [
-                        "Exploring session properties",
-                    ],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [
-                        "Exploring session properties",
-                        "Exploring `$pageview` event's properties",
-                    ],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [
-                        "Exploring session properties",
-                        "Exploring `$pageview` event's properties",
-                        "Analyzing `purchase` event's property `currency`",
-                    ],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [
-                        "Exploring session properties",
-                        "Exploring `$pageview` event's properties",
-                        "Analyzing `purchase` event's property `currency`",
-                        "Analyzing person property `country_of_birth`",
-                    ],
-                },
-            ),
-        ]
-        self.assertConversationEqual(output, expected_output)
-
-    async def test_action_reasoning_messages_added(self):
-        action = await Action.objects.acreate(team=self.team, name="Marius Tech Tips")
-
-        with patch(
-            "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
-            return_value=FakeChatOpenAI(
-                responses=[
-                    messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "call_1",
-                                "name": "retrieve_action_properties",
-                                "args": {"action_id": action.id},
-                            }
-                        ],
-                    ),
-                    messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "call_2",
-                                "name": "retrieve_action_property_values",
-                                "args": {"action_id": action.id, "property_name": "video_name"},
-                            }
-                        ],
-                    ),
-                    messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "call_3",
-                                "name": "final_answer",
-                                "args": {"query_kind": "trends", "plan": "Plan"},
-                            }
-                        ],
-                    ),
-                ]
-            ),
-        ):
-            test_graph = (
-                InsightsAssistantGraph(self.team, self.user)
-                .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
-                .add_query_planner(
-                    {
-                        "continue": AssistantNodeName.QUERY_PLANNER,
-                        "trends": AssistantNodeName.END,
-                        "funnel": AssistantNodeName.END,
-                        "retention": AssistantNodeName.END,
-                        "sql": AssistantNodeName.END,
-                        "end": AssistantNodeName.END,
-                    }
-                )
-                .compile()
-            )
-            output, assistant = await self._run_assistant_graph(
-                test_graph,
-                tool_call_partial_state=AssistantState(root_tool_call_id="foo"),
-                conversation=self.conversation,
-                mode=AssistantMode.INSIGHTS_TOOL,
-            )
-
-            # Assert that ReasoningMessages are added
-            # Note: InsightsAssistant doesn't stream the first HumanMessage
-            expected_output = [
-                (
-                    "message",
-                    {
-                        "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",
-                        "substeps": [],
-                    },
-                ),
-                (
-                    "message",
-                    {
-                        "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",
-                        "substeps": [
-                            "Exploring `Marius Tech Tips` action properties",
-                        ],
-                    },
-                ),
-                (
-                    "message",
-                    {
-                        "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",
-                        "substeps": [
-                            "Exploring `Marius Tech Tips` action properties",
-                            "Analyzing `video_name` action property of `Marius Tech Tips`",
-                        ],
-                    },
-                ),
-            ]
-            self.assertConversationEqual(output, expected_output)
 
     async def _test_human_in_the_loop(self, insight_type: Literal["trends", "funnel", "retention"]):
         graph = (
@@ -582,8 +279,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             expected_output = [
                 ("message", HumanMessage(content="Hello")),
                 ("message", AssistantMessage(content="Okay")),
-                ("message", ReasoningMessage(content="Coming up with an insight")),
-                ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
+                ("message", {"type": "ai/update", "content": "Generating an insight plan"}),
+                (
+                    "message",
+                    {"type": "tool", "content": "The agent has requested help:\nrequest='Need help with this query'"},
+                ),
                 ("message", AssistantMessage(content="Agent needs help with this query")),
             ]
             self.assertConversationEqual(output, expected_output)
@@ -653,9 +353,21 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertIsInstance(output[1][1], FailureMessage)
 
     async def test_new_conversation_handles_serialized_conversation(self):
+        from ee.hogai.graph.base import BaseAssistantNode
+
+        class TestNode(BaseAssistantNode):
+            @property
+            def node_name(self):
+                return AssistantNodeName.ROOT
+
+            async def arun(self, state, config):
+                self.dispatcher.message(AssistantMessage(content="Hello"))
+                return PartialAssistantState()
+
+        test_node = TestNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, lambda _: {"messages": [AssistantMessage(content="Hello")]})
+            .add_node(AssistantNodeName.ROOT, test_node)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
@@ -678,9 +390,21 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertNotEqual(output[0][0], "conversation")
 
     async def test_async_stream(self):
+        from ee.hogai.graph.base import BaseAssistantNode
+
+        class TestNode(BaseAssistantNode):
+            @property
+            def node_name(self):
+                return AssistantNodeName.ROOT
+
+            async def arun(self, state, config):
+                self.dispatcher.message(AssistantMessage(content="bar"))
+                return PartialAssistantState()
+
+        test_node = TestNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, lambda _: {"messages": [AssistantMessage(content="bar")]})
+            .add_node(AssistantNodeName.ROOT, test_node)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
@@ -694,7 +418,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", HumanMessage(content="foo")),
             ("message", AssistantMessage(content="bar")),
         ]
-        actual_output = [message async for message in assistant.astream()]
+        actual_output = [
+            event
+            async for event in assistant.astream()
+            if not (
+                isinstance(event[1], AssistantGenerationStatusEvent)
+                and event[1].type == AssistantGenerationStatusType.ACK
+            )
+        ]
         self.assertConversationEqual(actual_output, expected_output)
 
     async def test_async_stream_handles_exceptions(self):
@@ -769,9 +500,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
-            ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating trends query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
@@ -846,9 +574,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
-            ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating funnel query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
@@ -925,9 +650,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
-            ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating retention query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
@@ -996,9 +718,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
-            ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating SQL query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
@@ -1337,7 +1056,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             output,
             [
                 ("message", HumanMessage(content="How do I use feature flags?")),
-                ("message", ReasoningMessage(content="Searching for information")),
                 ("message", AssistantMessage(content="Here's what I found in the docs...")),
             ],
         )
@@ -1393,8 +1111,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         expected_output = [
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating trends query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             (
                 "message",
@@ -1438,22 +1154,31 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_merges_messages_with_same_id(self):
         """Test that messages with the same ID are merged into one."""
+        from ee.hogai.graph.base import BaseAssistantNode
+
         message_ids = [str(uuid4()), str(uuid4())]
 
         # Create a simple graph that will return messages with the same ID but different content
         first_content = "First version of message"
         updated_content = "Updated version of message"
 
-        class MessageUpdatingNode:
-            def __init__(self):
+        class MessageUpdatingNode(BaseAssistantNode):
+            def __init__(self, team, user):
+                super().__init__(team, user)
                 self.call_count = 0
 
-            def __call__(self, state):
+            @property
+            def node_name(self):
+                return AssistantNodeName.ROOT
+
+            async def arun(self, state, config):
                 self.call_count += 1
                 content = first_content if self.call_count == 1 else updated_content
-                return {"messages": [AssistantMessage(id=message_ids[self.call_count - 1], content=content)]}
+                msg = AssistantMessage(id=message_ids[self.call_count - 1], content=content)
+                self.dispatcher.message(msg)
+                return PartialAssistantState()
 
-        updater = MessageUpdatingNode()
+        updater = MessageUpdatingNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, updater)
@@ -1490,6 +1215,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_assistant_filters_messages_correctly(self):
         """Test that the Assistant class correctly filters messages based on should_output_assistant_message."""
+        from ee.hogai.graph.base import BaseAssistantNode
 
         output_messages = [
             # Should be output (has content)
@@ -1509,18 +1235,24 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         for test_message, expected_in_output in output_messages:
             # Create a simple graph that produces different message types to test filtering
-            class MessageFilteringNode:
-                def __init__(self, message_to_return):
+            class MessageFilteringNode(BaseAssistantNode):
+                def __init__(self, team, user, message_to_return):
+                    super().__init__(team, user)
                     self.message_to_return = message_to_return
 
-                def __call__(self, *args, **kwargs):
-                    # Return a set of messages that should be filtered differently
-                    return PartialAssistantState(messages=[self.message_to_return])
+                @property
+                def node_name(self):
+                    return AssistantNodeName.ROOT
+
+                async def arun(self, state, config):
+                    self.dispatcher.message(self.message_to_return)
+                    return PartialAssistantState()
 
             # Create a graph with our test node
+            node = MessageFilteringNode(self.team, self.user, test_message)
             graph = (
                 AssistantGraph(self.team, self.user)
-                .add_node(AssistantNodeName.ROOT, MessageFilteringNode(test_message))
+                .add_node(AssistantNodeName.ROOT, node)
                 .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
                 .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
                 .compile()
@@ -1677,9 +1409,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
-            ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating trends query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             (
                 "message",
@@ -1726,9 +1455,21 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     # Tests for ainvoke method
     async def test_ainvoke_basic_functionality(self):
         """Test ainvoke returns all messages at once without streaming."""
+        from ee.hogai.graph.base import BaseAssistantNode
+
+        class TestNode(BaseAssistantNode):
+            @property
+            def node_name(self):
+                return AssistantNodeName.ROOT
+
+            async def arun(self, state, config):
+                self.dispatcher.message(AssistantMessage(content="Response"))
+                return PartialAssistantState()
+
+        test_node = TestNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, lambda _: {"messages": [AssistantMessage(content="Response")]})
+            .add_node(AssistantNodeName.ROOT, test_node)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
@@ -1991,70 +1732,27 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         assert result is not None
         assert result.content == "First part second part"
 
-    def test_deep_research_persists_reasoning_messages(self):
-        assistant = Assistant.create(
-            team=self.team,
-            conversation=self.conversation,
-            user=self.user,
-            mode=AssistantMode.DEEP_RESEARCH,
-        )
-
-        reasoning_message = ReasoningMessage(content="streamed reasoning")
-        langgraph_state: LangGraphState = {"langgraph_node": DeepResearchNodeName.PLANNER}
-        update: GraphMessageUpdateTuple = ("messages", (reasoning_message, langgraph_state))
-
-        with patch.object(assistant, "_persist_stream_message", new_callable=AsyncMock) as mock_persist:
-            result = async_to_sync(assistant._aprocess_message_update)(update)
-
-        assert result is reasoning_message
-        mock_persist.assert_awaited_once_with(DeepResearchNodeName.PLANNER, reasoning_message)
-
-    def test_deep_research_persists_task_execution_messages(self):
-        assistant = Assistant.create(
-            team=self.team,
-            conversation=self.conversation,
-            user=self.user,
-            mode=AssistantMode.DEEP_RESEARCH,
-        )
-
-        task_message = TaskExecutionMessage(
-            tasks=[
-                TaskExecutionItem(
-                    description="Write summary",
-                    id="t1",
-                    prompt="Write a summary",
-                    status=TaskExecutionStatus.IN_PROGRESS,
-                    task_type="summary",
-                )
-            ]
-        )
-        langgraph_state: LangGraphState = {"langgraph_node": DeepResearchNodeName.TASK_EXECUTOR}
-        update: GraphMessageUpdateTuple = ("messages", (task_message, langgraph_state))
-
-        with patch.object(assistant, "_persist_stream_message", new_callable=AsyncMock) as mock_persist:
-            result = async_to_sync(assistant._aprocess_message_update)(update)
-
-        assert result is task_message
-        mock_persist.assert_awaited_once_with(DeepResearchNodeName.TASK_EXECUTOR, task_message)
-
     async def test_messages_without_id_are_yielded(self):
         """Test that messages without ID are always yielded."""
+        from ee.hogai.graph.base import BaseAssistantNode
 
-        class MessageWithoutIdNode:
-            def __init__(self):
+        class MessageWithoutIdNode(BaseAssistantNode):
+            def __init__(self, team, user):
+                super().__init__(team, user)
                 self.call_count = 0
 
-            def __call__(self, state):
-                self.call_count += 1
-                # Return message without ID - should always be yielded
-                return {
-                    "messages": [
-                        AssistantMessage(content=f"Message {self.call_count} without ID"),
-                        AssistantMessage(content=f"Message {self.call_count} without ID"),
-                    ]
-                }
+            @property
+            def node_name(self):
+                return AssistantNodeName.ROOT
 
-        node = MessageWithoutIdNode()
+            async def arun(self, state, config):
+                self.call_count += 1
+                # Dispatch messages without ID - should always be yielded
+                self.dispatcher.message(AssistantMessage(content=f"Message {self.call_count} without ID"))
+                self.dispatcher.message(AssistantMessage(content=f"Message {self.call_count} without ID"))
+                return PartialAssistantState()
+
+        node = MessageWithoutIdNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, node)
@@ -2073,23 +1771,27 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_messages_with_id_are_deduplicated(self):
         """Test that messages with ID are deduplicated during streaming."""
+        from ee.hogai.graph.base import BaseAssistantNode
+
         message_id = str(uuid4())
 
-        class DuplicateMessageNode:
-            def __init__(self):
+        class DuplicateMessageNode(BaseAssistantNode):
+            def __init__(self, team, user):
+                super().__init__(team, user)
                 self.call_count = 0
 
-            def __call__(self, state):
-                self.call_count += 1
-                # Always return the same message with same ID
-                return {
-                    "messages": [
-                        AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
-                        AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
-                    ]
-                }
+            @property
+            def node_name(self):
+                return AssistantNodeName.ROOT
 
-        node = DuplicateMessageNode()
+            async def arun(self, state, config):
+                self.call_count += 1
+                # Always dispatch the same message with same ID
+                self.dispatcher.message(AssistantMessage(id=message_id, content=f"Call {self.call_count}"))
+                self.dispatcher.message(AssistantMessage(id=message_id, content=f"Call {self.call_count}"))
+                return PartialAssistantState()
+
+        node = DuplicateMessageNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, node)
@@ -2106,7 +1808,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
             is_new_conversation=False,
         )
-        assistant._graph = AssistantCompiledStateGraph(graph, {})
+        assistant._graph = graph
 
         # Collect all streamed messages
         streamed_messages = []
@@ -2125,35 +1827,34 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_init_or_update_state_adds_existing_message_ids_to_streamed_set(self):
         """Test that _init_or_update_state adds existing message IDs to _streamed_update_ids."""
+        from ee.hogai.graph.base import BaseAssistantNode
+
         # Create messages with IDs that should be tracked
         message_id_1 = str(uuid4())
         message_id_2 = str(uuid4())
-        call_count = [0]
 
-        # Create a simple graph that returns messages with IDs
-        def create_messages_with_ids(_):
-            result = None
-            if call_count[0] == 0:
-                result = PartialAssistantState(
-                    messages=[
-                        AssistantMessage(id=message_id_1, content="Message 1"),
-                    ]
-                )
-            else:
-                result = PartialAssistantState(
-                    messages=ReplaceMessages(
-                        [
-                            AssistantMessage(id=message_id_1, content="Message 1"),
-                            AssistantMessage(id=message_id_2, content="Message 2"),
-                        ]
-                    )
-                )
-            call_count[0] += 1
-            return result
+        # Create a simple graph that dispatches messages with IDs
+        class MessageWithIdNode(BaseAssistantNode):
+            def __init__(self, team, user):
+                super().__init__(team, user)
+                self.call_count = 0
 
+            @property
+            def node_name(self):
+                return AssistantNodeName.ROOT
+
+            async def arun(self, state, config):
+                self.call_count += 1
+                if self.call_count == 1:
+                    self.dispatcher.message(AssistantMessage(id=message_id_1, content="Message 1"))
+                else:
+                    self.dispatcher.message(AssistantMessage(id=message_id_2, content="Message 2"))
+                return PartialAssistantState()
+
+        node = MessageWithIdNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, create_messages_with_ids)
+            .add_node(AssistantNodeName.ROOT, node)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()

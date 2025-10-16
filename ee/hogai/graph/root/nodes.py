@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal, Optional, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Literal, TypeVar, Union
 from uuid import uuid4
 
 import posthoganalytics
@@ -23,7 +23,6 @@ from posthog.schema import (
     ContextMessage,
     FailureMessage,
     HumanMessage,
-    ReasoningMessage,
 )
 
 from posthog.models import Team, User
@@ -35,19 +34,11 @@ from ee.hogai.graph.root.tools.todo_write import TodoWriteTool
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, ToolMessagesArtifact
-from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
-from ee.hogai.utils.helpers import insert_messages_before_start
+from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
+from ee.hogai.utils.helpers import insert_messages_before_start, normalize_ai_message
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types import (
-    AssistantMessageUnion,
-    AssistantNodeName,
-    AssistantState,
-    BaseState,
-    BaseStateWithMessages,
-    InsightQuery,
-    PartialAssistantState,
-    ReplaceMessages,
-)
+from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState, InsightQuery
+from ee.hogai.utils.types.base import PartialAssistantState, ReplaceMessages
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
@@ -167,7 +158,8 @@ class RootNode(AssistantNode):
         add_cache_control(system_prompts[-1])
 
         message = await model.ainvoke(system_prompts + langchain_messages, config)
-        assistant_message = normalize_ai_anthropic_message(message)
+        assistant_message = normalize_ai_message(message)
+        self.dispatcher.message(assistant_message)
 
         new_messages: list[AssistantMessageUnion] = [assistant_message]
         # Replace the messages with the new message window
@@ -175,14 +167,6 @@ class RootNode(AssistantNode):
             new_messages = ReplaceMessages([*messages_to_replace, assistant_message])
 
         return PartialAssistantState(root_conversation_start_id=window_id, messages=new_messages)
-
-    async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
-    ) -> ReasoningMessage | None:
-        input = cast(AssistantState, input)
-        if self.context_manager.has_awaitable_context(input):
-            return ReasoningMessage(content="Calculating context")
-        return None
 
     @property
     def node_name(self) -> MaxNodeName:
@@ -323,23 +307,16 @@ class RootNodeTools(AssistantNode):
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.ROOT_TOOLS
 
-    async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
-    ) -> ReasoningMessage | None:
-        if not isinstance(input, BaseStateWithMessages):
-            return None
-        if not input.messages:
-            return None
-
-        assert isinstance(input.messages[-1], AssistantMessage)
-        tool_calls = input.messages[-1].tool_calls or []
+    async def _dispatch_update_message(self, state: AssistantState) -> None:
+        assert isinstance(state.messages[-1], AssistantMessage)
+        tool_calls = state.messages[-1].tool_calls or []
         assert len(tool_calls) <= 1
         if len(tool_calls) == 0:
             return None
         tool_call = tool_calls[0]
         content = None
         if tool_call.name == "create_and_query_insight":
-            content = "Coming up with an insight"
+            content = "Generating an insight plan"
         else:
             # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
             # when the tool has been removed from the backend since the user's frontend was loaded
@@ -350,13 +327,15 @@ class RootNodeTools(AssistantNode):
                 else f"Running tool {tool_call.name}"
             )
 
-        return ReasoningMessage(content=content) if content else None
+        self.dispatcher.message(AssistantMessage(content=content, parent_tool_call_id=tool_call.id))
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
             # Reset tools.
             return PartialAssistantState(root_tool_calls_count=0)
+
+        await self._dispatch_update_message(state)
 
         tool_call_count = state.root_tool_calls_count or 0
 
@@ -467,12 +446,28 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
 
+        # If this is a navigation tool call, pause the graph execution
+        # so that the frontend can re-initialise Max with a new set of contextual tools.
+        if tool_call.name == "navigate":
+            navigate_message = AssistantToolCallMessage(
+                content=str(result.content) if result.content else "",
+                ui_payload={tool_call.name: result.artifact},
+                id=str(uuid4()),
+                tool_call_id=tool_call.id,
+                visible=True,
+            )
+            self.dispatcher.message(navigate_message)
+            # Raising a `NodeInterrupt` ensures the assistant graph stops here and
+            # surfaces the navigation confirmation to the client. The next user
+            # interaction will resume the graph with potentially different
+            # contextual tools.
+            raise NodeInterrupt(navigate_message)
+
         tool_message = AssistantToolCallMessage(
             content=str(result.content) if result.content else "",
             ui_payload={tool_call.name: result.artifact},
             id=str(uuid4()),
             tool_call_id=tool_call.id,
-            visible=tool_class.show_tool_call_message,
         )
 
         # If this is a navigation tool call, pause the graph execution

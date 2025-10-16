@@ -1,9 +1,12 @@
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from typing import Any, Optional, TypeVar, Union, cast
+from uuid import uuid4
 
 from jsonref import replace_refs
 from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
     merge_message_runs,
@@ -13,8 +16,9 @@ from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantMessage,
+    AssistantMessageMetadata,
     AssistantRetentionQuery,
-    AssistantToolCallMessage,
+    AssistantToolCall,
     AssistantTrendsQuery,
     CachedTeamTaxonomyQueryResponse,
     ContextMessage,
@@ -118,11 +122,13 @@ def should_output_assistant_message(candidate_message: AssistantMessageUnion) ->
     This is used to filter out messages that are not useful for the user.
     Filter out tool calls without a UI payload and empty assistant messages.
     """
-    if isinstance(candidate_message, AssistantToolCallMessage) and candidate_message.ui_payload is None:
-        return False
-
-    if isinstance(candidate_message, AssistantMessage) and not candidate_message.content:
-        return False
+    if isinstance(candidate_message, AssistantMessage):
+        if (
+            candidate_message.tool_calls is None
+            and len(candidate_message.content) == 0
+            and candidate_message.meta is None
+        ):
+            return False
 
     # Filter out context messages
     if isinstance(candidate_message, ContextMessage):
@@ -226,6 +232,55 @@ def extract_content_from_ai_message(response: BaseMessage) -> str:
                 text_parts.append(content_item)
         return "".join(text_parts)
     return str(response.content)
+
+
+def extract_thinking_from_ai_message(response: BaseMessage) -> list[dict[str, Any]]:
+    thinking: list[dict[str, Any]] = []
+
+    for content in response.content:
+        # Anthropic style reasoning
+        if isinstance(content, dict) and "type" in content:
+            if content["type"] in ("thinking", "redacted_thinking"):
+                thinking.append(content)
+    if response.additional_kwargs.get("reasoning") and (
+        summary := response.additional_kwargs["reasoning"].get("summary")
+    ):
+        # OpenAI style reasoning
+        thinking.append(
+            {
+                "type": "thinking",
+                "thinking": summary[0]["text"],
+            }
+        )
+    return thinking
+
+
+def normalize_ai_message(message: AIMessage | AIMessageChunk) -> AssistantMessage:
+    message_id = None
+    if isinstance(message, AIMessageChunk):
+        tool_calls = [
+            AssistantToolCall(
+                id=tool_call["id"],
+                name=tool_call["name"],
+                args=(tool_call["args"] if isinstance(tool_call["args"], dict) else {}),
+            )
+            for tool_call in message.tool_call_chunks
+            if tool_call["id"] is not None and tool_call["name"] is not None
+        ]
+    else:
+        message_id = str(uuid4())
+        tool_calls = [
+            AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"] or {})
+            for tool_call in message.tool_calls
+        ]
+    content = extract_content_from_ai_message(message)
+    thinking = extract_thinking_from_ai_message(message)
+    return AssistantMessage(
+        content=content,
+        id=message_id,
+        tool_calls=tool_calls,
+        meta=AssistantMessageMetadata(thinking=thinking) if thinking else None,
+    )
 
 
 def cast_assistant_query(

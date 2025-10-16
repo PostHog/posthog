@@ -142,6 +142,7 @@ class TodoItem(BaseModel):
     content: str = Field(..., min_length=1)
     status: Literal["pending", "in_progress", "completed"]
     id: str
+    priority: Literal["low", "medium", "high"]
 
 
 class TodoWriteToolArgs(BaseModel):
@@ -153,7 +154,6 @@ class TodoWriteTool(MaxTool):
     description: str = TODO_WRITE_PROMPT
     thinking_message: str = "Building and maintaining a structured to-do list"
     args_schema: type[BaseModel] = TodoWriteToolArgs
-    show_tool_call_message: bool = False
 
     async def _arun_impl(self, todos: list[TodoItem]) -> tuple[str, None]:
         return (

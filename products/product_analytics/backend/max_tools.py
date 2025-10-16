@@ -92,7 +92,6 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
 """.strip()
 
     args_schema: type[BaseModel] = EditCurrentInsightArgs
-    show_tool_call_message: bool = False
 
     async def _arun_impl(self, query_kind: str, query_description: str) -> tuple[str, ToolMessagesArtifact]:
         from ee.hogai.graph.graph import InsightsAssistantGraph  # avoid circular import
@@ -129,7 +128,6 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
                     ui_payload={self.get_name(): viz_message.answer.model_dump(exclude_none=True)},
                     id=str(uuid4()),
                     tool_call_id=result.tool_call_id,
-                    visible=self.show_tool_call_message,
                 ),
             ]
         )

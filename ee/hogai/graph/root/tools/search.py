@@ -65,7 +65,6 @@ class SearchTool(MaxTool):
     thinking_message: str = "Searching for information"
     root_system_prompt_template: str = "Searches documentation or user data in PostHog (insights)"
     args_schema: type[BaseModel] = SearchToolArgs
-    show_tool_call_message: bool = False
 
     async def _arun_impl(self, kind: SearchKind, query: str) -> tuple[str, dict[str, Any] | None]:
         if kind == "docs" and not settings.INKEEP_API_KEY:

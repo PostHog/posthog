@@ -18,9 +18,8 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantMessage, AssistantToolCallMessage
 
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.state import PartialAssistantState
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName, PartialAssistantState
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..root.nodes import RootNode

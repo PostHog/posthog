@@ -53,7 +53,7 @@ class QueryExecutorNode(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]
         if isinstance(viz_message, FailureMessage):
-            return PartialAssistantState()  # Exit early - something failed earlier
+            return None  # Exit early - something failed earlier
         if not isinstance(viz_message, VisualizationMessage):
             raise ValueError(f"Expected a visualization message, found {type(viz_message)}")
         if viz_message.answer is None:
@@ -88,7 +88,11 @@ class QueryExecutorNode(AssistantNode):
 
         return PartialAssistantState(
             messages=[
-                AssistantToolCallMessage(content=formatted_query_result, id=str(uuid4()), tool_call_id=tool_call_id)
+                AssistantToolCallMessage(
+                    content=formatted_query_result,
+                    id=str(uuid4()),
+                    tool_call_id=tool_call_id,
+                ),
             ],
             root_tool_call_id=None,
             root_tool_insight_plan=None,
