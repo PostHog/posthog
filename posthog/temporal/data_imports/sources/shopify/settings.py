@@ -14,15 +14,15 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Timestamp,
         },
         {
-            "label": "completedAt",
-            "type": IncrementalFieldType.Timestamp,
-            "field": "completedAt",
-            "field_type": IncrementalFieldType.Timestamp,
-        },
-        {
             "label": "updatedAt",
             "type": IncrementalFieldType.Timestamp,
             "field": "updatedAt",
+            "field_type": IncrementalFieldType.Timestamp,
+        },
+        {
+            "label": "completedAt",
+            "type": IncrementalFieldType.Timestamp,
+            "field": "completedAt",
             "field_type": IncrementalFieldType.Timestamp,
         },
     ],
@@ -34,15 +34,15 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Timestamp,
         },
         {
-            "label": "publishedAt",
-            "type": IncrementalFieldType.Timestamp,
-            "field": "publishedAt",
-            "field_type": IncrementalFieldType.Timestamp,
-        },
-        {
             "label": "updatedAt",
             "type": IncrementalFieldType.Timestamp,
             "field": "updatedAt",
+            "field_type": IncrementalFieldType.Timestamp,
+        },
+        {
+            "label": "publishedAt",
+            "type": IncrementalFieldType.Timestamp,
+            "field": "publishedAt",
             "field_type": IncrementalFieldType.Timestamp,
         },
     ],
