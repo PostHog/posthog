@@ -87,14 +87,14 @@ class GroupsTypesViewSet(
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
 
-        if group_type_mapping.detail_dashboard:
+        if group_type_mapping.detail_dashboard_id:
             return response.Response(
                 {"detail": "Dashboard already exists for this group type."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
-        group_type_mapping.detail_dashboard = dashboard
+        group_type_mapping.detail_dashboard_id = dashboard.id
         group_type_mapping.save()
         return response.Response(self.get_serializer(group_type_mapping).data)
 
