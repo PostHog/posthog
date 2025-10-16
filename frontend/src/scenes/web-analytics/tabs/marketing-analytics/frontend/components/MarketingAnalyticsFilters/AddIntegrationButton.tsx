@@ -76,7 +76,7 @@ export function AddIntegrationButton(): JSX.Element {
                 </div>
             }
         >
-            <LemonButton type="primary" size="small" icon={<IconPlus />} data-attr="add-integration">
+            <LemonButton type="primary" size="small" icon={<IconPlusSmall />} data-attr="add-integration">
                 Add integration
             </LemonButton>
         </LemonDropdown>
