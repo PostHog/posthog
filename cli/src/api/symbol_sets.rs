@@ -146,6 +146,9 @@ fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
         match res {
             Result::Ok(resp) => {
                 last_err = raise_for_err(resp).err();
+                if last_err.is_none() {
+                    return Ok(());
+                }
             }
             Result::Err(e) => {
                 last_err = Some(anyhow!("Failed to upload chunk: {}", e));
