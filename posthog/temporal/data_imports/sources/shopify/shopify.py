@@ -7,10 +7,15 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.graphql_source.constants import GRAPHQL_DEFAULT_PAGE_SIZE
-from posthog.temporal.data_imports.sources.common.graphql_source.typing import GraphQLResource, GraphQLResponse
+from posthog.temporal.data_imports.sources.shopify.utils import ShopifyGraphQLObject, safe_unwrap, unwrap
 
-from .constants import SHOPIFY_ACCESS_TOKEN_CHECK, SHOPIFY_API_URL, SHOPIFY_API_VERSION, SHOPIFY_RESOURCES
+from .constants import (
+    SHOPIFY_ACCESS_TOKEN_CHECK,
+    SHOPIFY_API_URL,
+    SHOPIFY_API_VERSION,
+    SHOPIFY_DEFAULT_PAGE_SIZE,
+    SHOPIFY_RESOURCES,
+)
 
 
 class ShopifyPermissionError(Exception):
@@ -30,16 +35,14 @@ class ShopifyRateLimitError(Exception):
     pass
 
 
-def _is_rate_limited(payload: GraphQLResponse, resource: GraphQLResource) -> bool:
+def _is_rate_limited(payload: Any) -> bool:
     """Check if the response indicates a rate limit has been hit."""
-    errors, ok = resource.safe_unwrap(payload, accessor="errors")
+    errors, ok = safe_unwrap(payload, path="errors")
     if ok and isinstance(errors, list):
         for error in errors:
             if "throttled" in str(error).lower():
                 return True
-    currently_available, ok = resource.safe_unwrap(
-        payload, accessor="extensions.cost.throttleStatus.currentlyAvailable"
-    )
+    currently_available, ok = safe_unwrap(payload, path="extensions.cost.throttleStatus.currentlyAvailable")
     if ok and isinstance(currently_available, int | float):
         # this check is a little liberal. if we find that we are getting rate limited
         # too often might be worth it to check against the requestedCost instead
@@ -47,19 +50,21 @@ def _is_rate_limited(payload: GraphQLResponse, resource: GraphQLResource) -> boo
     return False
 
 
-def _make_paginated_shopify_request(url: str, sess: Session, resource: GraphQLResource, logger: FilteringBoundLogger):
+def _make_paginated_shopify_request(
+    url: str, sess: Session, graphql_object: ShopifyGraphQLObject, logger: FilteringBoundLogger
+):
     @retry(
         retry=retry_if_exception_type(ShopifyRateLimitError),
         stop=stop_after_attempt(5),
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
-    def execute(vars) -> GraphQLResponse:
-        logger.debug(f"Shopify: reading from resource {resource.name}")
-        response = sess.post(url, json={"query": resource.query, "variables": vars})
+    def execute(vars: dict[str, Any]):
+        logger.debug(f"Shopify: reading from resource {graphql_object.name}")
+        response = sess.post(url, json={"query": graphql_object.query, "variables": vars})
         response.raise_for_status()
         payload = response.json()
-        if _is_rate_limited(payload, resource):
+        if _is_rate_limited(payload):
             raise ShopifyRateLimitError("Shopify rate limit exceeded...")
         if "data" in payload:
             return payload
@@ -68,13 +73,13 @@ def _make_paginated_shopify_request(url: str, sess: Session, resource: GraphQLRe
         else:
             raise Exception(f"Unexpected graphql response format in Shopify rows read. Keys: {list(payload.keys())}")
 
-    vars = {"pageSize": GRAPHQL_DEFAULT_PAGE_SIZE}
+    vars = {"pageSize": SHOPIFY_DEFAULT_PAGE_SIZE}
     has_next_page = True
     while has_next_page:
         payload = execute(vars)
-        data_iter = resource.unwrap(payload, accessor=f"{resource.accessor}.nodes")
+        data_iter = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
         yield data_iter
-        page_info = resource.unwrap(payload, accessor=f"{resource.accessor}.pageInfo")
+        page_info = unwrap(payload, path=f"data.{graphql_object.name}.pageInfo")
         has_next_page = page_info.get("hasNextPage", False)
         if has_next_page:
             # this is intentionally an unsafe lookup so errors surface if expectations aren't met

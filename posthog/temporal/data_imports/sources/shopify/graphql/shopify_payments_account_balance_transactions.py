@@ -1,7 +1,7 @@
 from .fragments import MONEY_V2_FRAGMENT
 
-SHOPIFY_PAYMENTS_BALANCE_TRANSACTIONS_QUERY = f"""
-query PaginatedShopifyPaymentsBalanceTransactions($pageSize: Int!, $cursor: String) {{
+SHOPIFY_PAYMENTS_ACCOUNT_BALANCE_TRANSACTIONS_QUERY = f"""
+query PaginatedShopifyPaymentsAccountBalanceTransactions($pageSize: Int!, $cursor: String) {{
 	shopifyPaymentsAccount {{
 		balanceTransactions(first: $pageSize, after: $cursor) {{
 			nodes {{
