@@ -111,7 +111,7 @@ def share_session(markdown_content, description, username):
     """Clone repo, add session, commit and push."""
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     safe_desc = sanitize_description(description)
-    filename = f"{timestamp}-{safe_desc}.md"
+    filename = f"{timestamp}-{safe_desc}.md" if safe_desc else f"{timestamp}.md"
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
@@ -161,12 +161,12 @@ def main():
     log_file = find_latest_session_log(project_slug)
     print(f"Found session log: {log_file}")
 
-    # Get session date
+    # Get session date for metadata
     session_date = datetime.fromtimestamp(log_file.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
 
     # Set default description if not provided
     if not description:
-        description = f"Claude Code Session - {session_date}"
+        description = ""
 
     print("Converting session log to markdown...")
     messages = parse_session_log(log_file)
