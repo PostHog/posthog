@@ -200,27 +200,70 @@ export const commonConfig = {
         {
             name: 'rewrite-sourcemap-url',
             setup(build) {
-                build.onEnd(async (result) => {
-                    if (!result.metafile) {
-                        return
+                build.onEnd(async () => {
+                    const debugInfo = []
+
+                    // Get output directory from build config
+                    const outdir = build.initialOptions.outdir
+                    const outfile = build.initialOptions.outfile
+
+                    let outputFiles = []
+
+                    if (outdir) {
+                        // Scan the output directory for .js files
+                        const files = await fs.readdir(outdir)
+                        outputFiles = files.filter((f) => f.endsWith('.js')).map((f) => path.join(outdir, f))
+                    } else if (outfile && outfile.endsWith('.js')) {
+                        // Single output file
+                        outputFiles = [outfile]
                     }
 
-                    const outputs = Object.keys(result.metafile.outputs).filter((f) => f.endsWith('.js'))
-
-                    for (const output of outputs) {
+                    for (const output of outputFiles) {
                         const content = await fs.readFile(output, 'utf-8')
-                        const sourcemapFile = path.basename(output) + '.map'
 
-                        // Rewrite the sourceMappingURL comment
-                        const newContent = content.replace(
-                            /\/\/# sourceMappingURL=.*$/m,
-                            `//# sourceMappingURL=${SOURCEMAP_PATH ? SOURCEMAP_PATH + '/' : ''}${sourcemapFile}`
-                        )
+                        // Find ALL sourceMappingURL comments
+                        const matches = [...content.matchAll(/\/\/# sourceMappingURL=(.*)$/gm)]
 
-                        if (newContent !== content) {
+                        if (matches.length === 0) {
+                            continue
+                        }
+
+                        // Get the last one
+                        const lastMatch = matches[matches.length - 1]
+                        const originalUrl = lastMatch[1]
+                        const filename = originalUrl.split('/').pop()
+                        const newUrl = `${SOURCEMAP_PATH ? SOURCEMAP_PATH + '/' : ''}${filename}`
+
+                        debugInfo.push({
+                            file: output,
+                            original: originalUrl,
+                            new: newUrl,
+                            changed: originalUrl !== newUrl,
+                            totalMatches: matches.length,
+                        })
+
+                        // Replace only the last occurrence
+                        if (originalUrl !== newUrl) {
+                            const lastIndex = lastMatch.index
+                            const newContent =
+                                content.substring(0, lastIndex) +
+                                `//# sourceMappingURL=${newUrl}` +
+                                content.substring(lastIndex + lastMatch[0].length)
+
                             await fs.writeFile(output, newContent)
                         }
                     }
+
+                    // Write debug info to file per build
+                    const buildName = build.initialOptions.globalName || 'main'
+                    const debugFile = path.resolve(
+                        build.initialOptions.absWorkingDir || '.',
+                        `sourcemap-rewrite-debug-${buildName}.json`
+                    )
+                    await fs.writeFile(debugFile, JSON.stringify(debugInfo, null, 2))
+                    console.info(
+                        `📝 [${buildName}] Rewrote ${debugInfo.filter((d) => d.changed).length} sourcemap URLs (see sourcemap-rewrite-debug-${buildName}.json)`
+                    )
                 })
             },
         },
