@@ -125,6 +125,8 @@ describe('LLM Analytics utils', () => {
     })
 
     it('normalizeOutputMessage: parses an Anthropic tool call message', () => {
+        // Standalone tool_use object (no array wrapper, no role)
+        // Goes through isAnthropicToolCallMessage() handler and transforms to OpenAI format
         let message: any = {
             type: 'tool_use',
             id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV',
@@ -149,6 +151,8 @@ describe('LLM Analytics utils', () => {
             },
         ])
 
+        // Array of tool_use with explicit role
+        // Early handler preserves native Anthropic format
         message = {
             role: 'assistant',
             content: [
@@ -170,29 +174,18 @@ describe('LLM Analytics utils', () => {
         expect(normalizeMessage(message, 'assistant')).toEqual([
             {
                 role: 'assistant',
-                content: '',
-                tool_calls: [
+                content: [
                     {
-                        type: 'function',
+                        type: 'tool_use',
                         id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV',
-                        function: {
-                            name: 'get_stock_price',
-                            arguments: { ticker: '^GSPC' },
-                        },
+                        name: 'get_stock_price',
+                        input: { ticker: '^GSPC' },
                     },
-                ],
-            },
-            {
-                role: 'assistant',
-                content: '',
-                tool_calls: [
                     {
-                        type: 'function',
+                        type: 'tool_use',
                         id: 'toolu_01D7FLrfh4GYq7yT1ULFeyMV2',
-                        function: {
-                            name: 'get_stock_price',
-                            arguments: { ticker: '^GSPC' },
-                        },
+                        name: 'get_stock_price',
+                        input: { ticker: '^GSPC' },
                     },
                 ],
             },
@@ -200,6 +193,8 @@ describe('LLM Analytics utils', () => {
     })
 
     it('normalizeOutputMessage: parses an Anthropic tool result message', () => {
+        // Tool result with explicit role in array format
+        // Early handler preserves native Anthropic format
         let message: AnthropicInputMessage = {
             role: 'user',
             content: [
@@ -214,8 +209,13 @@ describe('LLM Analytics utils', () => {
         expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'user',
-                content: 'foo',
-                tool_call_id: '1',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: '1',
+                        content: 'foo',
+                    },
+                ],
             },
         ])
 
@@ -237,8 +237,18 @@ describe('LLM Analytics utils', () => {
         expect(normalizeMessage(message, 'user')).toEqual([
             {
                 role: 'user',
-                content: 'foo',
-                tool_call_id: '1',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: '1',
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'foo',
+                            },
+                        ],
+                    },
+                ],
             },
         ])
     })
@@ -358,6 +368,109 @@ describe('LLM Analytics utils', () => {
                         text: 'Output text',
                     },
                 ],
+            },
+        ])
+    })
+
+    it('normalizeMessage: handles reasoning type from PostHog Anthropic provider', () => {
+        const message = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'reasoning',
+                    text: 'The user has approved my plan to proceed with the implementation.',
+                },
+            ],
+        }
+
+        expect(normalizeMessage(message, 'user')).toEqual([
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'reasoning',
+                        text: 'The user has approved my plan to proceed with the implementation.',
+                    },
+                ],
+            },
+        ])
+    })
+
+    it('normalizeMessage: handles tool-call type from PostHog Anthropic provider', () => {
+        const message = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'tool-call',
+                    id: 'toolu_01QQJkQPCo3RzVfsY2TivWLo',
+                    function: {
+                        name: 'createSheet',
+                        arguments: '{"sheetNumber": "A2.01"}',
+                    },
+                },
+            ],
+        }
+
+        expect(normalizeMessage(message, 'user')).toEqual([
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool-call',
+                        id: 'toolu_01QQJkQPCo3RzVfsY2TivWLo',
+                        function: {
+                            name: 'createSheet',
+                            arguments: '{"sheetNumber": "A2.01"}',
+                        },
+                    },
+                ],
+            },
+        ])
+    })
+
+    it('normalizeMessage: handles Claude message with mixed content types (reasoning, text, tool-call)', () => {
+        const message = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'reasoning',
+                    text: 'The user has approved my plan to proceed with the implementation.',
+                },
+                {
+                    type: 'text',
+                    text: "Perfect! I'll proceed with creating the sheet.",
+                },
+                {
+                    type: 'tool-call',
+                    id: 'toolu_01QQJkQPCo3RzVfsY2TivWLo',
+                    function: {
+                        name: 'createSheet',
+                        arguments: '{"sheetNumber": "A2.01", "title": "Site Plan"}',
+                    },
+                },
+            ],
+        }
+
+        const result = normalizeMessage(message, 'user')
+
+        expect(result).toHaveLength(1)
+        expect(result[0].role).toBe('assistant')
+        expect(result[0].content).toEqual([
+            {
+                type: 'reasoning',
+                text: 'The user has approved my plan to proceed with the implementation.',
+            },
+            {
+                type: 'text',
+                text: "Perfect! I'll proceed with creating the sheet.",
+            },
+            {
+                type: 'tool-call',
+                id: 'toolu_01QQJkQPCo3RzVfsY2TivWLo',
+                function: {
+                    name: 'createSheet',
+                    arguments: '{"sheetNumber": "A2.01", "title": "Site Plan"}',
+                },
             },
         ])
     })
