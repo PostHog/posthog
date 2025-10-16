@@ -5,6 +5,9 @@ from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
 
+DROP_INGESTION_WARNINGS_TABLE_MV_SQL = f"DROP TABLE IF EXISTS ingestion_warnings_mv"
+DROP_KAFKA_INGESTION_WARNINGS_TABLE_SQL = f"DROP TABLE IF EXISTS kafka_ingestion_warnings"
+
 
 def INGESTION_WARNINGS_TABLE_BASE_SQL():
     return """
@@ -48,7 +51,7 @@ def KAFKA_INGESTION_WARNINGS_TABLE_SQL(on_cluster=True):
     )
 
 
-def INGESTION_WARNINGS_MV_TABLE_SQL(on_cluster=True):
+def INGESTION_WARNINGS_MV_TABLE_SQL(on_cluster=True, target_table="writable_ingestion_warnings"):
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv {on_cluster_clause}
 TO {database}.{target_table}
@@ -63,7 +66,7 @@ _offset,
 _partition
 FROM {database}.kafka_ingestion_warnings
 """.format(
-        target_table="ingestion_warnings",
+        target_table=target_table,
         database=settings.CLICKHOUSE_DATABASE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
@@ -75,6 +78,16 @@ FROM {database}.kafka_ingestion_warnings
 def DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL(on_cluster=True):
     return INGESTION_WARNINGS_TABLE_BASE_SQL().format(
         table_name="ingestion_warnings",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=Distributed(data_table="sharded_ingestion_warnings", sharding_key="rand()"),
+        extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+        materialized_columns="",
+    )
+
+
+def WRITABLE_INGESTION_WARNINGS_TABLE_SQL(on_cluster=True):
+    return INGESTION_WARNINGS_TABLE_BASE_SQL().format(
+        table_name="writable_ingestion_warnings",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(data_table="sharded_ingestion_warnings", sharding_key="rand()"),
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION,

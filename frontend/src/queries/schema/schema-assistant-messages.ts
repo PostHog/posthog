@@ -43,6 +43,7 @@ export interface ProsemirrorJSONContent {
 export enum AssistantMessageType {
     Human = 'human',
     ToolCall = 'tool',
+    Context = 'context',
     Assistant = 'ai',
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
@@ -55,6 +56,7 @@ export enum AssistantMessageType {
 
 export interface BaseAssistantMessage {
     id?: string
+    visible?: boolean
 }
 
 export interface HumanMessage extends BaseAssistantMessage {
@@ -74,6 +76,7 @@ export interface AssistantForm {
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
+    thinking?: Record<string, unknown>[]
 }
 
 export interface AssistantToolCall {
@@ -98,6 +101,11 @@ export interface ReasoningMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Reasoning
     content: string
     substeps?: string[]
+}
+
+export interface ContextMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Context
+    content: string
 }
 
 /**
@@ -229,7 +237,6 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
      * Tool call messages without a ui_payload are not passed through to the frontend.
      */
     ui_payload?: Record<string, any>
-    visible?: boolean
     content: string
     tool_call_id: string
 }

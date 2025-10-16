@@ -79,8 +79,8 @@ export type SdkHealthStatus = 'danger' | 'warning' | 'success'
  * Provides smart version outdatedness detection.
  *
  * Architecture:
- * - Backend detection: Team SDK detections cached server-side (72h Redis, re-fetched every 6 hours)
- * - Version checking: Per-SDK GitHub API queries cached server-side (72h Redis, re-fetched every 6 hours)
+ * - Backend detection: Team SDK detections cached server-side (72h Redis, refreshed every 12 hours)
+ * - Version checking: Per-SDK GitHub API queries cached server-side (72h Redis, refreshed every 6 hours)
  * - Smart semver: Contextual thresholds
  */
 

@@ -29,6 +29,7 @@ export function ContextDisplay({
               ['Library', concatValues(exceptionAttributes, 'lib', 'libVersion')],
               ['Handled', exceptionAttributes.handled],
               ['Browser', concatValues(exceptionAttributes, 'browser', 'browserVersion')],
+              ['App', concatValues(exceptionAttributes, 'appNamespace', 'appVersion')],
               ['OS', concatValues(exceptionAttributes, 'os', 'osVersion')],
               ['URL', exceptionAttributes.url],
           ]

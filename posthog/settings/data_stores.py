@@ -311,6 +311,8 @@ KAFKA_PRODUCER_SETTINGS = {
         "max_in_flight_requests_per_connection": get_from_env(
             "KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION", optional=True, type_cast=int
         ),
+        "buffer_memory": get_from_env("KAFKA_PRODUCER_BUFFER_MEMORY", optional=True, type_cast=int),
+        "max_block_ms": get_from_env("KAFKA_PRODUCER_MAX_BLOCK_MS", optional=True, type_cast=int),
     }.items()
     if value is not None
 }

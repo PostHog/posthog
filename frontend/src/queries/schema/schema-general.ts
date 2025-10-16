@@ -853,6 +853,7 @@ export interface DataTableNode
     hiddenColumns?: HogQLExpression[]
     /** Columns that are sticky when scrolling horizontally */
     pinnedColumns?: HogQLExpression[]
+    tags?: QueryLogTags
 }
 
 export interface GoalLine {
@@ -2309,6 +2310,24 @@ export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTracking
 
 export type LogSeverityLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
+export interface LogMessage {
+    uuid: string
+    trace_id: string
+    span_id: string
+    body: string
+    attributes: Record<string, any>
+    /**  @format date-time */
+    timestamp: string
+    /**  @format date-time */
+    observed_timestamp: string
+    severity_text: LogSeverityLevel
+    severity_number: number
+    level: LogSeverityLevel
+    resource_attributes: any
+    instrumentation_scope: string
+    event_name: string
+}
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
@@ -2322,7 +2341,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
-    results: unknown
+    results: unknown // TODO: Type this to LogMessage[] and fix the issues it creates on the backend
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2371,24 +2390,6 @@ export type CachedSessionBatchEventsQueryResponse = CachedEventsQueryResponse & 
     timings?: QueryTiming[]
 }
 export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
-
-export interface LogMessage {
-    uuid: string
-    trace_id: string
-    span_id: string
-    body: string
-    attributes: Record<string, any>
-    /**  @format date-time */
-    timestamp: string
-    /**  @format date-time */
-    observed_timestamp: string
-    severity_text: LogSeverityLevel
-    severity_number: number
-    level: LogSeverityLevel
-    resource: string
-    instrumentation_scope: string
-    event_name: string
-}
 
 export interface FileSystemCount {
     count: number
@@ -2444,7 +2445,7 @@ export type FileSystemIconType =
     | 'task'
     | 'link'
     | 'logs'
-    | 'messaging'
+    | 'workflows'
     | 'notebook'
     | 'action'
     | 'comment'
@@ -4112,6 +4113,8 @@ export interface UsageMetric {
     id: string
     name: string
     value: number
+    previous: number
+    change_from_previous_pct: number | null
     format: UsageMetricFormat
     display: UsageMetricDisplay
     interval: integer
