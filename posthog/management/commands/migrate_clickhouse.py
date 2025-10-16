@@ -111,5 +111,5 @@ class Command(BaseCommand):
         if settings.TEST or settings.E2E_TESTING:
             with default_client() as client:
                 client.execute(
-                    f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster}",
+                    f"CREATE DATABASE IF NOT EXISTS {database}",
                 )

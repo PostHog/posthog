@@ -2,7 +2,6 @@ from django.conf import settings
 
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.models.raw_sessions.sql import (
     RAW_SESSION_TABLE_UPDATE_SQL,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
@@ -18,7 +17,6 @@ def update_raw_sessions_table(migration: str):
         run_sql_with_exceptions(
             migration.format(
                 table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
-                on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
             node_roles=[NodeRole.DATA],
             sharded=True,
@@ -27,7 +25,6 @@ def update_raw_sessions_table(migration: str):
         run_sql_with_exceptions(
             migration.format(
                 table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE(),
-                on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
             node_roles=[NodeRole.DATA],
         ),
@@ -37,7 +34,6 @@ def update_raw_sessions_table(migration: str):
         run_sql_with_exceptions(
             migration.format(
                 table_name=TABLE_BASE_NAME,
-                on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
             node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
         ),
@@ -102,7 +98,7 @@ DISTRIBUTED_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL = lambda: ADD_VITALS_LCP_COLU
 
 # irclid and _kx
 ADD_IRCLID_KX_COLUMNS_SQL = """
-ALTER TABLE {table_name} {on_cluster_clause}
+ALTER TABLE {table_name}
 ADD COLUMN IF NOT EXISTS
 initial__kx
 AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -113,30 +109,27 @@ AFTER initial_ttclid
 """
 
 
-def BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
+def BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL():
     return ADD_IRCLID_KX_COLUMNS_SQL.format(
         table_name=TABLE_BASE_NAME,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
 
-def WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
+def WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL():
     return ADD_IRCLID_KX_COLUMNS_SQL.format(
         table_name="writable_raw_sessions",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
 
-def DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
+def DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL():
     return ADD_IRCLID_KX_COLUMNS_SQL.format(
         table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 
 
 # max_inserted_at
 ADD_MAX_INSERTED_AT_COLUMN_SQL = """
-ALTER TABLE {table_name} {on_cluster_clause}
+ALTER TABLE {table_name}
 ADD COLUMN IF NOT EXISTS
 max_inserted_at SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
 AFTER max_timestamp

@@ -12,6 +12,6 @@ operations = [
     run_sql_with_exceptions(DROP_GROUPS_TABLE_MV_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DROP_KAFKA_GROUPS_TABLE_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(GROUPS_WRITABLE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
-    run_sql_with_exceptions(KAFKA_GROUPS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]),
-    run_sql_with_exceptions(GROUPS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]),
+    run_sql_with_exceptions(KAFKA_GROUPS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+    run_sql_with_exceptions(GROUPS_TABLE_MV_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
 ]

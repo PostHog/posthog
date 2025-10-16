@@ -1,4 +1,3 @@
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 
 
@@ -7,7 +6,7 @@ def PG_EMBEDDINGS_DATA_TABLE():
 
 
 PG_EMBEDDINGS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     domain String,
     team_id Int64,
@@ -27,7 +26,7 @@ def PG_EMBEDDINGS_DATA_TABLE_ENGINE():
     )
 
 
-def PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
+def PG_EMBEDDINGS_TABLE_SQL():
     return (
         PG_EMBEDDINGS_TABLE_BASE_SQL
         + """
@@ -37,17 +36,16 @@ def PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
     """
     ).format(
         table_name=PG_EMBEDDINGS_DATA_TABLE(),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=PG_EMBEDDINGS_DATA_TABLE_ENGINE(),
     )
 
 
-def DROP_PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
-    return f"DROP TABLE IF EXISTS {PG_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(on_cluster)}"
+def DROP_PG_EMBEDDINGS_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {PG_EMBEDDINGS_DATA_TABLE()}"
 
 
-def TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
-    return f"TRUNCATE TABLE IF EXISTS {PG_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(on_cluster)}"
+def TRUNCATE_PG_EMBEDDINGS_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {PG_EMBEDDINGS_DATA_TABLE()}"
 
 
 INSERT_BULK_PG_EMBEDDINGS_SQL = """

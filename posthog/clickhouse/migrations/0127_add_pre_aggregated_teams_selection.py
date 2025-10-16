@@ -9,14 +9,14 @@ from posthog.models.web_preaggregated.team_selection import (
 
 operations = [
     run_sql_with_exceptions(
-        WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+        WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
     ),
     run_sql_with_exceptions(
         WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(DEFAULT_ENABLED_TEAM_IDS),
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     ),
     run_sql_with_exceptions(
-        WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(on_cluster=False),
+        WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
         node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     ),
 ]

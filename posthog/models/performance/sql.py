@@ -1,7 +1,6 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 
 from posthog import settings
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
@@ -98,7 +97,7 @@ def PERFORMANCE_EVENT_DATA_TABLE():
 
 PERFORMANCE_EVENTS_TABLE_BASE_SQL = (
     lambda: """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     {columns}
     {extra_fields}
@@ -107,7 +106,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 )
 
 
-def PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=True):
+def PERFORMANCE_EVENTS_TABLE_SQL():
     return (
         PERFORMANCE_EVENTS_TABLE_BASE_SQL()
         + """PARTITION BY toYYYYMM(timestamp)
@@ -118,7 +117,6 @@ ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
     ).format(
         columns=PERFORMANCE_EVENT_COLUMNS,
         table_name=PERFORMANCE_EVENT_DATA_TABLE(),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
         ttl_period=ttl_period(field="timestamp"),
@@ -126,11 +124,10 @@ ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
     )
 
 
-def KAFKA_PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=True):
+def KAFKA_PERFORMANCE_EVENTS_TABLE_SQL():
     return PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
         columns=PERFORMANCE_EVENT_COLUMNS,
         table_name="kafka_performance_events",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_PERFORMANCE_EVENTS),
         extra_fields="",
     )
@@ -153,11 +150,10 @@ def _column_names_from_column_definitions(column_definitions: str) -> str:
     return ", ".join([cl for cl in column_names if cl])
 
 
-def DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=True):
+def DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL():
     return PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
         columns=PERFORMANCE_EVENT_COLUMNS,
         table_name="performance_events",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=PERFORMANCE_EVENT_DATA_TABLE(),
             sharding_key="sipHash64(session_id)",
@@ -166,11 +162,10 @@ def DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=True):
     )
 
 
-def WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=True):
+def WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL():
     return PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
         columns=PERFORMANCE_EVENT_COLUMNS,
         table_name="writeable_performance_events",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=PERFORMANCE_EVENT_DATA_TABLE(),
             sharding_key="sipHash64(session_id)",
@@ -181,7 +176,7 @@ def WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=True):
 
 PERFORMANCE_EVENTS_TABLE_MV_SQL = (
     lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv ON CLUSTER '{cluster}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv
 TO {database}.{target_table}
 AS SELECT
 {columns}
@@ -190,7 +185,6 @@ FROM {database}.kafka_performance_events
 """.format(
         columns=_column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS),
         target_table="writeable_performance_events",
-        cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
         extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
     )
@@ -214,4 +208,4 @@ TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {PERFORMANCE_
 
 
 def UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL():
-    return f"ALTER TABLE {PERFORMANCE_EVENT_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY TTL toDate(timestamp) + toIntervalWeek(%(weeks)s)"
+    return f"ALTER TABLE {PERFORMANCE_EVENT_DATA_TABLE()} MODIFY TTL toDate(timestamp) + toIntervalWeek(%(weeks)s)"

@@ -1,7 +1,6 @@
 from django.conf import settings
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
     KAFKA_COLUMNS,
@@ -29,26 +28,24 @@ def EVENTS_RECENT_DATA_TABLE():
 
 
 def TRUNCATE_EVENTS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()}"
 
 
-TRUNCATE_EVENTS_RECENT_TABLE_SQL = (
-    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_RECENT_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
-)
+TRUNCATE_EVENTS_RECENT_TABLE_SQL = lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_RECENT_DATA_TABLE()}"
 
 
 def DROP_EVENTS_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()}"
 
 
-DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events {ON_CLUSTER_CLAUSE()}"
+DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events"
 
 INSERTED_AT_COLUMN = ", inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()"
 INSERTED_AT_NOT_NULLABLE_COLUMN = ", inserted_at DateTime64(6, 'UTC') DEFAULT NOW64()"
 KAFKA_CONSUMER_BREADCRUMBS_COLUMN = ", consumer_breadcrumbs Array(String)"
 
 EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     uuid UUID,
     event VARCHAR,
@@ -132,7 +129,6 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 """
     ).format(
         table_name=EVENTS_DATA_TABLE(),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=EVENTS_DATA_TABLE_ENGINE(),
         extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
@@ -170,7 +166,6 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
 """
     ).format(
         table_name="kafka_events_json",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
         extra_fields="",
         materialized_columns="",
@@ -180,7 +175,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
 
 EVENTS_TABLE_JSON_MV_SQL = (
     lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv ON CLUSTER '{cluster}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv
 TO {database}.{target_table}
 AS SELECT
 uuid,
@@ -217,7 +212,6 @@ arrayMap(
 FROM {database}.kafka_events_json
 """.format(
         target_table=WRITABLE_EVENTS_DATA_TABLE(),
-        cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
     )
 )
@@ -231,7 +225,6 @@ def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL():
 """
     ).format(
         table_name="kafka_events_recent_json",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group="group1_recent"),
         extra_fields="",
         materialized_columns="",
@@ -241,7 +234,7 @@ def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL():
 
 EVENTS_RECENT_TABLE_JSON_MV_SQL = (
     lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv ON CLUSTER '{cluster}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS events_recent_json_mv
 TO {database}.{target_table}
 AS SELECT
 uuid,
@@ -273,13 +266,12 @@ _partition
 FROM {database}.kafka_events_recent_json
 """.format(
         target_table=EVENTS_RECENT_DATA_TABLE(),
-        cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
     )
 )
 
 
-def EVENTS_RECENT_TABLE_SQL(on_cluster=True):
+def EVENTS_RECENT_TABLE_SQL():
     return (
         EVENTS_TABLE_BASE_SQL
         + """PARTITION BY toStartOfHour(inserted_at)
@@ -289,7 +281,6 @@ TTL toDateTime(inserted_at) + INTERVAL 7 DAY
 """
     ).format(
         table_name=EVENTS_RECENT_DATA_TABLE(),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=ReplacingMergeTree(EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"),
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_NOT_NULLABLE_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
         materialized_columns="",
@@ -298,10 +289,9 @@ TTL toDateTime(inserted_at) + INTERVAL 7 DAY
     )
 
 
-def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
+def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL():
     return EVENTS_TABLE_BASE_SQL.format(
         table_name="distributed_events_recent",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=EVENTS_RECENT_DATA_TABLE(),
             sharding_key="sipHash64(distinct_id)",
@@ -321,7 +311,6 @@ def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
 def WRITABLE_EVENTS_TABLE_SQL():
     return EVENTS_TABLE_BASE_SQL.format(
         table_name="writable_events",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
         extra_fields=KAFKA_COLUMNS + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns="",
@@ -332,10 +321,9 @@ def WRITABLE_EVENTS_TABLE_SQL():
 # This table is responsible for reading from events on a cluster setting
 
 
-def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
+def DISTRIBUTED_EVENTS_TABLE_SQL():
     return EVENTS_TABLE_BASE_SQL.format(
         table_name="events",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
         extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,

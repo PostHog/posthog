@@ -1,6 +1,5 @@
 from django.conf import settings
 
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
@@ -13,19 +12,19 @@ def SESSIONS_DATA_TABLE():
 
 
 def TRUNCATE_SESSIONS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"TRUNCATE TABLE IF EXISTS {SESSIONS_DATA_TABLE()}"
 
 
 def DROP_SESSION_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {SESSIONS_DATA_TABLE()}"
 
 
 def DROP_SESSION_MATERIALIZED_VIEW_SQL():
-    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv"
 
 
 def DROP_SESSION_VIEW_SQL():
-    return f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE()}"
+    return f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v"
 
 
 # Only teams that were grandfathered into the V1 sessions table are allowed to use it. Everyone else should use V2,
@@ -58,7 +57,7 @@ ALLOWED_TEAM_IDS_SQL = ", ".join(str(team_id) for team_id in ALLOWED_TEAM_IDS)
 # if updating these column definitions
 # you'll need to update the explicit column definitions in the materialized view creation statement below
 SESSIONS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     -- part of order by so will aggregate correctly
     session_id VARCHAR,
@@ -115,7 +114,7 @@ def SESSIONS_DATA_TABLE_ENGINE():
     return AggregatingMergeTree(TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED)
 
 
-def SESSIONS_TABLE_SQL(on_cluster=True):
+def SESSIONS_TABLE_SQL():
     return (
         SESSIONS_TABLE_BASE_SQL
         + """
@@ -135,7 +134,6 @@ SETTINGS index_granularity=512
 """
     ).format(
         table_name=SESSIONS_DATA_TABLE(),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=SESSIONS_DATA_TABLE_ENGINE(),
     )
 
@@ -222,14 +220,13 @@ GROUP BY `$session_id`, team_id
 
 SESSIONS_TABLE_MV_SQL = (
     lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}
 TO {database}.{target_table}
 AS
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
         target_table=f"writable_{TABLE_BASE_NAME}",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
         database=settings.CLICKHOUSE_DATABASE,
         select_sql=SESSION_TABLE_MV_SELECT_SQL(),
     )
@@ -250,10 +247,9 @@ ALTER TABLE {table_name} MODIFY QUERY
 # This table is responsible for writing to sharded_sessions based on a sharding key.
 
 
-def WRITABLE_SESSIONS_TABLE_SQL(on_cluster=True):
+def WRITABLE_SESSIONS_TABLE_SQL():
     return SESSIONS_TABLE_BASE_SQL.format(
         table_name=f"writable_{TABLE_BASE_NAME}",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=SESSIONS_DATA_TABLE(),
             # shard via session_id so that all events for a session are on the same shard
@@ -265,10 +261,9 @@ def WRITABLE_SESSIONS_TABLE_SQL(on_cluster=True):
 # This table is responsible for reading from sessions on a cluster setting
 
 
-def DISTRIBUTED_SESSIONS_TABLE_SQL(on_cluster=True):
+def DISTRIBUTED_SESSIONS_TABLE_SQL():
     return SESSIONS_TABLE_BASE_SQL.format(
         table_name=TABLE_BASE_NAME,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=SESSIONS_DATA_TABLE(),
             sharding_key="sipHash64(session_id)",
@@ -281,7 +276,7 @@ def DISTRIBUTED_SESSIONS_TABLE_SQL(on_cluster=True):
 # debugging
 SESSIONS_VIEW_SQL = (
     lambda: f"""
-CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE()} AS
+CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v AS
 SELECT
     session_id,
     team_id,

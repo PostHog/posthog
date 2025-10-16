@@ -1,12 +1,11 @@
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTreeDeleted
 
 ADHOC_EVENTS_DELETION_TABLE = "adhoc_events_deletion"
 
 
-def ADHOC_EVENTS_DELETION_TABLE_SQL(on_cluster=True):
+def ADHOC_EVENTS_DELETION_TABLE_SQL():
     return """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
     uuid UUID,
@@ -18,15 +17,13 @@ order by (team_id, uuid)
 TTL deleted_at + INTERVAL 3 MONTH WHERE is_deleted = 1
 """.format(
         table_name=ADHOC_EVENTS_DELETION_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=ReplacingMergeTreeDeleted(ADHOC_EVENTS_DELETION_TABLE, ver="deleted_at", is_deleted="is_deleted"),
     )
 
 
-def DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(on_cluster=True):
+def DROP_ADHOC_EVENTS_DELETION_TABLE_SQL():
     return """
-DROP TABLE IF EXISTS {table_name} {on_cluster_clause}
+DROP TABLE IF EXISTS {table_name}
 """.format(
         table_name=ADHOC_EVENTS_DELETION_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )

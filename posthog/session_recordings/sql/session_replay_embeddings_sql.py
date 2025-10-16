@@ -1,4 +1,3 @@
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 
 """
@@ -17,7 +16,7 @@ def SESSION_REPLAY_EMBEDDINGS_DATA_TABLE():
 
 
 SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+CREATE TABLE IF NOT EXISTS {table_name}
 (
     -- part of order by so will aggregate correctly
     session_id VARCHAR,
@@ -36,7 +35,7 @@ def SESSION_REPLAY_EMBEDDINGS_DATA_TABLE_ENGINE():
     return MergeTreeEngine("session_replay_embeddings", replication_scheme=ReplicationScheme.SHARDED)
 
 
-def SESSION_REPLAY_EMBEDDINGS_TABLE_SQL(on_cluster=True):
+def SESSION_REPLAY_EMBEDDINGS_TABLE_SQL():
     return (
         SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL
         + """
@@ -52,7 +51,6 @@ SETTINGS index_granularity=512
 """
     ).format(
         table_name=SESSION_REPLAY_EMBEDDINGS_DATA_TABLE(),
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=SESSION_REPLAY_EMBEDDINGS_DATA_TABLE_ENGINE(),
     )
 
@@ -62,10 +60,9 @@ SETTINGS index_granularity=512
 # This table is responsible for writing to sharded_session_replay_embeddings based on a sharding key.
 
 
-def WRITABLE_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL(on_cluster=True):
+def WRITABLE_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL():
     return SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL.format(
         table_name="writable_session_replay_embeddings",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=SESSION_REPLAY_EMBEDDINGS_DATA_TABLE(),
             sharding_key="sipHash64(session_id)",
@@ -74,21 +71,18 @@ def WRITABLE_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL(on_cluster=True):
 
 
 # This table is responsible for reading from session_replay_embeddings on a cluster setting
-DISTRIBUTED_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = (
-    lambda on_cluster=True: SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL.format(
-        table_name="session_replay_embeddings",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=Distributed(
-            data_table=SESSION_REPLAY_EMBEDDINGS_DATA_TABLE(),
-            sharding_key="sipHash64(session_id)",
-        ),
-    )
+DISTRIBUTED_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = lambda: SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL.format(
+    table_name="session_replay_embeddings",
+    engine=Distributed(
+        data_table=SESSION_REPLAY_EMBEDDINGS_DATA_TABLE(),
+        sharding_key="sipHash64(session_id)",
+    ),
 )
 
 
 def DROP_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL():
-    return f"DROP TABLE IF EXISTS {SESSION_REPLAY_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"DROP TABLE IF EXISTS {SESSION_REPLAY_EMBEDDINGS_DATA_TABLE()}"
 
 
 def TRUNCATE_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {SESSION_REPLAY_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"TRUNCATE TABLE IF EXISTS {SESSION_REPLAY_EMBEDDINGS_DATA_TABLE()}"
