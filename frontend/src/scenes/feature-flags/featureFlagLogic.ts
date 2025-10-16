@@ -1455,7 +1455,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType) => {
                 return featureFlag?.filters?.groups?.flatMap((g) => g.properties ?? []) ?? []
-            }
+            },
         ],
         variantErrors: [
             (s) => [s.variants],
