@@ -36,7 +36,7 @@ def register_all_admin():
         UserAdmin,
     )
 
-    # Needed for the behavioral cohorts analysis admin interface
+    # Import the behavioral cohorts analysis model for admin interface
     from posthog.admin.admins.behavioral_cohorts_admin import BehavioralCohortAnalysis
     from posthog.models import (
         AsyncDeletion,

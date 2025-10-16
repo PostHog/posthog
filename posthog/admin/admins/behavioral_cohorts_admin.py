@@ -1,10 +1,9 @@
 from django import forms
 from django.contrib import admin, messages
 from django.core.management import call_command
+from django.db import models
 from django.shortcuts import redirect, render
-from django.urls import path, reverse
-
-from posthog.models import Cohort
+from django.urls import path
 
 
 class BehavioralCohortAnalysisForm(forms.Form):
@@ -48,14 +47,14 @@ class BehavioralCohortAnalysisForm(forms.Form):
     )
 
 
-class BehavioralCohortAnalysis(Cohort):
+class BehavioralCohortAnalysis(models.Model):
     """
-    Proxy model to create a separate admin interface for behavioral cohort analysis.
-    This doesn't create a new database table, just provides an admin interface.
+    Admin-only model for behavioral cohort analysis interface.
+    This model is not managed by Django (no database table).
     """
 
     class Meta:
-        proxy = True
+        managed = False  # No database table
         verbose_name = "Behavioral Cohort Analysis"
         verbose_name_plural = "Behavioral Cohort Analysis"
 
@@ -67,18 +66,17 @@ class BehavioralCohortAnalysisAdmin(admin.ModelAdmin):
     """
 
     def has_add_permission(self, request):
-        # Disable the "Add" button since this is just for running analysis
-        return False
-
-    def has_delete_permission(self, request, obj=None):
         return False
 
     def has_change_permission(self, request, obj=None):
         return False
 
+    def has_delete_permission(self, request, obj=None):
+        return False
+
     def changelist_view(self, request, extra_context=None):
         # Redirect directly to the analysis form
-        return redirect(reverse("admin:behavioral-cohort-analysis"))
+        return self.analyze_behavioral_cohorts_view(request)
 
     def get_urls(self):
         urls = super().get_urls()
