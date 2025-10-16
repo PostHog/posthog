@@ -2,8 +2,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
-from posthog.models.utils import RootTeamMixin
-
 # Defined here for reuse between OS and EE
 GROUP_TYPE_MAPPING_SERIALIZER_FIELDS = [
     "group_type",
@@ -18,9 +16,9 @@ GROUP_TYPE_MAPPING_SERIALIZER_FIELDS = [
 
 # This table is responsible for mapping between group types for a Team/Project and event columns
 # to add group keys
-class GroupTypeMapping(RootTeamMixin, models.Model):
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    project = models.ForeignKey("Project", on_delete=models.CASCADE)
+class GroupTypeMapping(models.Model):
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, db_constraint=False)
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, db_constraint=False)
     group_type = models.CharField(max_length=400, null=False, blank=False)
     group_type_index = models.IntegerField(null=False, blank=False)
     # Used to display in UI
@@ -29,7 +27,9 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
 
     default_columns = ArrayField(models.TextField(), null=True, blank=True)
 
-    detail_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
+    detail_dashboard = models.ForeignKey(
+        "Dashboard", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
     created_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
