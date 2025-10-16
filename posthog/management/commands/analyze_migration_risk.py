@@ -112,24 +112,41 @@ class Command(BaseCommand):
 
     def check_missing_migrations(self) -> str:
         """Check if there are model changes that need migrations."""
-        from io import StringIO
-
-        from django.core.management import call_command
+        from django.apps import apps
+        from django.db import connection
+        from django.db.migrations.autodetector import MigrationAutodetector
+        from django.db.migrations.loader import MigrationLoader
+        from django.db.migrations.state import ProjectState
 
         try:
-            # Capture output from makemigrations --dry-run --check
-            out = StringIO()
-            call_command("makemigrations", "--dry-run", "--check", stdout=out, stderr=out)
-            return ""  # No missing migrations
-        except SystemExit:
-            # makemigrations --check exits with code 1 when migrations are needed
-            return (
-                "\n⚠️  MISSING MIGRATIONS DETECTED\n\n"
-                "Model changes have been detected that require new migrations.\n"
-                "Run `python manage.py makemigrations` to create them.\n"
+            # Load migration graph
+            loader = MigrationLoader(connection, ignore_no_migrations=True)
+
+            # Detect changes
+            autodetector = MigrationAutodetector(
+                loader.project_state(),
+                ProjectState.from_apps(apps),
             )
+            changes = autodetector.changes(graph=loader.graph)
+
+            if not changes:
+                return ""  # No missing migrations
+
+            # Format the detected changes
+            output_lines = ["⚠️  MISSING MIGRATIONS DETECTED\n"]
+            output_lines.append("Model changes have been detected that require new migrations:\n")
+
+            for app_label, app_migrations in changes.items():
+                output_lines.append(f"\nMigrations for '{app_label}':")
+                for migration in app_migrations:
+                    for operation in migration.operations:
+                        output_lines.append(f"  - {operation.describe()}")
+
+            output_lines.append("\nRun `python manage.py makemigrations` to create them.\n")
+            return "\n".join(output_lines)
+
         except Exception:
-            # Ignore other errors (e.g., can't connect to DB)
+            # Ignore errors (e.g., can't connect to DB)
             return ""
 
     def print_report(self, results):
