@@ -6,7 +6,7 @@ from typing import Any, Optional, Protocol, TypeVar
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
@@ -1037,11 +1037,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
-        try:
-            chunk_id_url_map = bulk_create_symbol_sets(symbol_sets, self.team)
-        except (ValueError, IntegrityError) as error:
-            raise ValidationError(str(error))
-
+        chunk_id_url_map = bulk_create_symbol_sets(symbol_sets, self.team)
         return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
