@@ -7,7 +7,7 @@ import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException, ErrorTrackingStackFrame } from 'lib/components/Errors/types'
-import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
+import { formatExceptionDisplay, formatResolvedName } from 'lib/components/Errors/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { exceptionCardLogic } from '../exceptionCardLogic'
@@ -60,7 +60,8 @@ export function StacktraceTextExceptionHeader({
                 </div>
             ) : (
                 <>
-                    {type}: {value}
+                    {type}
+                    {value ? `: ${value}` : ''}
                 </>
             )}
         </div>
@@ -71,9 +72,7 @@ function ExceptionTextDisplay({ exception }: { exception: ErrorTrackingException
     const { showAllFrames } = useValues(exceptionCardLogic)
     return (
         <div>
-            <p className="font-mono mb-0 font-bold line-clamp-1">
-                {formatType(exception)}: {exception.value}
-            </p>
+            <p className="font-mono mb-0 font-bold line-clamp-1">{formatExceptionDisplay(exception)}</p>
             {(exception.stacktrace?.frames || [])
                 .filter((frame: ErrorTrackingStackFrame) => (showAllFrames ? true : frame.in_app))
                 .map((frame, idx) => (
