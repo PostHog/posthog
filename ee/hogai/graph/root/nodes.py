@@ -289,37 +289,67 @@ class RootNode(AssistantNode):
         window_start_id: str | None = None,
         tool_calls_count: int | None = None,
     ) -> list[BaseMessage]:
-        # Filter out messages that are not part of the conversation window.
-        filtered_messages = [message for message in messages if isinstance(message, RootMessageUnion)]
-        conversation_window = self._window_manager.get_messages_in_window(filtered_messages, window_start_id)
+        conversation_window = self._window_manager.get_messages_in_window(messages, window_start_id)
 
         # `assistant` messages must be contiguous with the respective `tool` messages.
-        tool_result_messages = {
-            message.tool_call_id: message
-            for message in conversation_window
-            if isinstance(message, AssistantToolCallMessage)
-        }
+        tool_result_messages = self._get_tool_map(conversation_window)
 
-        history: list[BaseMessage] = convert_to_anthropic_messages(conversation_window, tool_result_messages)
+        # Convert to Anthropic messages
+        history = self._convert_to_langchain_messages(conversation_window, tool_result_messages)
 
         # Force the agent to stop if the tool call limit is reached.
-        if self._is_hard_limit_reached(tool_calls_count):
-            history.append(LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT))
+        history = self._add_limit_message_if_reached(history, tool_calls_count)
 
         # Append a single cache control to the last human message or last tool message,
         # so we cache the full prefix of the conversation.
-        for i in range(len(history) - 1, -1, -1):
-            maybe_content_arr = history[i].content
+        history = self._add_cache_control_to_last_message(history)
+
+        return history
+
+    def _filter_assistant_messages(self, messages: Sequence[AssistantMessageUnion]) -> Sequence[RootMessageUnion]:
+        """Filter out messages that are not part of the assistant conversation."""
+        return [message for message in messages if isinstance(message, RootMessageUnion)]
+
+    def _get_messages_in_window(
+        self, messages: Sequence[AssistantMessageUnion], window_start_id: str | None = None
+    ) -> Sequence[AssistantMessageUnion]:
+        """Filter out messages that are not part of the conversation window."""
+        filtered_messages = self._filter_assistant_messages(messages)
+        return self._window_manager.get_messages_in_window(filtered_messages, window_start_id)
+
+    def _add_limit_message_if_reached(
+        self, messages: list[BaseMessage], tool_calls_count: int | None
+    ) -> list[BaseMessage]:
+        """Append a hard limit reached message if the tool calls count is reached."""
+        if self._is_hard_limit_reached(tool_calls_count):
+            return [*messages, LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT)]
+        return messages
+
+    def _get_tool_map(self, messages: Sequence[AssistantMessageUnion]) -> dict[str, AssistantToolCallMessage]:
+        """Get a map of tool call IDs to tool call messages."""
+        return {message.tool_call_id: message for message in messages if isinstance(message, AssistantToolCallMessage)}
+
+    def _convert_to_langchain_messages(
+        self,
+        messages: Sequence[AssistantMessageUnion],
+        tool_result_messages: dict[str, AssistantToolCallMessage],
+    ) -> list[BaseMessage]:
+        """Convert a conversation window to a list of Langchain messages."""
+        return convert_to_anthropic_messages(messages, tool_result_messages)
+
+    def _add_cache_control_to_last_message(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """Add cache control to the last message."""
+        for i in range(len(messages) - 1, -1, -1):
+            maybe_content_arr = messages[i].content
             if (
-                isinstance(history[i], LangchainHumanMessage | LangchainAIMessage)
+                isinstance(messages[i], LangchainHumanMessage | LangchainAIMessage)
                 and isinstance(maybe_content_arr, list)
                 and len(maybe_content_arr) > 0
                 and isinstance(maybe_content_arr[-1], dict)
             ):
                 maybe_content_arr[-1]["cache_control"] = {"type": "ephemeral"}
                 break
-
-        return history
+        return messages
 
     def _is_hard_limit_reached(self, tool_calls_count: int | None) -> bool:
         return tool_calls_count is not None and tool_calls_count >= self.MAX_TOOL_CALLS

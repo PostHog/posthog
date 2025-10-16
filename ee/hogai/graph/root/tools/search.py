@@ -4,7 +4,6 @@ from django.conf import settings
 
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.root.tools.search_docs import search_documentation
 from ee.hogai.tool import MaxTool
 
 SEARCH_TOOL_PROMPT = """
@@ -70,10 +69,7 @@ class SearchTool(MaxTool):
     show_tool_call_message: bool = False
 
     async def _arun_impl(self, kind: SearchKind, query: str) -> tuple[str, dict[str, Any] | None]:
-        if kind == "docs":
-            if not settings.INKEEP_API_KEY:
-                return "This tool is not available in this environment.", None
-            result = await search_documentation(query, user=self._user, team=self._team)
-            return result, None
+        if kind == "docs" and not settings.INKEEP_API_KEY:
+            return "This tool is not available in this environment.", None
         # Used for routing
         return "Search tool executed", SearchToolArgs(kind=kind, query=query).model_dump()

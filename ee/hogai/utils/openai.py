@@ -23,16 +23,14 @@ def convert_assistant_message_to_openai_message(
     # Filter out tool calls without a tool response, so the completion doesn't fail.
     tool_calls = [tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_map]
 
-    history.append(messages.AIMessage(content=message.content or " ", tool_calls=tool_calls, id=message.id))
+    history.append(messages.AIMessage(content=message.content, tool_calls=tool_calls, id=message.id))
 
     # Append associated tool call messages.
     for tool_call in tool_calls:
         tool_call_id = tool_call["id"]
         result_message = tool_result_map[tool_call_id]
         history.append(
-            messages.ToolMessage(
-                content=result_message.content or "User message", tool_call_id=tool_call_id, id=result_message.id
-            )
+            messages.ToolMessage(content=result_message.content, tool_call_id=tool_call_id, id=result_message.id)
         )
 
     return history

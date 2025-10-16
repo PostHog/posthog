@@ -12,7 +12,7 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.openai import convert_to_openai_messages
@@ -54,15 +54,18 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         window_start_id: str | None = None,
         tool_calls_count: int | None = None,
     ) -> list[BaseMessage]:
-        conversation_window = self._window_manager.get_messages_in_window(messages, window_start_id)
+        conversation_window = self._window_manager.get_messages_in_window(messages, window_start_id)[-28:]
         converted_messages = self._convert_to_langchain_messages(
             conversation_window, self._get_tool_map(conversation_window)
         )
 
         langchain_messages: list[BaseMessage] = []
-        # Inkeep doesn't support completely empty AI messages (without a content or tool calls), so we need to filter them out
+
+        # Inkeep doesn't support AIMessages without content.
+        # Add some content that won't reflect in the final response.
         for msg in converted_messages:
-            if isinstance(msg, LangchainAIMessage) and not (msg.content or msg.tool_calls):
+            if isinstance(msg, LangchainAIMessage) and not msg.content:
+                msg.content = "..."  # Patch until Inkeep supports empty AI messages
                 continue
             langchain_messages.append(msg)
 
@@ -79,7 +82,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         if last_human_message_index is not None:
             langchain_messages = langchain_messages[: last_human_message_index + 1]
 
-        return [LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT)] + langchain_messages[-28:]
+        return [LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT), *langchain_messages]
 
     def _get_model(self, *args, **kwargs):
         return MaxChatOpenAI(
@@ -95,6 +98,14 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
     async def _has_reached_token_limit(self, model: Any, window: list[BaseMessage]) -> bool:
         # The root node on this step will always have the correct window.
         return False
+
+    def _filter_assistant_messages(self, messages: Sequence[AssistantMessageUnion]):
+        """Filter out messages that are not part of the assistant conversation."""
+        return [
+            message
+            for message in super()._filter_assistant_messages(messages)
+            if not isinstance(message, FailureMessage)
+        ]
 
     def _convert_to_langchain_messages(
         self,
