@@ -91,10 +91,6 @@ class AssistantContextualTool(StrEnum):
     SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
-    READ_TAXONOMY = "read_taxonomy"
-    SEARCH = "search"
-    READ_DATA = "read_data"
-    TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
 
 
@@ -5288,11 +5284,13 @@ class UsageMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    change_from_previous_pct: Optional[float] = None
     display: UsageMetricDisplay
     format: UsageMetricFormat
     id: str
     interval: int
     name: str
+    previous: float
     value: float
 
 

@@ -12,74 +12,49 @@ pub enum CheckpointType {
     Partial,
 }
 
-/// Information about a checkpoint file
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CheckpointFile {
-    /// Path relative to checkpoint root
-    pub path: String,
-    /// Size of file in bytes
-    pub size_bytes: u64,
-    /// SHA256 hash of file contents
-    pub checksum: Option<String>,
-}
-
 /// Metadata about a checkpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointMetadata {
-    /// Unix timestamp when checkpoint was created
-    pub timestamp: u64,
+    /// Checkpoint ID (RFC3339-ish timestamp, e.g., "2025-10-14T16-00-05Z")
+    pub id: String,
     /// Topic name
     pub topic: String,
     /// Partition number
     pub partition: i32,
-    /// Type of checkpoint
-    pub checkpoint_type: CheckpointType,
+    /// RocksDB sequence number at checkpoint time
+    pub sequence: u64,
     /// Consumer offset at time of checkpoint
     pub consumer_offset: i64,
     /// Producer offset at time of checkpoint
     pub producer_offset: i64,
-    /// List of files in this checkpoint
-    pub files: Vec<CheckpointFile>,
-    /// Timestamp of previous checkpoint if this is a partial checkpoint
-    pub previous_checkpoint: Option<u64>,
-    /// Total size of all files in bytes
-    pub total_size_bytes: u64,
-    /// Number of keys in the checkpoint
-    pub key_count: u64,
+    /// Files with relative paths (can reference parent checkpoints)
+    pub files: Vec<String>,
 }
 
 impl CheckpointMetadata {
-    /// Create new checkpoint metadata
+    /// Create new checkpoint metadata with a given ID
     pub fn new(
-        checkpoint_type: CheckpointType,
+        id: String,
         topic: String,
         partition: i32,
+        sequence: u64,
         consumer_offset: i64,
         producer_offset: i64,
-        key_count: u64,
     ) -> Self {
         Self {
-            timestamp: chrono::Utc::now().timestamp() as u64,
+            id,
             topic,
             partition,
-            checkpoint_type,
+            sequence,
             consumer_offset,
             producer_offset,
             files: Vec::new(),
-            previous_checkpoint: None,
-            total_size_bytes: 0,
-            key_count,
         }
     }
 
-    /// Add a file to the checkpoint metadata
-    pub fn add_file(&mut self, path: String, size_bytes: u64, checksum: Option<String>) {
-        self.total_size_bytes += size_bytes;
-        self.files.push(CheckpointFile {
-            path,
-            size_bytes,
-            checksum,
-        });
+    /// Generate a checkpoint ID from the current timestamp
+    pub fn generate_id() -> String {
+        chrono::Utc::now().format("%Y-%m-%dT%H-%M-%SZ").to_string()
     }
 
     /// Save metadata to a JSON file
@@ -97,14 +72,14 @@ impl CheckpointMetadata {
         Ok(metadata)
     }
 
-    /// Get S3 key prefix for this checkpoint
+    /// Get S3 key prefix for this checkpoint (<topic>/<partition>/<id>/)
     pub fn get_s3_key_prefix(&self) -> String {
-        format!("{}/{}/{}", self.topic, self.partition, self.timestamp)
+        format!("{}/{}/{}", self.topic, self.partition, self.id)
     }
 
     /// Get metadata filename
     pub fn get_metadata_filename(&self) -> String {
-        format!("metadata-{}.json", self.timestamp)
+        "metadata.json".to_string()
     }
 }
 
@@ -145,49 +120,41 @@ mod tests {
 
     #[tokio::test]
     async fn test_checkpoint_metadata_creation() {
-        let metadata = CheckpointMetadata::new(
-            CheckpointType::Full,
-            "test-topic".to_string(),
-            0,
-            100,
-            50,
-            1000,
-        );
+        let id = "2025-10-14T16-00-05Z".to_string();
+        let metadata =
+            CheckpointMetadata::new(id.clone(), "test-topic".to_string(), 0, 1234567890, 100, 50);
 
+        assert_eq!(metadata.id, id);
         assert_eq!(metadata.topic, "test-topic");
         assert_eq!(metadata.partition, 0);
-        assert_eq!(metadata.checkpoint_type, CheckpointType::Full);
+        assert_eq!(metadata.sequence, 1234567890);
         assert_eq!(metadata.consumer_offset, 100);
         assert_eq!(metadata.producer_offset, 50);
-        assert_eq!(metadata.key_count, 1000);
         assert_eq!(metadata.files.len(), 0);
-        assert_eq!(metadata.total_size_bytes, 0);
     }
 
     #[tokio::test]
-    async fn test_add_file_to_metadata() {
+    async fn test_add_files_to_metadata() {
         let mut metadata = CheckpointMetadata::new(
-            CheckpointType::Full,
+            "2025-10-14T16-00-05Z".to_string(),
             "test-topic".to_string(),
             0,
+            1234567890,
             100,
             50,
-            1000,
         );
 
-        metadata.add_file("sst/000001.sst".to_string(), 1024, None);
-        metadata.add_file(
-            "sst/000002.sst".to_string(),
-            2048,
-            Some("abcd1234".to_string()),
-        );
+        // Add files
+        metadata.files.push("000001.sst".to_string());
+        metadata
+            .files
+            .push("../2025-10-14T15-00-00Z/000002.sst".to_string());
+        metadata.files.push("MANIFEST-000123".to_string());
 
-        assert_eq!(metadata.files.len(), 2);
-        assert_eq!(metadata.total_size_bytes, 3072);
-        assert_eq!(metadata.files[0].path, "sst/000001.sst");
-        assert_eq!(metadata.files[0].size_bytes, 1024);
-        assert!(metadata.files[0].checksum.is_none());
-        assert_eq!(metadata.files[1].checksum, Some("abcd1234".to_string()));
+        assert_eq!(metadata.files.len(), 3);
+        assert_eq!(metadata.files[0], "000001.sst");
+        assert_eq!(metadata.files[1], "../2025-10-14T15-00-00Z/000002.sst");
+        assert_eq!(metadata.files[2], "MANIFEST-000123");
     }
 
     #[tokio::test]
@@ -196,15 +163,14 @@ mod tests {
         let metadata_path = temp_dir.path().join("metadata.json");
 
         let mut metadata = CheckpointMetadata::new(
-            CheckpointType::Partial,
+            "2025-10-14T16-00-05Z".to_string(),
             "test-topic".to_string(),
             1,
+            9876543210,
             200,
             150,
-            2000,
         );
-        metadata.previous_checkpoint = Some(1000);
-        metadata.add_file("sst/000001.sst".to_string(), 1024, None);
+        metadata.files.push("000001.sst".to_string());
 
         // Save metadata
         metadata.save_to_file(&metadata_path).await.unwrap();
@@ -214,68 +180,74 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(loaded_metadata.id, metadata.id);
         assert_eq!(loaded_metadata.topic, metadata.topic);
         assert_eq!(loaded_metadata.partition, metadata.partition);
-        assert_eq!(loaded_metadata.checkpoint_type, CheckpointType::Partial);
+        assert_eq!(loaded_metadata.sequence, metadata.sequence);
         assert_eq!(loaded_metadata.consumer_offset, metadata.consumer_offset);
         assert_eq!(loaded_metadata.producer_offset, metadata.producer_offset);
-        assert_eq!(loaded_metadata.key_count, metadata.key_count);
         assert_eq!(loaded_metadata.files.len(), 1);
-        assert_eq!(loaded_metadata.previous_checkpoint, Some(1000));
     }
 
     #[test]
     fn test_s3_key_prefix() {
         let metadata = CheckpointMetadata::new(
-            CheckpointType::Full,
+            "2025-10-14T16-00-05Z".to_string(),
             "test-topic".to_string(),
             2,
+            1234567890,
             100,
             50,
-            1000,
         );
 
         let prefix = metadata.get_s3_key_prefix();
-        assert!(prefix.starts_with("test-topic/2/"));
-        assert!(prefix.split('/').count() == 3);
+        assert_eq!(prefix, "test-topic/2/2025-10-14T16-00-05Z");
     }
 
     #[test]
     fn test_checkpoint_info() {
         let metadata = CheckpointMetadata::new(
-            CheckpointType::Full,
+            "2025-10-14T16-00-05Z".to_string(),
             "test-topic".to_string(),
             0,
+            1234567890,
             100,
             50,
-            1000,
         );
 
         let info = CheckpointInfo::new(metadata.clone());
 
         assert_eq!(info.s3_key_prefix, metadata.get_s3_key_prefix());
-        assert!(info.get_metadata_key().ends_with("/metadata.json"));
         assert_eq!(
-            info.get_file_key("sst/000001.sst"),
-            format!("{}/sst/000001.sst", info.s3_key_prefix)
+            info.get_metadata_key(),
+            "test-topic/0/2025-10-14T16-00-05Z/metadata.json"
+        );
+        assert_eq!(
+            info.get_file_key("000001.sst"),
+            "test-topic/0/2025-10-14T16-00-05Z/000001.sst"
         );
     }
 
     #[test]
     fn test_metadata_filename() {
-        let metadata = CheckpointMetadata {
-            timestamp: 1234567890,
-            topic: "test".to_string(),
-            partition: 0,
-            checkpoint_type: CheckpointType::Full,
-            consumer_offset: 100,
-            producer_offset: 50,
-            files: vec![],
-            previous_checkpoint: None,
-            total_size_bytes: 0,
-            key_count: 0,
-        };
+        let metadata = CheckpointMetadata::new(
+            "2025-10-14T16-00-05Z".to_string(),
+            "test".to_string(),
+            0,
+            1234567890,
+            100,
+            50,
+        );
 
-        assert_eq!(metadata.get_metadata_filename(), "metadata-1234567890.json");
+        assert_eq!(metadata.get_metadata_filename(), "metadata.json");
+    }
+
+    #[test]
+    fn test_generate_id() {
+        let id = CheckpointMetadata::generate_id();
+        // Should be in format YYYY-MM-DDTHH-MM-SSZ
+        assert!(id.contains('T'));
+        assert!(id.ends_with('Z'));
+        assert!(id.len() > 15); // Rough length check
     }
 }

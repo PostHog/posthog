@@ -139,7 +139,7 @@ function LemonCollapsePanel({
                 <LemonButton
                     {...headerProps}
                     fullWidth
-                    className={clsx('LemonCollapsePanel__header', headerProps.className)}
+                    className="LemonCollapsePanel__header"
                     onClick={(e) => {
                         onHeaderClick && onHeaderClick()
                         onChange(!isExpanded)

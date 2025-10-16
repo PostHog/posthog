@@ -405,6 +405,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     // Feature flag confirmation config
     feature_flag_confirmation_enabled: createBooleanToggleHandler('feature flag confirmation'),
     feature_flag_confirmation_message: createSimpleValueHandler('feature flag confirmation message'),
+    default_evaluation_environments_enabled: createBooleanToggleHandler('default evaluation environments'),
 
     // Autocapture
     autocapture_exceptions_errors_to_ignore: createArrayChangeHandler('autocapture exceptions errors to ignore'),

@@ -2,13 +2,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use super::CheckpointExporter;
+use super::{plan_checkpoint, CheckpointExporter, CheckpointMetadata};
 use crate::kafka::types::Partition;
 use crate::metrics_const::{
     CHECKPOINT_DURATION_HISTOGRAM, CHECKPOINT_FILE_COUNT_HISTOGRAM, CHECKPOINT_SIZE_HISTOGRAM,
     CHECKPOINT_WORKER_STATUS_COUNTER,
 };
-use crate::store::DeduplicationStore;
+use crate::store::{DeduplicationStore, LocalCheckpointInfo};
 
 use anyhow::{Context, Result};
 use metrics;
@@ -49,20 +49,21 @@ pub struct CheckpointTarget {
 
 impl CheckpointTarget {
     pub fn new(partition: Partition, local_checkpoint_base_dir: &Path) -> Result<Self> {
-        let cp_epoch_micros_str = Self::format_checkpoint_timestamp(SystemTime::now())?;
-        let cp_topic = format!("{}{}", CHECKPOINT_TOPIC_PREFIX, &partition.topic());
-        let cp_partition = format!(
-            "{}{}",
-            CHECKPOINT_PARTITION_PREFIX,
-            &partition.partition_number()
+        // Use RFC3339-ish timestamp format for checkpoint ID
+        let checkpoint_id = chrono::Utc::now().format("%Y-%m-%dT%H-%M-%SZ").to_string();
+
+        // S3 layout: <topic>/<partition>/<timestamp>/
+        let remote_path = format!(
+            "{}/{}/{}",
+            partition.topic(),
+            partition.partition_number(),
+            checkpoint_id
         );
 
-        let remote_path = format!("{}/{}/{}", &cp_topic, &cp_partition, cp_epoch_micros_str);
-
         let local_path = PathBuf::from(local_checkpoint_base_dir)
-            .join(cp_topic)
-            .join(cp_partition)
-            .join(cp_epoch_micros_str);
+            .join(partition.topic())
+            .join(partition.partition_number().to_string())
+            .join(&checkpoint_id);
         let local_path_tag = local_path.to_string_lossy().to_string();
 
         Ok(Self {
@@ -94,6 +95,9 @@ pub struct CheckpointWorker {
 
     /// Checkpoint export module
     exporter: Option<Arc<CheckpointExporter>>,
+
+    /// Whether this is a test worker
+    test_mode: bool,
 }
 
 impl CheckpointWorker {
@@ -106,15 +110,54 @@ impl CheckpointWorker {
             worker_id,
             target,
             exporter,
+            test_mode: false,
         }
     }
 
-    /// Perform a checkpoint for the given (assumed active) partition and store
+    pub fn new_for_testing(
+        worker_id: u32,
+        target: CheckpointTarget,
+        exporter: Option<Arc<CheckpointExporter>>,
+    ) -> Self {
+        Self {
+            worker_id,
+            target,
+            exporter,
+            test_mode: true,
+        }
+    }
+
+    /// Perform a complete checkpoint operation: create, export, and cleanup
+    /// Returns (remote_path, metadata) on success
     pub async fn checkpoint_partition(
         &self,
         mode: CheckpointMode,
         store: &DeduplicationStore,
-    ) -> Result<Option<String>> {
+        previous_metadata: Option<&CheckpointMetadata>,
+    ) -> Result<Option<(String, CheckpointMetadata)>> {
+        // Create local checkpoint
+        let rocks_metadata = self.create_checkpoint(mode, store).await?;
+
+        // Export checkpoint
+        let result = self
+            .export_checkpoint(mode, &rocks_metadata, previous_metadata)
+            .await;
+
+        // Clean up temp checkpoint directory (skip in test mode to allow verification)
+        if !self.test_mode {
+            self.cleanup_checkpoint().await;
+        }
+
+        result
+    }
+
+    /// Create a local checkpoint (step 1 of checkpoint process)
+    /// Returns RocksDB metadata about the checkpoint
+    pub async fn create_checkpoint(
+        &self,
+        mode: CheckpointMode,
+        store: &DeduplicationStore,
+    ) -> Result<LocalCheckpointInfo> {
         info!(
             self.worker_id,
             local_path = self.target.local_path_tag,
@@ -126,7 +169,7 @@ impl CheckpointWorker {
         self.create_partition_checkpoint_directory(mode).await?;
 
         // this creates the local RocksDB checkpoint - results observed internally, safe to bubble up
-        self.create_local_partition_checkpoint(mode, store).await?;
+        let rocks_metadata = self.create_local_partition_checkpoint(mode, store).await?;
 
         // update store metrics - this can fail without blocking the checkpoint attempt
         if let Err(e) = store.update_metrics() {
@@ -139,8 +182,19 @@ impl CheckpointWorker {
             );
         }
 
-        // export the checkpoint - observed internally, safe to return result
-        self.export_checkpoint(mode).await
+        Ok(rocks_metadata)
+    }
+
+    /// Clean up the temporary checkpoint directory (step 3 of checkpoint process)
+    pub async fn cleanup_checkpoint(&self) {
+        if let Err(e) = tokio::fs::remove_dir_all(&self.target.local_path).await {
+            warn!(
+                self.worker_id,
+                local_path = self.target.local_path_tag,
+                "Failed to clean up temp checkpoint directory: {}",
+                e
+            );
+        }
     }
 
     async fn create_partition_checkpoint_directory(&self, mode: CheckpointMode) -> Result<()> {
@@ -179,7 +233,7 @@ impl CheckpointWorker {
         &self,
         mode: CheckpointMode,
         store: &DeduplicationStore,
-    ) -> Result<()> {
+    ) -> Result<LocalCheckpointInfo> {
         let start_time = Instant::now();
 
         // TODO: this should accept CheckpointMode argument to implement incremental local checkpoint step
@@ -205,7 +259,7 @@ impl CheckpointWorker {
                     "Created local checkpoint",
                 );
 
-                Ok(())
+                Ok(metadata)
             }
 
             Err(e) => {
@@ -236,7 +290,12 @@ impl CheckpointWorker {
         }
     }
 
-    async fn export_checkpoint(&self, mode: CheckpointMode) -> Result<Option<String>> {
+    async fn export_checkpoint(
+        &self,
+        mode: CheckpointMode,
+        rocks_info: &LocalCheckpointInfo,
+        previous_metadata: Option<&CheckpointMetadata>,
+    ) -> Result<Option<(String, CheckpointMetadata)>> {
         info!(
             self.worker_id,
             local_path = self.target.local_path_tag,
@@ -246,8 +305,46 @@ impl CheckpointWorker {
 
         match self.exporter.as_ref() {
             Some(exporter) => {
+                // Extract checkpoint ID from remote_path (format: <topic>/<partition>/<timestamp>)
+                let checkpoint_id = self
+                    .target
+                    .remote_path
+                    .split('/')
+                    .next_back()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("Failed to extract checkpoint ID from remote path")
+                    })?
+                    .to_string();
+
+                // TODO: Wire up actual consumer/producer offset tracking
+                // For now, using 0 as placeholder values
+                let consumer_offset = 0i64;
+                let producer_offset = 0i64;
+
+                // Create checkpoint plan
+                let plan = plan_checkpoint(
+                    &self.target.local_path,
+                    checkpoint_id,
+                    self.target.partition.topic().to_string(),
+                    self.target.partition.partition_number(),
+                    rocks_info.sequence,
+                    consumer_offset,
+                    producer_offset,
+                    previous_metadata,
+                )?;
+
+                info!(
+                    self.worker_id,
+                    local_path = self.target.local_path_tag,
+                    total_files = plan.metadata.files.len(),
+                    new_files = plan.files_to_upload.len(),
+                    reused_files = plan.metadata.files.len() - plan.files_to_upload.len(),
+                    "Checkpoint plan created"
+                );
+
+                // Export checkpoint using the plan
                 match exporter
-                    .export_checkpoint(&self.target.local_path, &self.target.remote_path, mode)
+                    .export_checkpoint_with_plan(&plan, &self.target.remote_path, mode)
                     .await
                 {
                     Ok(remote_key_prefix) => {
@@ -265,7 +362,7 @@ impl CheckpointWorker {
                             "Checkpoint exported successfully"
                         );
 
-                        Ok(Some(remote_key_prefix))
+                        Ok(Some((remote_key_prefix, plan.metadata)))
                     }
 
                     Err(e) => {
@@ -419,9 +516,7 @@ mod tests {
         // simulate how the manager's checkpoint loop thread constructs workers
         let worker = CheckpointWorker::new(1, target.clone(), None);
 
-        let result = worker
-            .checkpoint_partition(CheckpointMode::Full, &store)
-            .await;
+        let result = worker.create_checkpoint(CheckpointMode::Full, &store).await;
         assert!(result.is_ok());
 
         let expected_checkpoint_path = Path::new(&target.local_path);
@@ -480,8 +575,9 @@ mod tests {
         // simulate how the manager's checkpoint loop thread constructs workers
         let worker = CheckpointWorker::new(1, target.clone(), None);
 
+        // Use create_checkpoint to test without cleanup
         let result = worker
-            .checkpoint_partition(CheckpointMode::Incremental, &store)
+            .create_checkpoint(CheckpointMode::Incremental, &store)
             .await;
         assert!(result.is_ok());
 

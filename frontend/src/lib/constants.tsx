@@ -285,8 +285,9 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_AI_SUMMARY: 'experiments-ai-summary', // owner: @rodrigoi #team-experiments
     WEB_ANALYTICS_API: 'web-analytics-api', // owner: #team-web-analytics
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
-    FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dylan #team-feature-flags
-    FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dylan #team-feature-flags
+    FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dmarticus #team-feature-flags
+    FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
+    DEFAULT_EVALUATION_ENVIRONMENTS: 'default-evaluation-environments', // owner: @dmarticus #team-feature-flags
     PATH_CLEANING_FILTER_TABLE_UI: 'path-cleaning-filter-table-ui', // owner: @lricoy #team-web-analytics
     REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-warehouse
@@ -303,7 +304,6 @@ export const FEATURE_FLAGS = {
     PLATFORM_PAYGATE_CTA: 'platform-paygate-cta', // owner: @a-lider #team-platform-features
     SWITCH_SUBSCRIPTION_PLAN: 'switch-subscription-plan', // owner: @a-lider #team-platform-features
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-llm-analytics #team-max-ai
-    LLM_ANALYTICS_TRACES_QUERY_V2: 'llma-traces-query-v2', // owner: #team-llm-analytics
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-max-ai
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
@@ -321,6 +321,7 @@ export const FEATURE_FLAGS = {
     TARGETED_PRODUCT_UPSELL: 'targeted-product-upsell', // owner: @raquelmsmith
     COHORT_CALCULATION_HISTORY: 'cohort-calculation-history', // owner: @gustavo #team-feature-flags
     EXPERIMENTS_HIDE_STOP_BUTTON: 'experiments-hide-stop-button', // owner: @jurajmajerik #team-experiments
+    REPLAY_CLIENT_SIDE_DECOMPRESSION: 'replay-client-side-decompression', // owner: @pauldambra #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

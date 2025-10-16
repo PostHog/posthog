@@ -261,10 +261,6 @@ export type AssistantContextualTool =
     | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
-    | 'read_taxonomy'
-    | 'search'
-    | 'read_data'
-    | 'todo_write'
     | 'filter_revenue_analytics'
 
 /** Exact possible `urls` keys for the `navigate` tool. */

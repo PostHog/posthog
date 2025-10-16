@@ -21,9 +21,9 @@ from posthog.schema import AssistantToolCallMessage, VisualizationMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 
-from ee.hogai.context import SUPPORTED_QUERY_MODEL_BY_KIND
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
@@ -581,10 +581,10 @@ class InsightSearchNode(AssistantNode):
     @timing_logger("InsightSearchNode._validate_and_create_query_object")
     def _validate_and_create_query_object(self, insight_type: str, query_source: dict) -> SupportedQueryTypes | None:
         """Validate query type and create query object."""
-        if insight_type not in SUPPORTED_QUERY_MODEL_BY_KIND:
+        if insight_type not in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
             return None
 
-        AssistantQueryModel = SUPPORTED_QUERY_MODEL_BY_KIND[insight_type]
+        AssistantQueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[insight_type]
         return AssistantQueryModel.model_validate(query_source, strict=False)
 
     @timing_logger("InsightSearchNode._execute_and_format_query")
