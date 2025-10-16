@@ -23,6 +23,15 @@ class ErrorTrackingIssueManager(models.Manager):
     def with_first_seen(self):
         return self.annotate(first_seen=models.Min("fingerprints__first_seen"))
 
+    def update(self, **kwargs):
+        # This isn't perfect - if the status was set to what it used to be,
+        # this will still update the last_status_set timestamp, but it's
+        # good enough. We should consider denormalising this field in the
+        # future, I think.
+        if "status" in kwargs:
+            kwargs["last_status_set"] = timezone.now()
+        return super().update(**kwargs)
+
 
 class ErrorTrackingIssue(UUIDTModel):
     class Status(models.TextChoices):
