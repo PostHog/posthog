@@ -235,7 +235,10 @@ def tag_queries(**kwargs) -> None:
 
     :param kwargs: Key->value pairs of tags to be set.
     """
-    get_query_tags().update(**kwargs)
+    current_tags = get_query_tags()
+    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags.update(**kwargs)
+    query_tags.set(updated_tags)
 
 
 def clear_tag(key):

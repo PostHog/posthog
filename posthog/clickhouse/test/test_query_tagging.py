@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 
 import pytest
 
@@ -114,3 +115,55 @@ def test_tags_context():
 
     # Verify tags are restored
     assert get_query_tags() == create_base_tags(team_id=123)
+
+
+@pytest.mark.asyncio
+async def test_async_tasks_have_isolated_tags():
+    """
+    Demonstrates that concurrent async tasks get isolated query tags.
+
+    When multiple async tasks run concurrently and call tag_queries(), each task
+    should see its own tags without contamination from other tasks.
+    """
+    reset_query_tags()
+
+    # Use Events to guarantee interleaved execution
+    task_a_set_tags = asyncio.Event()
+    task_b_set_tags = asyncio.Event()
+
+    results = {}
+
+    async def task_a():
+        # Task A sets its tags first
+        tag_queries(team_id=100, user_id=1)
+        task_a_set_tags.set()
+
+        # Wait for Task B to set its tags
+        await task_b_set_tags.wait()
+
+        tags = get_query_tags()
+        results["task_a"] = {"team_id": tags.team_id, "user_id": tags.user_id}
+
+    async def task_b():
+        # Wait for Task A to set its tags first
+        await task_a_set_tags.wait()
+
+        # Task B sets its own tags (after Task A)
+        tag_queries(team_id=200, user_id=2)
+        task_b_set_tags.set()
+
+        tags = get_query_tags()
+        results["task_b"] = {"team_id": tags.team_id, "user_id": tags.user_id}
+
+    task_a_handle = asyncio.create_task(task_a())
+    task_b_handle = asyncio.create_task(task_b())
+
+    await task_a_handle
+    await task_b_handle
+
+    # Each task should see its own values, not contaminated by the other
+    assert results["task_a"]["team_id"] == 100
+    assert results["task_a"]["user_id"] == 1
+
+    assert results["task_b"]["team_id"] == 200
+    assert results["task_b"]["user_id"] == 2
