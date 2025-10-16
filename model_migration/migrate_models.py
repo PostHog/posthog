@@ -1656,13 +1656,15 @@ class {app_name.title()}Config(AppConfig):
             logger.info("   Source base path: %s", source_base_path)
 
         try:
-            return self._execute_migration(source_files, target_app, create_backend)
+            return self._execute_migration(source_files, target_app, create_backend, migration_spec)
         finally:
             # Restore original merge_models setting if it was overridden
             if original_merge_models is not None:
                 self.merge_models = original_merge_models
 
-    def _execute_migration(self, source_files: list[str], target_app: str, create_backend: bool) -> bool:
+    def _execute_migration(
+        self, source_files: list[str], target_app: str, create_backend: bool, migration_spec: dict | None = None
+    ) -> bool:
         """Execute the migration steps"""
         if self.continue_from_migrations:
             logger.info("🔄 Continuing from migrations step (skipping file operations)")
@@ -1688,20 +1690,31 @@ class {app_name.title()}Config(AppConfig):
                     logger.error("❌ Cannot continue: target models directory not found at %s", models_dir)
                     return False
 
-                # Extract model names from all .py files in models directory
-                model_names = set()
+                # Try to get model names from config first (for continue mode when source files no longer exist)
+                if migration_spec and "model_names" in migration_spec:
+                    model_names = set(migration_spec.get("model_names", []))
+                    logger.info("📋 Using model names from config: %s", list(model_names))
+                else:
+                    # Extract model names from all .py files in models directory
+                    model_names = set()
+                    for model_file in models_dir.glob("*.py"):
+                        if model_file.name == "__init__.py":
+                            continue
+
+                        # Ensure db_table declarations
+                        self._ensure_model_db_tables(model_file)
+
+                        # Extract model names from this file
+                        with open(model_file) as f:
+                            content = f.read()
+                        file_models = self._extract_models_from_content(content)
+                        model_names.update(file_models)
+
+                # Ensure db_table declarations are present
                 for model_file in models_dir.glob("*.py"):
                     if model_file.name == "__init__.py":
                         continue
-
-                    # Ensure db_table declarations
                     self._ensure_model_db_tables(model_file)
-
-                    # Extract model names from this file
-                    with open(model_file) as f:
-                        content = f.read()
-                    file_models = self._extract_models_from_content(content)
-                    model_names.update(file_models)
 
             logger.info("📋 Model classes found in target: %s", list(model_names))
         else:

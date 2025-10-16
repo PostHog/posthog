@@ -42,7 +42,22 @@
             "status": "todo",
             "priority": 1,
             "merge_models": false,
-            "notes": "11 models, 13 changes (highest TODO). Using no-merge mode to preserve 1:1 file structure. All from posthog/warehouse/models/: ExternalDataSource, ExternalDataJob, DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseTable, DataModelingJob, DataWarehouseJoin, ExternalDataSourceRevenueAnalyticsConfig, ExternalDataSchema, QueryTabState, DataWarehouseCredential, DataWarehouseModelPath, DataWarehouseViewLink"
+            "model_names": [
+                "ExternalDataSource",
+                "ExternalDataJob",
+                "DataWarehouseSavedQuery",
+                "DataWarehouseSavedQueryDraft",
+                "DataWarehouseTable",
+                "DataModelingJob",
+                "DataWarehouseJoin",
+                "DataWarehouseViewLink",
+                "ExternalDataSourceRevenueAnalyticsConfig",
+                "ExternalDataSchema",
+                "QueryTabState",
+                "DataWarehouseCredential",
+                "DataWarehouseModelPath"
+            ],
+            "notes": "13 models, 13 changes (highest TODO). Using no-merge mode to preserve 1:1 file structure. All from posthog/warehouse/models/: ExternalDataSource, ExternalDataJob, DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseTable, DataModelingJob, DataWarehouseJoin, ExternalDataSourceRevenueAnalyticsConfig, ExternalDataSchema, QueryTabState, DataWarehouseCredential, DataWarehouseModelPath, DataWarehouseViewLink"
         },
         {
             "name": "cdp",
