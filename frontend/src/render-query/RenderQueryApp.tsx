@@ -38,6 +38,7 @@ const PAYLOAD_KEYS = ['query', 'cachedResults', 'context', 'insight'] as const
 
 export function RenderQueryApp(): JSX.Element {
     const [state, setState] = useState<RenderQueryState>(() => initializeState())
+    const [showPlaceholder, setShowPlaceholder] = useState(false)
 
     useThemedHtml(false)
 
@@ -55,6 +56,19 @@ export function RenderQueryApp(): JSX.Element {
             window.removeEventListener('message', handleMessage)
         }
     }, [setState])
+
+    useEffect(() => {
+        setShowPlaceholder(false)
+        if (state.cachedResults) {
+            return
+        }
+        const timeout = window.setTimeout(() => {
+            setShowPlaceholder(true)
+        }, 1000)
+        return () => {
+            window.clearTimeout(timeout)
+        }
+    }, [state.cachedResults, state.query])
 
     return (
         <div className="RenderQuery h-full w-full">
@@ -79,11 +93,13 @@ export function RenderQueryApp(): JSX.Element {
                     />
                 </div>
             ) : (
-                <div className="RenderQuery__placeholder">
-                    {state.query
-                        ? 'Waiting for cached results. Send cachedResults via postMessage to display data.'
-                        : 'No query provided. Send a query via postMessage or include it in the iframe URL.'}
-                </div>
+                showPlaceholder && (
+                    <div className="RenderQuery__placeholder">
+                        {state.query
+                            ? 'Waiting for cached results. Send cachedResults via postMessage to display data.'
+                            : 'No query provided. Send a query via postMessage or include it in the iframe URL.'}
+                    </div>
+                )
             )}
         </div>
     )

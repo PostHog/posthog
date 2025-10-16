@@ -408,7 +408,7 @@ export function SharingModalContent({
                         <TemplateLinkSection
                             templateLink={renderQuerySnippet}
                             heading="Share as template with cached results"
-                            tooltip="Use this snippet to embed the insight and send cached results via postMessage."
+                            tooltip="Use this snippet to embed the insight via an iframe, and send it cached results via postMessage."
                             piiWarning="This link shares the full insight, including all filters and the results, directly in the snippet. If any of these are sensitive, consider editing before sharing."
                             copyButtonLabel="Copy snippet"
                             collapsible

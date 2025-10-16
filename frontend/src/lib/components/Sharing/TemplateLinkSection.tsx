@@ -37,7 +37,6 @@ export function TemplateLinkSection({
     const [isExpanded, setIsExpanded] = useState(collapsible ? defaultExpanded : true)
 
     const isMultiline = templateLink.includes('\n')
-    const rows = Math.min(12, Math.max(3, templateLink.split('\n').length))
 
     const handleCopyLink = async (): Promise<void> => {
         try {
@@ -93,7 +92,7 @@ export function TemplateLinkSection({
                                 <textarea
                                     value={templateLink}
                                     readOnly
-                                    rows={rows}
+                                    rows={6}
                                     className="w-full px-3 py-2 text-sm border rounded bg-bg-light font-mono"
                                     onClick={(e) => (e.target as HTMLTextAreaElement).select()}
                                 />
