@@ -76,6 +76,7 @@ export interface ErrorTrackingStackFrame {
 export interface ErrorTrackingFingerprint {
     fingerprint: string
     issue_id: string
+    created_at: string
 }
 
 export interface ErrorTrackingSymbolSet {

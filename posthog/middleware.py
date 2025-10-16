@@ -32,13 +32,15 @@ from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, Team, User
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
 from posthog.rate_limit import DecideRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
+
+from products.notebooks.backend.models import Notebook
 
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
@@ -674,20 +676,18 @@ class ActivityLoggingMiddleware:
         return response
 
 
-# Add CSP to Admin tooling
-class AdminCSPMiddleware:
+class CSPMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        is_admin_view = request.path.startswith("/admin/")
-        # add nonce to request before generating response
-        if is_admin_view:
-            nonce = generate_random_token(16)
-            request.admin_csp_nonce = nonce
+        nonce = generate_random_token(16)
+        request.csp_nonce = nonce
 
+        # nonce must be added to request (above) before generating response
         response = self.get_response(request)
 
+        is_admin_view = request.path.startswith("/admin/")
         if is_admin_view:
             # TODO replace with django-loginas `LOGINAS_CSP_FRIENDLY` setting once 0.3.12 is released (https://github.com/skorokithakis/django-loginas/issues/111)
             django_loginas_inline_script_hash = "sha256-YS9p0l7SQLkAEtvGFGffDcYHRcUBpPzMcbSQe1lRuLc="
@@ -709,6 +709,32 @@ class AdminCSPMiddleware:
                 'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"'
             )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
+        else:
+            debug_url = "http://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            connect_debug_url = "http://localhost:8234 ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            csp_parts = [
+                "default-src 'self'",
+                "style-src 'self' 'unsafe-inline' https://*.posthog.com",
+                f"script-src 'self' 'nonce-{nonce}' {debug_url} https://*.posthog.com https://*.i.posthog.com",
+                f"font-src 'self' {debug_url} https://d1sdjtjk6xzm7.cloudfront.net",
+                "worker-src 'self'",
+                "child-src 'none'",
+                "object-src 'none'",
+                f"img-src 'self' data: {debug_url} https://www.gravatar.com",
+                "frame-ancestors https://posthog.com https://preview.posthog.com",
+                f"connect-src 'self' https://status.posthog.com {connect_debug_url} https://*.posthog.com",
+                # allow all sites for displaying heatmaps
+                "frame-src https:",
+                "manifest-src 'none'",
+                "base-uri 'self'",
+                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2",
+                "report-to posthog",
+            ]
+
+            response.headers["Reporting-Endpoints"] = (
+                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2"'
+            )
+            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
 
         return response
 

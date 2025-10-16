@@ -211,7 +211,7 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
 class ErrorTrackingFingerprintSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingIssueFingerprintV2
-        fields = ["fingerprint", "issue_id"]
+        fields = ["fingerprint", "issue_id", "created_at"]
 
 
 class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):

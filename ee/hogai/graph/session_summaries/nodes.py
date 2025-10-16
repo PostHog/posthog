@@ -17,7 +17,6 @@ from posthog.schema import (
     RecordingsQuery,
 )
 
-from posthog.models.notebook.notebook import Notebook
 from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.sync import database_sync_to_async
@@ -26,6 +25,8 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionSummaryStreamUpdate,
     execute_summarize_session_group,
 )
+
+from products.notebooks.backend.models import Notebook
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.session_summaries.prompts import GENERATE_FILTER_QUERY_PROMPT
