@@ -323,6 +323,21 @@ export const LLMMessageDisplay = React.memo(
                                 ) : item &&
                                   typeof item === 'object' &&
                                   'type' in item &&
+                                  item.type === 'output_text' &&
+                                  'text' in item &&
+                                  typeof item.text === 'string' ? (
+                                    searchQuery?.trim() ? (
+                                        <SearchHighlight
+                                            string={item.text}
+                                            substring={searchQuery}
+                                            className="whitespace-pre-wrap"
+                                        />
+                                    ) : (
+                                        <span className="whitespace-pre-wrap">{item.text}</span>
+                                    )
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
                                   item.type === 'image' &&
                                   'image' in item &&
                                   typeof item.image === 'string' ? (

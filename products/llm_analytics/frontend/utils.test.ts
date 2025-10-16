@@ -283,6 +283,85 @@ describe('LLM Analytics utils', () => {
         ])
     })
 
+    it('normalizeMessage: handles output_text type in array content', () => {
+        const message = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'output_text',
+                    text: 'This is the model response',
+                },
+            ],
+        }
+
+        expect(normalizeMessage(message, 'user')).toEqual([
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'output_text',
+                        text: 'This is the model response',
+                    },
+                ],
+            },
+        ])
+    })
+
+    it('normalizeMessage: preserves role with output_text content', () => {
+        const systemMessage = {
+            role: 'system',
+            content: [
+                {
+                    type: 'output_text',
+                    text: 'System initialization complete',
+                },
+            ],
+        }
+
+        const result = normalizeMessage(systemMessage, 'user')
+
+        expect(result).toHaveLength(1)
+        expect(result[0].role).toBe('system')
+        expect(result[0].content).toEqual([
+            {
+                type: 'output_text',
+                text: 'System initialization complete',
+            },
+        ])
+    })
+
+    it('normalizeMessage: handles mixed content types including output_text', () => {
+        const message = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'text',
+                    text: 'Regular text',
+                },
+                {
+                    type: 'output_text',
+                    text: 'Output text',
+                },
+            ],
+        }
+
+        expect(normalizeMessage(message, 'user')).toEqual([
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Regular text',
+                    },
+                    {
+                        type: 'output_text',
+                        text: 'Output text',
+                    },
+                ],
+            },
+        ])
+    })
+
     describe('looksLikeXml', () => {
         it('detects basic XML structures', () => {
             expect(looksLikeXml('<root><child/></root>')).toBe(true)

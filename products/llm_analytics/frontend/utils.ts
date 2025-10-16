@@ -336,7 +336,10 @@ export function normalizeMessage(output: unknown, defaultRole: string): CompatMe
                 item &&
                 typeof item === 'object' &&
                 'type' in item &&
-                (item.type === 'text' || item.type === 'function' || item.type === 'image')
+                (item.type === 'text' ||
+                    item.type === 'function' ||
+                    item.type === 'image' ||
+                    item.type === 'output_text')
         )
     ) {
         return [
