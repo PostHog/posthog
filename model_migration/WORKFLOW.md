@@ -572,6 +572,62 @@ git commit -m "merge: adopt fresh migration validation branch"
 - Need to replace everything to be safe
 - Don't want to manually cherry-pick fixes
 
+### Configuration Options for Special Cases
+
+The migration script supports several configuration options in `migration_spec` for handling non-standard model locations:
+
+#### source_base_path
+
+For models in non-standard locations (not `posthog/models/`):
+
+```json
+{
+    "name": "data_warehouse",
+    "source_base_path": "posthog/warehouse/models",
+    "source_files": ["external_data_source.py", "table.py"],
+    "status": "todo"
+}
+```
+
+**Why**: Data warehouse models live in `posthog/warehouse/models/` instead of `posthog/models/`. Script detects this and searches the correct directory for source files.
+
+#### model_names (for no-merge mode with continue)
+
+When using `no-merge-models: true` with `--continue` flag, include pre-computed model names:
+
+```json
+{
+    "name": "data_warehouse",
+    "no-merge-models": true,
+    "model_names": ["ExternalDataSource", "DataWarehouseTable", "DataWarehouseJoin"],
+    "status": "todo"
+}
+```
+
+**Why**: In continue mode, the script needs to identify model classes to update their db_table declarations. When source files no longer exist (already moved in first phase), it can't use AST parsing. The `model_names` array provides a pre-computed fallback, especially useful for models with complex inheritance patterns (e.g., warehouse models using ModelActivityMixin, CreatedMetaFields, etc.).
+
+#### no-merge-models
+
+Preserve 1:1 file structure instead of combining models:
+
+```json
+{
+    "name": "data_warehouse",
+    "no-merge-models": true,
+    "source_files": ["external_data_source.py", "table.py"],
+    "status": "todo"
+}
+```
+
+**Why**: By default, script combines all source files into a single `models.py`. Use `no-merge-models: true` to create individual model files (e.g., `external_data_source.py`, `table.py`).
+
+**CRITICAL**: When using no-merge mode:
+
+1. Always run with `--single` flag first to move files and update imports
+2. Review changes before continuing
+3. Configure `model_names` in the config entry before running `--continue`
+4. Script will use these names to add db_table declarations in continue mode
+
 ### Common Script Pitfalls
 
 1. **LibCST Timeout During Cleanup**
@@ -719,6 +775,56 @@ Based on real issues encountered:
     - ✅ Validate locally first (migrations, tests, imports)
     - ✅ Use `--force-with-lease` when force pushing
     - ✅ Coordinate with team if branch is shared
+
+### Baseline Branch Maintenance
+
+Keep the baseline branch clean and rebasing-friendly with linear history:
+
+#### Applying Script Improvements
+
+When you improve the migration script during a run:
+
+1. **Don't create merge commits** - Apply changes directly to baseline files
+2. **Make surgical edits** - Only change what's needed for the improvement
+3. **Commit individually** - Create one clean commit per logical improvement
+4. **Example**:
+
+    ```bash
+    # Make targeted edits to baseline files
+    # Edit model_migration/migrate_models.py to fix a bug
+    # Edit model_migration/migration_config.json to add model_names
+
+    # Stage only the improvements
+    git add model_migration/migrate_models.py model_migration/migration_config.json
+
+    # Commit with clear message
+    git commit -m "feat(migration): add model_names config support for continue mode"
+    ```
+
+**Why**: Linear history keeps baseline rebasing-safe. Merge commits complicate future rebases when baseline is refreshed against master.
+
+#### Fresh Baseline for New Runs
+
+Before starting a new migration run:
+
+1. Clean any leftover migration output:
+
+    ```bash
+    git checkout chore/model-migrations-baseline
+    rm -rf products/<product>/backend/
+    git status  # Should show clean working tree
+    ```
+
+2. Create fresh branch for the migration run:
+
+    ```bash
+    git checkout -b chore/models-migrations-<product>-fresh
+    git reset --soft $MASTER_HASH
+    # Configure migration_config.json for target product
+    # Run migration script
+    ```
+
+3. Don't keep accumulated migration files on baseline - they're only needed during the run
 
 ### Debugging Checklist
 
