@@ -25,7 +25,7 @@ plugin-server/src/cdp/ @PostHog/team-workflows
 
 # ClickHouse team owns Clickhouse migrations
 
-posthog/clickhouse/migrations/\*\* @PostHog/clickhouse
+posthog/clickhouse/migrations/** @PostHog/clickhouse
 
 # Web Analytics team owns web analytics code
 
@@ -43,7 +43,7 @@ dags/locations/web_analytics.py @PostHog/team-web-analytics
 
 # Revenue Analytics team owns revenue analytics stuff
 
-products/revenue_analytics/\*\* @PostHog/team-revenue-analytics
+products/revenue_analytics/** @PostHog/team-revenue-analytics
 
 # Feature Flags team
 
@@ -86,7 +86,7 @@ posthog/hogql/** @PostHog/team-data-warehouse
 
 # Team error tracking
 
-products/error_tracking/\*\* @PostHog/team-error-tracking
+products/error_tracking/** @PostHog/team-error-tracking
 posthog/models/error_tracking/ @PostHog/team-error-tracking
 posthog/api/error_tracking.py @PostHog/team-error-tracking
 posthog/hogql_queries/error_tracking/error_tracking_query_runner.py @PostHog/team-error-tracking
