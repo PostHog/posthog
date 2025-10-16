@@ -470,15 +470,15 @@ function ExitConditionSection(): JSX.Element {
                         },
                         {
                             value: 'exit_on_trigger_not_matched',
-                            label: 'Exit on trigger not matched',
+                            label: 'Exit when trigger filter(s) no longer match',
                         },
                         {
                             value: 'exit_on_conversion',
-                            label: 'Exit on conversion',
+                            label: 'Exit when conversion condition is met',
                         },
                         {
                             value: 'exit_on_trigger_not_matched_or_conversion',
-                            label: 'Exit on trigger not matched or conversion',
+                            label: 'Exit when trigger filter(s) no longer match or when conversion condition is met',
                         },
                     ]}
                 />
