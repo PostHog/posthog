@@ -24,6 +24,7 @@ import {
     NotebookUpdateMessage,
     PlanningMessage,
     PlanningStepStatus,
+    ReasoningMessage,
     TaskExecutionMessage,
     TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
@@ -535,6 +536,63 @@ ThreadWithMultipleContextObjects.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
+}
+export const ThreadCanceledDuringReasoning: StoryFn = () => {
+    const reasoningMessage: ReasoningMessage = {
+        type: AssistantMessageType.Reasoning,
+        content: 'Analyzing your request to determine the best approach',
+        substeps: [
+            'Understanding the data requirements',
+            'Identifying relevant metrics',
+            'Determining visualization type',
+        ],
+        id: 'reasoning-message-1',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Show me trends for user signups' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(reasoningMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic)
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax, setMessageStatus } = useActions(threadLogic)
+    const { threadRaw, threadLoading } = useValues(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me trends for user signups')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    useEffect(() => {
+        if (threadRaw.length === 2 && !threadLoading) {
+            setMessageStatus(1, 'canceled')
+        }
+    }, [threadRaw.length, threadLoading, setMessageStatus])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
 }
 
 export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
