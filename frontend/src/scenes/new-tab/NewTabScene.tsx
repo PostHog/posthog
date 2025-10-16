@@ -218,7 +218,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                     >
                         {/* TODO: Remove this once we're done testing */}
                         {newTabSceneData && (
-                            <div className="col-span-4 border border-primary border-px rounded-md p-2">
+                            <div className="col-span-full border border-primary border-px rounded-md p-2">
                                 <p className="flex flex-col items-center @md/main-content:flex-row gap-1 m-0 text-sm text-tertiary">
                                     <IconInfo className="size-4" /> You're trying out the new tab scene with the flag:{' '}
                                     <pre className="border border-primary border-px rounded-md px-1 mb-0">
@@ -227,7 +227,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 </p>
                             </div>
                         )}
-                        <Results tabId={tabId || ''} />
+                        <Results tabId={tabId || ''} searchInputRef={inputRef} />
                     </div>
                     {/* )} */}
                 </div>

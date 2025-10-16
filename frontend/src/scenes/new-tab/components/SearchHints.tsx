@@ -5,10 +5,7 @@ import { ListBox } from 'lib/ui/ListBox/ListBox'
 
 import { SidePanelTab } from '~/types'
 
-import { SpecialSearchMode } from '../newTabSceneLogic'
-
 interface SearchHintsProps {
-    specialSearchMode: SpecialSearchMode
     search: string
     filteredItemsGridLength: number
     setSearch: (search: string) => void
@@ -19,7 +16,6 @@ interface SearchHintsProps {
 }
 
 export function SearchHints({
-    specialSearchMode,
     search,
     setSearch,
     setQuestion,
@@ -29,65 +25,35 @@ export function SearchHints({
 }: SearchHintsProps): JSX.Element {
     return (
         <div className="flex justify-between items-center relative text-xs font-medium overflow-hidden py-1 px-1.5 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]">
-            {specialSearchMode === 'persons' && search.trim() ? (
-                <span>
-                    <span className="text-tertiary mr-1">Try searching persons by:</span>
-                    <ListBox.Item asChild>
-                        <ButtonPrimitive
-                            size="xxs"
-                            className="text-xs -ml-1"
-                            onClick={() => {
-                                setSearch('/persons test@email.com')
-                                focusSearchInput()
-                            }}
-                        >
-                            email
-                        </ButtonPrimitive>
-                    </ListBox.Item>
-                    <span className="text-tertiary">or</span>
-                    <ListBox.Item asChild>
-                        <ButtonPrimitive
-                            size="xxs"
-                            className="text-xs"
-                            onClick={() => {
-                                setSearch('/persons some-id')
-                                focusSearchInput()
-                            }}
-                        >
-                            ID
-                        </ButtonPrimitive>
-                    </ListBox.Item>
-                </span>
-            ) : (
-                <span>
-                    <span className="text-tertiary">Try:</span>
-                    <ListBox.Item asChild>
-                        <ButtonPrimitive
-                            size="xxs"
-                            className="text-xs"
-                            onClick={() => {
-                                setSearch('New SQL query')
-                                focusSearchInput()
-                            }}
-                        >
-                            New SQL query
-                        </ButtonPrimitive>
-                    </ListBox.Item>
-                    <span className="text-tertiary">or</span>
-                    <ListBox.Item asChild>
-                        <ButtonPrimitive
-                            size="xxs"
-                            className="text-xs"
-                            onClick={() => {
-                                setSearch('Experiment')
-                                focusSearchInput()
-                            }}
-                        >
-                            Experiment
-                        </ButtonPrimitive>
-                    </ListBox.Item>
-                </span>
-            )}
+            <span>
+                <span className="text-tertiary">Try:</span>
+                <ListBox.Item asChild>
+                    <ButtonPrimitive
+                        size="xxs"
+                        className="text-xs"
+                        onClick={() => {
+                            setSearch('New SQL query')
+                            focusSearchInput()
+                        }}
+                    >
+                        New SQL query
+                    </ButtonPrimitive>
+                </ListBox.Item>
+                <span className="text-tertiary">or</span>
+                <ListBox.Item asChild>
+                    <ButtonPrimitive
+                        size="xxs"
+                        className="text-xs"
+                        onClick={() => {
+                            setSearch('Experiment')
+                            focusSearchInput()
+                        }}
+                    >
+                        Experiment
+                    </ButtonPrimitive>
+                </ListBox.Item>
+            </span>
+
             <span className="text-primary flex gap-1 items-center">
                 <ListBox.Item asChild>
                     <ButtonPrimitive

@@ -42,8 +42,6 @@ export interface NewTabCategoryItem {
     description?: string
 }
 
-export type SpecialSearchMode = 'persons' | null
-
 const PAGINATION_LIMIT = 20
 
 function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
@@ -202,6 +200,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             false,
             {
                 setNewTabSceneDataIncludePersons: (_, { includePersons }) => includePersons,
+                setNewTabSceneDataIncludePersonsFromUrl: (_, { includePersons }) => includePersons,
             },
         ],
         personSearchPending: [
@@ -248,18 +247,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     })
                 }
                 return categories
-            },
-        ],
-        specialSearchMode: [
-            (s) => [s.search, s.selectedCategory, s.featureFlags],
-            (search, selectedCategory, featureFlags): SpecialSearchMode => {
-                if (
-                    featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] &&
-                    (search.startsWith('/person') || selectedCategory === 'persons')
-                ) {
-                    return 'persons'
-                }
-                return null
             },
         ],
         isSearching: [
@@ -317,8 +304,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         itemsGrid: [
-            (s) => [s.featureFlags, s.projectTreeSearchItems, s.personSearchItems, s.specialSearchMode],
-            (featureFlags, projectTreeSearchItems, personSearchItems, specialSearchMode): NewTabTreeDataItem[] => {
+            (s) => [s.featureFlags, s.projectTreeSearchItems],
+            (featureFlags, projectTreeSearchItems): NewTabTreeDataItem[] => {
                 const newInsightItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Insight/'))
                     .map((fs, index) => ({
@@ -383,13 +370,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
-
-                // If in person search mode, return persons items (can be empty array)
-                if (newTabSceneData && specialSearchMode === 'persons') {
-                    return personSearchItems
-                }
-
                 const allItems: NewTabTreeDataItem[] = [
                     {
                         id: 'new-sql-query',
@@ -418,23 +398,17 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         filteredItemsGrid: [
-            (s) => [s.itemsGrid, s.search, s.selectedCategory, s.specialSearchMode],
+            (s) => [s.itemsGrid, s.search, s.selectedCategory],
             (
                 itemsGrid: NewTabTreeDataItem[],
                 search: string,
-                selectedCategory: NEW_TAB_CATEGORY_ITEMS,
-                specialSearchMode: SpecialSearchMode
+                selectedCategory: NEW_TAB_CATEGORY_ITEMS
             ): NewTabTreeDataItem[] => {
                 let filtered = itemsGrid
 
                 // Filter by selected category
                 if (selectedCategory !== 'all') {
                     filtered = filtered.filter((item) => item.category === selectedCategory)
-                }
-
-                // For special search modes (like person search), skip the normal search filtering
-                if (specialSearchMode === 'persons') {
-                    return filtered
                 }
 
                 // Filter by search
@@ -546,6 +520,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
             actions.loadRecents()
 
+            // Simple URL handling: if changing search string and includePersons is active, keep in URL
+            if (newTabSceneData && values.newTabSceneDataIncludePersons) {
+                const url = new URL(window.location.href)
+                url.searchParams.set('includePersons', 'true')
+                window.history.replaceState({}, '', url.toString())
+            }
+
             // For newTabSceneData mode, trigger person search if includePersons is enabled and there's a search term
             if (newTabSceneData && values.newTabSceneDataIncludePersons) {
                 if (values.search.trim() !== '') {
@@ -559,12 +540,19 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setNewTabSceneDataIncludePersons: ({ includePersons }) => {
             const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
 
-            if (newTabSceneData && includePersons && values.search.trim() !== '') {
-                // If enabling persons filter and there's a search term, trigger person search
-                actions.debouncedPersonSearch(values.search.trim())
-            } else if (newTabSceneData && !includePersons) {
-                // If disabling persons filter, clear person search results
-                actions.loadPersonSearchResultsSuccess([])
+            if (newTabSceneData) {
+                // Toggle category to 'persons' when enabling, 'all' when disabling
+                if (includePersons) {
+                    actions.setSelectedCategory('persons')
+                    // If there's a search term, trigger person search
+                    if (values.search.trim() !== '') {
+                        actions.debouncedPersonSearch(values.search.trim())
+                    }
+                } else {
+                    actions.setSelectedCategory('all')
+                    // Clear person search results when disabling
+                    actions.loadPersonSearchResultsSuccess([])
+                }
             }
         },
         debouncedPersonSearch: async ({ searchTerm }, breakpoint) => {
@@ -594,32 +582,57 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setSearch: () => [
             router.values.location.pathname,
             {
-                search: values.search !== '' ? values.search : undefined,
+                search: values.search || undefined,
                 category: values.selectedCategory !== 'all' ? values.selectedCategory : undefined,
+                includePersons: values.newTabSceneDataIncludePersons ? 'true' : undefined,
             },
         ],
         setSelectedCategory: () => [
             router.values.location.pathname,
             {
-                search: values.search !== '' ? values.search : undefined,
+                search: values.search || undefined,
                 category: values.selectedCategory !== 'all' ? values.selectedCategory : undefined,
+                includePersons: values.newTabSceneDataIncludePersons ? 'true' : undefined,
+            },
+        ],
+        setNewTabSceneDataIncludePersons: () => [
+            router.values.location.pathname,
+            {
+                search: values.search || undefined,
+                category: values.selectedCategory !== 'all' ? values.selectedCategory : undefined,
+                includePersons: values.newTabSceneDataIncludePersons ? 'true' : undefined,
             },
         ],
     })),
     tabAwareUrlToAction(({ actions, values }) => ({
         [urls.newTab()]: (_, searchParams) => {
-            if (searchParams.search !== undefined && searchParams.search !== values.search) {
+            // Update search if URL search param differs from current state
+            if (searchParams.search && searchParams.search !== values.search) {
                 actions.setSearch(String(searchParams.search))
             }
+
+            // Update category if URL category param differs from current state
             if (searchParams.category && searchParams.category !== values.selectedCategory) {
                 actions.setSelectedCategory(searchParams.category)
             }
-            // Set defaults from URL if no params
-            if (searchParams.search === undefined && values.search !== '') {
+
+            // Update includePersons if URL param differs from current state
+            if (
+                searchParams.includePersons &&
+                searchParams.includePersons !== (values.newTabSceneDataIncludePersons ? 'true' : 'false')
+            ) {
+                actions.setNewTabSceneDataIncludePersons(searchParams.includePersons)
+            }
+
+            // Reset search, category, and includePersons to defaults if no URL params
+            if (!searchParams.search && values.search) {
                 actions.setSearch('')
             }
             if (!searchParams.category && values.selectedCategory !== 'all') {
                 actions.setSelectedCategory('all')
+            }
+            if (!searchParams.includePersons && values.newTabSceneDataIncludePersons) {
+                actions.setNewTabSceneDataIncludePersons(false)
             }
         },
     })),

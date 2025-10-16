@@ -190,7 +190,13 @@ function Category({
     )
 }
 
-export function Results({ tabId }: { tabId: string }): JSX.Element {
+export function Results({
+    tabId,
+    searchInputRef,
+}: {
+    tabId: string
+    searchInputRef: React.RefObject<HTMLInputElement>
+}): JSX.Element {
     const {
         filteredItemsGrid,
         groupedFilteredItems,
@@ -203,6 +209,8 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
     const { setSearch } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
+    const items = groupedFilteredItems[selectedCategory] || []
+    const typedItems = items as NewTabTreeDataItem[]
 
     // For newTabSceneData, use the new grouped items with section ordering
     const allCategories = newTabSceneData
@@ -235,11 +243,8 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
         : Object.entries(groupedFilteredItems)
 
     if (!newTabSceneData && selectedCategory !== 'all') {
-        const items = groupedFilteredItems[selectedCategory] || []
-        const typedItems = items as NewTabTreeDataItem[]
-
         return (
-            <div className="col-span-4 mb-8" key={selectedCategory}>
+            <div className="col-span-full mb-8" key={selectedCategory}>
                 <div className="mb-4">
                     <div className="flex items-baseline gap-2">
                         <h3 className="mb-0 text-lg font-medium text-secondary">
@@ -331,37 +336,46 @@ export function Results({ tabId }: { tabId: string }): JSX.Element {
         )
     }
 
-    // Show "No results found" for non-flagged version when no results and not searching
-    if (!newTabSceneData && filteredItemsGrid.length === 0 && !isSearching) {
-        return (
-            <div className="flex flex-col gap-4 px-2 py-2 bg-glass-bg-3000 rounded-lg">
-                <div className="flex flex-col gap-1">
-                    <p className="text-tertiary mb-2">
-                        <IconInfo /> No results found
-                    </p>
-                    <div className="flex gap-1">
-                        <ListBox.Item asChild className="list-none">
-                            <ButtonPrimitive size="sm" onClick={() => setSearch('')}>
-                                Clear search
-                            </ButtonPrimitive>{' '}
-                        </ListBox.Item>
-                        or{' '}
-                        <ListBox.Item asChild>
-                            <ButtonPrimitive size="sm" onClick={() => openSidePanel(SidePanelTab.Max)}>
-                                Ask Max!
-                            </ButtonPrimitive>
-                        </ListBox.Item>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
     return (
         <>
             {allCategories.map(([category, items], columnIndex) => (
                 <Category tabId={tabId} items={items} category={category} columnIndex={columnIndex} key={category} />
             ))}
+
+            {/* Show "No results found" for non-flagged version when no results and not searching */}
+            {filteredItemsGrid.length === 0 && !isSearching && (
+                <div className="flex flex-col gap-4 px-2 py-2 bg-glass-bg-3000 rounded-lg col-span-full">
+                    <div className="flex flex-col gap-1">
+                        <p className="text-tertiary mb-1">
+                            <IconInfo /> No results found
+                        </p>
+                        <div className="flex gap-1 items-center">
+                            <ListBox.Item asChild className="list-none">
+                                <ButtonPrimitive
+                                    size="sm"
+                                    onClick={() => {
+                                        setSearch('')
+                                        searchInputRef.current?.focus()
+                                    }}
+                                    variant="panel"
+                                >
+                                    Clear search
+                                </ButtonPrimitive>{' '}
+                            </ListBox.Item>
+                            or{' '}
+                            <ListBox.Item asChild>
+                                <ButtonPrimitive
+                                    size="sm"
+                                    onClick={() => openSidePanel(SidePanelTab.Max)}
+                                    variant="panel"
+                                >
+                                    Ask Max!
+                                </ButtonPrimitive>
+                            </ListBox.Item>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     )
 }
