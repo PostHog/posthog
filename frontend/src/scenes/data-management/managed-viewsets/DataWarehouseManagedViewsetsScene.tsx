@@ -8,20 +8,25 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ManagedViewsetKind } from '~/queries/schema/schema-general'
+import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 import { AccessControlResourceType } from '~/types'
 
-import { ManagedViewsetCard } from './ManagedViewsetCard'
-import { ManagedViewsetImpactModal } from './ManagedViewsetImpactModal'
-import { VIEWSET_TITLES, disableManagedViewsetModalLogic } from './disableManagedViewsetModalLogic'
+import { DataWarehouseManagedViewsetCard } from './DataWarehouseManagedViewsetCard'
+import { DataWarehouseManagedViewsetImpactModal } from './DataWarehouseManagedViewsetImpactModal'
+import {
+    VIEWSET_TITLES,
+    disableDataWarehouseManagedViewsetModalLogic,
+} from './disableDataWarehouseManagedViewsetModalLogic'
 
-const RESOURCE_TYPES_MAP: Record<ManagedViewsetKind, AccessControlResourceType> = {
+const RESOURCE_TYPES_MAP: Record<DataWarehouseManagedViewsetKind, AccessControlResourceType> = {
     revenue_analytics: AccessControlResourceType.RevenueAnalytics,
 }
 
-export function ManagedViewsetsScene(): JSX.Element {
+export function DataWarehouseManagedViewsetsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { kind, views } = useValues(disableManagedViewsetModalLogic({ type: 'ManagedViewsetsScene' }))
+    const { kind, views } = useValues(
+        disableDataWarehouseManagedViewsetModalLogic({ type: 'DataWarehouseManagedViewsetsScene' })
+    )
 
     const { loadCurrentTeam } = useActions(teamLogic)
 
@@ -33,7 +38,7 @@ export function ManagedViewsetsScene(): JSX.Element {
         }
 
         try {
-            await api.managedViewsets.toggle(kind, false)
+            await api.dataWarehouseManagedViewsets.toggle(kind, false)
             lemonToast.success(`${VIEWSET_TITLES[kind]} viewset disabled and views deleted successfully`)
             loadCurrentTeam()
             return true
@@ -53,18 +58,18 @@ export function ManagedViewsetsScene(): JSX.Element {
             <SceneDivider />
 
             <div className="space-y-4">
-                {(Object.keys(managedViewsets) as ManagedViewsetKind[]).map((kind) => (
-                    <ManagedViewsetCard
+                {(Object.keys(managedViewsets) as DataWarehouseManagedViewsetKind[]).map((kind) => (
+                    <DataWarehouseManagedViewsetCard
                         key={kind}
                         resourceType={RESOURCE_TYPES_MAP[kind]}
-                        type="ManagedViewsetsScene"
+                        type="DataWarehouseManagedViewsetsScene"
                         kind={kind}
                     />
                 ))}
             </div>
 
-            <ManagedViewsetImpactModal
-                type="ManagedViewsetsScene"
+            <DataWarehouseManagedViewsetImpactModal
+                type="DataWarehouseManagedViewsetsScene"
                 title={`Disable ${kind ? VIEWSET_TITLES[kind] : ''} viewset?`}
                 action={onConfirmDisable}
                 confirmText={kind || ''}

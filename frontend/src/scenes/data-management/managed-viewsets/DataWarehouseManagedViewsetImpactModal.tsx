@@ -4,26 +4,23 @@ import { LemonButton, LemonInput, LemonModal, LemonTag } from '@posthog/lemon-ui
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
-import { disableManagedViewsetModalLogic } from './disableManagedViewsetModalLogic'
+import { DataWarehouseManagedViewsetSavedQuery } from '~/types'
 
-export interface ManagedViewsetView {
-    id: string
-    name: string
-}
+import { disableDataWarehouseManagedViewsetModalLogic } from './disableDataWarehouseManagedViewsetModalLogic'
 
 export interface ManagedViewsetImpactModalProps {
     type: string
     title: string
     action: () => Promise<boolean>
     confirmText: string
-    views?: ManagedViewsetView[]
+    views?: DataWarehouseManagedViewsetSavedQuery[]
     warningItems: string[]
     infoMessage: string | JSX.Element
     viewsActionText: string
     confirmButtonText: string
 }
 
-export function ManagedViewsetImpactModal({
+export function DataWarehouseManagedViewsetImpactModal({
     type,
     title,
     action,
@@ -34,7 +31,7 @@ export function ManagedViewsetImpactModal({
     viewsActionText,
     confirmButtonText,
 }: ManagedViewsetImpactModalProps): JSX.Element {
-    const logic = disableManagedViewsetModalLogic({ type })
+    const logic = disableDataWarehouseManagedViewsetModalLogic({ type })
     const { isOpen, confirmationInput, views: logicViews, viewsLoading, isDeleting } = useValues(logic)
     const { closeModal, setIsDeleting, setConfirmationInput } = useActions(logic)
 

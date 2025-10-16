@@ -35,7 +35,12 @@ from posthog.warehouse.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.models import (
+    DataWarehouseManagedViewSet,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from posthog.warehouse.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from posthog.warehouse.types import ExternalDataSourceType
 
@@ -468,11 +473,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             logger.exception("Could not trigger external data job", exc_info=e)
 
         if new_source_model.revenue_analytics_config_safe.enabled:
-            from posthog.warehouse.models import ManagedViewSet
-
-            managed_viewset, _ = ManagedViewSet.objects.get_or_create(
+            managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=self.team,
-                kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
 
@@ -658,8 +661,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["PATCH"], detail=True)
     def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update the revenue analytics configuration and return the full external data source."""
-        from posthog.warehouse.models import ManagedViewSet
-
         external_data_source = self.get_object()
         config = external_data_source.revenue_analytics_config_safe
 
@@ -668,20 +669,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         config_serializer.save()
 
         if config.enabled:
-            managed_viewset, _ = ManagedViewSet.objects.get_or_create(
+            managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=self.team,
-                kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
         else:
             try:
-                managed_viewset = ManagedViewSet.objects.get(
+                managed_viewset = DataWarehouseManagedViewSet.objects.get(
                     team=self.team,
-                    kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+                    kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
                 )
                 managed_viewset.delete_with_views()
 
-            except ManagedViewSet.DoesNotExist:
+            except DataWarehouseManagedViewSet.DoesNotExist:
                 pass
 
         # Return the full external data source with updated config

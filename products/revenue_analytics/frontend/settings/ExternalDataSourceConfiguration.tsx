@@ -9,8 +9,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { ManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/ManagedViewsetImpactModal'
-import { disableManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableManagedViewsetModalLogic'
+import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
+import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
@@ -35,7 +35,9 @@ export function ExternalDataSourceConfiguration({
 
     const { updateSourceRevenueAnalyticsConfig, deleteJoin } = useActions(revenueAnalyticsSettingsLogic)
     const { toggleEditJoinModal, toggleNewJoinModal } = useActions(viewLinkLogic)
-    const { openModal } = useActions(disableManagedViewsetModalLogic({ type: 'ExternalDataSourceConfiguration' }))
+    const { openModal } = useActions(
+        disableDataWarehouseManagedViewsetModalLogic({ type: 'ExternalDataSourceConfiguration' })
+    )
     const { setSource: setSourceToBeDisabled } = useActions(disableRevenueSourceModalLogic)
 
     const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
@@ -357,7 +359,7 @@ export function ExternalDataSourceConfiguration({
             {/* To be used above by the join features */}
             <ViewLinkModal mode="revenue_analytics" />
             {managedViewsetsEnabled && (
-                <ManagedViewsetImpactModal
+                <DataWarehouseManagedViewsetImpactModal
                     type="ExternalDataSourceConfiguration"
                     title={`Disable revenue analytics for ${sourceToBeDisabled ? `${sourceToBeDisabled.source_type}${sourceToBeDisabled.prefix ? ` (${sourceToBeDisabled.prefix})` : ''}` : ''}?`}
                     action={onDisableSource}

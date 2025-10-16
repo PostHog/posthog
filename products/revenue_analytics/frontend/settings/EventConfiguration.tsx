@@ -10,8 +10,8 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, getCurrencySymbol } from 'lib/utils/geography/currency'
-import { ManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/ManagedViewsetImpactModal'
-import { disableManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableManagedViewsetModalLogic'
+import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
+import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
@@ -27,7 +27,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
     const { views, eventName: eventToBeDeleted } = useValues(deleteRevenueEventModalLogic)
 
     const { deleteEvent, save } = useActions(revenueAnalyticsSettingsLogic)
-    const { openModal } = useActions(disableManagedViewsetModalLogic({ type: 'EventConfiguration' }))
+    const { openModal } = useActions(disableDataWarehouseManagedViewsetModalLogic({ type: 'EventConfiguration' }))
     const { setEventName: setEventToBeDeleted } = useActions(deleteRevenueEventModalLogic)
 
     const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
@@ -238,7 +238,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                 )}
 
             {managedViewsetsEnabled && (
-                <ManagedViewsetImpactModal
+                <DataWarehouseManagedViewsetImpactModal
                     type="EventConfiguration"
                     title={`Remove revenue event "${eventToBeDeleted}"?`}
                     action={onDeleteEvent}

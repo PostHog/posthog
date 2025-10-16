@@ -6,13 +6,16 @@ import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ManagedViewsetKind } from '~/queries/schema/schema-general'
+import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
 
 import { AccessControlLevel, AccessControlResourceType } from '../../../types'
-import { ManagedViewsetsLogicProps, managedViewsetsLogic } from './managedViewsetsLogic'
+import {
+    DataWarehouseManagedViewsetsLogicProps,
+    dataWarehouseManagedViewsetsLogic,
+} from './dataWarehouseManagedViewsetsLogic'
 
 const VIEWSET_DESCRIPTIONS: Record<
-    ManagedViewsetKind,
+    DataWarehouseManagedViewsetKind,
     { title: string; description: string; docsUrl: string; configUrl: string; icon: JSX.Element }
 > = {
     revenue_analytics: {
@@ -25,24 +28,24 @@ const VIEWSET_DESCRIPTIONS: Record<
     },
 }
 
-export interface ManagedViewsetCardProps {
-    type: ManagedViewsetsLogicProps['type']
-    kind: ManagedViewsetKind
+export interface DataWarehouseManagedViewsetCardProps {
+    type: DataWarehouseManagedViewsetsLogicProps['type']
+    kind: DataWarehouseManagedViewsetKind
     resourceType: AccessControlResourceType
     displayDocsLink?: boolean
     displayConfigLink?: boolean
 }
 
-export function ManagedViewsetCard({
+export function DataWarehouseManagedViewsetCard({
     type,
     kind,
     resourceType,
     displayDocsLink = true,
     displayConfigLink = true,
-}: ManagedViewsetCardProps): JSX.Element {
+}: DataWarehouseManagedViewsetCardProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { toggleViewset } = useActions(managedViewsetsLogic({ type }))
-    const { togglingViewset, toggleResultLoading } = useValues(managedViewsetsLogic({ type }))
+    const { toggleViewset } = useActions(dataWarehouseManagedViewsetsLogic({ type }))
+    const { togglingViewset, toggleResultLoading } = useValues(dataWarehouseManagedViewsetsLogic({ type }))
 
     const { title, description, docsUrl, configUrl, icon } = VIEWSET_DESCRIPTIONS[kind]
     const isEnabled = currentTeam!.managed_viewsets![kind]

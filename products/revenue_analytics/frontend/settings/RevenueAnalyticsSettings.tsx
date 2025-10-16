@@ -18,11 +18,11 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { DataWarehouseManagedViewsetConfiguration } from './DataWarehouseManagedViewsetConfiguration'
 import { EventConfiguration } from './EventConfiguration'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration } from './FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from './GoalsConfiguration'
-import { ManagedViewsetConfiguration } from './ManagedViewsetConfiguration'
 import { RevenueExampleDataWarehouseTablesData } from './RevenueExampleDataWarehouseTablesData'
 import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
@@ -60,7 +60,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
             {managedViewsetsEnabled && (
                 <>
-                    <ManagedViewsetConfiguration />
+                    <DataWarehouseManagedViewsetConfiguration />
                     <SceneDivider />
                 </>
             )}

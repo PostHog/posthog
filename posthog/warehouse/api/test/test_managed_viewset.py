@@ -4,10 +4,10 @@ from rest_framework import status
 
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
-from posthog.warehouse.models import DataWarehouseSavedQuery, ManagedViewSet
+from posthog.warehouse.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
 
 
-class TestManagedViewSetAPI(APIBaseTest):
+class TestDataWarehouseManagedViewSetAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
 
@@ -40,7 +40,9 @@ class TestManagedViewSetAPI(APIBaseTest):
         self.assertEqual(response.json()["kind"], "revenue_analytics")
 
         self.assertTrue(
-            ManagedViewSet.objects.filter(team=self.team, kind=ManagedViewSet.Kind.REVENUE_ANALYTICS).exists()
+            DataWarehouseManagedViewSet.objects.filter(
+                team=self.team, kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS
+            ).exists()
         )
 
     def test_enable_managed_viewset_idempotent(self):
@@ -56,12 +58,12 @@ class TestManagedViewSetAPI(APIBaseTest):
         self.assertEqual(response1.status_code, status.HTTP_200_OK)
         self.assertEqual(response2.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(ManagedViewSet.objects.filter(team=self.team).count(), 1)
+        self.assertEqual(DataWarehouseManagedViewSet.objects.filter(team=self.team).count(), 1)
 
     def test_disable_managed_viewset(self):
-        managed_viewset = ManagedViewSet.objects.create(
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
         )
 
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -78,7 +80,7 @@ class TestManagedViewSetAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["enabled"], False)
-        self.assertFalse(ManagedViewSet.objects.filter(id=managed_viewset.id).exists())
+        self.assertFalse(DataWarehouseManagedViewSet.objects.filter(id=managed_viewset.id).exists())
 
         saved_query.refresh_from_db()
         self.assertTrue(saved_query.deleted)
@@ -104,9 +106,9 @@ class TestManagedViewSetAPI(APIBaseTest):
     def test_retrieve_managed_viewset_with_views(self):
         """Test retrieving a managed viewset that exists with views"""
         # Create a managed viewset
-        managed_viewset = ManagedViewSet.objects.create(
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
         )
 
         # Create some saved queries associated with the managed viewset
@@ -149,9 +151,9 @@ class TestManagedViewSetAPI(APIBaseTest):
     def test_retrieve_managed_viewset_without_views(self):
         """Test retrieving a managed viewset that exists but has no views"""
         # Create a managed viewset but no associated views
-        ManagedViewSet.objects.create(
+        DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/managed_viewsets/revenue_analytics/")
@@ -179,9 +181,9 @@ class TestManagedViewSetAPI(APIBaseTest):
     def test_retrieve_managed_viewset_excludes_deleted_views(self):
         """Test that deleted views are excluded from the response"""
         # Create a managed viewset
-        managed_viewset = ManagedViewSet.objects.create(
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
         )
 
         # Create a non-deleted view

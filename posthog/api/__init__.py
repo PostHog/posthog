@@ -426,7 +426,7 @@ environments_router.register(
 )
 environments_router.register(
     r"managed_viewsets",
-    managed_viewset.ManagedViewSetViewSet,
+    managed_viewset.DataWarehouseManagedViewSetViewSet,
     "environment_managed_viewsets",
     ["team_id"],
 )

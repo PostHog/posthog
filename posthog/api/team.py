@@ -346,12 +346,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
     def get_managed_viewsets(self, obj):
-        from posthog.warehouse.models import ManagedViewSet
+        from posthog.warehouse.models import DataWarehouseManagedViewSet
 
-        enabled_viewsets = ManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
+        enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
         enabled_set = set(enabled_viewsets)
 
-        return {kind: (kind in enabled_set) for kind, _ in ManagedViewSet.Kind.choices}
+        return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSet.Kind.choices}
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -693,11 +693,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
 
         if "events" in validated_data:
-            from posthog.warehouse.models import ManagedViewSet
+            from posthog.warehouse.models import DataWarehouseManagedViewSet
 
-            managed_viewset, _ = ManagedViewSet.objects.get_or_create(
+            managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=instance,
-                kind=ManagedViewSet.Kind.REVENUE_ANALYTICS,
+                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
             )
             managed_viewset.sync_views()
 

@@ -2495,7 +2495,7 @@ export interface PersistedFolder {
     updated_at: string
 }
 
-export type ManagedViewsetKind = 'revenue_analytics'
+export type DataWarehouseManagedViewsetKind = 'revenue_analytics'
 
 export type InsightQueryNode =
     | TrendsQuery

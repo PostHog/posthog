@@ -3,24 +3,24 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { ManagedViewsetCard } from 'scenes/data-management/managed-viewsets/ManagedViewsetCard'
-import { ManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/ManagedViewsetImpactModal'
-import { disableManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableManagedViewsetModalLogic'
+import { DataWarehouseManagedViewsetCard } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetCard'
+import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
+import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { AccessControlResourceType } from '~/types'
 
-export function ManagedViewsetConfiguration(): JSX.Element {
+export function DataWarehouseManagedViewsetConfiguration(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { loadCurrentTeam } = useActions(teamLogic)
-    const { views } = useValues(disableManagedViewsetModalLogic({ type: 'ManagedViewsetConfiguration' }))
+    const { views } = useValues(disableDataWarehouseManagedViewsetModalLogic({ type: 'ManagedViewsetConfiguration' }))
 
     const isEnabled = currentTeam?.managed_viewsets?.['revenue_analytics'] ?? false
 
     const onConfirmDisable = async (): Promise<boolean> => {
         try {
-            await api.managedViewsets.toggle('revenue_analytics', false)
+            await api.dataWarehouseManagedViewsets.toggle('revenue_analytics', false)
             lemonToast.success('Revenue analytics disabled successfully')
             loadCurrentTeam()
             return true
@@ -47,7 +47,7 @@ export function ManagedViewsetConfiguration(): JSX.Element {
                     </LemonBanner>
                 )}
 
-                <ManagedViewsetCard
+                <DataWarehouseManagedViewsetCard
                     type="ManagedViewsetConfiguration"
                     kind="revenue_analytics"
                     displayConfigLink={false}
@@ -55,7 +55,7 @@ export function ManagedViewsetConfiguration(): JSX.Element {
                 />
             </SceneSection>
 
-            <ManagedViewsetImpactModal
+            <DataWarehouseManagedViewsetImpactModal
                 type="ManagedViewsetConfiguration"
                 title="Disable revenue analytics?"
                 action={onConfirmDisable}

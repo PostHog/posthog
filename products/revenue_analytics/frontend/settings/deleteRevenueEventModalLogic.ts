@@ -2,7 +2,8 @@ import { actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { ManagedViewsetView } from 'scenes/data-management/managed-viewsets/ManagedViewsetImpactModal'
+
+import { DataWarehouseManagedViewsetSavedQuery } from '~/types'
 
 import type { deleteRevenueEventModalLogicType } from './deleteRevenueEventModalLogicType'
 
@@ -24,7 +25,7 @@ export const deleteRevenueEventModalLogic = kea<deleteRevenueEventModalLogicType
 
     loaders(() => ({
         views: [
-            [] as ManagedViewsetView[],
+            [] as DataWarehouseManagedViewsetSavedQuery[],
             {
                 setEventName: async ({ eventName }, breakpoint) => {
                     if (!eventName) {
@@ -32,7 +33,7 @@ export const deleteRevenueEventModalLogic = kea<deleteRevenueEventModalLogicType
                     }
 
                     try {
-                        const response = await api.managedViewsets.getViews('revenue_analytics')
+                        const response = await api.dataWarehouseManagedViewsets.getViews('revenue_analytics')
                         await breakpoint(100)
 
                         const eventPrefix = eventName.replace(/\s+/g, '_').toLowerCase()

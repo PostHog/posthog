@@ -4,20 +4,20 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.warehouse.models import ManagedViewSet
+from posthog.warehouse.models import DataWarehouseManagedViewSet
 
 logger = structlog.get_logger(__name__)
 
 
-class ManagedViewSetSerializer(serializers.Serializer):
+class DataWarehouseManagedViewSetSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(required=True)
 
 
-class ManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class DataWarehouseManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
     lookup_field = "kind"
     lookup_url_kwarg = "kind"
-    queryset = ManagedViewSet.objects.all()
+    queryset = DataWarehouseManagedViewSet.objects.all()
 
     def retrieve(self, _request: Request, kind: str, *args, **kwargs) -> Response:
         """
@@ -25,9 +25,11 @@ class ManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         GET /api/environments/{team_id}/managed_viewsets/{kind}/
         """
 
-        if kind not in dict(ManagedViewSet.Kind.choices):
+        if kind not in dict(DataWarehouseManagedViewSet.Kind.choices):
             return Response(
-                {"detail": f"Invalid kind. Must be one of: {', '.join(dict(ManagedViewSet.Kind.choices).keys())}"},
+                {
+                    "detail": f"Invalid kind. Must be one of: {', '.join(dict(DataWarehouseManagedViewSet.Kind.choices).keys())}"
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -43,7 +45,7 @@ class ManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
             return Response({"views": list(views), "count": len(views)}, status=status.HTTP_200_OK)
 
-        except ManagedViewSet.DoesNotExist:
+        except DataWarehouseManagedViewSet.DoesNotExist:
             return Response({"views": [], "count": 0}, status=status.HTTP_200_OK)
 
     def update(self, request: Request, kind: str, *args, **kwargs) -> Response:
@@ -51,19 +53,21 @@ class ManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         Enable or disable a managed viewset by kind.
         PUT /api/environments/{team_id}/managed_viewsets/{kind}/ with body {"enabled": true/false}
         """
-        if kind not in dict(ManagedViewSet.Kind.choices):
+        if kind not in dict(DataWarehouseManagedViewSet.Kind.choices):
             return Response(
-                {"detail": f"Invalid kind. Must be one of: {', '.join(dict(ManagedViewSet.Kind.choices).keys())}"},
+                {
+                    "detail": f"Invalid kind. Must be one of: {', '.join(dict(DataWarehouseManagedViewSet.Kind.choices).keys())}"
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        serializer = ManagedViewSetSerializer(data=request.data)
+        serializer = DataWarehouseManagedViewSetSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         enabled = serializer.validated_data["enabled"]
 
         if enabled:
-            managed_viewset, created = ManagedViewSet.objects.get_or_create(
+            managed_viewset, created = DataWarehouseManagedViewSet.objects.get_or_create(
                 team_id=self.team_id,
                 kind=kind,
             )
@@ -86,13 +90,13 @@ class ManagedViewSetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response({"enabled": True, "kind": kind}, status=status.HTTP_200_OK)
         else:
             try:
-                managed_viewset = ManagedViewSet.objects.get(
+                managed_viewset = DataWarehouseManagedViewSet.objects.get(
                     team_id=self.team_id,
                     kind=kind,
                 )
                 managed_viewset.delete_with_views()
 
-            except ManagedViewSet.DoesNotExist:
+            except DataWarehouseManagedViewSet.DoesNotExist:
                 logger.info(
                     "managed_viewset_already_disabled",
                     team_id=self.team_id,

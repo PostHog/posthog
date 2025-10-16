@@ -32,7 +32,7 @@ class ExpectedView:
     columns: dict[str, dict[str, Any]]
 
 
-class ManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     class Kind(models.TextChoices):
         REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
 
@@ -43,12 +43,12 @@ class ManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "kind"],
-                name="unique_managed_viewset_team_kind",
+                name="datawarehouse_unique_managed_viewset_team_kind",
             )
         ]
 
     def __str__(self) -> str:
-        return f"ManagedViewSet({self.kind}) for Team {self.team.id}"
+        return f"DataWarehouseManagedViewSet({self.kind}) for Team {self.team.id}"
 
     __repr__ = sane_repr("team", "kind")
 
@@ -200,7 +200,7 @@ class ManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         return {
             field_name: {
                 "hogql": type(field_obj).__name__,
-                "clickhouse": ManagedViewSet._get_clickhouse_type(field_obj),
+                "clickhouse": DataWarehouseManagedViewSet._get_clickhouse_type(field_obj),
                 "valid": True,
             }
             for field_name, field_obj in fields.items()
@@ -218,8 +218,8 @@ class ManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         #
         # If the types here prove to be wrong, we can easily run the following script to update the types:
         # ```python
-        # from posthog.warehouse.models.managed_viewset import ManagedViewSet
-        # for viewset in ManagedViewSet.objects.():
+        # from posthog.warehouse.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+        # for viewset in DataWarehouseManagedViewSet.objects.():
         #     viewset.sync_views()
         # ```
 

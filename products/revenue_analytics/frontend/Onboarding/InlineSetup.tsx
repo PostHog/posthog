@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -9,8 +8,7 @@ import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { ManagedViewsetCard } from 'scenes/data-management/managed-viewsets/ManagedViewsetCard'
-import { managedViewsetsLogic } from 'scenes/data-management/managed-viewsets/managedViewsetsLogic'
+import { DataWarehouseManagedViewsetCard } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetCard'
 import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
@@ -110,15 +108,13 @@ export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupPr
                             </div>
                         </div>
 
-                        <BindLogic logic={managedViewsetsLogic} props={{ type: 'onboarding' }}>
-                            <ManagedViewsetCard
-                                type="onboarding"
-                                kind="revenue_analytics"
-                                resourceType={AccessControlResourceType.RevenueAnalytics}
-                                displayDocsLink={true}
-                                displayConfigLink={false}
-                            />
-                        </BindLogic>
+                        <DataWarehouseManagedViewsetCard
+                            type="onboarding"
+                            kind="revenue_analytics"
+                            resourceType={AccessControlResourceType.RevenueAnalytics}
+                            displayDocsLink={true}
+                            displayConfigLink={false}
+                        />
 
                         <div className="text-sm text-muted-alt p-3 bg-bg-light rounded">
                             <strong>Note:</strong> Once enabled, you'll be able to configure your revenue sources and

@@ -3,26 +3,26 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { ManagedViewsetKind } from '~/queries/schema/schema-general'
+import { DataWarehouseManagedViewsetKind } from '~/queries/schema/schema-general'
+import { DataWarehouseManagedViewsetSavedQuery } from '~/types'
 
-import { ManagedViewsetView } from './ManagedViewsetImpactModal'
-import type { disableManagedViewsetModalLogicType } from './disableManagedViewsetModalLogicType'
+import type { disableDataWarehouseManagedViewsetModalLogicType } from './disableDataWarehouseManagedViewsetModalLogicType'
 
-export const VIEWSET_TITLES: Record<ManagedViewsetKind, string> = {
+export const VIEWSET_TITLES: Record<DataWarehouseManagedViewsetKind, string> = {
     revenue_analytics: 'Revenue analytics',
 }
 
-export interface DisableManagedViewsetModalLogicProps {
+export interface DisableDataWarehouseManagedViewsetModalLogicProps {
     type: string
 }
 
-export const disableManagedViewsetModalLogic = kea<disableManagedViewsetModalLogicType>([
-    props({ type: 'root' } as DisableManagedViewsetModalLogicProps),
-    key(({ type }) => `disableManagedViewsetModalLogic-${type}`),
+export const disableDataWarehouseManagedViewsetModalLogic = kea<disableDataWarehouseManagedViewsetModalLogicType>([
+    props({ type: 'root' } as DisableDataWarehouseManagedViewsetModalLogicProps),
+    key(({ type }) => `disableDataWarehouseManagedViewsetModalLogic-${type}`),
     path((key) => ['scenes', 'data-management', 'managed-viewsets', key]),
 
     actions({
-        openModal: (kind: ManagedViewsetKind) => ({ kind }),
+        openModal: (kind: DataWarehouseManagedViewsetKind) => ({ kind }),
         closeModal: true,
         setIsDeleting: (isDeleting: boolean) => ({ isDeleting }),
         setConfirmationInput: (confirmationInput: string) => ({ confirmationInput }),
@@ -36,7 +36,7 @@ export const disableManagedViewsetModalLogic = kea<disableManagedViewsetModalLog
             },
         ],
         kind: [
-            null as ManagedViewsetKind | null,
+            null as DataWarehouseManagedViewsetKind | null,
             {
                 openModal: (_, { kind }) => kind,
                 closeModal: () => null,
@@ -61,11 +61,11 @@ export const disableManagedViewsetModalLogic = kea<disableManagedViewsetModalLog
     }),
     loaders(() => ({
         views: [
-            [] as ManagedViewsetView[],
+            [] as DataWarehouseManagedViewsetSavedQuery[],
             {
                 openModal: async ({ kind }) => {
                     try {
-                        const response = await api.managedViewsets.getViews(kind)
+                        const response = await api.dataWarehouseManagedViewsets.getViews(kind)
                         return response.views
                     } catch (error) {
                         console.error('Failed to fetch views:', error)

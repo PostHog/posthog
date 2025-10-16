@@ -12,7 +12,7 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        pageUrl: urls.managedViewsets(),
+        pageUrl: urls.dataWarehouseManagedViewsets(),
         featureFlags: [FEATURE_FLAGS.MANAGED_VIEWSETS],
     },
     decorators: [
@@ -49,4 +49,4 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<typeof meta>
-export const ManagedViewsets: Story = {}
+export const DataWarehouseManagedViewsets: Story = {}

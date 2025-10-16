@@ -46,6 +46,7 @@ import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages
 import type {
     CurrencyCode,
     DashboardFilter,
+    DataWarehouseManagedViewsetKind,
     DatabaseSchemaField,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
@@ -59,7 +60,6 @@ import type {
     HogQLVariable,
     InsightQueryNode,
     InsightVizNode,
-    ManagedViewsetKind,
     MarketingAnalyticsConfig,
     Node,
     NodeKind,
@@ -686,7 +686,7 @@ export interface TeamType extends TeamBasicType {
     default_evaluation_environments_enabled: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
-    managed_viewsets: Record<ManagedViewsetKind, boolean>
+    managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
 }
 

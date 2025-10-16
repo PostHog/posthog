@@ -2,9 +2,8 @@ import { actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { ManagedViewsetView } from 'scenes/data-management/managed-viewsets/ManagedViewsetImpactModal'
 
-import { ExternalDataSource } from '~/types'
+import { DataWarehouseManagedViewsetSavedQuery, ExternalDataSource } from '~/types'
 
 import type { disableRevenueSourceModalLogicType } from './disableRevenueSourceModalLogicType'
 
@@ -26,7 +25,7 @@ export const disableRevenueSourceModalLogic = kea<disableRevenueSourceModalLogic
 
     loaders(() => ({
         views: [
-            [] as ManagedViewsetView[],
+            [] as DataWarehouseManagedViewsetSavedQuery[],
             {
                 setSource: async ({ source }, breakpoint) => {
                     if (!source) {
@@ -34,7 +33,7 @@ export const disableRevenueSourceModalLogic = kea<disableRevenueSourceModalLogic
                     }
 
                     try {
-                        const response = await api.managedViewsets.getViews('revenue_analytics')
+                        const response = await api.dataWarehouseManagedViewsets.getViews('revenue_analytics')
                         await breakpoint(100)
 
                         // Filter views by source prefix (e.g., "stripe.my_prefix")

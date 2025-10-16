@@ -407,7 +407,7 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         path: 'Managed viewsets',
         category: 'Unreleased',
         iconType: 'managed_viewsets',
-        href: urls.managedViewsets(),
+        href: urls.dataWarehouseManagedViewsets(),
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
     },
 ]

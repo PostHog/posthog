@@ -17,6 +17,7 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     DashboardFilter,
+    DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
@@ -32,7 +33,6 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
-    ManagedViewsetKind,
     Node,
     NodeKind,
     PersistedFolder,
@@ -1296,7 +1296,7 @@ export class ApiRequest {
     }
 
     // Managed Viewsets
-    public managedViewset(kind: ManagedViewsetKind, teamId?: TeamType['id']): ApiRequest {
+    public dataWarehouseManagedViewset(kind: DataWarehouseManagedViewsetKind, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
     }
 
@@ -4393,14 +4393,14 @@ const api = {
         },
     },
 
-    managedViewsets: {
-        async toggle(kind: ManagedViewsetKind, enabled: boolean): Promise<void> {
-            return await new ApiRequest().managedViewset(kind).put({ data: { enabled } })
+    dataWarehouseManagedViewsets: {
+        async toggle(kind: DataWarehouseManagedViewsetKind, enabled: boolean): Promise<void> {
+            return await new ApiRequest().dataWarehouseManagedViewset(kind).put({ data: { enabled } })
         },
         async getViews(
-            kind: ManagedViewsetKind
+            kind: DataWarehouseManagedViewsetKind
         ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
-            return await new ApiRequest().managedViewset(kind).get()
+            return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
         },
     },
 }
