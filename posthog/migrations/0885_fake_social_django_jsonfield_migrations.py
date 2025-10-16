@@ -69,7 +69,7 @@ def unmark_social_django_migrations(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0879_migrate_error_tracking_models"),
+        ("posthog", "0884_experimenttimeseriesrecalculation_and_more"),
         # Ensure social_django 0010 is applied before we mark 0011-0016
         ("social_django", "0010_uid_db_index"),
     ]
