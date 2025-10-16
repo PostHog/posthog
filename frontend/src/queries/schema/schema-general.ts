@@ -2445,7 +2445,7 @@ export type FileSystemIconType =
     | 'task'
     | 'link'
     | 'logs'
-    | 'messaging'
+    | 'workflows'
     | 'notebook'
     | 'action'
     | 'comment'
@@ -4113,6 +4113,8 @@ export interface UsageMetric {
     id: string
     name: string
     value: number
+    previous: number
+    change_from_previous_pct: number | null
     format: UsageMetricFormat
     display: UsageMetricDisplay
     interval: integer

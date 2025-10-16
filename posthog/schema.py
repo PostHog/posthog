@@ -1383,7 +1383,7 @@ class FileSystemIconType(StrEnum):
     TASK = "task"
     LINK = "link"
     LOGS = "logs"
-    MESSAGING = "messaging"
+    WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
     COMMENT = "comment"
@@ -5284,11 +5284,13 @@ class UsageMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    change_from_previous_pct: Optional[float] = None
     display: UsageMetricDisplay
     format: UsageMetricFormat
     id: str
     interval: int
     name: str
+    previous: float
     value: float
 
 
