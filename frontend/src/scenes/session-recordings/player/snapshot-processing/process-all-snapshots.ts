@@ -31,12 +31,8 @@ function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
         return false
     }
     const data: any = (snapshot as any).data
-    // Detect React Native wireframe incremental format if present
-    if (data && Array.isArray(data.updates) && data.updates.some((u: any) => u && 'wireframe' in u)) {
-        return true
-    }
-    // Conservatively treat any first incremental-before-full as requiring a full snapshot
-    return true
+    // Detect React Native wireframe incremental format
+    return !!(data && Array.isArray(data.updates) && data.updates.some((u: any) => u && 'wireframe' in u))
 }
 
 function createMinimalFullSnapshot(windowId: string | undefined, timestamp: number): RecordingSnapshot {

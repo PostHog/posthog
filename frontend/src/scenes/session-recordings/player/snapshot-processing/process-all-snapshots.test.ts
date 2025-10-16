@@ -404,18 +404,32 @@ describe('process all snapshots', () => {
                 ],
             })
 
-            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
 
-            expect(result.length).toBeGreaterThanOrEqual(2)
-            expect(result[0].windowId).toBe('1')
+            // In the new single-loop model, synthetic/Meta injection happens in processAllSnapshots, not parse
+            // So parsed should contain only the original incremental
+            expect(parsed).toHaveLength(1)
+            expect(parsed[0].type).toBe(3)
 
-            const hasFullSnapshot = result.some((r) => r.type === 2)
-            const hasIncrementalSnapshot = result.some((r) => r.type === 3)
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            expect(results.length).toBeGreaterThanOrEqual(2)
+            expect(results[0].windowId).toBe('1')
+
+            const hasFullSnapshot = results.some((r) => r.type === 2)
+            const hasIncrementalSnapshot = results.some((r) => r.type === 3)
             expect(hasFullSnapshot).toBe(true)
             expect(hasIncrementalSnapshot).toBe(true)
 
-            const fullSnapshot = result.find((r) => r.type === 2)
-            const incrementalSnapshot = result.find((r) => r.type === 3)
+            const fullSnapshot = results.find((r) => r.type === 2)
+            const incrementalSnapshot = results.find((r) => r.type === 3)
             expect(fullSnapshot?.timestamp).toBe(999)
             expect(incrementalSnapshot?.timestamp).toBe(1000)
         })
@@ -444,12 +458,23 @@ describe('process all snapshots', () => {
                 ],
             })
 
-            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+            expect(parsed).toHaveLength(1)
+            expect(parsed[0].type).toBe(2)
 
-            expect(result.length).toBeGreaterThanOrEqual(1)
-            expect(result[0].windowId).toBe('1')
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
 
-            const fullSnapshots = result.filter((r) => r.type === 2)
+            expect(results.length).toBeGreaterThanOrEqual(2) // Meta + Full
+            expect(results[0].windowId).toBe('1')
+
+            const fullSnapshots = results.filter((r) => r.type === 2)
             expect(fullSnapshots).toHaveLength(1)
             expect(fullSnapshots[0].timestamp).toBe(1000)
         })
@@ -474,13 +499,22 @@ describe('process all snapshots', () => {
                 ],
             })
 
-            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+            expect(parsed).toHaveLength(1)
+            expect(parsed[0].windowId).toBe('1')
+            expect(parsed[0].type).toBe(3)
 
-            expect(result).toHaveLength(1)
-            expect(result[0].windowId).toBe('1')
-            expect(result[0].type).toBe(3)
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '100', height: '100', href: 'https://example.com' }),
+                sessionId
+            )
 
-            const hasFullSnapshot = result.some((r) => r.type === 2)
+            // Web events should not generate synthetic full
+            const hasFullSnapshot = results.some((r) => r.type === 2)
             expect(hasFullSnapshot).toBe(false)
         })
 
@@ -543,15 +577,22 @@ describe('process all snapshots', () => {
                 ],
             })
 
-            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
 
-            expect(result.length).toBeGreaterThanOrEqual(2)
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
 
-            const fullSnapshots = result.filter((r) => r.type === 2)
+            const fullSnapshots = results.filter((r) => r.type === 2)
             expect(fullSnapshots).toHaveLength(1)
             expect(fullSnapshots[0].timestamp).toBe(999)
 
-            const incrementalSnapshots = result.filter((r) => r.type === 3)
+            const incrementalSnapshots = results.filter((r) => r.type === 3)
             expect(incrementalSnapshots).toHaveLength(2)
             expect(incrementalSnapshots[0].timestamp).toBe(1000)
             expect(incrementalSnapshots[1].timestamp).toBe(2000)
