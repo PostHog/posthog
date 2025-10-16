@@ -418,6 +418,7 @@ export function SharingModalContent({
                         heading={TEMPLATE_LINK_HEADING}
                         tooltip={TEMPLATE_LINK_TOOLTIP}
                         piiWarning={TEMPLATE_LINK_PII_WARNING}
+                        copyButtonLabel="Copy link"
                     />
                     {renderQuerySnippet && (
                         <TemplateLinkSection
@@ -425,7 +426,6 @@ export function SharingModalContent({
                             heading="Share as template with cached results"
                             tooltip="Use this snippet on a website to embed the insight via an iframe, and send it cached results via postMessage."
                             piiWarning="This snipped contains the full insight, including all filters and results. If any of these are sensitive, consider editing before sharing."
-                            copyButtonLabel="Copy snippet"
                             collapsible
                             defaultExpanded={false}
                         />
@@ -436,7 +436,6 @@ export function SharingModalContent({
                             heading="Fetch latest results for shared template"
                             piiWarning="Use this snippet to call the Query API directly and retrieve the freshest results for this insight."
                             tooltip="This request shares the full insight query, including filters and properties. Review it before sharing."
-                            copyButtonLabel="Copy fetch example"
                             collapsible
                             defaultExpanded={false}
                         />

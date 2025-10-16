@@ -30,9 +30,9 @@ export function TemplateLinkSection({
     heading,
     tooltip = 'Share this link to let others create a copy of this insight with the same configuration.',
     piiWarning = 'Be aware that you may be sharing sensitive data if contained in your event, property names or filters.',
-    copyButtonLabel = 'Copy link',
     collapsible = false,
     defaultExpanded = true,
+    copyButtonLabel,
 }: TemplateLinkSectionProps): JSX.Element {
     const [copied, setCopied] = useState(false)
     const [isExpanded, setIsExpanded] = useState(collapsible ? defaultExpanded : true)
@@ -90,7 +90,7 @@ export function TemplateLinkSection({
                     <div className="flex items-start gap-2">
                         <div className="flex-1">
                             {isMultiline ? (
-                                <CodeSnippet language={Language.JavaScript} maxLinesWithoutExpansion={3} wrap>
+                                <CodeSnippet language={Language.JavaScript} maxLinesWithoutExpansion={3} wrap compact>
                                     {templateLink}
                                 </CodeSnippet>
                             ) : (
@@ -103,15 +103,17 @@ export function TemplateLinkSection({
                                 />
                             )}
                         </div>
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                void handleCopyLink()
-                            }}
-                            icon={<IconLink />}
-                        >
-                            {copied ? 'Copied!' : copyButtonLabel}
-                        </LemonButton>
+                        {copyButtonLabel ? (
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    void handleCopyLink()
+                                }}
+                                icon={<IconLink />}
+                            >
+                                {copied ? 'Copied!' : copyButtonLabel}
+                            </LemonButton>
+                        ) : null}
                     </div>
 
                     {showShortenButton && (
