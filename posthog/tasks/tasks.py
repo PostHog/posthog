@@ -985,11 +985,16 @@ def sync_feature_flag_last_called() -> None:
         # Get last sync timestamp from Redis or use lookback
         try:
             last_sync_str = redis_client.get(FEATURE_FLAG_LAST_CALLED_SYNC_KEY)
-            last_sync_timestamp = (
-                datetime.fromisoformat(last_sync_str.decode())
-                if last_sync_str
-                else timezone.now() - timedelta(days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS)
-            )
+            if last_sync_str:
+                parsed_timestamp = datetime.fromisoformat(last_sync_str.decode())
+                # Ensure timezone-aware to avoid comparison issues with timezone.now()
+                last_sync_timestamp = (
+                    parsed_timestamp if parsed_timestamp.tzinfo else timezone.make_aware(parsed_timestamp)
+                )
+            else:
+                last_sync_timestamp = timezone.now() - timedelta(
+                    days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
+                )
         except Exception as e:
             logger.warning("Failed to get or parse last sync timestamp", error=str(e))
             last_sync_timestamp = timezone.now() - timedelta(
