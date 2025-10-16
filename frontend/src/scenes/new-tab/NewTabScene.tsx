@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconApps, IconCheck, IconInfo, IconPerson, IconSearch, IconToggle } from '@posthog/icons'
+import { IconApps, IconCheck, IconInfo, IconPerson, IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
@@ -19,6 +19,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { SidePanelTab } from '~/types'
 
 import { Results } from './components/Results'
 import { SearchHints } from './components/SearchHints'
@@ -65,6 +66,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         newTabSceneDataIncludePersons,
         newTabSceneDataIncludeEventDefinitions,
         newTabSceneDataIncludePropertyDefinitions,
+        isSearching,
     } = useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
     const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic)
@@ -180,7 +182,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         onClick={() => toggleNewTabSceneDataInclude('eventDefinitions')}
                                         className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                     >
-                                        <IconToggle className="size-4" /> Events
+                                        <IconApps className="size-4" /> Events
                                         {newTabSceneDataIncludeEventDefinitions && (
                                             <IconCheck className="size-3 text-success" />
                                         )}
@@ -212,7 +214,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                 styledScrollbars
             >
                 <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 group/colorful-product-icons colorful-product-icons-true">
-                    {/* {filteredItemsGrid.length === 0 && !isSearching ? (
+                    {!newTabSceneData && filteredItemsGrid.length === 0 && !isSearching ? (
                         <div className="flex flex-col gap-4 px-2 py-2 bg-glass-bg-3000 rounded-lg">
                             <div className="flex flex-col gap-1">
                                 <p className="text-tertiary mb-2">
@@ -237,28 +239,29 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 </div>
                             </div>
                         </div>
-                    ) : ( */}
-                    <div
-                        className={cn({
-                            'grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4':
-                                !newTabSceneData,
-                            'flex flex-col gap-4': newTabSceneData,
-                        })}
-                    >
-                        {/* TODO: Remove this once we're done testing */}
-                        {newTabSceneData && (
-                            <div className="col-span-full border border-primary border-px rounded-md p-2">
-                                <p className="flex flex-col items-center @md/main-content:flex-row gap-1 m-0 text-sm text-tertiary">
-                                    <IconInfo className="size-4" /> You're trying out the new tab scene with the flag:{' '}
-                                    <pre className="border border-primary border-px rounded-md px-1 mb-0">
-                                        data-in-new-tab-scene
-                                    </pre>
-                                </p>
-                            </div>
-                        )}
-                        <Results tabId={tabId || ''} searchInputRef={inputRef} listboxRef={listboxRef} />
-                    </div>
-                    {/* )} */}
+                    ) : (
+                        <div
+                            className={cn({
+                                'grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4':
+                                    !newTabSceneData,
+                                'flex flex-col gap-4': newTabSceneData,
+                            })}
+                        >
+                            {/* TODO: Remove this once we're done testing */}
+                            {newTabSceneData && (
+                                <div className="col-span-full border border-primary border-px rounded-md p-2">
+                                    <p className="flex flex-col items-center @md/main-content:flex-row gap-1 m-0 text-sm text-tertiary">
+                                        <IconInfo className="size-4" /> You're trying out the new tab scene with the
+                                        flag:{' '}
+                                        <pre className="border border-primary border-px rounded-md px-1 mb-0">
+                                            data-in-new-tab-scene
+                                        </pre>
+                                    </p>
+                                </div>
+                            )}
+                            <Results tabId={tabId || ''} searchInputRef={inputRef} listboxRef={listboxRef} />
+                        </div>
+                    )}
                 </div>
             </ScrollableShadows>
         </ListBox>

@@ -499,7 +499,7 @@ export function Results({
                             <IconInfo /> No results found
                         </p>
                         <div className="flex gap-1 items-center">
-                            <ListBox.Item asChild className="list-none">
+                            <ListBox.Item asChild>
                                 <ButtonPrimitive
                                     size="sm"
                                     onClick={() => {
@@ -507,9 +507,10 @@ export function Results({
                                         searchInputRef.current?.focus()
                                     }}
                                     variant="panel"
+                                    className="list-none data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                 >
                                     Clear search
-                                </ButtonPrimitive>{' '}
+                                </ButtonPrimitive>
                             </ListBox.Item>
                             or{' '}
                             <ListBox.Item asChild>
@@ -517,6 +518,7 @@ export function Results({
                                     size="sm"
                                     onClick={() => openSidePanel(SidePanelTab.Max)}
                                     variant="panel"
+                                    className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                 >
                                     Ask Max!
                                 </ButtonPrimitive>

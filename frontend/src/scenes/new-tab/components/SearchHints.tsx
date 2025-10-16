@@ -30,7 +30,7 @@ export function SearchHints({
                 <ListBox.Item asChild>
                     <ButtonPrimitive
                         size="xxs"
-                        className="text-xs"
+                        className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                         onClick={() => {
                             setSearch('New SQL query')
                             focusSearchInput()
@@ -43,7 +43,7 @@ export function SearchHints({
                 <ListBox.Item asChild>
                     <ButtonPrimitive
                         size="xxs"
-                        className="text-xs"
+                        className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                         onClick={() => {
                             setSearch('Experiment')
                             focusSearchInput()
@@ -64,7 +64,7 @@ export function SearchHints({
                             setQuestion(search)
                             focusMaxInput()
                         }}
-                        className="text-xs"
+                        className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                         tooltip="Hit enter to open Max!"
                     >
                         Ask Max!
