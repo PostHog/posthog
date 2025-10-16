@@ -3,7 +3,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import dagster
-from dagster import BackfillPolicy, DailyPartitionsDefinition
+from dagster import BackfillPolicy, DailyPartitionsDefinition, RunRequest, SkipReason
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
@@ -14,6 +14,7 @@ from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_INSERT_SQL,
 )
+from posthog.settings import DEBUG
 
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
@@ -215,3 +216,83 @@ def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationCo
     return dagster.RunRequest(
         partition_key=datetime.now(UTC).strftime("%Y-%m-%d"),
     )
+
+
+@dagster.sensor(
+    minimum_interval_seconds=300,
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def web_analytics_v2_initialization_sensor(context: dagster.SensorEvaluationContext):
+    """
+    Sensor that checks for missing partitions in the last 7 days.
+    Only runs in DEBUG mode.
+
+    When missing partitions are detected:
+    1. Materializes team selection to ensure all teams are included
+    2. Triggers backfill for missing partitions
+    """
+
+    if not DEBUG:
+        return SkipReason("Sensor only runs in DEBUG mode")
+
+    # Check for missing partitions in the last 7 days
+    try:
+        end_date = datetime.now(UTC)
+        start_date = end_date - timedelta(days=7)
+        days_in_range = (end_date - start_date).days + 1
+
+        # Get distinct partition dates from stats table
+        stats_partitions_result = sync_execute(
+            """
+            SELECT DISTINCT toDate(period_bucket) as partition_date
+            FROM web_pre_aggregated_stats
+            WHERE toDate(period_bucket) >= %(start_date)s
+              AND toDate(period_bucket) <= %(end_date)s
+            ORDER BY partition_date
+        """,
+            {"start_date": start_date.date(), "end_date": end_date.date()},
+        )
+
+        existing_partitions = {row[0] for row in stats_partitions_result}
+        context.log.info(f"Found {len(existing_partitions)} existing partitions in last 7 days")
+
+        expected_partitions = {(start_date + timedelta(days=i)).date() for i in range(days_in_range)}
+        missing_partitions = expected_partitions - existing_partitions
+
+        if not missing_partitions:
+            return SkipReason(f"All {days_in_range} partitions exist for last 7 days")
+
+        context.log.info(f"Found {len(missing_partitions)} missing partitions: {sorted(missing_partitions)}")
+
+        # First materialize team selection to ensure all teams are included
+        run_requests = [
+            RunRequest(
+                run_key=f"team_selection_init_{datetime.now(UTC).timestamp()}",
+                asset_selection=[dagster.AssetKey("web_analytics_team_selection_v2")],
+                tags={
+                    "triggered_by": "initialization_sensor",
+                    "triggered_at": datetime.now(UTC).isoformat(),
+                },
+            )
+        ]
+
+        # Then trigger backfill for missing partitions
+        for partition_date in sorted(missing_partitions):
+            partition_key = partition_date.strftime("%Y-%m-%d")
+            run_requests.append(
+                RunRequest(
+                    run_key=f"backfill_{partition_key}_{datetime.now(UTC).timestamp()}",
+                    job_name="web_pre_aggregate_job",
+                    partition_key=partition_key,
+                    tags={
+                        "triggered_by": "initialization_sensor",
+                        "triggered_at": datetime.now(UTC).isoformat(),
+                    },
+                )
+            )
+
+        context.log.info(f"Triggering {len(run_requests)} runs for missing partitions")
+        return run_requests
+
+    except Exception as e:
+        return SkipReason(f"Error checking for missing partitions: {str(e)}")

@@ -40,5 +40,8 @@ defs = dagster.Definitions(
         web_preaggregated.web_pre_aggregate_historical_schedule,
         web_preaggregated.web_pre_aggregate_current_day_schedule,
     ],
+    sensors=[
+        web_preaggregated.web_analytics_v2_initialization_sensor,
+    ],
     resources=resources,
 )
