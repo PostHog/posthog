@@ -582,7 +582,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                 You have the following tables setup for full refresh syncs:
                             </span>
                         </div>
-                        <div className="px-4 space-y-2 my-4 lg:grid lg:grid-cols-2">
+                        <div className="px-4 gap-y-2 my-4 lg:grid lg:grid-cols-2">
                             {fullRefreshTables.map((table) => (
                                 <div key={table.table} className="font-mono px-2 rounded bg-surface-secondary w-min">
                                     {table.table}
@@ -596,7 +596,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             &ndash; for example, <span className="font-mono">created_at</span>. You have the following
                             tables setup for append-only syncs:
                         </div>
-                        <div className="px-4 space-y-2 my-4 lg:grid lg:grid-cols-2">
+                        <div className="px-4 gap-y-2 my-4 lg:grid lg:grid-cols-2">
                             {appendOnlyTables.map((table) => (
                                 <div key={table.table} className="font-mono px-2 rounded bg-surface-secondary w-min">
                                     {table.table}
@@ -605,7 +605,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         </div>
                         <h4 className="mt-2">Ignored tables</h4>
                         <div>The following tables will not be synchronized:</div>
-                        <div className="px-4 space-y-2 my-4 lg:grid lg:grid-cols-2">
+                        <div className="px-4 gap-y-2 my-4 lg:grid lg:grid-cols-2">
                             {noopTables.map((table) => (
                                 <div key={table.table} className="font-mono px-2 rounded bg-surface-secondary w-min">
                                     {table.table}
