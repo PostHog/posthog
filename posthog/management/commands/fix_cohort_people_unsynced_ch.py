@@ -166,19 +166,15 @@ class Command(BaseCommand):
                         cohorts_with_insertions.update(cohorts_in_batch)
                     else:
                         # Group by cohort_id and collect person UUIDs
+                        person_id_to_uuid = {pid: uuid for uuid, pid in person_uuid_to_id.items()}
                         cohort_to_uuids: dict[int, list[str]] = {}
                         for cohort_id, person_id in insert_values:
-                            # Find the person_uuid for this person_id
-                            person_uuid: str | None = None
-                            for uuid, pid in person_uuid_to_id.items():
-                                if pid == person_id:
-                                    person_uuid = uuid
-                                    break
+                            uuid = person_id_to_uuid.get(person_id)
 
-                            if person_uuid is not None:
+                            if uuid is not None:
                                 if cohort_id not in cohort_to_uuids:
                                     cohort_to_uuids[cohort_id] = []
-                                cohort_to_uuids[cohort_id].append(person_uuid)
+                                cohort_to_uuids[cohort_id].append(uuid)
 
                         batch_inserted = 0
                         team_id = clickhouse_batch[0][2]  # Get team_id from first record
