@@ -498,6 +498,16 @@ export function BatchExportsEditFields({
 
                         {batchExportConfigForm.mode === 'COPY' && (
                             <>
+                                <p className="text-xs text-muted mt-1">
+                                    In order to execute a COPY SQL command, the batch export will first export files to
+                                    an S3 bucket, which requires credentials to access it. After the files are available
+                                    in the bucket, we will instruct Redshift to copy them into the configured table. As
+                                    part of this, the batch export needs to specify to Redshift how to access your
+                                    bucket. For this reason, additionally to the first set of credentials used by the
+                                    batch export, either an IAM role (recommended), or the same or a different set of
+                                    credentials is required.
+                                </p>
+
                                 <div className="flex gap-4">
                                     <LemonField name="redshift_s3_bucket" label="S3 bucket name" className="flex-1">
                                         <LemonInput placeholder="e.g. my-bucket" />
