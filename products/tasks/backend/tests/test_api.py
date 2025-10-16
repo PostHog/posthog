@@ -11,7 +11,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE
-from products.tasks.backend.models import Task, TaskProgress, TaskWorkflow, WorkflowStage
+from products.tasks.backend.models import Task, TaskRun, TaskWorkflow, WorkflowStage
 
 
 class BaseTaskAPITest(TestCase):
@@ -455,7 +455,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.json()["error"], "Task has no workflow configured")
 
 
-class TestTaskProgressAPI(BaseTaskAPITest):
+class TestTaskRunAPI(BaseTaskAPITest):
     def test_progress_with_no_progress_records(self):
         task = self.create_task()
 
@@ -469,10 +469,10 @@ class TestTaskProgressAPI(BaseTaskAPITest):
     def test_progress_with_existing_records(self):
         task = self.create_task()
 
-        progress = TaskProgress.objects.create(
+        progress = TaskRun.objects.create(
             task=task,
             team=self.team,
-            status=TaskProgress.Status.IN_PROGRESS,
+            status=TaskRun.Status.IN_PROGRESS,
             current_step="Processing data",
             completed_steps=2,
             total_steps=5,
@@ -507,19 +507,19 @@ class TestTaskProgressAPI(BaseTaskAPITest):
     def test_progress_stream_with_updates(self):
         task = self.create_task()
 
-        progress1 = TaskProgress.objects.create(
+        progress1 = TaskRun.objects.create(
             task=task,
             team=self.team,
-            status=TaskProgress.Status.STARTED,
+            status=TaskRun.Status.STARTED,
             current_step="Initializing",
             completed_steps=0,
             total_steps=3,
         )
 
-        progress2 = TaskProgress.objects.create(
+        progress2 = TaskRun.objects.create(
             task=task,
             team=self.team,
-            status=TaskProgress.Status.COMPLETED,
+            status=TaskRun.Status.COMPLETED,
             current_step="Finished",
             completed_steps=3,
             total_steps=3,
@@ -547,8 +547,8 @@ class TestTaskProgressAPI(BaseTaskAPITest):
     def test_progress_stream_with_since_parameter(self):
         task = self.create_task()
 
-        old_progress = TaskProgress.objects.create(
-            task=task, team=self.team, status=TaskProgress.Status.STARTED, current_step="Old step"
+        old_progress = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.STARTED, current_step="Old step"
         )
 
         # Add some time gap

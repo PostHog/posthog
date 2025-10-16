@@ -1,6 +1,6 @@
 import os
 import uuid
-from typing import Optional, cast
+from typing import Optional
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -54,7 +54,7 @@ class TaskWorkflow(models.Model):
         if self.team_id != target_workflow.team_id:
             raise ValueError("Source and target workflows must belong to the same team")
 
-        current_workflow_tasks_qs = self.tasks.select_related("current_stage")
+        current_workflow_tasks_qs = self.tasks.all()
 
         if not current_workflow_tasks_qs.exists():
             return 0
@@ -69,21 +69,32 @@ class TaskWorkflow(models.Model):
         updated_tasks = []
 
         for task in current_workflow_tasks_qs:
-            # Match by stage key when possible, otherwise fallback (which can be None)
-            next_stage = None
-
-            if task.current_stage and task.current_stage.key in stages_by_key:
-                next_stage = stages_by_key[task.current_stage.key]
-            else:
-                next_stage = fallback_stage
-
-            if task.workflow_id != target_workflow.id or task.current_stage != next_stage:
+            if task.workflow_id != target_workflow.id:
                 task.workflow = target_workflow
-                task.current_stage = next_stage
                 updated_tasks.append(task)
 
+        # Update task runs to use matching stages from the target workflow
+        if len(active_stages) > 0:
+            task_runs = TaskRun.objects.filter(task__in=current_workflow_tasks_qs).select_related("current_stage")
+            updated_runs = []
+
+            for task_run in task_runs:
+                next_stage = None
+
+                if task_run.current_stage and task_run.current_stage.key in stages_by_key:
+                    next_stage = stages_by_key[task_run.current_stage.key]
+                else:
+                    next_stage = fallback_stage
+
+                if task_run.current_stage != next_stage:
+                    task_run.current_stage = next_stage
+                    updated_runs.append(task_run)
+
+            if len(updated_runs) > 0:
+                TaskRun.objects.bulk_update(updated_runs, ["current_stage"])
+
         if len(updated_tasks) > 0:
-            Task.objects.bulk_update(updated_tasks, ["workflow", "current_stage"])
+            Task.objects.bulk_update(updated_tasks, ["workflow"])
 
         return len(updated_tasks)
 
@@ -94,10 +105,12 @@ class TaskWorkflow(models.Model):
 
         for task in tasks:
             task.workflow = None
-            task.current_stage = None
             updated_tasks.append(task)
 
-        Task.objects.bulk_update(updated_tasks, ["workflow", "current_stage"])
+        # Clear current_stage from all task runs
+        TaskRun.objects.filter(task__in=tasks).update(current_stage=None)
+
+        Task.objects.bulk_update(updated_tasks, ["workflow"])
 
     def deactivate_safely(self):
         """Deactivate workflow and move tasks to team default."""
@@ -197,17 +210,17 @@ class WorkflowStage(models.Model):
         return f"{self.workflow.name}: {self.name}"
 
     def delete(self, *args, **kwargs):
-        """Override delete to handle tasks in this stage."""
+        """Override delete to handle task runs in this stage."""
 
         with transaction.atomic():
-            # Move tasks to fallback stage or first available stage
+            # Move task runs to fallback stage or first available stage
             target_stage = self.fallback_stage or self.workflow.stages.exclude(id=self.id).first()
 
             if target_stage:
-                Task.objects.filter(current_stage=self).update(current_stage=target_stage)
+                TaskRun.objects.filter(current_stage=self).update(current_stage=target_stage)
             else:
-                # No other stages available, remove workflow association
-                Task.objects.filter(current_stage=self).update(current_stage=None, workflow=None)
+                # No other stages available, clear stage from task runs
+                TaskRun.objects.filter(current_stage=self).update(current_stage=None)
 
             super().delete(*args, **kwargs)
 
@@ -253,14 +266,6 @@ class Task(models.Model):
         help_text="Custom workflow for this task (if not using default)",
     )
 
-    current_stage = models.ForeignKey(
-        WorkflowStage,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Current stage in the workflow (overrides status field when workflow is set)",
-    )
-
     # Repository configuration
     github_integration = models.ForeignKey(
         "posthog.Integration",
@@ -275,9 +280,6 @@ class Task(models.Model):
         default=dict, help_text="Repository configuration with organization and repository fields"
     )
 
-    github_branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch created for this task")
-    github_pr_url = models.URLField(blank=True, null=True, help_text="Pull request URL when created")
-
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -287,9 +289,7 @@ class Task(models.Model):
         ordering = ["position"]
 
     def __str__(self):
-        if self.current_stage:
-            return f"{self.title} ({self.current_stage.key})"
-        return f"{self.title} (no workflow)"
+        return self.title
 
     def save(self, *args, **kwargs):
         if self.task_number is None:
@@ -300,16 +300,6 @@ class Task(models.Model):
             default_workflow = TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
             if default_workflow:
                 self.workflow = default_workflow
-
-        # Auto-assign first stage if workflow is set but no stage
-        if self.workflow and not self.current_stage:
-            first_stage = self.workflow.active_stages.first()
-            if first_stage:
-                self.current_stage = first_stage
-
-        # Clear stage if it doesn't belong to the current workflow
-        if self.current_stage and self.workflow and self.current_stage.workflow != self.workflow:
-            self.current_stage = None
 
         super().save(*args, **kwargs)
 
@@ -386,20 +376,6 @@ class Task(models.Model):
         except TaskWorkflow.DoesNotExist:
             return None
 
-    def get_next_stage(self):
-        """Get the next stage in the linear workflow"""
-        workflow = self.effective_workflow
-
-        if not workflow:
-            return None
-
-        current_stage = cast(Optional[WorkflowStage], self.current_stage)
-
-        if not current_stage:
-            return workflow.stages.filter(is_archived=False).order_by("position").first()
-
-        return current_stage.next_stage
-
     def _assign_task_number(self) -> None:
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
         self.task_number = (max_task_number if max_task_number is not None else -1) + 1
@@ -456,9 +432,7 @@ class Task(models.Model):
         return task
 
 
-class TaskProgress(models.Model):
-    """Tracks real-time progress of execution for tasks."""
-
+class TaskRun(models.Model):
     class Status(models.TextChoices):
         STARTED = "started", "Started"
         IN_PROGRESS = "in_progress", "In Progress"
@@ -466,25 +440,37 @@ class TaskProgress(models.Model):
         FAILED = "failed", "Failed"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="progress_logs")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
-    # Progress tracking
+    current_stage = models.ForeignKey(
+        WorkflowStage,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Current stage in the workflow for this run",
+    )
+
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
-    current_step = models.CharField(max_length=255, blank=True, help_text="Current step being executed")
-    total_steps = models.IntegerField(default=0, help_text="Total number of steps if known")
-    completed_steps = models.IntegerField(default=0, help_text="Number of completed steps")
 
     # Claude Code output
     output_log = models.TextField(blank=True, help_text="Live output from Claude Code execution")
     error_message = models.TextField(blank=True, help_text="Error message if execution failed")
 
-    # Workflow metadata
-    workflow_id = models.CharField(max_length=255, blank=True, help_text="Temporal workflow ID")
-    workflow_run_id = models.CharField(max_length=255, blank=True, help_text="Temporal workflow run ID")
-    activity_id = models.CharField(max_length=255, blank=True, help_text="Temporal activity ID")
+    # This is a structured output of the run. This is used to store the PR URL, commit SHA, etc.
+    output = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Run output data (e.g., PR URL, commit SHA, etc.)",
+    )
 
-    # Timestamps
+    # Store intermediate run state in this field. This is used to resume the run if it fails, or to provide context throughout the run.
+    state = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Run state data for resuming or tracking execution state",
+    )
+
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -494,7 +480,7 @@ class TaskProgress(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"Progress for {self.task.title} - {self.get_status_display()}"
+        return f"Run for {self.task.title} - {self.get_status_display()}"
 
     def append_output(self, text: str):
         """Append text to the output log and save."""
@@ -531,12 +517,17 @@ class TaskProgress(models.Model):
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
 
-    @property
-    def progress_percentage(self):
-        """Calculate progress percentage."""
-        if self.total_steps and self.total_steps > 0:
-            return min(100, (self.completed_steps / self.total_steps) * 100)
-        return 0
+    def get_next_stage(self):
+        """Get the next stage in the workflow for this run"""
+        workflow = self.task.effective_workflow
+
+        if not workflow:
+            return None
+
+        if not self.current_stage:
+            return workflow.stages.filter(is_archived=False).order_by("position").first()
+
+        return self.current_stage.next_stage
 
 
 class SandboxSnapshot(UUIDModel):

@@ -6,7 +6,7 @@ from rest_framework import serializers
 from posthog.models.integration import Integration
 
 from .agents import get_agent_dict_by_id
-from .models import Task, TaskProgress, TaskWorkflow, WorkflowStage
+from .models import Task, TaskRun, TaskWorkflow, WorkflowStage
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -26,16 +26,12 @@ class TaskSerializer(serializers.ModelSerializer):
             "position",
             # Workflow fields
             "workflow",
-            "current_stage",
             # Repository fields
             "github_integration",
             "repository_config",
             # Computed fields
             "repository_list",
             "primary_repository",
-            # Legacy GitHub fields
-            "github_branch",
-            "github_pr_url",
             "created_at",
             "updated_at",
         ]
@@ -45,8 +41,6 @@ class TaskSerializer(serializers.ModelSerializer):
             "slug",
             "created_at",
             "updated_at",
-            "github_branch",
-            "github_pr_url",
             "repository_list",
             "primary_repository",
         ]
@@ -144,8 +138,8 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "task_count", "agent"]
 
     def get_task_count(self, obj):
-        """Get number of tasks currently in this stage"""
-        return Task.objects.filter(current_stage=obj).count()
+        """Get number of task runs currently in this stage"""
+        return TaskRun.objects.filter(current_stage=obj).count()
 
     def get_agent(self, obj):
         """Get the agent object for this stage"""
@@ -298,7 +292,7 @@ class TaskBulkReorderResponseSerializer(serializers.Serializer):
     )
 
 
-class TaskProgressResponseSerializer(serializers.Serializer):
+class TaskRunResponseSerializer(serializers.Serializer):
     has_progress = serializers.BooleanField(help_text="Whether progress information is available")
     id = serializers.UUIDField(required=False, help_text="Progress record ID")
     status = serializers.ChoiceField(
@@ -320,7 +314,7 @@ class TaskProgressResponseSerializer(serializers.Serializer):
     message = serializers.CharField(required=False, help_text="Message when no progress is available")
 
 
-class TaskProgressUpdateSerializer(serializers.Serializer):
+class TaskRunUpdateSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Progress record ID")
     status = serializers.ChoiceField(
         choices=["started", "in_progress", "completed", "failed"], help_text="Current execution status"
@@ -335,8 +329,8 @@ class TaskProgressUpdateSerializer(serializers.Serializer):
     workflow_id = serializers.CharField(help_text="Temporal workflow ID")
 
 
-class TaskProgressStreamResponseSerializer(serializers.Serializer):
-    progress_updates = TaskProgressUpdateSerializer(many=True, help_text="Array of recent progress updates")
+class TaskRunStreamResponseSerializer(serializers.Serializer):
+    progress_updates = TaskRunUpdateSerializer(many=True, help_text="Array of recent progress updates")
     server_time = serializers.DateTimeField(help_text="Current server time in ISO format")
 
 
@@ -349,19 +343,20 @@ class TaskAttachPullRequestRequestSerializer(serializers.Serializer):
     branch = serializers.CharField(required=False, allow_blank=True, help_text="Optional branch name")
 
 
-class TaskProgressTaskRequestSerializer(serializers.Serializer):
+class TaskRunProgressRequestSerializer(serializers.Serializer):
     next_stage_id = serializers.UUIDField(required=False, help_text="UUID of the next workflow stage")
     auto = serializers.BooleanField(required=False, default=False, help_text="Automatically progress to next stage")
 
 
-class TaskProgressDetailSerializer(serializers.ModelSerializer):
+class TaskRunDetailSerializer(serializers.ModelSerializer):
     progress_percentage = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
-        model = TaskProgress
+        model = TaskRun
         fields = [
             "id",
             "task",
+            "current_stage",
             "status",
             "current_step",
             "completed_steps",
@@ -369,6 +364,8 @@ class TaskProgressDetailSerializer(serializers.ModelSerializer):
             "progress_percentage",
             "output_log",
             "error_message",
+            "output",
+            "state",
             "workflow_id",
             "workflow_run_id",
             "activity_id",
@@ -402,9 +399,7 @@ class TaskProgressDetailSerializer(serializers.ModelSerializer):
         validated_data.pop("task", None)
 
         status = validated_data.get("status")
-        if status in [TaskProgress.Status.COMPLETED, TaskProgress.Status.FAILED] and not validated_data.get(
-            "completed_at"
-        ):
+        if status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and not validated_data.get("completed_at"):
             validated_data["completed_at"] = timezone.now()
         return super().update(instance, validated_data)
 
