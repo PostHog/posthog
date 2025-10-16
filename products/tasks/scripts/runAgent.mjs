@@ -28,7 +28,7 @@ export async function runAgent(taskId, workflowId, repositoryPath, posthogApiUrl
 
     await agent.runWorkflow(taskId, workflowId, {
         repositoryPath,
-        permissionMode: PermissionMode.ACCEPT_EDITS,
+        permissionMode: PermissionMode.BYPASS,
         autoProgress: true,
     })
 }
