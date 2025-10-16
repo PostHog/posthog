@@ -445,7 +445,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 name=schema.get("name"),
                 team=self.team,
                 source=new_source_model,
-                should_sync=schema.get("should_sync"),
+                should_sync=should_sync,
                 sync_type=sync_type,
                 sync_time_of_day=sync_time_of_day,
                 sync_type_config=(
@@ -458,7 +458,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 ),
             )
 
-            if schema.get("should_sync"):
+            if should_sync:
                 active_schemas.append(schema_model)
 
         try:
