@@ -1222,6 +1222,7 @@ class {app_name.title()}Config(AppConfig):
         logger.info("🔄 Using libcst to update imports for %s...", module_name)
 
         # Get model class names that were moved from this module
+        # Use source_base_path which is set during migration_spec initialization
         model_names = self._extract_class_names_from_files([f"{module_name}.py"])
         if not model_names:
             logger.warning("No model classes found for module %s", module_name)
