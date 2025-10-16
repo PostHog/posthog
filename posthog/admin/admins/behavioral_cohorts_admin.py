@@ -1,9 +1,10 @@
 from django import forms
 from django.contrib import admin, messages
 from django.core.management import call_command
-from django.db import models
 from django.shortcuts import redirect, render
 from django.urls import path, reverse
+
+from posthog.models.utils import UUIDModel
 
 
 class BehavioralCohortAnalysisForm(forms.Form):
@@ -47,7 +48,7 @@ class BehavioralCohortAnalysisForm(forms.Form):
     )
 
 
-class BehavioralCohortAnalysis(models.Model):
+class BehavioralCohortAnalysis(UUIDModel):
     """
     Proxy model to create a separate admin interface for behavioral cohort analysis.
     This doesn't create a new database table, just provides an admin interface.
