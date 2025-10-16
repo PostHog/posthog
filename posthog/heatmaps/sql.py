@@ -44,8 +44,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 """
 
 HEATMAPS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
-(
+CREATE TABLE IF NOT EXISTS {table_name}
     session_id VARCHAR,
     team_id Int64,
     distinct_id VARCHAR,

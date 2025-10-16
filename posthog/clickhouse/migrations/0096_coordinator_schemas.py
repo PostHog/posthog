@@ -37,7 +37,7 @@ operations = [
     run_sql_with_exceptions(DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(EVENTS_RECENT_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(GROUPS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
-    run_sql_with_exceptions(DISTRIBUTED_HEATMAPS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
+    run_sql_with_exceptions(DISTRIBUTED_HEATMAPS_TABLE_SQL(), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(LOG_ENTRIES_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(
         DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]
