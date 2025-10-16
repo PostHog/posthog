@@ -563,7 +563,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
-                const noopTables = values.databaseSchema.filter(
+                const ignoredTables = values.databaseSchema.filter(
                     (schema) => !schema.should_sync || schema.sync_type === null
                 )
                 const appendOnlyTables = values.databaseSchema.filter(
@@ -575,47 +575,74 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 const confirmation = (
                     <>
                         <h4 className="mt-2">Full refresh tables</h4>
-                        <div className="text-warning">
-                            <IconWarning />
-                            <span className="pl-2">
-                                Full refresh syncs can dramatically increase your spend if you aren't mindful of them.
-                                You have the following tables setup for full refresh syncs:
+                        <div className={fullRefreshTables.length > 0 ? 'text-warning' : ''}>
+                            {fullRefreshTables.length > 0 && <IconWarning />}
+                            <span className={fullRefreshTables.length > 0 ? 'pl-2' : ''}>
+                                Full refresh syncs can dramatically increase your spend if you aren't mindful of them.{' '}
+                                {fullRefreshTables.length > 0 ? (
+                                    <>You have the following tables setup for full refresh syncs:</>
+                                ) : (
+                                    <>None of your tables are setup for full refresh syncs. Yay!</>
+                                )}
                             </span>
                         </div>
-                        <div className="px-4 gap-y-2 my-4 lg:grid lg:grid-cols-2">
-                            {fullRefreshTables.map((table) => (
-                                <div key={table.table} className="font-mono px-2 rounded bg-surface-secondary w-min">
-                                    {table.table}
-                                </div>
-                            ))}
-                        </div>
+                        {fullRefreshTables.length > 0 && (
+                            <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
+                                {fullRefreshTables.map((table) => (
+                                    <div
+                                        key={table.table}
+                                        className="font-mono px-2 rounded bg-surface-secondary w-min"
+                                    >
+                                        {table.table}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                         <h4 className="mt-2">Append-only tables</h4>
                         <div>
                             Append-only syncs, while preferrable to full refresh syncs, still need to be configured with
                             care. The field you select for append-only syncing should not change when a row is udpated
-                            &ndash; for example, <span className="font-mono">created_at</span>. You have the following
-                            tables setup for append-only syncs:
+                            &ndash; for example, <span className="font-mono">created_at</span>.{' '}
+                            {appendOnlyTables.length > 0 ? (
+                                <>You have the following tables setup for append-only syncs:</>
+                            ) : (
+                                <>None of your tables are setup for append-only syncs. Sick!</>
+                            )}
                         </div>
-                        <div className="px-4 gap-y-2 my-4 lg:grid lg:grid-cols-2">
-                            {appendOnlyTables.map((table) => (
-                                <div key={table.table} className="font-mono px-2 rounded bg-surface-secondary w-min">
-                                    {table.table}
-                                </div>
-                            ))}
-                        </div>
+                        {appendOnlyTables.length > 0 && (
+                            <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
+                                {appendOnlyTables.map((table) => (
+                                    <div
+                                        key={table.table}
+                                        className="font-mono px-2 rounded bg-surface-secondary w-min"
+                                    >
+                                        {table.table}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                         <h4 className="mt-2">Ignored tables</h4>
-                        <div>The following tables will not be synchronized:</div>
-                        <div className="px-4 gap-y-2 my-4 lg:grid lg:grid-cols-2">
-                            {noopTables.map((table) => (
-                                <div key={table.table} className="font-mono px-2 rounded bg-surface-secondary w-min">
-                                    {table.table}
-                                </div>
-                            ))}
-                        </div>
                         <div>
-                            If you would like them to stay synchronized with your source, close this modal and configure
-                            a sync method for each.
+                            If you do not enable the checkbox for a table or configure its sync method, it will be
+                            ignored.{' '}
+                            {ignoredTables.length > 0 ? (
+                                <>The following tables are set to be ignored:</>
+                            ) : (
+                                <>You are syncing all of your tables. You'll be bathing in data soon.</>
+                            )}
                         </div>
+                        {ignoredTables.length > 0 && (
+                            <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
+                                {ignoredTables.map((table) => (
+                                    <div
+                                        key={table.table}
+                                        className="font-mono px-2 rounded bg-surface-secondary w-min"
+                                    >
+                                        {table.table}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                         <h4 className="mt-2">Incremental tables</h4>
                         <div>
                             The remainder of your tables are setup for incremental syncs, which are typically ideal. The
