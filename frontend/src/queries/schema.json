@@ -11451,6 +11451,12 @@
                     "required": ["distinct_ids", "properties"],
                     "type": "object"
                 },
+                "person_id": {
+                    "type": "string"
+                },
+                "person_mode": {
+                    "type": "string"
+                },
                 "properties": {
                     "type": "object"
                 },
