@@ -542,7 +542,16 @@ describe('process all snapshots', () => {
                 ],
             })
 
-            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const result = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
 
             result.forEach((event) => {
                 expect(event.windowId).toBe('custom-window-123')
@@ -659,7 +668,16 @@ describe('process all snapshots', () => {
                 ],
             })
 
-            const result = await parseEncodedSnapshots([emptyWireframesJson], sessionId)
+            const parsed = await parseEncodedSnapshots([emptyWireframesJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const result = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
 
             const hasFullSnapshot = result.some((r) => r.type === 2)
             expect(hasFullSnapshot).toBe(true)
