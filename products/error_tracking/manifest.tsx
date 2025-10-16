@@ -27,12 +27,6 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Error tracking issue fingerprints',
         },
-        ErrorTrackingIssueBreakdowns: {
-            import: () =>
-                import('./frontend/scenes/ErrorTrackingIssueBreakdownsScene/ErrorTrackingIssueBreakdownsScene'),
-            projectBased: true,
-            name: 'Error tracking issue breakdowns',
-        },
         ErrorTrackingConfiguration: {
             import: () => import('./frontend/scenes/ErrorTrackingConfigurationScene/ErrorTrackingConfigurationScene'),
             projectBased: true,
@@ -44,7 +38,6 @@ export const manifest: ProductManifest = {
         '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
         '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
         '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
-        '/error_tracking/:id/breakdowns': ['ErrorTrackingIssueBreakdowns', 'errorTrackingIssueBreakdowns'],
         '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
         '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     },
@@ -56,7 +49,6 @@ export const manifest: ProductManifest = {
         errorTrackingIssue: (id: string, params: { timestamp?: string; fingerprint?: string } = {}): string =>
             combineUrl(`/error_tracking/${id}`, params).url,
         errorTrackingIssueFingerprints: (id: string): string => `/error_tracking/${id}/fingerprints`,
-        errorTrackingIssueBreakdowns: (id: string): string => `/error_tracking/${id}/breakdowns`,
         errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
         errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
     },

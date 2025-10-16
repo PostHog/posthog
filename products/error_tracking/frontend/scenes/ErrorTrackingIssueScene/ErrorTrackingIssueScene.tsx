@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
+import { errorTrackingBreakdownsLogic } from '../../components/Breakdowns/errorTrackingBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -27,7 +28,6 @@ import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLog
 import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { errorTrackingBreakdownsLogic } from '../ErrorTrackingIssueBreakdownsScene/errorTrackingBreakdownsLogic'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { V2Layout } from './V2Layout'
 import {

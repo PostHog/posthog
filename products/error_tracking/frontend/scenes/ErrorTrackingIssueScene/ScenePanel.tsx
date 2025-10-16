@@ -30,6 +30,7 @@ import { SidePanelTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
+import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ExternalReferences } from '../../components/ExternalReferences'
 import { StatusIndicator } from '../../components/Indicators'
@@ -37,7 +38,6 @@ import { issueActionsLogic } from '../../components/IssueActions/issueActionsLog
 import { IssueTasks } from '../../components/IssueTasks'
 import { RuntimeIcon } from '../../components/RuntimeIcon'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { MiniBreakdowns } from '../ErrorTrackingIssueBreakdownsScene/MiniBreakdowns'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 const RESOURCE_TYPE = 'issue'

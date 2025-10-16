@@ -25,15 +25,15 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SidePanelTab } from '~/types'
 
+import { BreakdownChart } from '../../components/Breakdowns/BreakdownChart'
+import { BreakdownSearchBar } from '../../components/Breakdowns/BreakdownSearchBar'
+import { errorTrackingBreakdownsLogic } from '../../components/Breakdowns/errorTrackingBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
 import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { isLastSeenException, useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { BreakdownChart } from '../ErrorTrackingIssueBreakdownsScene/BreakdownChart'
-import { BreakdownSearchBar } from '../ErrorTrackingIssueBreakdownsScene/BreakdownSearchBar'
-import { errorTrackingBreakdownsLogic } from '../ErrorTrackingIssueBreakdownsScene/errorTrackingBreakdownsLogic'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import {
     ErrorTrackingIssueSceneCategory,

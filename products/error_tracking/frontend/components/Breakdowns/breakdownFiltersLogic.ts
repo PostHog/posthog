@@ -13,7 +13,7 @@ const DEFAULT_DATE_RANGE = { date_from: '-7d', date_to: null }
 const DEFAULT_TEST_ACCOUNT = false
 
 export const breakdownFiltersLogic = kea<breakdownFiltersLogicType>([
-    path(['products', 'error_tracking', 'scenes', 'ErrorTrackingIssueBreakdownsScene', 'breakdownFiltersLogic']),
+    path(['products', 'error_tracking', 'components', 'Breakdowns', 'breakdownFiltersLogic']),
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),

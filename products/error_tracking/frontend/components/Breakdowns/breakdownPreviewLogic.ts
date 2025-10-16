@@ -15,14 +15,7 @@ export interface BreakdownPreviewLogicProps {
 }
 
 export const breakdownPreviewLogic = kea<breakdownPreviewLogicType>([
-    path([
-        'products',
-        'error_tracking',
-        'frontend',
-        'scenes',
-        'ErrorTrackingIssueBreakdownsScene',
-        'breakdownPreviewLogic',
-    ]),
+    path(['products', 'error_tracking', 'components', 'Breakdowns', 'breakdownPreviewLogic']),
     props({} as BreakdownPreviewLogicProps),
     key((props) => props.dataNodeLogicProps.key || 'default'),
     connect((props: BreakdownPreviewLogicProps) => ({

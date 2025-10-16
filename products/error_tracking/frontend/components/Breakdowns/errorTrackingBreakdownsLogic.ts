@@ -26,7 +26,7 @@ export const BREAKDOWN_PRESETS: BreakdownPreset[] = [
 ]
 
 export const errorTrackingBreakdownsLogic = kea<errorTrackingBreakdownsLogicType>([
-    path(['products', 'error_tracking', 'scenes', 'ErrorTrackingIssueBreakdownsScene', 'errorTrackingBreakdownsLogic']),
+    path(['products', 'error_tracking', 'components', 'Breakdowns', 'errorTrackingBreakdownsLogic']),
     props({} as ErrorTrackingBreakdownsLogicProps),
     key(({ id }: ErrorTrackingBreakdownsLogicProps) => id),
     connect({
