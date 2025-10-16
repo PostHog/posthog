@@ -125,24 +125,45 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
+    // ==== DATABASE CONNECTION POOL CONFIGURATION ====
+    // 
+    // KEY INSIGHT: With immediate connection release pattern, connections are held for
+    // microseconds (query time only), not hundreds of milliseconds (full request time).
+    // This dramatically reduces the number of connections needed.
+    //
+    // MONITORING: Watch these metrics to tune:
+    // - Pool acquisition timeouts → Increase max_connections or acquire_timeout
+    // - High pool utilization (>80%) → Increase max_connections
+    // - Many idle connections → Decrease min_connections or idle_timeout
+    // - Connection storms during deployments → Decrease min_connections
+    //
     // Database connection pool settings:
-    // - High traffic: Increase max_pg_connections (e.g., 20-50)
-    // - Bursty traffic: Increase idle_timeout_secs to keep connections warm
-    // - Note: With 4 pools (readers/writers × persons/non-persons), total connections = 4 × max_pg_connections
+    // IMPORTANT: With immediate connection release pattern, fewer connections needed
+    // - Old pattern (holding connections): Would need 20-50 connections
+    // - New pattern (immediate release): 10-15 typically sufficient
+    // - Consider: total_connections = pods × (read_pool + write_pool) × (persons + non-persons pools if split)
+    // - Example: 50 pods × 15 connections × 2 (if persons split) = 1500 connections needed
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
 
     // How many connections to keep in the pool for writes
+    // IMPORTANT: Writes are less frequent and also use immediate release
+    // - 5 connections typically sufficient even under write load
     #[envconfig(default = "5")]
     pub max_pg_connections_write: u32,
 
     // Minimum connections to keep warm in read pools to avoid cold starts
     // Set to 0 to disable minimum (connections created on demand)
-    #[envconfig(default = "5")]
+    // IMPORTANT: With immediate connection release pattern, fewer connections are needed
+    // - Set to 0-1 to prevent "thundering herd" during deployments/scaling
+    // - Higher values (5-10) can cause connection storms when many pods start simultaneously
+    #[envconfig(default = "1")]
     pub min_pg_connections: u32,
 
     // Minimum connections to keep warm in write pools
-    #[envconfig(default = "2")]
+    // IMPORTANT: Write operations are less frequent, so fewer warm connections needed
+    // - Set to 0 recommended (write connections created on demand)
+    #[envconfig(default = "0")]
     pub min_pg_connections_write: u32,
 
     #[envconfig(default = "redis://localhost:6379/")]
@@ -155,14 +176,16 @@ pub struct Config {
     pub redis_writer_url: String,
 
     // How long to wait for a connection from the pool before timing out
-    // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
-    // - Decrease for faster failure detection (minimum 1s)
+    // IMPORTANT: "PoolTimedOut" errors often indicate connection storms, not DB limits
+    // - Increase to 15-30s if seeing timeouts during deployments/scaling events
+    // - Keep at 10s for normal operation to detect real issues quickly
+    // - Never set below 5s in production (connection establishment takes 1-3s)
     #[envconfig(default = "10")]
     pub acquire_timeout_secs: u64,
 
     // How long to wait for a connection from the pool before timing out for writes
-    // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
-    // - Decrease for faster failure detection (minimum 1s)
+    // - Usually can be lower than read timeout since write pool is less contested
+    // - Consider matching read timeout if seeing write timeouts during deployments
     #[envconfig(default = "5")]
     pub acquire_timeout_secs_write: u64,
 
@@ -376,8 +399,8 @@ impl Config {
             flag_query_slow_error_threshold_ms: 1000,
             flag_total_execution_warn_threshold_ms: 1000,
             flag_total_execution_error_threshold_ms: 2000,
-            min_pg_connections: 5,
-            min_pg_connections_write: 2,
+            min_pg_connections: 0,  // Set to 0 for tests to avoid connection pool exhaustion
+            min_pg_connections_write: 0,  // Set to 0 for tests to avoid connection pool exhaustion
         }
     }
 

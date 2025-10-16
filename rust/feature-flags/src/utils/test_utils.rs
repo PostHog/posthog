@@ -10,7 +10,7 @@ use crate::{
 };
 use anyhow::Error;
 use axum::async_trait;
-use common_database::{get_pool, Client, CustomDatabaseError};
+use common_database::{get_pool_with_config, PoolConfig, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use common_types::{PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
@@ -139,8 +139,24 @@ pub fn create_flag_from_json(json_value: Option<String>) -> Vec<FeatureFlag> {
 
 pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
+    let pool_config = PoolConfig {
+        max_connections: config.max_pg_connections,
+        min_connections: config.min_pg_connections,
+        acquire_timeout: std::time::Duration::from_secs(config.acquire_timeout_secs),
+        idle_timeout: if config.idle_timeout_secs > 0 {
+            Some(std::time::Duration::from_secs(config.idle_timeout_secs))
+        } else {
+            None
+        },
+        max_lifetime: if config.max_lifetime_secs > 0 {
+            Some(std::time::Duration::from_secs(config.max_lifetime_secs))
+        } else {
+            None
+        },
+        test_before_acquire: *config.test_before_acquire,
+    };
     Arc::new(
-        get_pool(&config.read_database_url, config.max_pg_connections)
+        get_pool_with_config(&config.read_database_url, pool_config)
             .await
             .expect("Failed to create Postgres client"),
     )
@@ -148,8 +164,24 @@ pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client +
 
 pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client + Send + Sync> {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
+    let pool_config = PoolConfig {
+        max_connections: config.max_pg_connections_write,
+        min_connections: config.min_pg_connections_write,
+        acquire_timeout: std::time::Duration::from_secs(config.acquire_timeout_secs_write),
+        idle_timeout: if config.idle_timeout_secs > 0 {
+            Some(std::time::Duration::from_secs(config.idle_timeout_secs))
+        } else {
+            None
+        },
+        max_lifetime: if config.max_lifetime_secs > 0 {
+            Some(std::time::Duration::from_secs(config.max_lifetime_secs))
+        } else {
+            None
+        },
+        test_before_acquire: *config.test_before_acquire,
+    };
     Arc::new(
-        get_pool(&config.write_database_url, config.max_pg_connections)
+        get_pool_with_config(&config.write_database_url, pool_config)
             .await
             .expect("Failed to create Postgres client"),
     )
@@ -162,18 +194,35 @@ pub async fn setup_dual_pg_readers(
 ) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
 
+    let read_pool_config = PoolConfig {
+        max_connections: config.max_pg_connections,
+        min_connections: config.min_pg_connections,
+        acquire_timeout: std::time::Duration::from_secs(config.acquire_timeout_secs),
+        idle_timeout: if config.idle_timeout_secs > 0 {
+            Some(std::time::Duration::from_secs(config.idle_timeout_secs))
+        } else {
+            None
+        },
+        max_lifetime: if config.max_lifetime_secs > 0 {
+            Some(std::time::Duration::from_secs(config.max_lifetime_secs))
+        } else {
+            None
+        },
+        test_before_acquire: *config.test_before_acquire,
+    };
+
     if config.is_persons_db_routing_enabled() {
         // Separate persons and non-persons databases
         let persons_reader = Arc::new(
-            get_pool(
+            get_pool_with_config(
                 &config.get_persons_read_database_url(),
-                config.max_pg_connections,
+                read_pool_config.clone(),
             )
             .await
             .expect("Failed to create Postgres persons reader client"),
         );
         let non_persons_reader = Arc::new(
-            get_pool(&config.read_database_url, config.max_pg_connections)
+            get_pool_with_config(&config.read_database_url, read_pool_config)
                 .await
                 .expect("Failed to create Postgres client"),
         );
@@ -181,7 +230,7 @@ pub async fn setup_dual_pg_readers(
     } else {
         // Same database for both
         let client = Arc::new(
-            get_pool(&config.read_database_url, config.max_pg_connections)
+            get_pool_with_config(&config.read_database_url, read_pool_config)
                 .await
                 .expect("Failed to create Postgres client"),
         );
@@ -196,18 +245,35 @@ pub async fn setup_dual_pg_writers(
 ) -> (Arc<dyn Client + Send + Sync>, Arc<dyn Client + Send + Sync>) {
     let config = config.unwrap_or(&DEFAULT_TEST_CONFIG);
 
+    let write_pool_config = PoolConfig {
+        max_connections: config.max_pg_connections_write,
+        min_connections: config.min_pg_connections_write,
+        acquire_timeout: std::time::Duration::from_secs(config.acquire_timeout_secs_write),
+        idle_timeout: if config.idle_timeout_secs > 0 {
+            Some(std::time::Duration::from_secs(config.idle_timeout_secs))
+        } else {
+            None
+        },
+        max_lifetime: if config.max_lifetime_secs > 0 {
+            Some(std::time::Duration::from_secs(config.max_lifetime_secs))
+        } else {
+            None
+        },
+        test_before_acquire: *config.test_before_acquire,
+    };
+
     if config.is_persons_db_routing_enabled() {
         // Separate persons and non-persons databases
         let persons_writer = Arc::new(
-            get_pool(
+            get_pool_with_config(
                 &config.get_persons_write_database_url(),
-                config.max_pg_connections,
+                write_pool_config.clone(),
             )
             .await
             .expect("Failed to create Postgres persons writer client"),
         );
         let non_persons_writer = Arc::new(
-            get_pool(&config.write_database_url, config.max_pg_connections)
+            get_pool_with_config(&config.write_database_url, write_pool_config)
                 .await
                 .expect("Failed to create Postgres client"),
         );
@@ -215,7 +281,7 @@ pub async fn setup_dual_pg_writers(
     } else {
         // Same database for both
         let client = Arc::new(
-            get_pool(&config.write_database_url, config.max_pg_connections)
+            get_pool_with_config(&config.write_database_url, write_pool_config)
                 .await
                 .expect("Failed to create Postgres client"),
         );
