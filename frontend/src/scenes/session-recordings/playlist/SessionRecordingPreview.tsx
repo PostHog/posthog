@@ -351,7 +351,7 @@ export const SessionRecordingPreview = memo(
 
 export function SessionRecordingPreviewSkeleton(): JSX.Element {
     return (
-        <div className="p-4 gap-y-2">
+        <div className="p-4 flex flex-col gap-y-2">
             <LemonSkeleton className="w-1/2 h-4" />
             <LemonSkeleton className="w-1/3 h-4" />
         </div>
