@@ -16,7 +16,100 @@
             "target_app": "error_tracking",
             "create_backend_dir": false,
             "product_already_exists": true,
-            "status": "skip"
+            "status": "completed",
+            "notes": "Already migrated"
+        },
+        {
+            "name": "data_warehouse",
+            "source_files": [
+                "warehouse/models/external_data_source.py",
+                "warehouse/models/external_data_job.py",
+                "warehouse/models/datawarehouse_saved_query.py",
+                "warehouse/models/datawarehouse_saved_query_draft.py",
+                "warehouse/models/table.py",
+                "warehouse/models/data_modeling_job.py",
+                "warehouse/models/join.py",
+                "warehouse/models/revenue_analytics_config.py",
+                "warehouse/models/external_data_schema.py",
+                "warehouse/models/query_tab_state.py",
+                "warehouse/models/credential.py",
+                "warehouse/models/modeling.py"
+            ],
+            "target_app": "data_warehouse",
+            "create_backend_dir": true,
+            "product_already_exists": true,
+            "status": "todo",
+            "priority": 1,
+            "notes": "11 models, 13 changes (highest TODO). All from posthog/warehouse/models/: ExternalDataSource, ExternalDataJob, DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseTable, DataModelingJob, DataWarehouseJoin, ExternalDataSourceRevenueAnalyticsConfig, ExternalDataSchema, QueryTabState, DataWarehouseCredential, DataWarehouseModelPath, DataWarehouseViewLink"
+        },
+        {
+            "name": "cdp",
+            "source_files": ["integration.py", "organization_integration.py"],
+            "target_app": "cdp",
+            "create_backend_dir": false,
+            "product_already_exists": true,
+            "status": "todo",
+            "priority": 2,
+            "notes": "2 models, 8 changes: Integration, OrganizationIntegration"
+        },
+        {
+            "name": "messaging",
+            "source_files": ["messaging.py", "message_category.py", "message_template.py", "message_preferences.py"],
+            "target_app": "messaging",
+            "create_backend_dir": false,
+            "product_already_exists": true,
+            "status": "todo",
+            "priority": 3,
+            "notes": "4 models, 5 changes: MessagingRecord, MessageCategory, MessageTemplate, MessageRecipientPreference"
+        },
+        {
+            "name": "feature_flags",
+            "source_files": ["feature_flag.py"],
+            "target_app": "feature_flags",
+            "create_backend_dir": false,
+            "product_already_exists": true,
+            "status": "todo",
+            "priority": 4,
+            "notes": "5 models, 5 changes: FeatureFlag, FeatureFlagOverride, FeatureFlagHashKeyOverride, FeatureFlagDashboards, FeatureFlagEvaluationTag"
+        },
+        {
+            "name": "experiments",
+            "source_files": ["experiment.py", "web_experiment.py"],
+            "target_app": "experiments",
+            "create_backend_dir": true,
+            "product_already_exists": true,
+            "status": "todo",
+            "priority": 5,
+            "notes": "7 models, 6 changes: Experiment, WebExperiment, ExperimentMetricResult, ExperimentSavedMetric, ExperimentToSavedMetric, ExperimentHoldout. Note: GroupUsageMetric should stay in posthog (not experiments)."
+        },
+        {
+            "name": "dashboards",
+            "source_files": ["dashboard.py", "dashboard_tile.py", "dashboard_templates.py"],
+            "target_app": "dashboards",
+            "create_backend_dir": true,
+            "product_already_exists": true,
+            "status": "todo",
+            "priority": 6,
+            "notes": "3 models, 1 change: Dashboard, DashboardTile, DashboardTemplate"
+        },
+        {
+            "name": "surveys",
+            "source_files": ["survey.py"],
+            "target_app": "surveys",
+            "create_backend_dir": false,
+            "product_already_exists": true,
+            "status": "todo",
+            "priority": 7,
+            "notes": "1 model, 2 changes: Survey"
+        },
+        {
+            "name": "product_analytics",
+            "source_files": ["insight.py", "subscription.py"],
+            "target_app": "product_analytics",
+            "create_backend_dir": false,
+            "product_already_exists": true,
+            "status": "skip",
+            "notes": "2 changes: Insight, Subscription. Lower priority."
         },
         {
             "name": "batch_exports",
@@ -31,81 +124,6 @@
             "source_files": ["link.py"],
             "target_app": "links",
             "create_backend_dir": false,
-            "status": "skip"
-        },
-        {
-            "name": "feature_flags",
-            "source_files": ["feature_flag.py"],
-            "target_app": "feature_flags",
-            "create_backend_dir": false,
-            "product_already_exists": true,
-            "status": "todo",
-            "priority": 1,
-            "notes": "5 changes in 100 migrations, high-value, active development"
-        },
-        {
-            "name": "integrations",
-            "source_files": ["integration.py"],
-            "target_app": "cdp",
-            "create_backend_dir": false,
-            "product_already_exists": true,
-            "status": "todo",
-            "priority": 2,
-            "notes": "7 changes in 100 migrations, CDP core functionality"
-        },
-        {
-            "name": "data_warehouse_sources",
-            "source_files": ["external_data_source.py"],
-            "target_app": "data_warehouse",
-            "create_backend_dir": false,
-            "product_already_exists": true,
-            "status": "todo",
-            "priority": 3,
-            "notes": "7 changes in 100 migrations, high activity"
-        },
-        {
-            "name": "dashboards",
-            "source_files": ["dashboard.py", "dashboard_tile.py"],
-            "target_app": "dashboards",
-            "create_backend_dir": true,
-            "product_already_exists": true,
-            "status": "todo",
-            "priority": 4,
-            "notes": "1 change (dashboardtile) in 100 migrations"
-        },
-        {
-            "name": "experiments",
-            "source_files": ["experiment.py", "web_experiment.py"],
-            "target_app": "experiments",
-            "create_backend_dir": true,
-            "product_already_exists": true,
-            "status": "todo",
-            "priority": 5,
-            "notes": "2 changes in 100 migrations"
-        },
-        {
-            "name": "surveys",
-            "source_files": ["survey.py"],
-            "target_app": "surveys",
-            "create_backend_dir": false,
-            "product_already_exists": true,
-            "status": "todo",
-            "priority": 6,
-            "notes": "2 changes in 100 migrations"
-        },
-        {
-            "name": "messaging",
-            "source_files": ["messaging.py"],
-            "target_app": "messaging",
-            "create_backend_dir": false,
-            "status": "skip"
-        },
-        {
-            "name": "product_analytics_insights",
-            "source_files": ["insight.py", "subscription.py"],
-            "target_app": "product_analytics",
-            "create_backend_dir": false,
-            "product_already_exists": true,
             "status": "skip"
         }
     ]
