@@ -1,25 +1,34 @@
-from typing import Literal
+import asyncio
+from collections import defaultdict
+from typing import Literal, TypedDict
 from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
 
-from posthog.schema import AssistantMessageType, AssistantToolCallMessage
+from posthog.schema import AssistantToolCallMessage
 
 from posthog.api.search import ENTITY_MAP, class_queryset
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, EntityType, PartialAssistantState
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE, HYPERLINK_USAGE_INSTRUCTIONS
 
 
+class EntitySearchTaskResult(TypedDict):
+    entity_type: str | EntityType
+    results: list[dict]
+    warning: str | None
+
+
 class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
     REASONING_MESSAGE = "Searching for entities..."
     MAX_ENTITY_RESULTS = 10
+    MAX_CONCURRENT_SEARCHES = 10
 
     @property
     def node_name(self) -> MaxNodeName:
@@ -29,28 +38,26 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
     def user_access_control(self) -> UserAccessControl:
         return UserAccessControl(user=self._user, team=self._team, organization_id=self._team.organization.id)
 
-    def build_url(self, result: dict) -> str:
-        entity_type = result["type"]
-        result_id = result["result_id"]
+    def build_url(self, entity_type: str | EntityType, result_id: str) -> str:
         base_url = f"/project/{self._team.id}"
         match entity_type:
-            case "insight":
+            case EntityType.INSIGHT:
                 return f"{base_url}/insights/{result_id}"
-            case "dashboard":
+            case EntityType.DASHBOARD:
                 return f"{base_url}/dashboard/{result_id}"
-            case "experiment":
+            case EntityType.EXPERIMENT:
                 return f"{base_url}/experiments/{result_id}"
-            case "feature_flag":
+            case EntityType.FEATURE_FLAG:
                 return f"{base_url}/feature_flags/{result_id}"
-            case "notebook":
+            case EntityType.NOTEBOOK:
                 return f"{base_url}/notebooks/{result_id}"
-            case "action":
+            case EntityType.ACTION:
                 return f"{base_url}/data-management/actions/{result_id}"
-            case "cohort":
+            case EntityType.COHORT:
                 return f"{base_url}/cohorts/{result_id}"
-            case "event_definition":
+            case EntityType.EVENT_DEFINITION:
                 return f"{base_url}/data-management/events/{result_id}"
-            case "survey":
+            case EntityType.SURVEY:
                 return f"{base_url}/surveys/{result_id}"
             case _:
                 return f"{base_url}/{entity_type}/{result_id}"
@@ -66,12 +73,71 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
         key = extra_fields.get("key", "")
         description = extra_fields.get("description", "")
 
-        result_summary.append(f"**[{name}]({self.build_url(result)})**")
+        result_summary.append(f"**[{name}]({self.build_url(entity_type, result_id)})**")
         if key:
             result_summary.append(f"\n - Key: {key}")
         if description:
             result_summary.append(f"\n - Description: {description}")
         return result_summary
+
+    async def _gather_bounded(self, limit: int, coros: list[object]):
+        sem = asyncio.Semaphore(limit)
+
+        async def run(coro):
+            async with sem:
+                return await coro
+
+        return await asyncio.gather(*(run(c) for c in coros), return_exceptions=True)
+
+    async def _search_single_entity(self, entity_type: str | EntityType, query: str) -> EntitySearchTaskResult:
+        entity_meta = ENTITY_MAP.get(entity_type)
+        if not entity_meta:
+            return EntitySearchTaskResult(
+                entity_type=entity_type,
+                results=[],
+                warning=f"Invalid entity type: {entity_type}. Will not search for this entity type.",
+            )
+
+        klass_qs, _ = await database_sync_to_async(class_queryset)(
+            view=self,
+            klass=entity_meta["klass"],
+            project_id=self._team.project_id,
+            query=query,
+            search_fields=entity_meta["search_fields"],
+            extra_fields=entity_meta["extra_fields"],
+        )
+
+        def evaluate_queryset(klass_qs=klass_qs):
+            return list(klass_qs[: self.MAX_ENTITY_RESULTS])
+
+        entity_results = await database_sync_to_async(evaluate_queryset)()
+
+        return EntitySearchTaskResult(entity_type=entity_type, results=entity_results, warning=None)
+
+    def _format_results_for_display(
+        self, query: str, entity_types: list[str | EntityType], results: list[dict], counts: dict[str, int]
+    ) -> str:
+        content = ""
+        if not results:
+            content += f"No entities found matching the query '{query}' for entity types {entity_types}"
+        else:
+            result_summary = []
+            for result in results:
+                result_summary.extend(self._get_formatted_entity_result(result))
+
+            total_results = len(results)
+            content += FOUND_ENTITIES_MESSAGE_TEMPLATE.format(
+                total_results=total_results, entities_list="\n".join(result_summary)
+            )
+
+            if counts:
+                content += ENTITY_TYPE_SUMMARY_TEMPLATE.format(
+                    entity_type_summary="\n".join(
+                        [f"- {entity_type.title()}: {count}" for entity_type, count in counts.items() if count > 0]
+                    )
+                )
+            content += f"\n\n{HYPERLINK_USAGE_INSTRUCTIONS}"
+        return content
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Search for entities by query and optional entity types."""
@@ -81,67 +147,43 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        content="No search query provided.",
-                        type=AssistantMessageType.Assistant,
+                        content="No search query was provided.",
                         tool_call_id=state.root_tool_call_id,
                         id=str(uuid4()),
                     )
-                ]
+                ],
+                entity_search_query=None,
+                entity_search_types=None,
+                root_tool_call_id=None,
             )
 
         try:
             entity_types = state.entity_search_types or list(ENTITY_MAP.keys())
+
+            tasks = [self._search_single_entity(entity_type, state.entity_search_query) for entity_type in entity_types]
+            task_results = await self._gather_bounded(self.MAX_CONCURRENT_SEARCHES, tasks)
+
+            results: list[dict] = []
+            counts: dict[str, int] = defaultdict(int)
             content = ""
-            results = []
-            counts = {}
-
-            for entity_type in entity_types:
-                entity_meta = ENTITY_MAP.get(entity_type)
-                if not entity_meta:
-                    content += f"Invalid entity type: {entity_type}. Will not search for this entity type."
+            for task_result in task_results:
+                entity_type = task_result["entity_type"]
+                if isinstance(task_result, Exception):
+                    content += f"Error searching for {entity_type}: {str(task_result)}"
                     continue
-                await self._write_reasoning(f"Searching through the {entity_type}s")
-                klass_qs, _ = await database_sync_to_async(class_queryset)(
-                    view=self,
-                    klass=entity_meta["klass"],
-                    project_id=self._team.project_id,
-                    query=state.entity_search_query,
-                    search_fields=entity_meta["search_fields"],
-                    extra_fields=entity_meta["extra_fields"],
-                )
 
-                def evaluate_queryset(klass_qs=klass_qs):
-                    return list(klass_qs[: self.MAX_ENTITY_RESULTS])
+                if task_result.get("warning"):
+                    content += f"Error searching {entity_type}: {task_result['warning']}"
+                    continue
 
-                entity_results = await database_sync_to_async(evaluate_queryset)()
-
-                results.extend(entity_results)
-                counts[entity_type] = len(entity_results)
+                results.extend(task_result["results"])
+                counts[entity_type] = len(task_result["results"])
 
             if results and "rank" in results[0]:
                 results.sort(key=lambda x: x.get("rank", 0), reverse=True)
 
-            # Format results for display
-            if not results:
-                content += f"No entities found matching the query '{state.entity_search_query}' for entity types {entity_types}"
-            else:
-                result_summary = []
-                for result in results:
-                    result_summary.extend(self._get_formatted_entity_result(result))
-
-                total_results = len(results)
-                content += FOUND_ENTITIES_MESSAGE_TEMPLATE.format(
-                    total_results=total_results, entities_list="\n".join(result_summary)
-                )
-
-                if counts:
-                    content += ENTITY_TYPE_SUMMARY_TEMPLATE.format(
-                        entity_type_summary="\n".join(
-                            [f"- {entity_type.title()}: {count}" for entity_type, count in counts.items() if count > 0]
-                        )
-                    )
-                content += f"\n\n{HYPERLINK_USAGE_INSTRUCTIONS}"
-
+            # Format all results for display
+            content += self._format_results_for_display(query, entity_types, results, counts)
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(content=content, tool_call_id=state.root_tool_call_id, id=str(uuid4())),

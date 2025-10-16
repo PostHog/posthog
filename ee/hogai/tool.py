@@ -16,7 +16,7 @@ import products
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import InsightQuery
+from ee.hogai.utils.types.base import EntityType, InsightQuery
 
 
 # Lower casing matters here. Do not change it.
@@ -139,11 +139,6 @@ class create_dashboard(BaseModel):
     )
 
 
-EntityTypes = Literal[
-    "insight", "dashboard", "cohort", "action", "experiment", "feature_flag", "notebook", "survey", "event_definition"
-]
-
-
 class search_entity(BaseModel):
     """
     Search for entities (insights, dashboards, cohorts, actions, experiments, etc.) by their name or description.
@@ -154,7 +149,7 @@ class search_entity(BaseModel):
         description="The search query to find entities by name or description. "
         "This will search across all entity types (insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, surveys, event definitions)."
     )
-    entity_types: list[EntityTypes] = Field(
+    entity_types: list[EntityType] = Field(
         description="List of entity types to search for that the user mentioned in their query if the user mentions more than one entity make sure to include all the entity types."
     )
 

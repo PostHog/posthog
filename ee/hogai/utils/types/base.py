@@ -437,3 +437,8 @@ class WithCommentary(BaseModel):
     commentary: str = Field(
         description="A commentary on what you are doing, using the first person: 'I am doing this because...'"
     )
+
+
+# EntityType = Literal[
+#     "insight", "dashboard", "cohort", "action", "experiment", "feature_flag", "notebook", "survey", "event_definition"
+# ]
