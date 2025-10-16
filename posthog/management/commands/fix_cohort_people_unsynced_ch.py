@@ -166,16 +166,16 @@ class Command(BaseCommand):
                         cohorts_with_insertions.update(cohorts_in_batch)
                     else:
                         # Group by cohort_id and collect person UUIDs
-                        cohort_to_uuids = {}
+                        cohort_to_uuids: dict[int, list[str]] = {}
                         for cohort_id, person_id in insert_values:
                             # Find the person_uuid for this person_id
-                            person_uuid = None
+                            person_uuid: str | None = None
                             for uuid, pid in person_uuid_to_id.items():
                                 if pid == person_id:
                                     person_uuid = uuid
                                     break
 
-                            if person_uuid:
+                            if person_uuid is not None:
                                 if cohort_id not in cohort_to_uuids:
                                     cohort_to_uuids[cohort_id] = []
                                 cohort_to_uuids[cohort_id].append(person_uuid)
