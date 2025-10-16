@@ -99,7 +99,7 @@ export function TimeseriesModal({
                             <More
                                 overlay={
                                     <>
-                                        <LemonButton onClick={handleRecalculate}>Recalculate time series</LemonButton>
+                                        <LemonButton onClick={handleRecalculate}>Recalculate</LemonButton>
                                     </>
                                 }
                             />
@@ -113,7 +113,7 @@ export function TimeseriesModal({
                                 </div>
                             )
                         ) : (
-                            <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
+                            <div className="p-10 text-center text-muted -translate-y-6">
                                 No timeseries data available
                             </div>
                         )}

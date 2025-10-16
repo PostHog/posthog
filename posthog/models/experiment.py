@@ -186,9 +186,9 @@ class ExperimentMetricResult(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ["experiment", "metric_uuid", "query_to"]
+        unique_together = ["experiment", "metric_uuid", "query_to", "fingerprint"]
         indexes = [
-            models.Index(fields=["experiment", "metric_uuid", "query_to"]),
+            models.Index(fields=["experiment", "metric_uuid", "query_to", "fingerprint"]),
         ]
 
     def __str__(self):
@@ -215,6 +215,13 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["status"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["experiment", "fingerprint"],
+                condition=models.Q(status__in=["pending", "in_progress"]),
+                name="unique_active_recalculation_per_experiment_metric",
+            ),
         ]
 
     def __str__(self):

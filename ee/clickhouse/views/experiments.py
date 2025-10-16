@@ -989,6 +989,30 @@ class EnterpriseExperimentsViewSet(
         if not experiment.start_date:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
+        # Check for existing recalculation request to ensure idempotency
+        existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
+            experiment=experiment,
+            fingerprint=fingerprint,
+            status__in=[
+                ExperimentTimeseriesRecalculation.Status.PENDING,
+                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+            ],
+        ).first()
+
+        if existing_recalculation:
+            return Response(
+                {
+                    "id": existing_recalculation.id,
+                    "experiment_id": experiment.id,
+                    "metric_uuid": existing_recalculation.metric.get("uuid"),
+                    "fingerprint": fingerprint,
+                    "status": existing_recalculation.status,
+                    "created_at": existing_recalculation.created_at.isoformat(),
+                },
+                status=200,
+            )
+
+        # Create new recalculation request
         recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
             team=experiment.team,
             experiment=experiment,

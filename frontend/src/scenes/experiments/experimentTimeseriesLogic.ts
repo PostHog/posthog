@@ -90,7 +90,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     }
 
                     try {
-                        const response = await api.create(
+                        const response = await api.createResponse(
                             `api/projects/@current/experiments/${props.experimentId}/recalculate_timeseries/`,
                             {
                                 metric: metric,
@@ -98,8 +98,12 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                             }
                         )
 
-                        if (response) {
-                            lemonToast.success('Recalculation started successfully')
+                        if (response.ok) {
+                            if (response.status === 201) {
+                                lemonToast.success('Recalculation started successfully')
+                            } else if (response.status === 200) {
+                                lemonToast.info('Recalculation already in progress')
+                            }
                         }
                     } catch (error) {
                         lemonToast.error('Failed to start recalculation')
