@@ -33,6 +33,7 @@ import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWare
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
+import { getInternalEventFilterOptions } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -282,9 +283,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Internal Events',
                         searchPlaceholder: 'internal events',
                         type: TaxonomicFilterGroupType.InternalEvents,
-                        options: [{ name: 'All internal events', value: null }].filter(
-                            (o) => !excludedProperties[TaxonomicFilterGroupType.InternalEvents]?.includes(o.value)
-                        ),
+                        options: [
+                            { name: 'All internal events', value: null },
+                            ...getInternalEventFilterOptions('standard'),
+                        ],
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.EventInternal,
                             exclude_hidden: true,

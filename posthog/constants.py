@@ -300,7 +300,6 @@ class EventDefinitionType(StrEnum):
     EVENT = "event"
     EVENT_POSTHOG = "event_posthog"
     EVENT_CUSTOM = "event_custom"
-    EVENT_INTERNAL = "event_internal"
 
 
 class FlagRequestType(StrEnum):

@@ -59,10 +59,6 @@ def create_event_definitions_sql(
         conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
     if event_type == EventDefinitionType.EVENT_POSTHOG:
         conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
-    # Add support for InternalEvents
-    if event_type == EventDefinitionType.EVENT_INTERNAL:
-        # You may want to filter by a naming convention or a dedicated field
-        conditions += " AND posthog_eventdefinition.is_internal = TRUE"
 
     additional_ordering = []
     for order_expression, order_direction in order_expressions:
@@ -179,15 +175,6 @@ class EventDefinitionViewSet(
         if excluded_properties:
             excluded_list = list(set(json.loads(excluded_properties)))
             search_query = search_query + f" AND NOT name = ANY(ARRAY{excluded_list})"
-
-        # Custom logic for InternalEvents
-        if event_type == EventDefinitionType.EVENT_INTERNAL:
-            # If InternalEvents are not stored in EventDefinition, fetch from your internal event model
-
-            # Example: Return a list of InternalEventEvent as a queryset-like object
-            # You may need to adapt this to your actual storage (DB, Kafka, etc.)
-            # For now, return an empty list (or fetch from your source)
-            return []
 
         sql = create_event_definitions_sql(
             event_type,
