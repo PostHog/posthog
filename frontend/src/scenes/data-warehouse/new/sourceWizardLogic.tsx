@@ -601,7 +601,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         <h4 className="mt-2">Append-only tables</h4>
                         <div>
                             Append-only syncs, while preferrable to full refresh syncs, still need to be configured with
-                            care. The field you select for append-only syncing should not change when a row is udpated
+                            care. The field you select for append-only syncing should not change when a row is updated
                             &ndash; for example, <span className="font-mono">created_at</span>.{' '}
                             {appendOnlyTables.length > 0 ? (
                                 <>You have the following tables setup for append-only syncs:</>
