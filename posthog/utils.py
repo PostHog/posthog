@@ -346,11 +346,11 @@ def get_context_for_template(
         context["debug"] = True
         context["git_branch"] = get_git_branch()
         # Add vite dev scripts for development
-        context["vite_dev_scripts"] = """
-        <script type="module">
+        context["vite_dev_scripts"] = f"""
+        <script nonce="{request.csp_nonce}" type="module">
             import RefreshRuntime from 'http://localhost:8234/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
-            window.$RefreshReg$ = () => {}
+            window.$RefreshReg$ = () => {{}}
             window.$RefreshSig$ = () => (type) => type
             window.__vite_plugin_react_preamble_installed__ = true
         </script>

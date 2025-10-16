@@ -7,7 +7,7 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemo
 import { getColorVar } from 'lib/colors'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
+import { formatPercentage, humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { DEFAULT_CURRENCY, getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -240,15 +240,6 @@ const OverviewItemCell = ({
             </div>
         </Tooltip>
     )
-}
-
-const formatPercentage = (x: number, options?: { precise?: boolean }): string => {
-    if (options?.precise) {
-        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
-    } else if (x >= 1000) {
-        return humanFriendlyLargeNumber(x) + '%'
-    }
-    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
 }
 
 const formatUnit = (x: number, options?: { precise?: boolean }): string => {
