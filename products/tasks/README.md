@@ -1,18 +1,18 @@
 # PostHog Tasks
 
-Tasks is an automated workflow system that helps teams create, track, and execute development work. Tasks can automatically create GitHub branches, generate code changes, and create pull requests through AI-powered agents.
+Tasks are units of work for an agent to perform, much like tasks you'd get in an issue tracker. Tasks can automatically checkout a repository in a sandbox environment, generate code changes and create pull requests.
 
 ## How Tasks Work
 
 ### Core Components
 
-**Task**: A unit of work with a title, description, and optional repository configuration. Each task moves through stages in a workflow and can trigger automated actions.
+**Task**: A unit of work with a title, description, and repository configuration. Each task moves through stages in a workflow and can trigger automated actions.
 
 **Workflow**: A sequence of stages that a task progresses through (e.g., Plan → Code → Review → Complete). Each team has a default workflow, and tasks automatically use it unless specified otherwise. You probably just want to use the default workflow.
 
-**Stages**: Individual steps within a workflow. Stages can have AI agents attached that automatically perform work when a task enters that stage.
+**Stages**: Individual steps within a workflow. Stages can have agents attached that automatically perform work when a task enters that stage.
 
-**Temporal Integration**: Tasks use Temporal workflows for asynchronous processing. When you create and run a task, it triggers a background workflow that executes the task's automation.
+**Temporal Integration**: Tasks use Temporal workflows for asynchronous processing. When you create and run a task, it triggers a background workflow that executes the task in a sandbox environment using our coding agent, which [you can find here](http://github.com/posthog/agent).
 
 ### Feature Flag
 
@@ -29,11 +29,13 @@ task = Task.create_and_run(
     team=team,
     title="Add dark mode to settings page",
     description="Implement dark mode toggle and theme switching",
-    origin_product="user_created",
+    origin_product="error_tracking",
     user_id=user.id,
     repository="posthog/posthog",  # Format: "organization/repository"
 )
 ```
+
+It's that easy. This will add the task to a temporal queue, and kick off a workflow that will handle creating a sandbox environment, executing a coding agent for the task, and submitting a PR at the end of it.
 
 ## Parameters
 
@@ -42,17 +44,9 @@ task = Task.create_and_run(
 - **`team`** (`Team`): The team this task belongs to
 - **`title`** (`str`): Short, descriptive title for the task
 - **`description`** (`str`): Detailed description of what needs to be done
-- **`origin_product`** (`str`): Where this task originated from. Valid values:
-  - `"error_tracking"` - From error tracking product
-  - `"eval_clusters"` - From eval clusters
-  - `"user_created"` - Manually created by user
-  - `"support_queue"` - From support queue
-  - `"session_summaries"` - From session summaries
-- **`user_id`** (`int`): ID of the user creating the task (required for feature flag validation)
-
-### Optional Parameters
-
-- **`repository`** (`str`, optional): Repository to work with in format `"org/repo"` (e.g., `"posthog/posthog-js"`). If provided, the task will be scoped to this repository. You should provide this for coding tasks.
+- **`origin_product`** (`str`): The product this task originated from.
+- **`user_id`** (`int`): ID of the user creating the task (this is required to validate the feature flag, and also to create a personal api key for interacting with PostHog).
+- **`repository`** (`str`): Repository to work with in format `"org/repo"` (e.g., `"posthog/posthog-js"`). The task will be scoped to this repository, and the PR at the end of it will be to the main branch of this repo.
 
 ## What Happens When You Create and Run
 
@@ -168,10 +162,3 @@ def create_task_from_support_ticket(ticket, team, user_id):
     )
     return task
 ```
-
-## Further Reading
-
-- **API Documentation**: See `/products/tasks/backend/api.py` for REST API endpoints
-- **Workflows & Stages**: See `TaskWorkflow` and `WorkflowStage` models in `/products/tasks/backend/models.py`
-- **Agents**: See `/products/tasks/backend/agents/` for AI agent implementations
-- **Temporal Client**: See `/products/tasks/backend/temporal/client.py` for workflow execution details

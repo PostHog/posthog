@@ -677,6 +677,7 @@ class TestTask(TestCase):
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
             user_id=user.id,
+            repository="posthog/posthog",
         )
 
         self.assertIsNotNone(task.id)
@@ -686,7 +687,7 @@ class TestTask(TestCase):
         self.assertEqual(task.team, self.team)
         self.assertEqual(task.created_by, user)
         self.assertEqual(task.workflow, self.workflow)
-        self.assertEqual(task.repository_config, {})
+        self.assertEqual(task.repository_config, {"organization": "posthog", "repository": "posthog"})
 
         mock_execute_workflow.assert_called_once_with(
             task_id=str(task.id),
@@ -742,6 +743,7 @@ class TestTask(TestCase):
                 description="Test Description",
                 origin_product=Task.OriginProduct.USER_CREATED,
                 user_id=user.id,
+                repository="posthog/posthog",
             )
 
         self.assertIn("Task has no workflow configured", str(cm.exception))
@@ -757,6 +759,7 @@ class TestTask(TestCase):
             description="Test Description",
             origin_product=Task.OriginProduct.USER_CREATED,
             user_id=user.id,
+            repository="posthog/posthog",
         )
 
         self.assertEqual(task.github_integration, integration)

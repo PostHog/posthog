@@ -411,8 +411,8 @@ class Task(models.Model):
         title: str,
         description: str,
         origin_product: str,
-        user_id: int,
-        repository: Optional[str] = None,
+        user_id: int,  # Will be used to validate the feature flag and create a personal api key for interacting with PostHog.
+        repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -421,12 +421,12 @@ class Task(models.Model):
         github_integration = Integration.objects.filter(team=team, kind="github").first()
 
         repository_config = {}
-        if repository:
-            if "/" in repository:
-                org, repo = repository.split("/", 1)
-                repository_config = {"organization": org, "repository": repo}
-            else:
-                raise ValueError(f"Repository must be in format 'organization/repository', got: {repository}")
+
+        if "/" in repository:
+            org, repo = repository.split("/", 1)
+            repository_config = {"organization": org, "repository": repo}
+        else:
+            raise ValueError(f"Repository must be in format 'organization/repository', got: {repository}")
 
         task = Task.objects.create(
             team=team,
