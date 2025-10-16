@@ -11,11 +11,6 @@ import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, Lemo
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
-import {
-    TEMPLATE_LINK_HEADING,
-    TEMPLATE_LINK_PII_WARNING,
-    TEMPLATE_LINK_TOOLTIP,
-} from 'lib/components/Sharing/templateLinkMessages'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -33,7 +28,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { AnyResponseType, Node } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
+import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -137,6 +132,20 @@ export function SharingModalContent({
               iframeId: getRenderQueryIframeId(insightShortId),
               cachedResults,
               query: insight.query,
+          })
+        : null
+
+    const apiQueryUrl = insight?.query ? new URL('api/query/', siteUrl).toString() : null
+    const apiQuerySnippet = apiQueryUrl
+        ? createApiQuerySnippet({
+              apiQueryUrl,
+              query: insight?.query
+                  ? isInsightVizNode(insight.query) ||
+                    isDataVisualizationNode(insight.query) ||
+                    isDataTableNode(insight.query)
+                      ? insight.query.source
+                      : insight.query
+                  : null,
           })
         : null
 
@@ -399,18 +408,30 @@ export function SharingModalContent({
                 <>
                     <LemonDivider />
                     <TemplateLinkSection
+                        collapsible
                         templateLink={getInsightDefinitionUrl({ query: insight.query }, siteUrl)}
-                        heading={TEMPLATE_LINK_HEADING}
-                        tooltip={TEMPLATE_LINK_TOOLTIP}
-                        piiWarning={TEMPLATE_LINK_PII_WARNING}
+                        heading="Share as template"
+                        tooltip="Share this link to let others create a copy of this insight with the same configuration."
+                        piiWarning="This link shares the full insight definition, including event and property names and filters. If any of these are sensitive, consider editing before sharing."
                     />
                     {renderQuerySnippet && (
                         <TemplateLinkSection
                             templateLink={renderQuerySnippet}
                             heading="Share as template with cached results"
-                            tooltip="Use this snippet to embed the insight via an iframe, and send it cached results via postMessage."
-                            piiWarning="This link shares the full insight, including all filters and the results, directly in the snippet. If any of these are sensitive, consider editing before sharing."
+                            tooltip="Use this snippet on a website to embed the insight via an iframe, and send it cached results via postMessage."
+                            piiWarning="This snipped contains the full insight, including all filters and results. If any of these are sensitive, consider editing before sharing."
                             copyButtonLabel="Copy snippet"
+                            collapsible
+                            defaultExpanded={false}
+                        />
+                    )}
+                    {apiQuerySnippet && (
+                        <TemplateLinkSection
+                            templateLink={apiQuerySnippet}
+                            heading="Fetch latest results for shared template"
+                            tooltip="Use this snippet to call the Query API directly and retrieve the freshest results for this insight."
+                            piiWarning="This request shares the full insight query, including filters and properties. Review it before sharing."
+                            copyButtonLabel="Copy fetch example"
                             collapsible
                             defaultExpanded={false}
                         />
@@ -438,8 +459,10 @@ function createRenderQuerySnippet({
     query: Node | null | undefined
 }): string {
     const preparedResults = prepareCachedResultsForSnippet(cachedResults)
-    const serializedResults = escapeScriptJson(JSON.stringify(preparedResults, null, 2))
-    const serializedQuery = escapeScriptJson(JSON.stringify(query ?? null, null, 2))
+    const serializedResults = indentMultiline(JSON.stringify(preparedResults, null, 2), 8)
+    const serializedQuery = indentMultiline(JSON.stringify(query ?? null, null, 2), 8)
+    const escapedResults = escapeScriptJson(serializedResults)
+    const escapedQuery = escapeScriptJson(serializedQuery)
 
     return `<iframe id="${iframeId}" src="${renderQueryUrl}" style="width: 100%; height: 600px; border: 0;" loading="lazy"></iframe>
 <script>
@@ -449,8 +472,8 @@ function createRenderQuerySnippet({
       return
     }
     const payload = {
-      query: ${serializedQuery},
-      cachedResults: ${serializedResults}
+        query: ${escapedQuery},
+        cachedResults: ${escapedResults},
     }
     const targetOrigin = new URL(${JSON.stringify(renderQueryUrl)}).origin
     function send() {
@@ -465,8 +488,42 @@ function createRenderQuerySnippet({
 </script>`
 }
 
+function createApiQuerySnippet({
+    apiQueryUrl,
+    query,
+}: {
+    apiQueryUrl: string
+    query: Node | null | undefined
+}): string {
+    const serializedQuery = indentMultiline(JSON.stringify(query ?? null, null, 2), 8)
+    const escapedQuery = escapeScriptJson(serializedQuery)
+
+    return `fetch(${JSON.stringify(apiQueryUrl)}, {
+    method: 'POST',
+    headers: {
+        Authorization: 'Bearer <PERSONAL_API_KEY>',
+        'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+        query: ${escapedQuery},
+    }),
+})
+    .then((response) => response.json())
+    .then((data) => {
+        console.log('Latest results', data)
+    })`
+}
+
 function escapeScriptJson(value: string): string {
     return value.replace(/</g, '\\u003C').replace(/>/g, '\\u003E').replace(/&/g, '\\u0026')
+}
+
+function indentMultiline(value: string, indent: number): string {
+    const indentation = ' '.repeat(indent)
+    return value
+        .split('\n')
+        .map((line, index) => (index === 0 ? line : `${indentation}${line}`))
+        .join('\n')
 }
 
 function prepareCachedResultsForSnippet(
