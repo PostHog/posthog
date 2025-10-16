@@ -191,6 +191,15 @@ async def run_in_retryable_transaction(
             await asyncio.sleep(sleep_seconds)
 
 
+class _PostgreSQLClientInputsProtocol(typing.Protocol):
+    user: str
+    password: str
+    host: str
+    port: int
+    database: str
+    has_self_signed_cert: bool
+
+
 class PostgreSQLClient:
     """PostgreSQL connection client used in batch exports."""
 
@@ -215,7 +224,7 @@ class PostgreSQLClient:
         self._connection: None | psycopg.AsyncConnection = None
 
     @classmethod
-    def from_inputs(cls, inputs: PostgresInsertInputs) -> typing.Self:
+    def from_inputs(cls, inputs: _PostgreSQLClientInputsProtocol) -> typing.Self:
         """Initialize `PostgreSQLClient` from `PostgresInsertInputs`."""
         return cls(
             user=inputs.user,

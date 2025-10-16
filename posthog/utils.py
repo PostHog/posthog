@@ -308,6 +308,12 @@ def relative_date_parse(
     )[0]
 
 
+def pluralize(count: int, singular: str, plural: str | None = None) -> str:
+    if plural is None:
+        plural = singular + "s"
+    return f"{count} {singular if count == 1 else plural}"
+
+
 def human_list(items: Sequence[str]) -> str:
     """Join iterable of strings into a human-readable list ("a, b, and c").
     Uses the Oxford comma only when there are at least 3 items."""
@@ -346,11 +352,11 @@ def get_context_for_template(
         context["debug"] = True
         context["git_branch"] = get_git_branch()
         # Add vite dev scripts for development
-        context["vite_dev_scripts"] = """
-        <script type="module">
+        context["vite_dev_scripts"] = f"""
+        <script nonce="{request.csp_nonce}" type="module">
             import RefreshRuntime from 'http://localhost:8234/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
-            window.$RefreshReg$ = () => {}
+            window.$RefreshReg$ = () => {{}}
             window.$RefreshSig$ = () => (type) => type
             window.__vite_plugin_react_preamble_installed__ = true
         </script>
