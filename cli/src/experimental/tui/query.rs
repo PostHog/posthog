@@ -13,10 +13,11 @@ use ratatui::{
 use serde::{Deserialize, Serialize};
 use tui_textarea::TextArea;
 
-use crate::utils::{
-    auth::Token,
-    homedir::posthog_home_dir,
-    query::{self, HogQLQueryErrorResponse, HogQLQueryResponse, HogQLQueryResult},
+use crate::{
+    experimental::query::{
+        run_query, HogQLQueryErrorResponse, HogQLQueryResponse, HogQLQueryResult,
+    },
+    utils::{auth::Token, homedir::posthog_home_dir},
 };
 
 pub struct QueryTui {
@@ -297,8 +298,7 @@ impl QueryTui {
         let query = lines.join("\n");
         let query_endpoint = format!("{}/api/environments/{}/query", self.host, self.creds.env_id);
         let m_token = self.creds.token.clone();
-        let handle =
-            std::thread::spawn(move || query::run_query(&query_endpoint, &m_token, &query));
+        let handle = std::thread::spawn(move || run_query(&query_endpoint, &m_token, &query));
 
         // We drop any previously running thread handle here, but don't kill the thread... this is fine,
         // I think. The alternative is to switch to tokio and get true task cancellation, but :shrug:,
