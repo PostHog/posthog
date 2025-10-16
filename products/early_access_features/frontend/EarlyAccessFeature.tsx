@@ -137,10 +137,10 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     canEdit
                     renameDebounceMs={1000}
                     onNameChange={(name) => {
-                        saveEarlyAccessFeature({ id, name })
+                        saveEarlyAccessFeature({ ...earlyAccessFeature, name })
                     }}
                     onDescriptionChange={(description) => {
-                        saveEarlyAccessFeature({ id, description })
+                        saveEarlyAccessFeature({ ...earlyAccessFeature, description })
                     }}
                     forceEdit={isEditingFeature || isNewEarlyAccessFeature}
                     actions={
@@ -262,13 +262,13 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                 if (isPromotingToGA) {
                                     showGAPromotionConfirmation(() =>
                                         saveEarlyAccessFeature({
-                                            id,
+                                            ...earlyAccessFeature,
                                             stage: value as EarlyAccessFeatureStage,
                                         })
                                     )
                                 } else {
                                     saveEarlyAccessFeature({
-                                        id,
+                                        ...earlyAccessFeature,
                                         stage: value as EarlyAccessFeatureStage,
                                     })
                                 }
