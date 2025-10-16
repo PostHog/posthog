@@ -6,7 +6,7 @@ from typing import Any, Optional, Protocol, TypeVar
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
@@ -1027,7 +1027,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         if "symbol_sets" in request.data:
             chunk_serializer = ErrorTrackingSymbolSetUploadSerializer(data=request.data["symbol_sets"], many=True)
             _ = chunk_serializer.is_valid(raise_exception=True)
-            symbol_sets = chunk_serializer.validated_data
+            symbol_sets = [SymbolSetUpload(**data) for data in chunk_serializer.validated_data]
 
         symbol_sets.extend([SymbolSetUpload(x, release_id, None) for x in chunk_ids])
 
@@ -1037,7 +1037,10 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
-        chunk_id_url_map = bulk_create_symbol_sets(symbol_sets, self.team)
+        try:
+            chunk_id_url_map = bulk_create_symbol_sets(symbol_sets, self.team)
+        except (ValueError, IntegrityError) as error:
+            raise ValidationError(str(error))
 
         return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
 
@@ -1347,15 +1350,33 @@ def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
 ) -> dict[str, dict[str, str]]:
-    id_url_map: dict[str, dict[str, str]] = {}
-
     chunk_ids = [x.chunk_id for x in new_symbol_sets]
+
+    # Check for dupes
+    duplicates = [x for x in chunk_ids if chunk_ids.count(x) > 1]
+    if duplicates:
+        raise ValidationError(
+            code="invalid_chunk_ids",
+            detail=f"Duplicate chunk IDs provided: {', '.join(duplicates)}",
+        )
+
+    # Check we're using all valid release IDs
+    release_ids = (ss.release_id for ss in new_symbol_sets if ss.release_id)
+    fetched_releases = (str(r.id) for r in ErrorTrackingRelease.objects.all().filter(team=team, pk__in=release_ids))
+    for release_id in release_ids:
+        if release_id not in fetched_releases:
+            raise ValidationError(
+                code="invalid_release_id",
+                detail=f"Unknown release ID provided: {release_id}",
+            )
+
+    id_url_map: dict[str, dict[str, str]] = {}
     new_symbol_set_map = {x.chunk_id: x for x in new_symbol_sets}
 
     with transaction.atomic():
         existing_symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids))
         existing_symbol_set_refs = [s.ref for s in existing_symbol_sets]
-        missing_sets = [chunk_id for chunk_id in chunk_ids if chunk_id not in existing_symbol_set_refs]
+        missing_sets = list(set(chunk_ids) - set(existing_symbol_set_refs))
 
         symbol_sets_to_be_created = []
         for chunk_id in missing_sets:
@@ -1387,11 +1408,12 @@ def bulk_create_symbol_sets(
 
             # Allow adding an "orphan" symbol set to a release, but not
             # moving symbols sets between releases
-            if existing.release_id != upload.release_id and upload.release_id:
-                if existing.release_id is not None:
+            if upload.release_id:
+                if existing.release_id is None:
+                    existing.release_id = upload.release_id
+                    dirty = True
+                elif str(existing.release_id) != upload.release_id:
                     raise ValueError(f"Symbol set {existing.ref} already has a release ID")
-                existing.release_id = upload.release_id
-                dirty = True
 
             if existing.content_hash is not None and existing.content_hash != upload.content_hash:
                 # If this symbol set already has a content hash, and they differ, raise. We do not support changing
