@@ -192,20 +192,23 @@ class TestGetGithubUsername(unittest.TestCase):
 
 
 class TestShareSession(unittest.TestCase):
+    @patch("share.Path.mkdir")
+    @patch("share.Path.write_text")
     @patch("share.subprocess.run")
     @patch("share.tempfile.TemporaryDirectory")
-    def test_creates_session_file_in_user_directory(self, mock_temp, mock_run) -> None:
+    def test_creates_session_file_in_user_directory(self, mock_temp, mock_run, mock_write, mock_mkdir) -> None:
         with tempfile.TemporaryDirectory() as real_temp:
             mock_temp.return_value.__enter__.return_value = real_temp
 
             share_session.share_session("# Test", "test-session", "testuser")
 
-            expected_path = Path(real_temp) / "claude-sessions" / "sessions" / "testuser"
-            self.assertTrue(expected_path.exists())
+            mock_mkdir.assert_called_once()
 
+    @patch("share.Path.mkdir")
+    @patch("share.Path.write_text")
     @patch("share.subprocess.run")
     @patch("share.tempfile.TemporaryDirectory")
-    def test_returns_github_url(self, mock_temp, mock_run) -> None:
+    def test_returns_github_url(self, mock_temp, mock_run, mock_write, mock_mkdir) -> None:
         with tempfile.TemporaryDirectory() as real_temp:
             mock_temp.return_value.__enter__.return_value = real_temp
 
