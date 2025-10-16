@@ -102,11 +102,11 @@ class Command(BaseCommand):
                 # Build the cohort data mapping from this ClickHouse batch
                 cohort_data: dict[str, set[int]] = {}
                 for record in clickhouse_batch:
-                    person_uuid = str(record[0])
+                    record_person_uuid = str(record[0])
                     cohort_id = record[1]
-                    if person_uuid not in cohort_data:
-                        cohort_data[person_uuid] = set()
-                    cohort_data[person_uuid].add(cohort_id)
+                    if record_person_uuid not in cohort_data:
+                        cohort_data[record_person_uuid] = set()
+                    cohort_data[record_person_uuid].add(cohort_id)
 
                 # Get existing cohortpeople records to avoid duplicates for this batch
                 existing_pairs = set()
