@@ -1383,7 +1383,7 @@ class FileSystemIconType(StrEnum):
     TASK = "task"
     LINK = "link"
     LOGS = "logs"
-    MESSAGING = "messaging"
+    WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
     COMMENT = "comment"

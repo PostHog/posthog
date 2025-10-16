@@ -10,10 +10,10 @@ import {
     IconCursorClick,
     IconDashboard,
     IconDatabase,
+    IconDecisionTree,
     IconGraph,
     IconHome,
     IconLive,
-    IconMegaphone,
     IconMessage,
     IconNotebook,
     IconPeople,
@@ -609,12 +609,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.MESSAGING]
+                        featureFlags[FEATURE_FLAGS.WORKFLOWS]
                             ? {
-                                  identifier: Scene.Messaging,
-                                  label: 'Messaging',
-                                  icon: <IconMegaphone />,
-                                  to: urls.messaging(),
+                                  identifier: Scene.Workflows,
+                                  label: 'Workflows',
+                                  icon: <IconDecisionTree />,
+                                  to: urls.workflows(),
                                   tag: 'alpha' as const,
                               }
                             : null,
