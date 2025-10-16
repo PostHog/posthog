@@ -32,7 +32,6 @@ import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { isLastSeenException, useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { BreakdownChart } from '../ErrorTrackingIssueBreakdownsScene/BreakdownChart'
-import { BreakdownPresets } from '../ErrorTrackingIssueBreakdownsScene/BreakdownPresets'
 import { BreakdownSearchBar } from '../ErrorTrackingIssueBreakdownsScene/BreakdownSearchBar'
 import { errorTrackingBreakdownsSceneLogic } from '../ErrorTrackingIssueBreakdownsScene/errorTrackingBreakdownsSceneLogic'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
@@ -101,7 +100,6 @@ export function V2Layout(): JSX.Element {
                         <LemonDivider className="my-0" />
                         <div className="p-2 space-y-2">
                             <ErrorTrackingIssueScenePanel showActions={false} />
-                            <BreakdownPresets />
                         </div>
                     </div>
                     <div className="flex col-span-7 gap-y-2 flex-col">

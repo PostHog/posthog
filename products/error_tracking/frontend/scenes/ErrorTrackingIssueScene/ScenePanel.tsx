@@ -1,4 +1,4 @@
-import { useActions, useAsyncActions, useValues } from 'kea'
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
@@ -37,6 +37,8 @@ import { issueActionsLogic } from '../../components/IssueActions/issueActionsLog
 import { IssueTasks } from '../../components/IssueTasks'
 import { RuntimeIcon } from '../../components/RuntimeIcon'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
+import { BreakdownPresets } from '../ErrorTrackingIssueBreakdownsScene/BreakdownPresets'
+import { errorTrackingBreakdownsSceneLogic } from '../ErrorTrackingIssueBreakdownsScene/errorTrackingBreakdownsSceneLogic'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 const RESOURCE_TYPE = 'issue'
@@ -139,6 +141,7 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
             {hasIssueSplitting && <IssueFingerprints />}
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
+            <IssueBreakdowns />
             {hasSimilarIssues && <SimilarIssues />}
         </div>
     ) : null
@@ -315,6 +318,18 @@ const IssueFingerprints = (): JSX.Element => {
                     {issueFingerprintsLoading ? <Spinner /> : `${pluralize(issueFingerprints.length, 'fingerprint')}`}
                 </ButtonPrimitive>
             </Link>
+        </ScenePanelLabel>
+    )
+}
+
+const IssueBreakdowns = (): JSX.Element => {
+    const { issue } = useValues(errorTrackingIssueSceneLogic)
+
+    return (
+        <ScenePanelLabel title="Breakdowns">
+            <BindLogic logic={errorTrackingBreakdownsSceneLogic} props={{ id: issue?.id ?? '' }}>
+                <BreakdownPresets />
+            </BindLogic>
         </ScenePanelLabel>
     )
 }
