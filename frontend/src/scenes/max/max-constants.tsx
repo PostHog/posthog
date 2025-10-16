@@ -143,7 +143,7 @@ export const TOOL_DEFINITIONS: Omit<
     create_message_template: {
         name: 'Create email templates',
         description: 'Create email templates from scratch or using a URL for inspiration',
-        product: Scene.Messaging,
+        product: Scene.Workflows,
     },
     filter_revenue_analytics: {
         name: 'Filter revenue analytics',
