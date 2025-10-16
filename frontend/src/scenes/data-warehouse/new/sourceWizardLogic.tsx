@@ -171,7 +171,7 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
 }
 
 const isTimestampType = (field: IncrementalField): boolean => {
-    const type = field.field_type || field.type
+    const type = field.type || field.field_type
     return type === 'timestamp' || type === 'datetime' || type === 'date'
 }
 
@@ -722,11 +722,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         // Use incremental if available
                         if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
-                            const field = resolveIncrementalField(schema.incremental_fields)
+                            const resolvedField = resolveIncrementalField(schema.incremental_fields)
                             schema.sync_type = method
-                            if (field) {
-                                schema.incremental_field = field.field
-                                schema.incremental_field_type = field.field_type
+                            if (resolvedField) {
+                                schema.incremental_field = resolvedField.field
+                                schema.incremental_field_type = resolvedField.field_type
+                            } else {
+                                const field = schema.incremental_fields.find((n) => n.field == schema.incremental_field)
+                                if (field) {
+                                    schema.incremental_field_type = field.type || field.field_type
+                                }
                             }
                         } else {
                             schema.sync_type = 'full_refresh'
