@@ -249,9 +249,6 @@ mod tests {
         );
 
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-
-        // Don't call init() in tests - it tries to fetch from DB which may fail in CI
-        // Just set the test mappings directly
         let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
         let indexes_to_types = [(1, "organization".to_string())].into_iter().collect();
         group_type_mapping_cache.set_test_mappings(group_types_to_indexes, indexes_to_types);
@@ -266,13 +263,11 @@ mod tests {
             ]),
         )]);
 
-        // Use the full constructor to pass our configured group_type_mapping_cache
-        let router = context.create_postgres_router();
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            router,
+            context.create_postgres_router(),
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
@@ -292,16 +287,6 @@ mod tests {
                 None,
             )
             .await;
-
-        // Add detailed logging to understand CI failures
-        if result.errors_while_computing_flags {
-            eprintln!("Test failed with errors_while_computing_flags = true");
-            eprintln!("Full result: {result:?}");
-            eprintln!("Flags: {:?}", result.flags);
-            eprintln!("Quota limited: {:?}", result.quota_limited);
-            eprintln!("Request ID: {:?}", result.request_id);
-            eprintln!("Config: {:?}", result.config);
-        }
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(!legacy_response.errors_while_computing_flags);

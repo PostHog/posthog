@@ -42,31 +42,6 @@ use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluati
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
-/// Context struct that groups common parameters for flag query operations
-/// This reduces the number of parameters we need to pass around
-pub struct FlagQueryContext<'a> {
-    pub reader: &'a PostgresReader,
-    pub team_id: TeamId,
-    pub project_id: ProjectId,
-    pub config: &'a Config,
-}
-
-impl<'a> FlagQueryContext<'a> {
-    pub fn new(
-        reader: &'a PostgresReader,
-        team_id: TeamId,
-        project_id: ProjectId,
-        config: &'a Config,
-    ) -> Self {
-        Self {
-            reader,
-            team_id,
-            project_id,
-            config,
-        }
-    }
-}
-
 // Replace the static counter with thread-local storage
 #[cfg(test)]
 thread_local! {

@@ -185,7 +185,8 @@ pub struct FeatureFlagMatcher {
     ///     "customer" → "101"
     ///     "team" → "112"
     groups: HashMap<String, Value>,
-    /// Configuration for timeouts and thresholds
+    /// We pass the config here because we want to be able to configure the timeouts and thresholds for the flag evaluation
+    /// without having to make code changes.
     pub config: Arc<Config>,
 }
 
