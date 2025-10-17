@@ -130,6 +130,7 @@ class CreateAndQueryInsightTool(MaxTool):
     args_schema: type[BaseModel] = CreateAndQueryInsightToolArgs
     description: str = INSIGHT_TOOL_PROMPT
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
+    thinking_message: str = "Coming up with an insight"
 
     async def _arun_impl(self, query_description: str, *, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
         graph = await InsightsGraph(self._team, self._user).compile_full_graph()

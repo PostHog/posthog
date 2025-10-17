@@ -18,7 +18,7 @@ from posthog.models import Team, User
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.graph import FunnelGeneratorNode, RetentionGeneratorNode, SQLGeneratorNode, TrendsGeneratorNode
 from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.graph.graph import InsightsAssistantGraph
+from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.graph.query_executor.nodes import QueryExecutorNode
 from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
 from ee.hogai.utils.state import GraphValueUpdateTuple, validate_value_update
@@ -56,7 +56,7 @@ class InsightsAssistant(BaseAssistant):
             conversation,
             new_message=new_message,
             user=user,
-            graph=InsightsAssistantGraph(team, user).compile_full_graph(),
+            graph=InsightsGraph(team, user).compile_full_graph(),
             state_type=AssistantState,
             partial_state_type=PartialAssistantState,
             mode=AssistantMode.INSIGHTS_TOOL,

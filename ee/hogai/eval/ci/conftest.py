@@ -19,7 +19,8 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 # We want the PostHog set_up_evals fixture here
 from ee.hogai.eval.conftest import set_up_evals  # noqa: F401
 from ee.hogai.eval.scorers import PlanAndQueryOutput
-from ee.hogai.graph.graph import AssistantGraph, InsightsAssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
+from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation, CoreMemory
 
@@ -37,7 +38,7 @@ def call_root_for_insight_generation(demo_org_team_user):
 
     insights_subgraph = (
         # Insights subgraph without query execution, so we only create the queries
-        InsightsAssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
+        InsightsGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_query_creation_flow(next_node=AssistantNodeName.END)
         .compile()
     )

@@ -64,9 +64,10 @@ from posthog.models import Action
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.base import AssistantCompiledStateGraph
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.graph.graph import AssistantCompiledStateGraph
+from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
@@ -84,7 +85,7 @@ from ee.hogai.utils.types.base import ReplaceMessages
 from ee.models.assistant import Conversation, CoreMemory
 
 from ..assistant import Assistant
-from ..graph import AssistantGraph, InsightsAssistantGraph
+from ..graph import AssistantGraph
 
 title_generator_mock = patch(
     "ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model",
@@ -257,7 +258,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     )
     async def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_query_planner_run):
         output, _ = await self._run_assistant_graph(
-            InsightsAssistantGraph(self.team, self.user)
+            InsightsGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
             .add_query_planner(
                 {
@@ -347,7 +348,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     )
     async def test_reasoning_messages_with_substeps_added(self, _mock_query_planner_run):
         output, _ = await self._run_assistant_graph(
-            InsightsAssistantGraph(self.team, self.user)
+            InsightsGraph(self.team, self.user)
             .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
             .add_query_planner(
                 {
@@ -466,7 +467,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         ):
             test_graph = (
-                InsightsAssistantGraph(self.team, self.user)
+                InsightsGraph(self.team, self.user)
                 .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
                 .add_query_planner(
                     {
@@ -615,7 +616,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_ai_messages_appended_after_interrupt(self):
         with patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model") as mock:
-            graph = InsightsAssistantGraph(self.team, self.user).compile_full_graph()
+            graph = InsightsGraph(self.team, self.user).compile_full_graph()
             config: RunnableConfig = {
                 "configurable": {
                     "thread_id": self.conversation.id,
