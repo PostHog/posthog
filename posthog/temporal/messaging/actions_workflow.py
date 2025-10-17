@@ -4,12 +4,12 @@ from typing import Any, Optional
 
 import temporalio.activity
 import temporalio.workflow
-from posthog.sync import database_sync_to_async
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.action import Action
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
@@ -66,8 +66,7 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
         else queryset[inputs.offset :]
     )
 
-    actions = await database_sync_to_async(list)(queryset)
-    actions: list[Action] = await sync_to_async(lambda: list(queryset))()
+    actions: list[Action] = await database_sync_to_async(lambda: list(queryset))()
 
     actions_count = 0
 
