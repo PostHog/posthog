@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconCheckCircle, IconCode, IconTerminal } from '@posthog/icons'
+import { IconCheckCircle, IconCode } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
@@ -68,18 +68,10 @@ export function CLIAuthorize(): JSX.Element {
             ) : (
                 <div className="space-y-4">
                     <h2>Authorize CLI Access</h2>
-                    <LemonBanner type="info">
-                        <div className="flex items-start gap-2">
-                            <IconTerminal className="text-lg mt-0.5" />
-                            <div>
-                                <p className="font-semibold">Check your terminal for the authorization code</p>
-                                <p className="text-sm mt-1">
-                                    The PostHog CLI should have displayed a 9-character code (e.g., ABCD-1234). Enter it
-                                    below to authorize your CLI.
-                                </p>
-                            </div>
-                        </div>
-                    </LemonBanner>
+                    <p className="text-muted text-sm">
+                        The PostHog CLI should have displayed a 9-character code (e.g., ABCD-1234). Enter it below to
+                        authorize your CLI.
+                    </p>
                     <Form logic={cliAuthorizeLogic} formKey="authorize" enableFormOnSubmit className="space-y-4">
                         <LemonField name="userCode" label="Authorization Code">
                             <LemonInput
