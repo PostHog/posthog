@@ -268,7 +268,7 @@ class TestTemplateUserlist(BaseHogFunctionTemplateTest):
         assert self.get_mock_print_calls() == snapshot([("Error sending data to Userlist: Invalid payload",)])
 
     def test_function_prints_error_on_bad_status(self):
-        self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "Invalid request"}}
+        self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "Invalid request"}}  # type: ignore
         self.run_function(
             inputs=create_inputs(),
             globals={
