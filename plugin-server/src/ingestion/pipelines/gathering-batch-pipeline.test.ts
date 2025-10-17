@@ -70,7 +70,7 @@ describe('GatheringBatchPipeline', () => {
 
     describe('constructor', () => {
         it('should create instance with sub-pipeline', () => {
-            const subPipeline = createNewBatchPipeline<string>()
+            const subPipeline = createNewBatchPipeline<string>().build()
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
 
             expect(gatherPipeline).toBeInstanceOf(GatheringBatchPipeline)
@@ -79,7 +79,7 @@ describe('GatheringBatchPipeline', () => {
 
     describe('feed', () => {
         it('should delegate to sub-pipeline', () => {
-            const subPipeline = createNewBatchPipeline<string>()
+            const subPipeline = createNewBatchPipeline<string>().build()
             const spy = jest.spyOn(subPipeline, 'feed')
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
 
@@ -93,7 +93,7 @@ describe('GatheringBatchPipeline', () => {
 
     describe('next', () => {
         it('should return null when no results available', async () => {
-            const subPipeline = createNewBatchPipeline<string>()
+            const subPipeline = createNewBatchPipeline<string>().build()
             const gatherPipeline = new GatheringBatchPipeline(subPipeline)
 
             const result = await gatherPipeline.next()

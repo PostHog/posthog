@@ -27,7 +27,7 @@ describe('BaseBatchPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline()
+            const rootPipeline = createNewBatchPipeline().build()
             const pipeline = new BaseBatchPipeline((items: any[]) => {
                 return Promise.resolve(items.map((item: any) => ok({ processed: item.message.value?.toString() })))
             }, rootPipeline)
@@ -48,7 +48,7 @@ describe('BaseBatchPipeline', () => {
         })
 
         it('should handle empty batch', async () => {
-            const rootPipeline = createNewBatchPipeline()
+            const rootPipeline = createNewBatchPipeline().build()
             const pipeline = new BaseBatchPipeline((items: any[]) => {
                 return Promise.resolve(items.map((item: any) => ok(item)))
             }, rootPipeline)
@@ -69,7 +69,7 @@ describe('BaseBatchPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline()
+            const rootPipeline = createNewBatchPipeline().build()
             const pipeline = new BaseBatchPipeline((items: any[]) => {
                 return Promise.resolve(
                     items.map((item: any) => ok({ count: parseInt(item.message.value?.toString() || '0') * 2 }))
@@ -95,7 +95,7 @@ describe('BaseBatchPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline()
+            const rootPipeline = createNewBatchPipeline().build()
             const firstPipeline = new BaseBatchPipeline((items: any[]) => {
                 return Promise.resolve(
                     items.map((item: any) => {
@@ -136,7 +136,7 @@ describe('BaseBatchPipeline', () => {
             const messages: Message[] = [createTestMessage({ value: Buffer.from('1'), offset: 1 })]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline()
+            const rootPipeline = createNewBatchPipeline().build()
             const pipeline = new BaseBatchPipeline(() => {
                 return Promise.reject(new Error('Batch step failed'))
             }, rootPipeline)
@@ -154,7 +154,7 @@ describe('BaseBatchPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline()
+            const rootPipeline = createNewBatchPipeline().build()
 
             function testBatchStep(items: any[]) {
                 return Promise.resolve(items.map((item: any) => ok({ processed: item.message.value?.toString() })))
@@ -181,7 +181,7 @@ describe('BaseBatchPipeline', () => {
             const messages: Message[] = [createTestMessage({ value: Buffer.from('test1'), offset: 1 })]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline()
+            const rootPipeline = createNewBatchPipeline().build()
 
             const anonymousStep = (items: any[]) => {
                 return Promise.resolve(items.map((item: any) => ok({ processed: item.message.value?.toString() })))
@@ -207,7 +207,7 @@ describe('BaseBatchPipeline', () => {
             ]
 
             const batch = createBatch(messages.map((message) => ({ message })))
-            const rootPipeline = createNewBatchPipeline()
+            const rootPipeline = createNewBatchPipeline().build()
 
             function testBatchStep(items: any[]) {
                 return Promise.resolve(
@@ -252,7 +252,7 @@ describe('BaseBatchPipeline', () => {
                 }),
             ]
 
-            const rootPipeline = createNewBatchPipeline()
+            const rootPipeline = createNewBatchPipeline().build()
 
             const stepSideEffect1 = Promise.resolve('step-side-effect-1')
             const stepSideEffect2 = Promise.resolve('step-side-effect-2')
@@ -283,7 +283,7 @@ describe('BaseBatchPipeline', () => {
                 }),
             ]
 
-            const rootPipeline = createNewBatchPipeline()
+            const rootPipeline = createNewBatchPipeline().build()
             const pipeline = new BaseBatchPipeline((items: any[]) => {
                 return Promise.resolve(items.map(() => ok({ processed: 'result' })))
             }, rootPipeline)
@@ -305,7 +305,7 @@ describe('BaseBatchPipeline', () => {
                 }),
             ]
 
-            const rootPipeline = createNewBatchPipeline()
+            const rootPipeline = createNewBatchPipeline().build()
 
             const stepSideEffect = Promise.resolve('step-side-effect')
             const pipeline = new BaseBatchPipeline((items: any[]) => {
@@ -345,7 +345,7 @@ describe('BaseBatchPipeline', () => {
                 }),
             ]
 
-            const rootPipeline = createNewBatchPipeline()
+            const rootPipeline = createNewBatchPipeline().build()
 
             const step1SideEffect = Promise.resolve('step-1')
             const step3aSideEffect = Promise.resolve('step-3a')

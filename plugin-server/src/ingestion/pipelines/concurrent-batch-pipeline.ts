@@ -1,24 +1,27 @@
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
-import { BranchFunction, BranchingBatchPipeline } from './branching-batch-pipeline'
-import { GatheringBatchPipeline } from './gathering-batch-pipeline'
 import { Pipeline, PipelineContext, PipelineResultWithContext } from './pipeline.interface'
 import { isOkResult } from './results'
 
-export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput, C = PipelineContext>
-    implements BatchPipeline<TInput, TOutput, C>
+export class ConcurrentBatchProcessingPipeline<
+    TInput,
+    TIntermediate,
+    TOutput,
+    CInput = PipelineContext,
+    COutput = CInput,
+> implements BatchPipeline<TInput, TOutput, CInput, COutput>
 {
-    private promiseQueue: Promise<PipelineResultWithContext<TOutput, C>>[] = []
+    private promiseQueue: Promise<PipelineResultWithContext<TOutput, COutput>>[] = []
 
     constructor(
-        private processor: Pipeline<TIntermediate, TOutput, C>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, C>
+        private processor: Pipeline<TIntermediate, TOutput, COutput>,
+        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput>
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, C>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, C> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
         const previousResults = await this.previousPipeline.next()
 
         if (previousResults !== null) {
@@ -45,17 +48,5 @@ export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput, C
 
         const resultWithContext = await promise
         return [resultWithContext]
-    }
-
-    gather(): GatheringBatchPipeline<TInput, TOutput, C> {
-        return new GatheringBatchPipeline(this)
-    }
-
-    branch<TBranched, COut extends C = C>(
-        branchFn: BranchFunction<TOutput, TBranched, C, COut>,
-        truePipeline: BatchPipeline<TBranched, TOutput, COut>,
-        falsePipeline: BatchPipeline<TOutput, TOutput, C>
-    ): BranchingBatchPipeline<TInput, TOutput, TBranched, TOutput, C, COut> {
-        return new BranchingBatchPipeline(this, branchFn, truePipeline, falsePipeline)
     }
 }

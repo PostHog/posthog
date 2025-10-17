@@ -3,19 +3,23 @@ import { Team } from '../../types'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 
-export class IngestionWarningHandlingBatchPipeline<TInput, TOutput, CInput extends { team: Team }>
-    implements BatchPipeline<TInput, TOutput, CInput>
+export class IngestionWarningHandlingBatchPipeline<
+    TInput,
+    TOutput,
+    CInput extends { team: Team },
+    COutput extends { team: Team } = CInput,
+> implements BatchPipeline<TInput, TOutput, CInput, COutput>
 {
     constructor(
         private kafkaProducer: KafkaProducerWrapper,
-        private subPipeline: BatchPipeline<TInput, TOutput, CInput>
+        private subPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>
     ) {}
 
     feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
         this.subPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, CInput> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
         const results = await this.subPipeline.next()
         if (results === null) {
             return null
