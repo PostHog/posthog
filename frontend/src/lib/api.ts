@@ -109,6 +109,7 @@ import {
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
+    IndividualSessionSummariesResponse,
     InsightModel,
     IntegrationType,
     LineageGraph,
@@ -4471,6 +4472,15 @@ const api = {
     sessionSummaries: {
         async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
             return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
+        },
+        async createIndividual(data: {
+            session_ids: string[]
+            focus_area?: string
+        }): Promise<IndividualSessionSummariesResponse> {
+            return await new ApiRequest()
+                .sessionSummary()
+                .withAction('create_session_summaries_individually')
+                .create({ data })
         },
     },
 

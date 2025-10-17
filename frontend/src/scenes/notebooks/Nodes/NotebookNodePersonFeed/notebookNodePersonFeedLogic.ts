@@ -1,6 +1,5 @@
-import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { performQuery } from '~/queries/query'
 import { NodeKind, SessionsTimelineQuery, SessionsTimelineQueryResponse } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import { SessionSummaryResponse } from '~/types'
+import { SessionSummary } from '~/types'
 
 import type { notebookNodePersonFeedLogicType } from './notebookNodePersonFeedLogicType'
 
@@ -27,10 +26,11 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
 
     actions({
         summarizeSessions: true,
+        summarizeSession: (sessionId: string) => ({ sessionId }),
         setSummarizingState: (state: 'idle' | 'loading' | 'success' | 'error') => ({ state }),
     }),
 
-    loaders(({ actions, values, props }) => ({
+    loaders(({ values, props }) => ({
         sessions: [
             null as SessionsTimelineQueryResponse['results'] | null,
             {
@@ -45,27 +45,28 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                 },
             },
         ],
-        sessionSummary: [
-            null as SessionSummaryResponse | null,
+        summaries: [
+            {} as Record<string, SessionSummary>,
             {
-                summarizeSessions: async () => {
-                    try {
-                        actions.setSummarizingState('loading')
-                        if (values.sessionIdsWithRecording.length === 0) {
-                            return null
-                        }
-
-                        const response = await api.sessionSummaries.create({
-                            session_ids: values.sessionIdsWithRecording,
-                        })
-                        return response
-                    } catch (error) {
-                        posthog.captureException(error)
-                        throw error
-                    }
+                summarizeSession: async ({ sessionId }) => {
+                    const response = await api.sessionSummaries.createIndividual({
+                        session_ids: [sessionId],
+                    })
+                    return { ...values.summaries, ...response }
                 },
             },
         ],
+    })),
+
+    listeners(({ actions, values }) => ({
+        summarizeSessions: async () => {
+            values.sessionIdsWithRecording.forEach((sessionId) => actions.summarizeSession(sessionId))
+        },
+        summarizeSessionSuccess: () => {
+            if (values.allSessionsSummarized) {
+                actions.setSummarizingState('success')
+            }
+        },
     })),
 
     reducers({
@@ -73,8 +74,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             'idle' as 'idle' | 'loading' | 'success' | 'error',
             {
                 setSummarizingState: (_, { state }) => state,
-                summarizeSessionsSuccess: () => 'success',
-                summarizeSessionsFailure: () => 'error',
+                summarizeSessions: () => 'loading',
             },
         ],
     }),
@@ -89,6 +89,11 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                     .filter((id) => id !== undefined) as string[],
         ],
         canSummarize: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]],
+        allSessionsSummarized: [
+            (s) => [s.summaries, s.sessionIdsWithRecording],
+            (summaries, sessionIdsWithRecording) =>
+                sessionIdsWithRecording.every((sessionId) => sessionId in summaries),
+        ],
     }),
 
     afterMount(({ actions }) => {
