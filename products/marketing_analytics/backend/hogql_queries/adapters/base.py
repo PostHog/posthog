@@ -74,7 +74,7 @@ class TikTokAdsConfig(BaseMarketingConfig):
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable
-    source_id: str
+    stats_table: DataWarehouseTable
 
 
 @dataclass
