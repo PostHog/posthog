@@ -77,9 +77,7 @@ where
 
 /// Custom deserializer for optional boolean values that can also accept string booleans.
 /// Handles null and missing values as None, otherwise delegates to `deserialize_flexible_bool`.
-pub fn deserialize_flexible_option_bool<'de, D>(
-    deserializer: D,
-) -> Result<Option<bool>, D::Error>
+pub fn deserialize_flexible_option_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -195,10 +193,7 @@ mod tests {
 
     #[derive(Deserialize, Debug, PartialEq)]
     struct TestOptionalStruct {
-        #[serde(
-            default,
-            deserialize_with = "deserialize_flexible_option_bool"
-        )]
+        #[serde(default, deserialize_with = "deserialize_flexible_option_bool")]
         flag: Option<bool>,
     }
 
