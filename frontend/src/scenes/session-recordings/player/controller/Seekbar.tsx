@@ -1,11 +1,11 @@
 import './Seekbar.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 import React from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 
 import { RecordingSegment } from '~/types'
 
@@ -27,7 +27,7 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
 }): JSX.Element {
     return (
         <div
-            className={clsx(
+            className={cn(
                 'PlayerSeekbar__segments__item',
                 segment.isActive && 'PlayerSeekbar__segments__item--active',
                 segment.kind === 'buffer' && 'PlayerSeekbar__segments__item--buffer-loading'
@@ -91,7 +91,7 @@ export function Seekbar(): JSX.Element {
                 hoverRef={seekBarRef}
             />
 
-            <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
+            <div className={cn('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
                 <div
                     className="PlayerSeekbar__slider ph-no-rageclick"
                     ref={sliderRef}
