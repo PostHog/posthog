@@ -20,7 +20,7 @@ pub fn login() -> Result<(), Error> {
         "Enter your personal API token",
     )
     .with_validator(token_validator)
-    .with_help_message("See posthog.com/docs/api#private-endpoint-authentication. It will need to have the 'Error tracking' scope.")
+    .with_help_message("See posthog.com/docs/api#private-endpoint-authentication. It will need to have the 'error tracking write' scope.")
     .prompt()?;
 
     let token = Token {
