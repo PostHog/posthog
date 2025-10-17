@@ -492,6 +492,61 @@ class TestTaskRunAPI(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task1.id}/runs/{run2.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_append_log_entries(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
+            {
+                "entries": [
+                    {"type": "info", "message": "Starting task"},
+                    {"type": "progress", "message": "Step 1 complete"},
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        run.refresh_from_db()
+        self.assertEqual(len(run.log), 2)
+        self.assertEqual(run.log[0]["type"], "info")
+        self.assertEqual(run.log[0]["message"], "Starting task")
+        self.assertEqual(run.log[1]["type"], "progress")
+        self.assertEqual(run.log[1]["message"], "Step 1 complete")
+
+    def test_append_log_to_existing_entries(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            log=[{"type": "info", "message": "Initial entry"}],
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
+            {"entries": [{"type": "success", "message": "Task completed"}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        run.refresh_from_db()
+        self.assertEqual(len(run.log), 2)
+        self.assertEqual(run.log[0]["message"], "Initial entry")
+        self.assertEqual(run.log[1]["message"], "Task completed")
+
+    def test_append_log_empty_entries_fails(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
+            {"entries": []},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 class TestTasksAPIPermissions(BaseTaskAPITest):
     def setUp(self):
