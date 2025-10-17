@@ -1016,7 +1016,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
 
         // the relative time in the recording to target for buffering
-        targetBufferTime: [
+        targetBufferTimestamp: [
             (s) => [s.currentPlayerTime, s.sessionPlayerData],
             (currentPlayerTime, sessionPlayerData): number | null => {
                 const recordingStart = sessionPlayerData.start.valueOf()
