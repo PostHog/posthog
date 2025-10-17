@@ -1075,7 +1075,14 @@ def sync_feature_flag_last_called() -> None:
                 )
                 updated_count = len(flags_to_update)
             except Exception as e:
-                capture_exception(e, additional_properties={"flags_count": len(flags_to_update)})
+                capture_exception(
+                    e,
+                    additional_properties={
+                        "feature": "feature_flags",
+                        "task": "sync_feature_flag_last_called",
+                        "flags_count": len(flags_to_update),
+                    },
+                )
                 raise
 
         # Store checkpoint for next sync using the latest timestamp from results
@@ -1104,7 +1111,9 @@ def sync_feature_flag_last_called() -> None:
     except Exception as e:
         duration = (timezone.now() - start_time).total_seconds()
         logger.exception("Feature flag sync failed", error=e, duration_seconds=duration)
-        capture_exception(e)
+        capture_exception(
+            e, additional_properties={"feature": "feature_flags", "task": "sync_feature_flag_last_called"}
+        )
         raise
     finally:
         # Always release the lock
