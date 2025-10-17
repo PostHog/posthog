@@ -327,35 +327,6 @@ describe('EventPipelineRunner', () => {
             })
         })
 
-        describe('client ingestion error event', () => {
-            it('drops events and adds a warning for special $$client_ingestion_warning event', async () => {
-                const event = {
-                    ...pipelineEvent,
-                    properties: { $$client_ingestion_warning_message: 'My warning message!' },
-                    event: '$$client_ingestion_warning',
-                    team_id: 9,
-                }
-                const team9: Team = {
-                    ...team,
-                    id: 9,
-                }
-
-                const result = await runner.runEventPipeline(event, team9)
-                expect(runner.steps).toEqual([])
-                expect(result.type).toBe(PipelineResultType.DROP)
-                expect(result.warnings).toHaveLength(1)
-                expect(result.warnings[0]).toMatchObject({
-                    type: 'client_ingestion_warning',
-                    details: {
-                        eventUuid: 'uuid1',
-                        event: '$$client_ingestion_warning',
-                        distinctId: 'my_id',
-                        message: 'My warning message!',
-                    },
-                })
-            })
-        })
-
         describe('$$heatmap events', () => {
             let heatmapEvent: PluginEvent
             beforeEach(() => {

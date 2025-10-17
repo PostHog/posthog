@@ -180,21 +180,6 @@ export class EventPipelineRunner {
         const kafkaAcks: Promise<void>[] = []
         const warnings: PipelineWarning[] = []
 
-        if (event.event === '$$client_ingestion_warning') {
-            warnings.push({
-                type: 'client_ingestion_warning',
-                details: {
-                    eventUuid: event.uuid,
-                    event: event.event,
-                    distinctId: event.distinct_id,
-                    message: event.properties?.$$client_ingestion_warning_message,
-                },
-                alwaysSend: true,
-            })
-
-            return drop('client_ingestion_warning', kafkaAcks, warnings)
-        }
-
         if (event.event === '$$heatmap') {
             return await this.runHeatmapPipelineSteps(event, kafkaAcks, warnings)
         }
