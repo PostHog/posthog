@@ -27,22 +27,20 @@ export function SaveToCohortModalContent({ closeModal, query }: SaveToCohortModa
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: function Render(name, { id, description }) {
                 return (
-                    <>
-                        <LemonTableLink
-                            to={urls.cohort(id)}
-                            target="_blank"
-                            title={
-                                name ? (
-                                    <>
-                                        {name} <IconOpenInNew className="shrink-0" />
-                                    </>
-                                ) : (
-                                    'Untitled'
-                                )
-                            }
-                            description={description}
-                        />
-                    </>
+                    <LemonTableLink
+                        to={urls.cohort(id)}
+                        target="_blank"
+                        title={
+                            name ? (
+                                <>
+                                    {name} <IconOpenInNew className="shrink-0" />
+                                </>
+                            ) : (
+                                'Untitled'
+                            )
+                        }
+                        description={description}
+                    />
                 )
             },
         },
