@@ -79,6 +79,10 @@ export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & 
     payloads?: Record<string, any>
 }
 
+export type VariantError = {
+    key: string | undefined
+}
+
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
     threshold_type: RolloutConditionType.Sentry,
@@ -1451,6 +1455,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag],
             (featureFlag: FeatureFlagType) => {
                 return featureFlag?.filters?.groups?.flatMap((g) => g.properties ?? []) ?? []
+            },
+        ],
+        variantErrors: [
+            (s) => [s.variants],
+            (variants) => {
+                const errors: VariantError[] = variants.map(({ key: variantKey }: MultivariateFlagVariant) => ({
+                    key: validateFeatureFlagKey(variantKey),
+                }))
+                return errors
             },
         ],
     }),

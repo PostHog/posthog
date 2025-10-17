@@ -7,7 +7,8 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -32,10 +33,10 @@ export function DataWarehouseScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Data Warehouse"
-                description="Manage your data warehouse sources and queries"
+                name={sceneConfigurations[Scene.DataWarehouse].name}
+                description={sceneConfigurations[Scene.DataWarehouse].description}
                 resourceType={{
-                    type: 'data_warehouse',
+                    type: sceneConfigurations[Scene.DataWarehouse].iconType || 'default_icon_type',
                 }}
                 actions={
                     <div className="flex gap-2">
