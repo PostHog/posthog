@@ -46,6 +46,7 @@ import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages
 import type {
     CurrencyCode,
     DashboardFilter,
+    DataWarehouseManagedViewsetKind,
     DatabaseSchemaField,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
@@ -685,6 +686,7 @@ export interface TeamType extends TeamBasicType {
     default_evaluation_environments_enabled: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
+    managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
 }
 
@@ -5894,6 +5896,14 @@ export interface DatasetItem {
     updated_at: string
     created_at: string
     deleted: boolean
+}
+
+// Managed viewset
+export interface DataWarehouseManagedViewsetSavedQuery {
+    id: string
+    created_at: string
+    created_by_id: string | null
+    name: string
 }
 
 // Session Summaries
