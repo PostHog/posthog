@@ -320,7 +320,7 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 if (hasConversionsColumn) {
                     return {
                         math: 'hogql' as any,
-                        math_hogql: 'SUM(toFloat(conversions))',
+                        math_hogql: 'SUM(toFloat(conversion))',
                     }
                 }
                 return {
