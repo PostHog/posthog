@@ -47,7 +47,7 @@ async def get_actions_count_activity(inputs: ActionsCoordinatorWorkflowInputs) -
     # Only get actions that are not deleted and have bytecode
     queryset = Action.objects.filter(deleted=False, bytecode__isnull=False)
 
-    count = await sync_to_async(queryset.count)()
+    count = await database_sync_to_async(queryset.count)()
     return ActionsCountResult(count=count)
 
 
