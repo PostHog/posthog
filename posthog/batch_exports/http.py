@@ -648,7 +648,7 @@ def recursive_dict_merge(
         if not isinstance(value, dict):
             continue
 
-        merged[key] = recursive_dict_merge(old.get(key, {}), new.get(key, {}))
+        merged[key] = recursive_dict_merge(old.get(key, None) or {}, new.get(key, None) or {})
 
     return merged
 
