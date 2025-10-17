@@ -93,7 +93,7 @@ The simplest setup for permissions is to only allow **read** permissions for the
         return shopify_source(
             shopify_store_id=config.shopify_store_id,
             shopify_access_token=config.shopify_access_token,
-            resource_name=inputs.schema_name,
+            graphql_object_name=inputs.schema_name,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             db_incremental_field_earliest_value=inputs.db_incremental_field_earliest_value,

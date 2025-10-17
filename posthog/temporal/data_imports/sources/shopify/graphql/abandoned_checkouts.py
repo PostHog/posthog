@@ -1,9 +1,14 @@
 from .fragments import KV_FRAGMENT, MAILING_ADDRESS_FRAGMENT, MONEY_BAG_FRAGMENT
 
+ABANDONED_CHECKOUTS_SORTKEY = "CREATED_AT"
+
 # NOTE: 250 is the max allowable query size for line items
 ABANDONED_CHECKOUTS_QUERY = f"""
-query PaginatedAbandonedCheckouts($pageSize: Int!, $cursor: String) {{
-    abandonedCheckouts(first: $pageSize, after: $cursor) {{
+query PaginatedAbandonedCheckouts($pageSize: Int!, $cursor: String, $query: String) {{
+    abandonedCheckouts(
+        first: $pageSize, after: $cursor, sortKey: {ABANDONED_CHECKOUTS_SORTKEY},
+        reverse: true, query: $query
+    ) {{
         nodes {{
             abandonedCheckoutUrl
             billingAddress {MAILING_ADDRESS_FRAGMENT}

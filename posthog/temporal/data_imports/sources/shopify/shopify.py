@@ -8,7 +8,7 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.shopify.settings import INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.shopify.settings import INCREMENTAL_SETTINGS
 from posthog.temporal.data_imports.sources.shopify.utils import ShopifyGraphQLObject, safe_unwrap, unwrap
 
 from .constants import (
@@ -52,10 +52,11 @@ def _get_retryable_error(payload: Any) -> ShopifyRetryableError | None:
         # too often might be worth it to check against the requestedCost instead
         if currently_available <= 0:
             return ShopifyRetryableError("Shopify: rate limit exceeded...")
+    return
 
 
 def _make_paginated_shopify_request(
-    url: str, sess: Session, graphql_object: ShopifyGraphQLObject, logger: FilteringBoundLogger
+    url: str, sess: Session, graphql_object: ShopifyGraphQLObject, query: str | None = None
 ):
     @retry(
         retry=retry_if_exception_type(ShopifyRetryableError),
@@ -82,7 +83,9 @@ def _make_paginated_shopify_request(
         else:
             raise Exception(f"Unexpected graphql response format in Shopify rows read. Keys: {list(payload.keys())}")
 
-    vars = {"pageSize": SHOPIFY_DEFAULT_PAGE_SIZE}
+    vars: dict[str, Any] = {"pageSize": SHOPIFY_DEFAULT_PAGE_SIZE}
+    if query:
+        vars.update({"query": query})
     has_next_page = True
     while has_next_page:
         payload = execute(vars)
@@ -115,30 +118,36 @@ def shopify_source(
 
         logger.debug(f"Shopify: reading from resource {graphql_object_name}")
 
-        incremental_field_config = INCREMENTAL_FIELDS.get(graphql_object_name, [])
-        _ = incremental_field_config[0]["field"] if incremental_field_config else "createdAt"
-
         if not should_use_incremental_field or (
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
         ):
-            logger.debug(f"Shopify: iterating all objects from source")
-            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger)
+            logger.debug(f"Shopify: iterating all objects from source for {graphql_object_name}")
+            yield from _make_paginated_shopify_request(api_url, sess, graphql_object)
             return
 
+        # NOTE: we use inclusive comparisons below because upon testing the shopify APIs with query filters
+        # >= and <= behave the same as > and < for datetime fields... which is a crime against humanity
+        incremental = INCREMENTAL_SETTINGS.get(graphql_object_name)
+        query_filter = incremental.query_filter if incremental else "created_at"
+
+        # check for any objects less than the minimum object we already have
         if db_incremental_field_earliest_value is not None:
             logger.debug(
                 f"Shopify: iterating earliest objects from source: createdAt < {db_incremental_field_earliest_value}"
             )
-            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger)
+            query = f"{query_filter}:<='{db_incremental_field_earliest_value}'"
+            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, query)
 
+        # check for any objects more than the maximum object we already have
         if db_incremental_field_last_value is not None:
             logger.debug(
                 f"Shopify: iterating latest objects from source: createdAt >= {db_incremental_field_last_value}"
             )
-            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger)
+            query = f"{query_filter}:>='{db_incremental_field_earliest_value}'"
+            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, query)
 
-    incremental_field_config = INCREMENTAL_FIELDS.get(graphql_object_name, [])
-    incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "createdAt"
+    incremental = INCREMENTAL_SETTINGS.get(graphql_object_name)
+    partition_key = incremental.fields[0]["field"] if incremental else "createdAt"
 
     return SourceResponse(
         items=get_rows(),
@@ -149,7 +158,7 @@ def shopify_source(
         partition_size=1,  # this enables partitioning
         partition_mode="datetime",
         partition_format="month",
-        partition_keys=[incremental_field_name],
+        partition_keys=[partition_key],
     )
 
 

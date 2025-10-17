@@ -1,6 +1,5 @@
 from .graphql.abandoned_checkouts import ABANDONED_CHECKOUTS_QUERY
 from .graphql.articles import ARTICLES_QUERY
-from .graphql.shopify_payments_account_balance_transactions import SHOPIFY_PAYMENTS_ACCOUNT_BALANCE_TRANSACTIONS_QUERY
 from .utils import ShopifyGraphQLObject
 
 SHOPIFY_API_VERSION = "2025-10"
@@ -51,7 +50,6 @@ PRODUCT_VARIANTS = "productVariants"
 PRODUCTS = "products"
 PROFILE_LOCATION_GROUPS = "profileLocationGroups"
 SHOP = "shop"
-SHOPIFY_PAYMENTS_ACCOUNT_BALANCE_TRANSACTIONS = "shopifyPaymentsAccount.balanceTransactions"
 SMART_COLLECTIONS = "smartCollections"
 TENDER_TRANSACTIONS = "tenderTransactions"
 TRANSACTIONS = "transactions"
@@ -110,11 +108,6 @@ SHOPIFY_GRAPHQL_OBJECTS = {
     # PRODUCTS: ShopifyGraphQLObject(name=PRODUCTS, query=""),
     # PROFILE_LOCATION_GROUPS: ShopifyGraphQLObject(name=PROFILE_LOCATION_GROUPS, query=""),
     # SHOP: ShopifyGraphQLObject(name=SHOP, query=""),
-    SHOPIFY_PAYMENTS_ACCOUNT_BALANCE_TRANSACTIONS: ShopifyGraphQLObject(
-        name=SHOPIFY_PAYMENTS_ACCOUNT_BALANCE_TRANSACTIONS,
-        query=SHOPIFY_PAYMENTS_ACCOUNT_BALANCE_TRANSACTIONS_QUERY,
-        permissions_query="{ shop { id } }",
-    ),
     # SMART_COLLECTIONS: ShopifyGraphQLObject(name=SMART_COLLECTIONS, query=""),
     # TENDER_TRANSACTIONS: ShopifyGraphQLObject(name=TENDER_TRANSACTIONS, query=""),
     # TRANSACTIONS: ShopifyGraphQLObject(name=TRANSACTIONS, query=""),
