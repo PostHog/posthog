@@ -1437,12 +1437,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.pauseIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
-
-            // When paused, we continue loading in background unconditionally
-            // resumeLoading() will automatically trigger loading to continue
-            if (!values.fullyLoaded) {
-                actions.resumeLoading()
-            }
         },
         setEndReached: ({ reached }) => {
             if (reached) {
