@@ -6,7 +6,7 @@ from typing import Any
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
-from asgiref.sync import sync_to_async
+from posthog.sync import database_sync_to_async
 
 from posthog.constants import MESSAGING_TASK_QUEUE
 from posthog.models.action import Action
