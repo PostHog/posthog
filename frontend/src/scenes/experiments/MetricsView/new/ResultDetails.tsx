@@ -236,6 +236,7 @@ export function ResultDetails({
                     inCardView={true}
                     experimentResult={result}
                     experiment={experiment}
+                    metric={metric}
                 />
             )}
         </div>

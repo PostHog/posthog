@@ -18,7 +18,8 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -61,9 +62,10 @@ export function LogsScene(): JSX.Element {
     return (
         <SceneContent className="h-screen">
             <SceneTitleSection
-                name="Logs"
+                name={sceneConfigurations[Scene.Logs].name}
+                description={sceneConfigurations[Scene.Logs].description}
                 resourceType={{
-                    type: 'logs',
+                    type: sceneConfigurations[Scene.Logs].iconType || 'default_icon_type',
                 }}
             />
             <SceneDivider />

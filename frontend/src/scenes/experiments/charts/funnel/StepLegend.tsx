@@ -6,7 +6,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 
-import { FunnelStepWithConversionMetrics } from '~/types'
+import { isExperimentFunnelMetric } from '~/queries/schema/schema-general'
+import { FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
+
+import { useFunnelChartData } from './FunnelChart'
 
 interface StepLegendProps {
     step: FunnelStepWithConversionMetrics
@@ -15,7 +18,14 @@ interface StepLegendProps {
 }
 
 export function StepLegend({ step, stepIndex, showTime }: StepLegendProps): JSX.Element {
+    const { metric } = useFunnelChartData()
     const aggregationTargetLabel = { singular: 'user', plural: 'users' }
+
+    const isUnorderedFunnel =
+        !!metric && isExperimentFunnelMetric(metric) && metric.funnel_order_type === StepOrderValue.UNORDERED
+    const stepLabel = isUnorderedFunnel
+        ? `Completed ${stepIndex + 1} ${stepIndex === 0 ? 'step' : 'steps'}`
+        : step.custom_name || step.name
 
     const convertedCountPresentation = pluralize(
         step.count ?? 0,
@@ -44,7 +54,7 @@ export function StepLegend({ step, stepIndex, showTime }: StepLegendProps): JSX.
     return (
         <div className="StepLegend">
             <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}>
-                <span title={step.custom_name || step.name}>{step.custom_name || step.name}</span>
+                <span title={stepLabel}>{stepLabel}</span>
             </LemonRow>
             <LemonRow icon={<IconTrendingFlat />} status="success" style={{ color: 'unset' }}>
                 <Tooltip

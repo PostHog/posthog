@@ -1,1 +1,1 @@
-0879_migrate_error_tracking_models
+0887_drop_named_query
