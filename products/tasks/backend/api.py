@@ -384,7 +384,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         task_id = self.kwargs.get("parent_lookup_task_id")
-        task = Task.objects.get(id=task_id, team=self.team)
+        if not task_id:
+            raise NotFound("Task ID is required")
+        task = Task.objects.get(id=cast(str, task_id), team=self.team)
         serializer.save(team=self.team, task=task)
 
     def perform_update(self, serializer):

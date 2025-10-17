@@ -900,12 +900,14 @@ class TestTaskRun(TestCase):
         )
 
         run.refresh_from_db()
+        assert run.output is not None
         self.assertEqual(run.output["pr_url"], "https://github.com/org/repo/pull/123")
         self.assertEqual(run.output["commit_sha"], "abc123")
 
         run.output["status"] = "success"
         run.save()
         run.refresh_from_db()
+        assert run.output is not None
         self.assertEqual(run.output["status"], "success")
 
     def test_state_jsonfield(self):
