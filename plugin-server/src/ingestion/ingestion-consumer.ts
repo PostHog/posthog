@@ -49,8 +49,9 @@ import {
 import { newBatchPipelineBuilder } from './pipelines/batch-pipeline-builder'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
-import { createBatch, createUnwrapper } from './pipelines/helpers'
+import { createBatch, createContext, createUnwrapper } from './pipelines/helpers'
 import { PipelineConfig } from './pipelines/result-handling-pipeline'
+import { ok } from './pipelines/results'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -125,7 +126,7 @@ export class IngestionConsumer {
         PreprocessedEvent,
         { message: Message }
     >
-    private perDistinctIdPipeline!: BatchPipeline<PreprocessedEventWithStores, void, { message: Message }>
+    private perDistinctIdPipeline!: BatchPipeline<PreprocessedEventWithStores, void, { message: Message; team: Team }>
 
     constructor(
         private hub: Hub,
@@ -589,7 +590,9 @@ export class IngestionConsumer {
         )
 
         // Feed the batch to the main event pipeline
-        const eventsSequence = createBatch(preprocessedEventsWithStores)
+        const eventsSequence = preprocessedEventsWithStores.map((event) =>
+            createContext(ok(event), { message: event.message, team: event.team })
+        )
         this.perDistinctIdPipeline.feed(eventsSequence)
         await this.perDistinctIdPipeline.next()
     }
