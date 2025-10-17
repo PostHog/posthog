@@ -261,7 +261,7 @@ impl CheckpointWorker {
                     local_attempt_path = local_attempt_path_tag,
                     total_files = plan.info.metadata.files.len(),
                     new_files = plan.files_to_upload.len(),
-                    reused_files = plan.files_to_upload.len(),
+                    reused_files = plan.info.metadata.files.len() - plan.files_to_upload.len(),
                     "Checkpoint plan created"
                 );
 
