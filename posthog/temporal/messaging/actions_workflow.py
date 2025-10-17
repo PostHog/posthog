@@ -109,7 +109,7 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
             try:
                 with tags_context(
                     team_id=action.team_id,
-                    feature=Feature.ACTIONS,
+                    feature=Feature.BEHAVIORAL_COHORTS,
                     product=Product.MESSAGING,
                     query_type="action_event_counts_per_person_per_day",
                 ):
