@@ -43,6 +43,7 @@ import {
 } from './event-preprocessing'
 import { createEmitEventStep } from './event-processing/emit-event-step'
 import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
+import { createHandleClientIngestionWarningStep } from './event-processing/handle-client-ingestion-warning-step'
 import { createNormalizeProcessPersonFlagStep } from './event-processing/normalize-process-person-flag-step'
 import { newBatchPipelineBuilder } from './pipelines/batch-pipeline-builder'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
@@ -309,6 +310,7 @@ export class IngestionConsumer {
                                 (retry) =>
                                     retry
                                         .pipe(createNormalizeProcessPersonFlagStep())
+                                        .pipe(createHandleClientIngestionWarningStep())
                                         .pipe(createEventPipelineRunnerV1Step(this.hub, this.hogTransformer))
                                         .pipe(
                                             createEmitEventStep({
