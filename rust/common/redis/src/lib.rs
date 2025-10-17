@@ -13,7 +13,7 @@ fn get_redis_timeout_ms() -> u64 {
     std::env::var("REDIS_TIMEOUT_MS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| {
+        .unwrap_or({
             // Use longer timeout in test environments to handle concurrent test execution
             if cfg!(test) {
                 5000 // 5 seconds for tests
