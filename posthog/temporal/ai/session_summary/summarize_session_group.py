@@ -700,7 +700,7 @@ async def execute_summarize_session_group(
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-    video_validation_enabled: bool = False,
+    video_validation_enabled: bool | None = None,
 ) -> AsyncGenerator[
     tuple[SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict], None
 ]:

@@ -101,7 +101,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         team: Team,
         min_timestamp: datetime,
         max_timestamp: datetime,
-        video_validation_enabled: bool,
+        video_validation_enabled: bool | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> EnrichedSessionGroupSummaryPatternsList:
         """Helper function to consume the async generator and return a summary"""
@@ -180,7 +180,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         session_id: str,
         user_id: int,
         team: Team,
-        video_validation_enabled: bool,
+        video_validation_enabled: bool | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> SessionSummarySerializer | Exception:
         try:
@@ -203,7 +203,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         session_ids: list[str],
         user_id: int,
         team: Team,
-        video_validation_enabled: bool,
+        video_validation_enabled: bool | None,
         extra_summary_context: ExtraSummaryContext | None = None,
     ) -> dict[str, dict[str, Any]]:
         tasks = {}

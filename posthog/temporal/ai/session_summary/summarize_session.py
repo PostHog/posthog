@@ -433,7 +433,7 @@ def _prepare_execution(
     stream: bool = False,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-    video_validation_enabled: bool = False,
+    video_validation_enabled: bool | None = None,
 ) -> tuple[Redis, str, str, SingleSessionSummaryInputs, str]:
     # Use shared identifier to be able to construct all the ids to check/debug
     # Using session id instead of random UUID to be able to check the data in Redis
@@ -475,7 +475,7 @@ async def execute_summarize_session(
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-    video_validation_enabled: bool = False,
+    video_validation_enabled: bool | None = None,
 ) -> dict[str, Any]:
     """
     Start the direct summarization workflow (no streaming) and return the summary.
@@ -514,7 +514,7 @@ def execute_summarize_session_stream(
     model_to_use: str = SESSION_SUMMARIES_STREAMING_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-    video_validation_enabled: bool = False,
+    video_validation_enabled: bool | None = None,
 ) -> Generator[str, None, None]:
     """
     Start the streaming workflow and yield summary state from the stream as it becomes available.
