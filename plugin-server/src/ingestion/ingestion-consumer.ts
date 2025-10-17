@@ -238,6 +238,8 @@ export class IngestionConsumer {
 
         const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
             .messageAware((builder) =>
+                // All of these steps are synchronous, so we can process the messages sequentially
+                // to buffering due to reordering.
                 builder.sequentially((b) =>
                     b
                         .pipe(createParseHeadersStep())
@@ -254,9 +256,16 @@ export class IngestionConsumer {
                         .pipe(createResolveTeamStep(this.hub))
                 )
             )
+            // We want to handle the first batch of rejected events, so that the remaining ones
+            // can be processed in the team context.
             .handleResults(pipelineConfig)
             .handleSideEffects(this.promiseScheduler, { await: false })
+            // This is the first synchronization point, where we gather all events.
+            // We need to gather here because the pipeline consumer only calls next once.
+            // Once we transition to a continuous consumer, we can remove this gather.
+            .gather()
             .filterOk()
+            // Now we know all messages are in the team context.
             .map((element) => ({
                 result: element.result,
                 context: {
@@ -267,6 +276,7 @@ export class IngestionConsumer {
             .messageAware((builder) =>
                 builder
                     .teamAware((b) =>
+                        // These steps are also synchronous, so we can process events sequentially.
                         b
                             .sequentially((c) =>
                                 c
@@ -278,6 +288,7 @@ export class IngestionConsumer {
                                     )
                                     .pipe(createValidateEventUuidStep())
                             )
+                            // We want to call cookieless with the whole batch at once.
                             .gather()
                             .pipeBatch(createApplyCookielessProcessingStep(this.hub))
                     )
@@ -285,6 +296,8 @@ export class IngestionConsumer {
             )
             .handleResults(pipelineConfig)
             .handleSideEffects(this.promiseScheduler, { await: false })
+            // We synchronize once again to ensure we return all events in one batch.
+            .gather()
             .build()
 
         this.preprocessingPipeline = createUnwrapper(pipeline)
@@ -304,6 +317,7 @@ export class IngestionConsumer {
             .messageAware((builder) =>
                 builder
                     .teamAware((b) =>
+                        // These steps are also synchronous, so we can process events sequentially.
                         b.sequentially((seq) =>
                             seq.retry(
                                 (retry) =>
@@ -328,6 +342,8 @@ export class IngestionConsumer {
             )
             .handleResults(pipelineConfig)
             .handleSideEffects(this.promiseScheduler, { await: false })
+            // We synchronize once again to ensure we return all events in one batch.
+            .gather()
             .build()
     }
 
