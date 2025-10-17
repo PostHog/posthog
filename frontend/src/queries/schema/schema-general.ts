@@ -1360,6 +1360,7 @@ export type RetentionFilter = {
     /** @default Day */
     period?: RetentionFilterLegacy['period']
     cumulative?: RetentionFilterLegacy['cumulative']
+    retentionCustomBrackets?: number[]
     /** @description The time window mode to use for retention calculations */
     timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
 
