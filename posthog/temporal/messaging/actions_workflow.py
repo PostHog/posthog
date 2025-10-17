@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 import temporalio.activity
 import temporalio.workflow
-from asgiref.sync import sync_to_async
+from posthog.sync import database_sync_to_async
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
