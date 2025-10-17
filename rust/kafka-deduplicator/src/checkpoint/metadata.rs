@@ -256,19 +256,19 @@ mod tests {
 
         assert_eq!(metadata.files.len(), 3);
         assert_eq!(
-            metadata.files[0].remote_path,
+            metadata.files[0].remote_filepath,
             format!("checkpoints/test-topic/0/{checkpoint_id}/000001.sst")
         );
         assert_eq!(metadata.files[0].checksum, "checksum1");
         assert_eq!(metadata.files[0].file_size, 100);
         assert_eq!(
-            metadata.files[1].remote_path,
+            metadata.files[1].remote_filepath,
             format!("checkpoints/test-topic/0/{checkpoint_id}/000002.sst")
         );
         assert_eq!(metadata.files[1].checksum, "checksum2");
         assert_eq!(metadata.files[1].file_size, 200);
         assert_eq!(
-            metadata.files[2].remote_path,
+            metadata.files[2].remote_filepath,
             format!("checkpoints/test-topic/0/{checkpoint_id}/MANIFEST-000123")
         );
         assert_eq!(metadata.files[2].checksum, "checksum3");
@@ -334,7 +334,7 @@ mod tests {
             format!("{bucket_namespace}/{topic}/{partition}/{checkpoint_id}/000001.sst");
         assert_eq!(loaded_metadata.files.len(), 1);
         assert_eq!(
-            loaded_metadata.files[0].remote_path,
+            loaded_metadata.files[0].remote_filepath,
             expected_remote_file_path
         );
         assert_eq!(loaded_metadata.files[0].checksum, "checksum1");
