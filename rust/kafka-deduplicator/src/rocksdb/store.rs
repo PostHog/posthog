@@ -91,8 +91,8 @@ fn rocksdb_options() -> Options {
     opts.set_write_buffer_manager(&SHARED_WRITE_BUFFER_MANAGER);
 
     // Reduced memory budget per store (with 50 partitions per pod)
-    opts.set_write_buffer_size(8 * 1024 * 1024); // Reduced to 8MB per memtable
-    opts.set_max_write_buffer_number(3); // Max 3 buffers = 24MB per partition
+    opts.set_write_buffer_size(64 * 1024 * 1024); // Increased to 64MB per memtable (was 8MB)
+    opts.set_max_write_buffer_number(3); // Max 3 buffers = 192MB per partition
     opts.set_target_file_size_base(128 * 1024 * 1024); // SST files ~128MB
 
     // Parallelism
@@ -100,16 +100,16 @@ fn rocksdb_options() -> Options {
     opts.set_max_background_jobs(num_threads as i32);
 
     // IO & safety
-    opts.set_paranoid_checks(true);
+    opts.set_paranoid_checks(false); // Disabled for performance (was true)
     opts.set_bytes_per_sync(1024 * 1024);
     opts.set_wal_bytes_per_sync(1024 * 1024);
-    opts.set_use_direct_reads(true);
-    opts.set_use_direct_io_for_flush_and_compaction(true);
+    opts.set_use_direct_reads(false); // Disabled to use OS page cache (was true)
+    opts.set_use_direct_io_for_flush_and_compaction(false); // Disabled to use OS page cache (was true)
     opts.set_compaction_readahead_size(2 * 1024 * 1024);
 
     // Reduce background IO impact
     opts.set_disable_auto_compactions(false);
-    opts.set_max_open_files(1024); // Reduced from 500 for 50 partitions per pod
+    opts.set_max_open_files(2048); // Increased to 2048 (was 1024) for 50 partitions per pod
 
     // CRITICAL: Disable mmap with many partitions to avoid virtual memory explosion
     opts.set_allow_mmap_reads(false);
