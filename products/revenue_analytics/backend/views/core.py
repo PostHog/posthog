@@ -46,11 +46,3 @@ def view_prefix_for_source(source: ExternalDataSource) -> str:
         return source.source_type.lower()
     prefix = source.prefix.strip("_")
     return f"{source.source_type.lower()}.{prefix}"
-
-
-def view_name_for_event(event: str, suffix: str) -> str:
-    return f"{view_prefix_for_event(event)}.{suffix}"
-
-
-def view_name_for_source(source: ExternalDataSource, suffix: str) -> str:
-    return f"{view_prefix_for_source(source)}.{suffix}"
