@@ -13,6 +13,11 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
+    @classmethod
+    def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
+        """TikTok Ads campaigns typically use 'tiktok' as the UTM source"""
+        return {"tiktok": ["tiktok"]}
+
     def get_source_type(self) -> str:
         return "TikTokAds"
 
@@ -47,25 +52,29 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
         sum = ast.Call(
-            name="SUM", args=[ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "impressions"])])]
+            name="SUM", args=[ast.Call(name="toFloatOrZero", args=[ast.Field(chain=[stats_table_name, "impressions"])])]
         )
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_clicks_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
         sum = ast.Call(
-            name="SUM", args=[ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "clicks"])])]
+            name="SUM", args=[ast.Call(name="toFloatOrZero", args=[ast.Field(chain=[stats_table_name, "clicks"])])]
         )
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "spend"])])])
+        sum = ast.Call(
+            name="SUM", args=[ast.Call(name="toFloatOrZero", args=[ast.Field(chain=[stats_table_name, "spend"])])]
+        )
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
-        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "conversion"])])
+        sum = ast.Call(
+            name="SUM", args=[ast.Call(name="toFloatOrZero", args=[ast.Field(chain=[stats_table_name, "conversion"])])]
+        )
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_from(self) -> ast.JoinExpr:
