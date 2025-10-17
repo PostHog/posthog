@@ -550,6 +550,18 @@ def test_create_snowflake_batch_export_validates_credentials(
             },
             status.HTTP_400_BAD_REQUEST,
         ),
+        # Empty 'authorization' as IAMRole
+        (
+            "COPY",
+            {
+                "s3_bucket": "my-production-s3-bucket",
+                "region_name": "us-east-1",
+                "s3_key_prefix": "posthog-events/",
+                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                "authorization": "",
+            },
+            status.HTTP_400_BAD_REQUEST,
+        ),
     ],
 )
 def test_create_redshift_batch_export_validates_copy_inputs(

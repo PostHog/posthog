@@ -476,6 +476,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 if isinstance(authorization, dict):
                     if credential_keys - authorization.keys():
                         raise serializers.ValidationError("Missing required credentials for 'COPY'")
+                elif isinstance(authorization, str) and not authorization.strip():
+                    raise serializers.ValidationError("Missing required IAM role for 'COPY'")
 
         return destination_attrs
 
