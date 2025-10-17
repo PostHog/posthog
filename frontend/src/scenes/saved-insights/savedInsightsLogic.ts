@@ -107,7 +107,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
                 const params = {
                     ...values.paramsFromFilters,
-                    basic: true,
                 }
 
                 const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
