@@ -266,12 +266,17 @@ mod tests {
             ]),
         )]);
 
-        let mut matcher = FeatureFlagMatcher::test_new_with_groups(
+        // Use the full constructor to pass our configured group_type_mapping_cache
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
-            context.create_postgres_router(),
+            team.project_id,
+            router,
             cohort_cache.clone(),
-            groups,
+            Some(group_type_mapping_cache),
+            Some(groups),
+            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
