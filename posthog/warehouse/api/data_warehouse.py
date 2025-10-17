@@ -201,7 +201,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except (ValueError, TypeError):
             return Response({"error": "Invalid days parameter"}, status=status.HTTP_400_BAD_REQUEST)
 
-        project_tz = ZoneInfo(self.team.timezone) if self.team.timezone else ZoneInfo("UTC")
+        try:
+            project_tz = ZoneInfo(self.team.timezone) if self.team.timezone else ZoneInfo("UTC")
+        except Exception:
+            project_tz = ZoneInfo("UTC")
         now = datetime.now(project_tz)
         cutoff_time = now - timedelta(days=days)
 
