@@ -477,10 +477,11 @@ class RootTeamMixin(models.Model):
         If the model is stored in persons db, referencing the foreign key will raise an error.
         Reference the actual table column instead and query `team` manually.
         """
-        if hasattr(self, "team_id") and self.team_id:
+        team_id: Optional[int] = getattr(self, "team_id", None)
+        if team_id:
             from posthog.models import Team
 
-            team = Team.objects.get(id=self.team_id)
+            team = Team.objects.get(id=team_id)
             if hasattr(team, "parent_team") and team.parent_team:
                 self.team_id = team.parent_team.id
 
