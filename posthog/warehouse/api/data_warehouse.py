@@ -216,7 +216,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             external_stats = external_jobs.aggregate(
                 total=Count("id"),
                 successful=Count("id", filter=Q(status=ExternalDataJob.Status.COMPLETED)),
-                failed=Count("id", filter=Q(status=ExternalDataJob.Status.FAILED)),
+                failed=Count(
+                    "id",
+                    filter=Q(
+                        status__in=[
+                            ExternalDataJob.Status.FAILED,
+                            ExternalDataJob.Status.BILLING_LIMIT_REACHED,
+                            ExternalDataJob.Status.BILLING_LIMIT_REACHED,
+                        ]
+                    ),
+                ),
             )
 
             modeling_jobs = DataModelingJob.objects.filter(team_id=self.team_id, finished_at__gte=cutoff_time)
@@ -238,7 +247,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     .values("hour")
                     .annotate(
                         successful=Count("id", filter=Q(status=ExternalDataJob.Status.COMPLETED)),
-                        failed=Count("id", filter=Q(status=ExternalDataJob.Status.FAILED)),
+                        failed=Count(
+                            "id",
+                            filter=Q(
+                                status__in=[
+                                    ExternalDataJob.Status.FAILED,
+                                    ExternalDataJob.Status.BILLING_LIMIT_REACHED,
+                                    ExternalDataJob.Status.BILLING_LIMIT_REACHED,
+                                ]
+                            ),
+                        ),
                     )
                 )
 
@@ -269,7 +287,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     .values("day")
                     .annotate(
                         successful=Count("id", filter=Q(status=ExternalDataJob.Status.COMPLETED)),
-                        failed=Count("id", filter=Q(status=ExternalDataJob.Status.FAILED)),
+                        failed=Count(
+                            "id",
+                            filter=Q(
+                                status__in=[
+                                    ExternalDataJob.Status.FAILED,
+                                    ExternalDataJob.Status.BILLING_LIMIT_REACHED,
+                                    ExternalDataJob.Status.BILLING_LIMIT_REACHED,
+                                ]
+                            ),
+                        ),
                     )
                 )
 
@@ -296,10 +323,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     }
 
             running_external_data_jobs = ExternalDataJob.objects.filter(
-                team_id=self.team_id, status=ExternalDataJob.Status.RUNNING, billable=True
+                team_id=self.team_id, status=ExternalDataJob.Status.RUNNING, billable=True, created_at__gte=cutoff_time
             ).count()
             running_modeling_jobs = DataModelingJob.objects.filter(
-                team_id=self.team_id, status=DataModelingJob.Status.RUNNING
+                team_id=self.team_id, status=DataModelingJob.Status.RUNNING, created_at__gte=cutoff_time
             ).count()
 
             return Response(
