@@ -64,6 +64,7 @@ const TEAM_COLUMNS: &str = "
     name,
     api_token,
     project_id,
+    organization_id,
     cookieless_server_hash_mode,
     timezone,
     autocapture_opt_out,
@@ -195,44 +196,6 @@ impl Team {
             .await?;
 
         Ok(row)
-    }
-
-    pub async fn from_pg_by_id(client: PostgresReader, team_id: i32) -> Result<Team, FlagError> {
-        let mut conn = client.get_connection().await?;
-
-        let query = format!("SELECT {TEAM_COLUMNS} FROM posthog_team WHERE id = $1");
-        let row = sqlx::query_as::<_, Team>(&query)
-            .bind(team_id)
-            .fetch_one(&mut *conn)
-            .await?;
-
-        Ok(row)
-    }
-
-    /// Fetches a team by ID along with its organization_id in a single query.
-    /// Used when organization_id is needed for validation (e.g., Personal API Key scoped_organizations).
-    pub async fn from_pg_by_id_with_organization(
-        client: PostgresReader,
-        team_id: i32,
-    ) -> Result<(Team, sqlx::types::Uuid), FlagError> {
-        use sqlx::{FromRow, Row};
-
-        let mut conn = client.get_connection().await?;
-
-        let query =
-            format!("SELECT {TEAM_COLUMNS}, organization_id FROM posthog_team WHERE id = $1");
-        let row = sqlx::query(&query)
-            .bind(team_id)
-            .fetch_one(&mut *conn)
-            .await?;
-
-        // Parse the Team using FromRow trait
-        let team = Team::from_row(&row)?;
-
-        // Extract organization_id separately
-        let organization_id: sqlx::types::Uuid = row.try_get("organization_id")?;
-
-        Ok((team, organization_id))
     }
 }
 
