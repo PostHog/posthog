@@ -15,6 +15,7 @@ import { type NuxtVersion, nuxtInstructionsLogic } from './nuxtInstructionsLogic
 
 export function NuxtInstructions(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+
     const { nuxtVersion } = useValues(nuxtInstructionsLogic)
     const { setNuxtVersion } = useActions(nuxtInstructionsLogic)
     const host = apiHostOrigin()
@@ -36,7 +37,11 @@ export function NuxtInstructions(): JSX.Element {
                 ]}
             />
             {nuxtVersion === 'v3.7+' ? (
-                <NuxtModuleInstructions apiKey={currentTeam?.api_token ?? '<ph_project_api_key>'} host={host} />
+                <NuxtModuleInstructions
+                    apiKey={currentTeam?.api_token ?? '<ph_project_api_key>'}
+                    host={host}
+                    teamId={currentTeam?.id}
+                />
             ) : (
                 <NuxtLegacyInstructions apiKey={currentTeam?.api_token ?? '<ph_project_api_key>'} host={host} />
             )}
@@ -44,7 +49,15 @@ export function NuxtInstructions(): JSX.Element {
     )
 }
 
-function NuxtModuleInstructions({ apiKey, host }: { apiKey: string; host: string }): JSX.Element {
+function NuxtModuleInstructions({
+    apiKey,
+    host,
+    teamId,
+}: {
+    apiKey: string
+    host: string
+    teamId: number
+}): JSX.Element {
     return (
         <>
             <h3>Install the PostHog Nuxt module</h3>
@@ -57,7 +70,7 @@ function NuxtModuleInstructions({ apiKey, host }: { apiKey: string; host: string
             <p>
                 Add the module to your <code>nuxt.config.ts</code> file:
             </p>
-            <CodeSnippet language={Language.TypeScript}>{nuxtModuleConfig(apiKey, host)}</CodeSnippet>
+            <CodeSnippet language={Language.TypeScript}>{nuxtModuleConfig(apiKey, host, teamId)}</CodeSnippet>
             <h3>Upload source maps</h3>
             <p>
                 Source maps will be automatically generated and uploaded to PostHog during the build process when you
@@ -68,12 +81,9 @@ function NuxtModuleInstructions({ apiKey, host }: { apiKey: string; host: string
                 Our module if set up as shown above already captures both client and server side exceptions
                 automatically.
             </p>
-            <p>
-                To send errors manually on the client side, import it and use the <code>captureException</code> method
-                like this:
-            </p>
+            <p>To send errors manually on the client side:</p>
             <CodeSnippet language={Language.JavaScript}>{manualClientCapture}</CodeSnippet>
-            <p>On the server side instantiate PostHog using:</p>
+            <p>To send errors manually on the server side:</p>
             <CodeSnippet language={Language.JavaScript}>{manualServerCapture(apiKey, host)}</CodeSnippet>
         </>
     )
@@ -151,25 +161,11 @@ export default defineNuxtPlugin(nuxtApp => {
             </p>
             <CodeSnippet language={Language.JavaScript}>{legacyServerErrorHandling(apiKey, host)}</CodeSnippet>
             <JSManualCapture />
-            <h3>Upload source maps</h3>
-            <p>
-                To see readable stack traces, you'll need to upload source maps. First, install the{' '}
-                <code>posthog-cli</code>:
-            </p>
-            <CodeSnippet language={Language.Bash}>
-                {`curl --proto '=https' --tlsv1.2 -LsSf https://github.com/PostHog/posthog/releases/download/posthog-cli-v0.0.2/posthog-cli-installer.sh | sh
-posthog-cli-update`}
-            </CodeSnippet>
-            <p>After building your application, inject and upload source maps:</p>
-            <CodeSnippet language={Language.Bash}>
-                {`posthog-cli sourcemap inject --directory ./path/to/assets
-posthog-cli sourcemap upload --directory ./path/to/assets`}
-            </CodeSnippet>
         </>
     )
 }
 
-const nuxtModuleConfig = (apiKey: string, host: string): string => `export default defineNuxtConfig({
+const nuxtModuleConfig = (apiKey: string, host: string, teamId: number): string => `export default defineNuxtConfig({
   modules: ['@posthog/nuxt'],
 
   // Enable source maps generation in both vue and nitro
@@ -195,7 +191,7 @@ const nuxtModuleConfig = (apiKey: string, host: string): string => `export defau
     },
     sourcemaps: {
       enabled: true,
-      envId: '<ph_environment_id>', // Your environment ID from PostHog settings
+      envId: '${teamId}', // Your environment ID from PostHog settings
       personalApiKey: '<ph_personal_api_key>', // Your personal API key from PostHog settings
       project: 'my-application', // Optional: defaults to git repository name
       version: '1.0.0', // Optional: defaults to current git commit
@@ -242,14 +238,10 @@ export default defineNuxtPlugin((nuxtApp) => {
         api_host: runtimeConfig.public.posthogHost,
         defaults: runtimeConfig.public.posthogDefaults,
         person_profiles: 'identified_only',
+        capture_exceptions: true, // Enables automatic exception capture on the client side (Vue)
         loaded: (posthog) => {
             if (import.meta.env.MODE === 'development') posthog.debug();
         }
-    })
-
-    // Capture Vue errors
-    nuxtApp.hook('vue:error', (error) => {
-        posthogClient.captureException(error)
     })
 
     return {
