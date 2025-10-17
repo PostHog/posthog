@@ -21,7 +21,7 @@ export function Actions(): JSX.Element {
                 name={sceneConfigurations[Scene.Actions].name}
                 description={sceneConfigurations[Scene.Actions].description}
                 resourceType={{
-                    type: 'action',
+                    type: sceneConfigurations[Scene.Actions].iconType || 'default_icon_type',
                 }}
                 actions={<NewActionButton />}
             />
