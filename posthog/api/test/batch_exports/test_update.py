@@ -652,4 +652,4 @@ def test_can_update_batch_export_with_integration_to_none(
 
     response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "integration is required for Databricks batch exports" in response.json()["detail"]
+    assert "Integration is required for Databricks batch exports" in response.json()["detail"]
