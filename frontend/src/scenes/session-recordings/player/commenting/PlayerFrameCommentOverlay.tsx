@@ -63,6 +63,7 @@ export const PlayerCommentModal = (): JSX.Element => {
                                         setRichContent(richContentEditor.getJSON())
                                     }
                                 }}
+                                minRows={3}
                             />
                         </LemonField>
                     </div>
