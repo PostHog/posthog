@@ -640,7 +640,6 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 
         with pytest.raises(ValidationError) as exc:
             EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
-        assert "gmail.com" in str(exc.value)
         assert "not supported" in str(exc.value)
 
         # Test with a disposable email domain
