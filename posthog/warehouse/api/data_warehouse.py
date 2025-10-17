@@ -206,7 +206,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         cutoff_time = now - timedelta(days=days)
 
         try:
-            external_jobs = ExternalDataJob.objects.filter(team_id=self.team_id, created_at__gte=cutoff_time)
+            external_jobs = ExternalDataJob.objects.filter(
+                team_id=self.team_id, finished_at__gte=cutoff_time, billable=True
+            )
 
             external_stats = external_jobs.aggregate(
                 total=Count("id"),
@@ -214,7 +216,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 failed=Count("id", filter=Q(status=ExternalDataJob.Status.FAILED)),
             )
 
-            modeling_jobs = DataModelingJob.objects.filter(team_id=self.team_id, created_at__gte=cutoff_time)
+            modeling_jobs = DataModelingJob.objects.filter(team_id=self.team_id, finished_at__gte=cutoff_time)
 
             modeling_stats = modeling_jobs.aggregate(
                 total=Count("id"),
@@ -291,7 +293,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     }
 
             running_external_data_jobs = ExternalDataJob.objects.filter(
-                team_id=self.team_id, status=ExternalDataJob.Status.RUNNING
+                team_id=self.team_id, status=ExternalDataJob.Status.RUNNING, billable=True
             ).count()
             running_modeling_jobs = DataModelingJob.objects.filter(
                 team_id=self.team_id, status=DataModelingJob.Status.RUNNING
