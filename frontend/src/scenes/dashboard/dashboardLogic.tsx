@@ -322,6 +322,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         props.id,
                         {
                             layoutSize: values.currentLayoutSize,
+                            filtersOverride: values.urlFilters,
+                            variablesOverride: values.urlVariables,
                         },
                         // onMessage callback - handles both metadata and tiles
                         (data) => {

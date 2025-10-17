@@ -86,6 +86,7 @@ export const teamLogic = kea<teamLogicType>([
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return null
                     }
+
                     try {
                         return await api.get('api/environments/@current')
                     } catch {
