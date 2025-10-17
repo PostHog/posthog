@@ -1023,7 +1023,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
                 const recordingStart = sessionPlayerData.start.valueOf()
                 // Load 15 minutes ahead
-                return recordingStart + currentPlayerTime + 900000
+                return recordingStart + currentPlayerTime + 15 * 60 * 1000
             },
         ],
 
