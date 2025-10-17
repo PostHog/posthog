@@ -291,7 +291,7 @@ mod tests {
         // Add detailed logging to understand CI failures
         if result.errors_while_computing_flags {
             eprintln!("Test failed with errors_while_computing_flags = true");
-            eprintln!("Full result: {:?}", result);
+            eprintln!("Full result: {result:?}");
             eprintln!("Flags: {:?}", result.flags);
             eprintln!("Quota limited: {:?}", result.quota_limited);
             eprintln!("Request ID: {:?}", result.request_id);
