@@ -1,5 +1,6 @@
 pub mod login;
 pub mod query;
+pub mod schema;
 pub mod sourcemap;
 pub mod tasks;
 
@@ -42,6 +43,12 @@ pub enum Commands {
     Sourcemap {
         #[command(subcommand)]
         cmd: SourcemapCommand,
+    },
+
+    /// Download event definitions and generate TypeScript types
+    Schema {
+        #[command(subcommand)]
+        cmd: SchemaCommand,
     },
 }
 
@@ -102,6 +109,18 @@ pub enum SourcemapCommand {
 }
 
 #[derive(Subcommand)]
+pub enum SchemaCommand {
+    /// Download event definitions and generate TypeScript types
+    Pull {
+        /// Output path for TypeScript definitions (stored in posthog.json for future runs)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Show current schema sync status
+    Status,
+}
+
+#[derive(Subcommand)]
 pub enum ExpCommand {
     /// Manage tasks - list, create, update, delete etc
     Task {
@@ -136,6 +155,14 @@ impl Cli {
                 }
             },
             Commands::Query { cmd } => query::query_command(command.host, cmd)?,
+            Commands::Schema { cmd } => match cmd {
+                SchemaCommand::Pull { output } => {
+                    schema::pull(command.host, output.clone())?;
+                }
+                SchemaCommand::Status => {
+                    schema::status()?;
+                }
+            },
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
                     cmd,
