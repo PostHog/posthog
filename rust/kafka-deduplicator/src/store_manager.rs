@@ -635,7 +635,7 @@ impl StoreManager {
         info!("cleanup_orphaned_directories() called but disabled for testing");
         return Ok(0);
 
-        // let mut total_freed = 0u64;
+        let mut total_freed = 0u64;
 
         // Build a set of currently assigned partition directories
         let mut assigned_dirs = std::collections::HashSet::new();
