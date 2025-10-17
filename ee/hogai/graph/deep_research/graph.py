@@ -4,13 +4,13 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
 from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState
-from ee.hogai.graph.graph import BaseAssistantGraph
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 
 
