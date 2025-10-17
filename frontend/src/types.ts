@@ -863,6 +863,7 @@ export enum PropertyFilterType {
     Meta = 'meta',
     /** Event properties */
     Event = 'event',
+    InternalEvent = 'internal_event',
     EventMetadata = 'event_metadata',
     /** Person properties */
     Person = 'person',
@@ -1549,6 +1550,8 @@ export interface EventType {
     elements: ElementType[]
     elements_chain?: string | null
     uuid?: string
+    person_id?: string
+    person_mode?: string
 }
 
 export interface LiveEvent {
@@ -4328,6 +4331,7 @@ export type Duration = {
 
 export enum EventDefinitionType {
     Event = 'event',
+    EventInternal = 'event_internal',
     EventCustom = 'event_custom',
     EventPostHog = 'event_posthog',
 }
