@@ -122,6 +122,46 @@ export function processAllSnapshots(
         let previousTimestamp = null
         let seenHashes = new Set<number>()
 
+        // Helper to inject a Meta event before a full snapshot when missing
+        const pushPatchedMeta = (ts: number, winId?: string): void => {
+            if (hasSeenMeta) {
+                return
+            }
+            const viewport = viewportForTimestamp(ts)
+            if (viewport && viewport.width && viewport.height) {
+                const metaEvent: RecordingSnapshot = {
+                    type: EventType.Meta,
+                    timestamp: ts,
+                    // windowId is required on RecordingSnapshot type; cast to satisfy typing when undefined
+                    windowId: winId as unknown as string,
+                    data: {
+                        width: parseInt(viewport.width, 10),
+                        height: parseInt(viewport.height, 10),
+                        href: viewport.href || 'unknown',
+                    },
+                }
+                result.push(metaEvent)
+                sourceResult.push(metaEvent)
+                throttleCapture(`${sessionRecordingId}-patched-meta`, () => {
+                    posthog.capture('patched meta into web recording', {
+                        throttleCaptureKey: `${sessionRecordingId}-patched-meta`,
+                        sessionRecordingId,
+                        sourceKey: sourceKey,
+                        feature: 'session-recording-meta-patching',
+                    })
+                })
+            } else {
+                throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
+                    posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
+                        throttleCaptureKey: `${sessionRecordingId}-no-viewport-found`,
+                        sessionRecordingId,
+                        sourceKey: sourceKey,
+                        feature: 'session-recording-meta-patching',
+                    })
+                })
+            }
+        }
+
         while (snapshotIndex < sortedSnapshots.length) {
             let snapshot = sortedSnapshots[snapshotIndex]
             let currentTimestamp = snapshot.timestamp
@@ -153,94 +193,32 @@ export function processAllSnapshots(
                 hasSeenMeta = true
             }
 
-            {
-                const windowId = snapshot.windowId
-                const hasSeenFullForWindow = !!seenFullByWindow[windowId]
+            const windowId = snapshot.windowId
+            const hasSeenFullForWindow = !!seenFullByWindow[windowId]
 
-                if (
-                    snapshot.type === EventType.IncrementalSnapshot &&
-                    !hasSeenFullForWindow &&
-                    isLikelyMobileScreenshot(snapshot)
-                ) {
-                    // Inject a synthetic full snapshot (and meta if needed) immediately before the first incremental
-                    const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
+            if (
+                snapshot.type === EventType.IncrementalSnapshot &&
+                !hasSeenFullForWindow &&
+                isLikelyMobileScreenshot(snapshot)
+            ) {
+                // Inject a synthetic full snapshot (and meta if needed) immediately before the first incremental
+                const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
 
-                    if (!hasSeenMeta) {
-                        const viewport = viewportForTimestamp(syntheticTimestamp)
-                        if (viewport && viewport.width && viewport.height) {
-                            const metaEvent: RecordingSnapshot = {
-                                type: EventType.Meta,
-                                timestamp: syntheticTimestamp,
-                                windowId: snapshot.windowId,
-                                data: {
-                                    width: parseInt(viewport.width, 10),
-                                    height: parseInt(viewport.height, 10),
-                                    href: viewport.href || 'unknown',
-                                },
-                            }
-                            result.push(metaEvent)
-                            sourceResult.push(metaEvent)
-                            throttleCapture(`${sessionRecordingId}-patched-meta`, () => {
-                                posthog.capture('patched meta into web recording', {
-                                    throttleCaptureKey: `${sessionRecordingId}-patched-meta`,
-                                    sessionRecordingId,
-                                    sourceKey: sourceKey,
-                                    feature: 'session-recording-meta-patching',
-                                })
-                            })
-                        }
-                    }
+                pushPatchedMeta(syntheticTimestamp, snapshot.windowId)
 
-                    const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp)
-                    result.push(syntheticFull)
-                    sourceResult.push(syntheticFull)
-                    seenFullByWindow[windowId] = true
-                    hasSeenMeta = false // after a full snapshot, reset hasSeenMeta to expect next full patching if needed
-                }
+                const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp)
+                result.push(syntheticFull)
+                sourceResult.push(syntheticFull)
+                seenFullByWindow[windowId] = true
+                hasSeenMeta = false // after a full snapshot, reset hasSeenMeta to expect next full patching if needed
             }
 
             // Process chrome extension data
             if (snapshot.type === EventType.FullSnapshot) {
                 seenFullByWindow[snapshot.windowId] = true
 
-                // Check if we need to patch a meta event before this full snapshot
-                if (!hasSeenMeta) {
-                    const viewport = viewportForTimestamp(snapshot.timestamp)
-                    if (viewport && viewport.width && viewport.height) {
-                        const metaEvent: RecordingSnapshot = {
-                            type: EventType.Meta,
-                            timestamp: snapshot.timestamp,
-                            windowId: snapshot.windowId,
-                            data: {
-                                width: parseInt(viewport.width, 10),
-                                height: parseInt(viewport.height, 10),
-                                href: viewport.href || 'unknown',
-                            },
-                        }
-                        result.push(metaEvent)
-                        sourceResult.push(metaEvent)
-                        throttleCapture(`${sessionRecordingId}-patched-meta`, () => {
-                            posthog.capture('patched meta into web recording', {
-                                throttleCaptureKey: `${sessionRecordingId}-patched-meta`,
-                                sessionRecordingId,
-                                sourceKey: sourceKey,
-                                feature: 'session-recording-meta-patching',
-                            })
-                        })
-                    } else {
-                        throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
-                            posthog.captureException(
-                                new Error('No event viewport or meta snapshot found for full snapshot'),
-                                {
-                                    throttleCaptureKey: `${sessionRecordingId}-no-viewport-found`,
-                                    sessionRecordingId,
-                                    sourceKey: sourceKey,
-                                    feature: 'session-recording-meta-patching',
-                                }
-                            )
-                        })
-                    }
-                }
+                // Ensure meta before this full snapshot if missing
+                pushPatchedMeta(snapshot.timestamp, snapshot.windowId)
 
                 // Reset for next potential full snapshot
                 hasSeenMeta = false
