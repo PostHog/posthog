@@ -65,9 +65,9 @@ class SandboxEnvironmentConfig(BaseModel):
     snapshot_id: Optional[str] = None
     ttl_seconds: int = 60 * 30  # 30 minutes
     metadata: Optional[dict[str, str]] = None
-    memory_gb = 16
-    cpu_cores = 8
-    disk_size_gb = 64
+    memory_gb: int = 16
+    cpu_cores: int = 8
+    disk_size_gb: int = 64
 
 
 def get_runloop_client() -> AsyncRunloop:
