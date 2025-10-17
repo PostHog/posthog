@@ -238,7 +238,7 @@ export class IngestionConsumer {
 
         const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
             .messageAware((builder) =>
-                builder.concurrently((b) =>
+                builder.sequentially((b) =>
                     b
                         .pipe(createParseHeadersStep())
                         .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
@@ -264,12 +264,11 @@ export class IngestionConsumer {
                     team: element.result.value.eventWithTeam.team,
                 },
             }))
-            .gather()
             .messageAware((builder) =>
                 builder
                     .teamAware((b) =>
                         b
-                            .concurrently((c) =>
+                            .sequentially((c) =>
                                 c
                                     .pipe(createValidateEventPropertiesStep())
                                     .pipe(
