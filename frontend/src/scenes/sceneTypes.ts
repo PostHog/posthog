@@ -3,8 +3,6 @@ import { LogicWrapper } from 'kea'
 import type { FileSystemIconType } from '~/queries/schema/schema-general'
 import { AccessControlResourceType, ActivityScope } from '~/types'
 
-// Product scene imports removed - scenes are now auto-generated directly in the enum
-
 import { SettingSectionId } from './settings/types'
 
 // The enum here has to match the first and only exported component of the scene.
@@ -149,8 +147,6 @@ export enum Scene {
     TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
 }
-
-// Product scenes are auto-generated directly in the Scene enum above by build-products.mjs
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
 export type SceneProps = Record<string, any>
