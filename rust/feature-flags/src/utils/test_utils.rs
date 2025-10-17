@@ -98,7 +98,8 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
         Some(value) => value,
         None => "redis://localhost:6379/".to_string(),
     };
-    let client = RedisClient::new(redis_url)
+    // Use 5 second timeout for tests to handle concurrent test execution
+    let client = RedisClient::with_timeout(redis_url, Some(5000))
         .await
         .expect("Failed to create redis client");
     Arc::new(client)
