@@ -20,12 +20,14 @@ class ActionsCoordinatorWorkflowInputs:
     """Inputs for the coordinator workflow that spawns child workflows."""
 
     days: int = 30  # Number of days to look back
+    min_matches: int = 3  # Minimum number of matches required
     parallelism: int = 10  # Number of child workflows to spawn
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "days": self.days,
+            "min_matches": self.min_matches,
             "parallelism": self.parallelism,
         }
 
@@ -98,6 +100,7 @@ class ActionsCoordinatorWorkflow(PostHogWorkflow):
             child_id = f"{temporalio.workflow.info().workflow_id}-child-{i}"
             child_inputs = ActionsWorkflowInputs(
                 days=inputs.days,
+                min_matches=inputs.min_matches,
                 limit=limit,
                 offset=offset,
             )

@@ -20,6 +20,7 @@ class ActionsWorkflowInputs:
     """Inputs for the actions processing workflow."""
 
     days: int = 30
+    min_matches: int = 3
     limit: Optional[int] = None
     offset: int = 0
 
@@ -27,6 +28,7 @@ class ActionsWorkflowInputs:
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "days": self.days,
+            "min_matches": self.min_matches,
             "limit": self.limit,
             "offset": self.offset,
         }
@@ -72,13 +74,11 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
         if not event_name:
             continue
 
-        # Query ClickHouse for events matching this event name in the last N days
-        # Group by person_id and date, count occurrences
+        # Query ClickHouse for persons who performed event X at least N times over the last X days
         query = """
             SELECT
                 person_id,
-                toDate(timestamp) as event_date,
-                count() as event_count
+                count() as total_event_count
             FROM events
             WHERE
                 team_id = %(team_id)s
@@ -86,10 +86,11 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
                 AND timestamp >= now() - toIntervalDay(%(days)s)
                 AND timestamp <= now()
             GROUP BY
-                person_id,
-                event_date
+                person_id
+            HAVING
+                count() >= %(min_matches)s
             ORDER BY
-                event_date DESC,
+                total_event_count DESC,
                 person_id
         """
 
@@ -106,6 +107,7 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
                         "team_id": action.team_id,
                         "event_name": event_name,
                         "days": inputs.days,
+                        "min_matches": inputs.min_matches,
                     },
                     ch_user=ClickHouseUser.DEFAULT,
                     workload=Workload.OFFLINE,
