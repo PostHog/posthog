@@ -14,7 +14,7 @@ export type MetricRecentActivityProps = {
 export const MetricRecentActivity = ({ metric, filterTestAccounts }: MetricRecentActivityProps): JSX.Element => {
     const { eventCount, eventCountLoading } = useValues(metricRecentActivityLogic({ metric, filterTestAccounts }))
 
-    if (!eventCount || eventCountLoading) {
+    if (eventCountLoading) {
         return (
             <div className="text-xs text-muted">
                 <Spinner className="mr-1" />
@@ -23,7 +23,7 @@ export const MetricRecentActivity = ({ metric, filterTestAccounts }: MetricRecen
         )
     }
 
-    const count = eventCount || 0
+    const count = eventCount ?? 0
 
     return (
         <div className="text-xs">

@@ -1,5 +1,7 @@
 import { useActions } from 'kea'
 
+import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
+
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import { isExperimentMetric } from '~/queries/utils'
 import { ExperimentMetricModal } from '~/scenes/experiments/Metrics/ExperimentMetricModal'
@@ -11,7 +13,6 @@ import {
     experimentMetricModalLogic,
 } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
 import { sharedMetricModalLogic } from '~/scenes/experiments/Metrics/sharedMetricModalLogic'
-import type { SharedMetric } from '~/scenes/experiments/SharedMetrics/sharedMetricLogic'
 import type { Experiment } from '~/types'
 
 import { EmptyMetricsPanel } from './EmptyMetricsPanel'
@@ -19,18 +20,29 @@ import { MetricList } from './MetricList'
 
 export type MetricsPanelProps = {
     experiment: Experiment
+    sharedMetrics: { primary: ExperimentMetric[]; secondary: ExperimentMetric[] }
     onSaveMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onDeleteMetric: (metric: ExperimentMetric, context: MetricContext) => void
-    onSaveSharedMetrics: (metrics: SharedMetric[], context: MetricContext) => void
-    onDeleteSharedMetric: (metric: SharedMetric, context: MetricContext) => void
+    onSaveSharedMetrics: (metrics: ExperimentMetric[], context: MetricContext) => void
 }
+
+const sortMetrics = (metrics: ExperimentMetric[], orderedUuids: string[]): ExperimentMetric[] =>
+    orderedUuids.map((uuid) => metrics.find((metric) => metric.uuid === uuid)).filter(Boolean) as ExperimentMetric[]
+
+const convertSharedMetricToExperimentMetric = ({ id, query, name }: SharedMetric): ExperimentMetric =>
+    ({
+        ...query,
+        name,
+        sharedMetricId: id,
+        isSharedMetric: true,
+    }) as ExperimentMetric
 
 export const MetricsPanel = ({
     experiment,
+    sharedMetrics,
     onSaveMetric,
     onDeleteMetric,
     onSaveSharedMetrics,
-    onDeleteSharedMetric,
 }: MetricsPanelProps): JSX.Element => {
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
@@ -38,8 +50,14 @@ export const MetricsPanel = ({
     // we need this value to calculate the recent activity on the metrics list
     const filterTestAccounts = experiment.filters?.filter_test_accounts || false
 
-    const primaryMetrics = (experiment.metrics || []).filter(isExperimentMetric)
-    const secondaryMetrics = (experiment.metrics_secondary || []).filter(isExperimentMetric)
+    const primaryMetrics = sortMetrics(
+        [...(experiment.metrics || []).filter(isExperimentMetric), ...sharedMetrics.primary],
+        experiment.primary_metrics_ordered_uuids || []
+    )
+    const secondaryMetrics = sortMetrics(
+        [...(experiment.metrics_secondary || []).filter(isExperimentMetric), ...sharedMetrics.secondary],
+        experiment.secondary_metrics_ordered_uuids || []
+    )
 
     return (
         <div>
@@ -81,11 +99,13 @@ export const MetricsPanel = ({
             <SharedMetricModal
                 experiment={experiment}
                 onSave={(metrics, context) => {
-                    onSaveSharedMetrics(metrics, context)
+                    const sharedMetrics = metrics.map(convertSharedMetricToExperimentMetric)
+
+                    onSaveSharedMetrics(sharedMetrics, context)
                     closeSharedMetricModal()
                 }}
                 onDelete={(metric, context) => {
-                    onDeleteSharedMetric(metric, context)
+                    onDeleteMetric(convertSharedMetricToExperimentMetric(metric), context)
                     closeSharedMetricModal()
                 }}
             />

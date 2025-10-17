@@ -32,6 +32,10 @@ export const MetricCard = ({ metric, metricContext, onDelete, filterTestAccounts
     const metricName = metric.name || getDefaultMetricTitle(metric)
 
     const handleDelete = (): void => {
+        if (metric.isSharedMetric) {
+            return onDelete(metric, metricContext)
+        }
+
         LemonDialog.open({
             title: 'Delete metric?',
             description: 'Are you sure you want to delete this metric? This action cannot be undone.',
@@ -57,6 +61,11 @@ export const MetricCard = ({ metric, metricContext, onDelete, filterTestAccounts
                             <LemonTag type="muted" size="small">
                                 {metricTag}
                             </LemonTag>
+                            {metric.isSharedMetric && (
+                                <LemonTag type="option" size="small">
+                                    Shared metric
+                                </LemonTag>
+                            )}
                         </div>
                     </div>
                     <div className="flex gap-1 flex-shrink-0">

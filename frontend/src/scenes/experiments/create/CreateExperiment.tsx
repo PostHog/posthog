@@ -45,8 +45,12 @@ const SHOW_TARGETING_PANEL = false
 export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JSX.Element => {
     const { HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
 
-    const { experiment, experimentErrors } = useValues(createExperimentLogic({ experiment: draftExperiment }))
-    const { setExperimentValue, setExperiment } = useActions(createExperimentLogic({ experiment: draftExperiment }))
+    const { experiment, experimentErrors, sharedMetrics } = useValues(
+        createExperimentLogic({ experiment: draftExperiment })
+    )
+    const { setExperimentValue, setExperiment, setSharedMetrics } = useActions(
+        createExperimentLogic({ experiment: draftExperiment })
+    )
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
 
@@ -174,6 +178,7 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                 content: (
                                     <MetricsPanel
                                         experiment={experiment}
+                                        sharedMetrics={sharedMetrics}
                                         onSaveMetric={(metric, context) => {
                                             const isNew = !experiment[context.field].some((m) => m.uuid === metric.uuid)
 
@@ -193,6 +198,22 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                             })
                                         }}
                                         onDeleteMetric={(metric, context) => {
+                                            if (metric.isSharedMetric) {
+                                                setExperiment({
+                                                    ...experiment,
+                                                    [context.orderingField]: (
+                                                        experiment[context.orderingField] ?? []
+                                                    ).filter((uuid) => uuid !== metric.uuid),
+                                                })
+                                                setSharedMetrics({
+                                                    ...sharedMetrics,
+                                                    [context.type]: sharedMetrics[context.type].filter(
+                                                        (m) => m.uuid !== metric.uuid
+                                                    ),
+                                                })
+                                                return
+                                            }
+
                                             const metricIndex = experiment[context.field].findIndex(
                                                 ({ uuid }) => uuid === metric.uuid
                                             )
@@ -208,8 +229,19 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                                 })
                                             }
                                         }}
-                                        onSaveSharedMetrics={(metrics, context) => {}}
-                                        onDeleteSharedMetric={(metric, context) => {}}
+                                        onSaveSharedMetrics={(metrics, context) => {
+                                            setExperiment({
+                                                ...experiment,
+                                                [context.orderingField]: [
+                                                    ...(experiment[context.orderingField] ?? []),
+                                                    ...metrics.map((metric) => metric.uuid),
+                                                ],
+                                            })
+                                            setSharedMetrics({
+                                                ...sharedMetrics,
+                                                [context.type]: [...sharedMetrics[context.type], ...metrics],
+                                            })
+                                        }}
                                     />
                                 ),
                             },
