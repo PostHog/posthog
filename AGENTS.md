@@ -43,4 +43,4 @@
 ## General
 
 - Use American English spelling
-- For text that users will see, nouns should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence Casing. For example, 'Save as view' instead of 'Save As View'.
+- When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
