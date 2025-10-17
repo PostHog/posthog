@@ -311,13 +311,12 @@ class EventDefinitionViewSet(
         output.append(" *   posthog.typed.your_event({ property: 'value' })")
         output.append(" */")
         output.append("")
-        output.append("// ============ TYPE AUGMENTATION ============")
-        output.append("// Augment posthog-js with your event schemas")
+        output.append("// First, import to ensure the module exists")
+        output.append("import 'posthog-js'")
         output.append("")
-
-        # Generate for posthog-js
+        output.append("// Then augment the module")
         output.append("declare module 'posthog-js' {")
-        output.append("    export interface PostHogEventSchemas {")
+        output.append("    interface PostHogEventSchemas {")
 
         for event_def in event_definitions:
             properties = schema_map.get(str(event_def.id), [])
@@ -335,20 +334,13 @@ class EventDefinitionViewSet(
         output.append("    }")
         output.append("}")
         output.append("")
-        output.append("// ============ POSTHOG EXPORT ============")
-        output.append("// Re-export posthog with types included")
-        output.append("")
-        output.append("import posthogJS from 'posthog-js'")
-        output.append("")
-        output.append("// Default export for convenience")
-        output.append("export default posthogJS")
-        output.append("")
-        output.append("// Named exports for flexibility")
+        output.append("// Re-export everything from posthog-js")
         output.append("export * from 'posthog-js'")
-        output.append("export { posthogJS as posthog }")
         output.append("")
-        output.append("// Type exports for use in other files if needed")
-        output.append("export type { PostHogEventSchemas } from 'posthog-js'")
+        output.append("// Import and re-export the default")
+        output.append("import posthogJS from 'posthog-js'")
+        output.append("export default posthogJS")
+        output.append("export { posthogJS as posthog }")
 
         return "\n".join(output)
 

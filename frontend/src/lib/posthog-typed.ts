@@ -1,7 +1,3 @@
-// ============ POSTHOG EXPORT ============
-// Re-export posthog with types included
-import posthogJS from 'posthog-js'
-
 /**
  * GENERATED FILE - DO NOT EDIT
  *
@@ -14,12 +10,14 @@ import posthogJS from 'posthog-js'
  *   // Typed events with autocomplete
  *   posthog.typed.your_event({ property: 'value' })
  */
+// First, import to ensure the module exists
+import 'posthog-js'
+// Import and re-export the default
+import posthogJS from 'posthog-js'
 
-// ============ TYPE AUGMENTATION ============
-// Augment posthog-js with your event schemas
-
+// Then augment the module
 declare module 'posthog-js' {
-    export interface PostHogEventSchemas {
+    interface PostHogEventSchemas {
         $autocapture: Record<string, any>
         $exception: Record<string, any>
         $feature_flag_called: Record<string, any>
@@ -61,12 +59,8 @@ declare module 'posthog-js' {
     }
 }
 
-// Default export for convenience
-export default posthogJS
-
-// Named exports for flexibility
+// Re-export everything from posthog-js
 export * from 'posthog-js'
-export { posthogJS as posthog }
 
-// Type exports for use in other files if needed
-export type { PostHogEventSchemas } from 'posthog-js'
+export default posthogJS
+export { posthogJS as posthog }

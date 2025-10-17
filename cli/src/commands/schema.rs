@@ -29,7 +29,7 @@ pub fn pull(host: Option<String>, output_override: Option<String>) -> Result<()>
     let ts_content = fetch_typescript_definitions(&host, &token.env_id, &token.token)?;
 
     // Count the number of events in the TypeScript file
-    let event_count = ts_content.lines().filter(|line| line.trim().starts_with("'") && line.contains(":")).count() / 2; // Divide by 2 since it appears in both modules
+    let event_count = ts_content.lines().filter(|line| line.trim().starts_with("'") && line.contains(":")).count();
 
     info!("✓ Fetched TypeScript definitions for {} events", event_count);
 
