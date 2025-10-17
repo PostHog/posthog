@@ -461,7 +461,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     try {
                         const result = await api.queryLog.get(queryId)
-                        actions.setQueryLogQueryId(queryId)
+                        if (result?.results && result.results.length > 0) {
+                            actions.setQueryLogQueryId(queryId)
+                        }
                         return result
                     } catch (e: any) {
                         console.warn('Failed to get query execution details', e)

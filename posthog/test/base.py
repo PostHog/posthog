@@ -705,6 +705,15 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
     def setUpClass(cls):
         cls.setUpTestData()
 
+    def _fixture_teardown(self):
+        # Override to use CASCADE when truncating tables.
+        # Required when models are moved between Django apps, as PostgreSQL
+        # needs CASCADE to handle FK constraints across app boundaries.
+        from django.core.management import call_command
+
+        for db_name in self._databases_names(include_mirrors=False):
+            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     """

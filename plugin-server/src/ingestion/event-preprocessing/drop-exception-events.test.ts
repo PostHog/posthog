@@ -28,7 +28,7 @@ describe('createDropExceptionEventsStep', () => {
 
             const result = await step(input)
 
-            expect(result).toEqual(drop('Exception events are processed separately in Rust'))
+            expect(result).toEqual(drop('exception_event'))
         })
 
         it('should allow non-exception events', async () => {

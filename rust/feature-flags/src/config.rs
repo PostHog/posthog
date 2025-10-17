@@ -144,7 +144,7 @@ pub struct Config {
     // How long to wait for a connection from the pool before timing out
     // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
     // - Decrease for faster failure detection (minimum 1s)
-    #[envconfig(default = "3")]
+    #[envconfig(default = "20")]
     pub acquire_timeout_secs: u64,
 
     // Close connections that have been idle for this many seconds

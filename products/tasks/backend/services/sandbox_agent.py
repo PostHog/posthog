@@ -1,8 +1,6 @@
 import logging
 from typing import Optional
 
-from django.conf import settings
-
 from pydantic import BaseModel
 
 from products.tasks.backend.lib.constants import SETUP_REPOSITORY_PROMPT
@@ -74,6 +72,18 @@ class SandboxAgent:
         logger.info(f"Running code agent setup for {repository} in sandbox {self.sandbox.id}")
         return await self.sandbox.execute(setup_command, timeout_seconds=15 * 60)
 
+    async def is_git_clean(self, repository: str) -> tuple[bool, str]:
+        if not self.sandbox.is_running:
+            raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
+
+        org, repo = repository.lower().split("/")
+        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        result = await self.sandbox.execute(f"cd {repo_path} && git status --porcelain")
+        is_clean = not result.stdout.strip()
+
+        return is_clean, result.stdout
+
     async def execute_task(self, task_id: str, repository: str, workflow_id: str) -> ExecutionResult:
         if not self.sandbox.is_running:
             raise RuntimeError(f"Sandbox not in running state. Current status: {self.sandbox.status}")
@@ -87,10 +97,10 @@ class SandboxAgent:
         return await self.sandbox.execute(command, timeout_seconds=DEFAULT_TASK_TIMEOUT_SECONDS)
 
     def _get_task_command(self, task_id: str, workflow_id: str, repo_path: str) -> str:
-        return f"export ANTHROPIC_API_KEY={settings.ANTHROPIC_API_KEY} && node /scripts/runAgent.mjs --taskId {task_id} --workflowId {workflow_id} --repositoryPath {repo_path}"
+        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --workflowId {workflow_id} --repositoryPath {repo_path}"
 
     def _get_setup_command(self, repo_path: str) -> str:
-        return f"export ANTHROPIC_API_KEY={settings.ANTHROPIC_API_KEY} && claude --dangerously-skip-permissions -p '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
+        return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
 
     async def destroy(self) -> None:
         await self.sandbox.destroy()

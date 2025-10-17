@@ -3,12 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { METRIC_CONTEXTS } from '../Metrics/experimentMetricModalLogic'
+import { metricSourceModalLogic } from '../Metrics/metricSourceModalLogic'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 
 export function PreLaunchChecklist(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
+    const { experiment, usesNewQueryRunner } = useValues(experimentLogic)
     const { openDescriptionModal, openPrimaryMetricSourceModal } = useActions(modalsLogic)
+    const { openMetricSourceModal } = useActions(metricSourceModalLogic)
 
     return (
         <div>
@@ -98,7 +101,9 @@ export function PreLaunchChecklist(): JSX.Element {
                                         type="secondary"
                                         size="small"
                                         onClick={() => {
-                                            openPrimaryMetricSourceModal()
+                                            usesNewQueryRunner
+                                                ? openMetricSourceModal(METRIC_CONTEXTS.primary)
+                                                : openPrimaryMetricSourceModal()
                                         }}
                                     >
                                         Add metric
