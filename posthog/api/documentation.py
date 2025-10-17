@@ -253,6 +253,9 @@ def _fix_pydantic_schema_for_openapi(schema):
                 schema.update(_fix_pydantic_schema_for_openapi(non_null_schemas[0]))
             else:
                 schema["anyOf"] = [_fix_pydantic_schema_for_openapi(s) for s in non_null_schemas]
+        else:  # all schemas in anyOf are null types
+            schema.clear()
+            schema.update({"type": "null", "nullable": True})
 
     # Literals should be enums in OpenAPI 3.0
     if "const" in schema:
