@@ -20,7 +20,7 @@ use tracing::{debug, warn};
 /// * `redis_writer` - Redis client for cache writes
 /// * `token` - Token to use for cache key lookup
 /// * `db_lookup` - Async function to fetch team from PostgreSQL on cache miss
-pub async fn fetch_team_with_redis_fallback<F, Fut>(
+pub async fn fetch_team_from_redis_with_fallback<F, Fut>(
     redis_reader: Arc<dyn RedisClient + Send + Sync>,
     redis_writer: Arc<dyn RedisClient + Send + Sync>,
     token: &str,

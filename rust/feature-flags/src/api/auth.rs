@@ -39,7 +39,7 @@ pub async fn validate_secret_api_token(state: &AppState, token: &str) -> Result<
     let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
     let token_str = token.to_string();
 
-    team_operations::fetch_team_with_redis_fallback(
+    team_operations::fetch_team_from_redis_with_fallback(
         state.redis_reader.clone(),
         state.redis_writer.clone(),
         token,
