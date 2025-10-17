@@ -1353,6 +1353,7 @@ def create_symbol_set(
         return symbol_set
 
 
+@posthoganalytics.scoped()
 def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
