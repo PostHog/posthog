@@ -23,6 +23,7 @@ import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMen
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -169,7 +170,7 @@ export function ProjectTree({
         if (item.name === 'Data pipelines' && currentPath.startsWith('/pipeline/')) {
             return true
         }
-        if (item.name === 'Messaging' && currentPath.startsWith('/messaging/')) {
+        if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
             return true
         }
 
@@ -440,7 +441,33 @@ export function ProjectTree({
             renderItemTooltip={(item) => {
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
+
                 if (root === 'products://' || root === 'data://' || root === 'persons://') {
+                    let key = item.record?.sceneKey
+                    return (
+                        <>
+                            {sceneConfigurations[key]?.description || item.name}
+
+                            {item.tags?.length && (
+                                <>
+                                    {item.tags?.map((tag) => (
+                                        <LemonTag
+                                            key={tag}
+                                            type={
+                                                tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'
+                                            }
+                                            size="small"
+                                            className="ml-2 relative top-[-1px]"
+                                        >
+                                            {tag.toUpperCase()}
+                                        </LemonTag>
+                                    ))}
+                                </>
+                            )}
+                        </>
+                    )
+                }
+                if (root === 'persons://') {
                     return (
                         <>
                             {nameNode}
@@ -525,7 +552,7 @@ export function ProjectTree({
                             </span>
                         )}
 
-                        {item.record?.protocol === 'products://' && item.tags?.length && (
+                        {item.tags?.length && (
                             <>
                                 {item.tags?.map((tag) => (
                                     <LemonTag

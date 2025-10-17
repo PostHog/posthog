@@ -13,6 +13,8 @@ import { errorTrackingQuery } from '../../queries'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from '../../utils'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 
+export const ERROR_TRACKING_SCENE_LOGIC_KEY = 'ErrorTrackingScene'
+
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'errorTrackingSceneLogic']),
 
@@ -22,9 +24,9 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     connect(() => ({
         values: [
-            issueFiltersLogic,
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
-            issueQueryOptionsLogic,
+            issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['assignee', 'orderBy', 'orderDirection', 'status'],
         ],
         actions: [issueActionsLogic, ['mutationSuccess', 'mutationFailure'], bulkSelectLogic, ['setSelectedIssueIds']],
@@ -60,8 +62,13 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 filterGroup,
                 searchQuery,
                 orderDirection
-            ): DataTableNode =>
-                errorTrackingQuery({
+            ): DataTableNode => {
+                const columns =
+                    orderBy === 'revenue'
+                        ? ['error', 'volume', 'occurrences', 'sessions', 'users', 'revenue']
+                        : ['error', 'volume', 'occurrences', 'sessions', 'users']
+
+                return errorTrackingQuery({
                     orderBy,
                     status,
                     dateRange,
@@ -70,9 +77,10 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     filterGroup,
                     volumeResolution: ERROR_TRACKING_LISTING_RESOLUTION,
                     searchQuery,
-                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
+                    columns,
                     orderDirection,
-                }),
+                })
+            },
         ],
         breadcrumbs: [
             () => [],

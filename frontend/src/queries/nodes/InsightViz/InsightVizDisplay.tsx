@@ -33,7 +33,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, QuerySchema } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -84,6 +84,7 @@ export function InsightVizDisplay({
         timedOutQueryId,
         vizSpecificOptions,
         query,
+        display,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
@@ -226,7 +227,8 @@ export function InsightVizDisplay({
                     )}
 
                     <InsightsTable
-                        isLegend
+                        // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
+                        isLegend={display !== ChartDisplayType.WorldMap}
                         editMode={editMode}
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
                         canEditSeriesNameInline={!hasFormula && editMode}

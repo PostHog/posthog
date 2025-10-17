@@ -100,10 +100,10 @@ After making the necessary changes, run these commands to regenerate the auto-ge
 
 ```bash
 # After updating posthog/taxonomy/taxonomy.py
-pnpm build:taxonomy
+pnpm taxonomy:build
 
 # After updating frontend/src/queries/schema/schema-general.ts
-pnpm build:schema
+pnpm schema:build
 ```
 
 ## Summary of Files to Modify
