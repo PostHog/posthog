@@ -135,8 +135,8 @@ class Command(BaseCommand):
                 # Exit code 1 means migrations needed
                 output = stdout_capture.getvalue()
                 if output.strip():
-                    # Prepend Summary for CI workflow, keep Django's output as-is
-                    return f"**Summary:** ⚠️ Missing migrations detected\n\n{output}\n\nRun `python manage.py makemigrations` to create them.\n"
+                    # Prepend Summary for CI workflow, wrap Django's output in code block
+                    return f"**Summary:** ⚠️ Missing migrations detected\n\n```\n{output}```\n\nRun `python manage.py makemigrations` to create them.\n"
                 return ""
         except Exception:
             # Ignore other errors (e.g., can't connect to DB)
