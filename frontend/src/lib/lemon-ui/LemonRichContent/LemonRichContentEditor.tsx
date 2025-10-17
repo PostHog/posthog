@@ -151,7 +151,6 @@ export function LemonRichContentEditor({
             ) : (
                 <EditorContent
                     editor={editor}
-                    className="RichContentEditor p-2"
                     autoFocus
                     className={cn("RichContentEditor p-2", minRows && `min-h-[${minRows * 1.5}em]`)}
                 />
