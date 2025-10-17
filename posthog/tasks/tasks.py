@@ -1051,7 +1051,7 @@ def sync_feature_flag_last_called() -> None:
             redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
 
             # Emit metrics for no-results case
-            checkpoint_lag_seconds = (timezone.now() - current_sync_timestamp).total_seconds()
+            checkpoint_lag_seconds = 0.0  # No lag when checkpoint is set to current time
             with pushed_metrics_registry("feature_flag_last_called_at_sync_completion") as registry:
                 Gauge(
                     "posthog_feature_flag_last_called_at_sync_updated_count",
@@ -1072,7 +1072,7 @@ def sync_feature_flag_last_called() -> None:
                     "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
                     "Seconds between checkpoint timestamp and current time",
                     registry=registry,
-                ).set(abs(checkpoint_lag_seconds))
+                ).set(checkpoint_lag_seconds)
 
             logger.info(
                 "Feature flag sync completed with no events",
@@ -1085,6 +1085,10 @@ def sync_feature_flag_last_called() -> None:
 
         # Get latest timestamp for checkpoint, fallback to current if all None
         checkpoint_timestamp = max((row[2] for row in result if row[2]), default=current_sync_timestamp)
+        # Ensure timestamp is timezone-aware (ClickHouse returns naive datetimes)
+        checkpoint_timestamp = (
+            checkpoint_timestamp if checkpoint_timestamp.tzinfo else timezone.make_aware(checkpoint_timestamp)
+        )
 
         # Build lookup map of (team_id, key) -> timestamp from ClickHouse results
         flag_updates = {(row[0], row[1]): row[2] for row in result}
@@ -1154,7 +1158,7 @@ def sync_feature_flag_last_called() -> None:
                 "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
                 "Seconds between checkpoint timestamp and current time",
                 registry=registry,
-            ).set(abs(checkpoint_lag_seconds))
+            ).set(checkpoint_lag_seconds)
 
         # Track if we hit the ClickHouse result limit
         if clickhouse_results >= settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT:
