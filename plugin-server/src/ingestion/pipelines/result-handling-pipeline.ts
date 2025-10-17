@@ -17,26 +17,30 @@ export type PipelineConfig = {
  * Unified result handling pipeline that wraps any BatchProcessingPipeline and handles
  * non-success results (DLQ, DROP, REDIRECT) by adding side effects.
  */
-export class ResultHandlingPipeline<TInput, TOutput, C extends { message: Message }>
-    implements BatchPipeline<TInput, TOutput, C>
+export class ResultHandlingPipeline<
+    TInput,
+    TOutput,
+    CInput extends { message: Message },
+    COutput extends { message: Message } = CInput,
+> implements BatchPipeline<TInput, TOutput, CInput, COutput>
 {
     constructor(
-        private pipeline: BatchPipeline<TInput, TOutput, C>,
+        private pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
         private config: PipelineConfig
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, C>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
         this.pipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, C> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
         const results = await this.pipeline.next()
 
         if (results === null) {
             return null
         }
 
-        const processedResults: BatchPipelineResultWithContext<TOutput, C> = []
+        const processedResults: BatchPipelineResultWithContext<TOutput, COutput> = []
 
         for (const resultWithContext of results) {
             const lastStep = resultWithContext.context.lastStep
@@ -99,10 +103,10 @@ export class ResultHandlingPipeline<TInput, TOutput, C extends { message: Messag
         return sideEffects
     }
 
-    static of<TInput, TOutput, C extends { message: Message }>(
-        pipeline: BatchPipeline<TInput, TOutput, C>,
+    static of<TInput, TOutput, CInput extends { message: Message }, COutput extends { message: Message } = CInput>(
+        pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
         config: PipelineConfig
-    ): ResultHandlingPipeline<TInput, TOutput, C> {
+    ): ResultHandlingPipeline<TInput, TOutput, CInput, COutput> {
         return new ResultHandlingPipeline(pipeline, config)
     }
 }

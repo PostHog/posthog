@@ -63,24 +63,24 @@ describe('ResultHandlingPipeline', () => {
 
             // Create batch results directly
             const batchResults = [
-                createContext(ok({ processed: 'test1' }), { message: messages[0] }),
-                createContext(ok({ processed: 'test2' }), { message: messages[1] }),
+                createContext(ok({ processed: 'test1', message: messages[0] }), { message: messages[0] }),
+                createContext(ok({ processed: 'test2', message: messages[1] }), { message: messages[1] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
             expect(results).not.toBeNull()
             expect(results).toEqual([
-                createContext(ok({ processed: 'test1' }), { message: messages[0] }),
-                createContext(ok({ processed: 'test2' }), { message: messages[1] }),
+                createContext(ok({ processed: 'test1', message: messages[0] }), { message: messages[0] }),
+                createContext(ok({ processed: 'test2', message: messages[1] }), { message: messages[1] }),
             ])
         })
 
         it('should handle empty batch', async () => {
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed([])
             const results = await resultPipeline.next()
@@ -104,7 +104,7 @@ describe('ResultHandlingPipeline', () => {
                 createContext(ok({ processed: 'test3' }), { message: messages[2] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
@@ -134,7 +134,7 @@ describe('ResultHandlingPipeline', () => {
                 createContext(ok({ processed: 'test3' }), { message: messages[2] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
@@ -189,7 +189,7 @@ describe('ResultHandlingPipeline', () => {
                 }),
             ]
 
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
@@ -242,7 +242,7 @@ describe('ResultHandlingPipeline', () => {
                 createContext(ok({ processed: 'test3' }), { message: messages[2] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
@@ -294,7 +294,7 @@ describe('ResultHandlingPipeline', () => {
                 createContext(dlq('test dlq reason', testError), { message: messagesWithHeaders[0] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
@@ -340,7 +340,7 @@ describe('ResultHandlingPipeline', () => {
                 createContext(dlq('test dlq reason'), { message: messages[0] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
@@ -389,7 +389,7 @@ describe('ResultHandlingPipeline', () => {
                 createContext(dlq('dlq item', new Error('processing error')), { message: messages[4] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
@@ -454,7 +454,7 @@ describe('ResultHandlingPipeline', () => {
                 }),
             ]
 
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
@@ -483,7 +483,7 @@ describe('ResultHandlingPipeline', () => {
                 createContext(ok({ processed: 'success' }), { message: messages[0] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
@@ -511,7 +511,7 @@ describe('ResultHandlingPipeline', () => {
                 createContext(ok({ count: 6 }), { message: messages[2] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
@@ -538,7 +538,7 @@ describe('ResultHandlingPipeline', () => {
                 createContext(redirect('test redirect', 'overflow-topic'), { message: messages[0] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
+            const pipeline = createNewBatchPipeline().build()
             const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
@@ -609,7 +609,7 @@ describe('Integration tests', () => {
             ),
         ]
 
-        const pipeline = createNewBatchPipeline()
+        const pipeline = createNewBatchPipeline().build()
         const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
         resultPipeline.feed(batchResults)
         const results = await resultPipeline.next()
@@ -635,7 +635,7 @@ describe('Integration tests', () => {
             createContext(dlq('Validation failed', new Error('Invalid data')), { message: messages[0] }),
         ]
 
-        const pipeline = createNewBatchPipeline()
+        const pipeline = createNewBatchPipeline().build()
         const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
         resultPipeline.feed(batchResults)
         const results = await resultPipeline.next()

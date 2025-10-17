@@ -14,21 +14,23 @@ function isSuccessResultWithContext<T, C>(
 
 export type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
 
-export class BaseBatchPipeline<TInput, TIntermediate, TOutput, C> implements BatchPipeline<TInput, TOutput, C> {
+export class BaseBatchPipeline<TInput, TIntermediate, TOutput, CInput, COutput = CInput>
+    implements BatchPipeline<TInput, TOutput, CInput, COutput>
+{
     private stepName: string
 
     constructor(
         private currentStep: BatchProcessingStep<TIntermediate, TOutput>,
-        private previousPipeline: BatchPipeline<TInput, TIntermediate, C>
+        private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput>
     ) {
         this.stepName = this.currentStep.name || 'anonymousBatchStep'
     }
 
-    feed(elements: BatchPipelineResultWithContext<TInput, C>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, C> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
         const previousResults = await this.previousPipeline.next()
         if (previousResults === null) {
             return null
