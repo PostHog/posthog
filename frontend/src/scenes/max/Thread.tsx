@@ -246,12 +246,13 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         }
 
                         // Render tool calls if present (tool_calls are enhanced with status by threadGrouped selector)
+                        const allToolCalls: EnhancedToolCall[] = [
+                            ...((message.tool_calls || []) as EnhancedToolCall[]),
+                            ...((message.server_tool_calls || []) as EnhancedToolCall[]),
+                        ]
                         const toolCallElements =
-                            message.tool_calls && message.tool_calls.length > 0 ? (
-                                <ToolCallsAnswer
-                                    key={`${key}-tools`}
-                                    toolCalls={message.tool_calls as EnhancedToolCall[]}
-                                />
+                            allToolCalls.length > 0 ? (
+                                <ToolCallsAnswer key={`${key}-tools`} toolCalls={allToolCalls} />
                             ) : null
 
                         // Render main text content
@@ -718,7 +719,7 @@ function AssistantActionComponent({
     let markdownContent = <MarkdownMessage id={id} content={content} />
 
     return (
-        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1">
+        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 cursor-default">
             <div
                 className={clsx(
                     'transition-all duration-500 flex items-center',

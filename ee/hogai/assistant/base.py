@@ -341,15 +341,17 @@ class BaseAssistant(ABC):
         elif is_dispatcher_update(update) and (new_message := self._reducer.reduce(update)):
             return [new_message] if new_message else None
         elif is_value_update(update) and (new_message := await self._aprocess_value_update(update)):
-            return [new_message]
-        elif is_message_update(update) and (new_message := await self._aprocess_message_update(update)):
-            return [new_message]
+            return [new_message] if new_message else None
+        elif is_message_update(update) and (new_messages := await self._aprocess_message_update(update)):
+            return new_messages[-1:]  # Stream only the latest message, no point in streaming previous ones
         return None
 
     async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantMessageOrStatusUnion | None:
         return None
 
-    async def _aprocess_message_update(self, update: GraphMessageUpdateTuple) -> AssistantMessageOrStatusUnion | None:
+    async def _aprocess_message_update(
+        self, update: GraphMessageUpdateTuple
+    ) -> list[AssistantMessageOrStatusUnion] | None:
         """
         Process LLM chunks from "messages" stream mode.
 
@@ -373,7 +375,7 @@ class BaseAssistant(ABC):
         # Merge message chunks
         self._chunks = merge_message_chunk(self._chunks, langchain_message)
 
-        # Stream ephemeral message (no ID = not persisted)
+        # Stream ephemeral messages (no ID = not persisted)
         return normalize_ai_message(self._chunks)
 
     def _build_root_config_for_persistence(self) -> RunnableConfig:
