@@ -85,14 +85,16 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     type: 'cohort',
                 }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        data-attr={`new-group-${groupTypeIndex}`}
-                        onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
-                    >
-                        New {aggregationLabel(groupTypeIndex).singular}
-                    </LemonButton>
+                    hasCrmIterationOneEnabled ? (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            data-attr={`new-group-${groupTypeIndex}`}
+                            onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                        >
+                            New {aggregationLabel(groupTypeIndex).singular}
+                        </LemonButton>
+                    ) : undefined
                 }
             />
             <SceneDivider />
