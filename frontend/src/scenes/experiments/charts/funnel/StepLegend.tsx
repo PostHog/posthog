@@ -21,7 +21,8 @@ export function StepLegend({ step, stepIndex, showTime }: StepLegendProps): JSX.
     const { metric } = useFunnelChartData()
     const aggregationTargetLabel = { singular: 'user', plural: 'users' }
 
-    const isUnorderedFunnel = isExperimentFunnelMetric(metric) && metric.funnel_order_type === StepOrderValue.UNORDERED
+    const isUnorderedFunnel =
+        !!metric && isExperimentFunnelMetric(metric) && metric.funnel_order_type === StepOrderValue.UNORDERED
     const stepLabel = isUnorderedFunnel
         ? `Completed ${stepIndex + 1} ${stepIndex === 0 ? 'step' : 'steps'}`
         : step.custom_name || step.name
