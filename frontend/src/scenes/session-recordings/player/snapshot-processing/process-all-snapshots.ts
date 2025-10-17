@@ -302,8 +302,8 @@ function hashSnapshot(snapshot: RecordingSnapshot): number {
  */
 function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWithTime {
     // we decompress first so that we could support partial compression on mobile in the future
-    const currentEvent = decompressEvent(d, sessionRecordingId) as eventWithTime
-    return (postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) || currentEvent) as eventWithTime
+    const currentEvent = decompressEvent(d, sessionRecordingId)
+    return postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) ?? (currentEvent as eventWithTime)
 }
 
 export const parseEncodedSnapshots = async (
