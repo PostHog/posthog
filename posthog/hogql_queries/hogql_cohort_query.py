@@ -501,9 +501,7 @@ class HogQLCohortQuery:
             # Apply to all subsequent queries
             for node in query.subsequent_select_queries:
                 node.select_query = self._add_chunk_filter_to_query_tree(node.select_query)
-            return query
-        else:
-            return query
+        return query
 
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         Condition = namedtuple("Condition", ["query", "negation"])
