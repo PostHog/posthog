@@ -1346,7 +1346,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         setPlay: () => {
-            // Ensure loading continues in background if not already started
             if (!values.snapshotsLoaded) {
                 actions.loadSnapshots()
             }
