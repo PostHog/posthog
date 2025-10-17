@@ -8,7 +8,6 @@ import { PipelineResult, dlq, drop, isOkResult, ok } from '../../../ingestion/pi
 import { EventHeaders, Hub, Person, PipelineEvent, PreIngestionEvent, RawKafkaEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
-import { normalizeProcessPerson } from '../../../utils/event'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
@@ -143,7 +142,12 @@ export class EventPipelineRunner {
         return ok(result, kafkaAcks, warnings)
     }
 
-    async runEventPipeline(event: PipelineEvent, team: Team): Promise<EventPipelinePipelineResult> {
+    async runEventPipeline(
+        event: PipelineEvent,
+        team: Team,
+        processPerson: boolean = true,
+        forceDisablePersonProcessing: boolean = false
+    ): Promise<EventPipelinePipelineResult> {
         this.originalEvent = event
 
         try {
@@ -151,7 +155,7 @@ export class EventPipelineRunner {
                 ...event,
                 team_id: team.id,
             }
-            return await this.runEventPipelineSteps(pluginEvent, team)
+            return await this.runEventPipelineSteps(pluginEvent, team, processPerson, forceDisablePersonProcessing)
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 // At the step level we have chosen to drop these events and send them to DLQ
@@ -167,60 +171,14 @@ export class EventPipelineRunner {
         }
     }
 
-    async runEventPipelineSteps(event: PluginEvent, team: Team): Promise<EventPipelinePipelineResult> {
+    async runEventPipelineSteps(
+        event: PluginEvent,
+        team: Team,
+        processPerson: boolean,
+        forceDisablePersonProcessing: boolean
+    ): Promise<EventPipelinePipelineResult> {
         const kafkaAcks: Promise<void>[] = []
         const warnings: PipelineWarning[] = []
-
-        const forceDisablePersonProcessing = this.headers?.force_disable_person_processing === true
-        let processPerson = true // The default.
-
-        // Check if force_disable_person_processing header is set to true
-        if (forceDisablePersonProcessing) {
-            processPerson = false
-        } else {
-            // Set either at capture time, or in the populateTeamData step, if team-level opt-out is enabled.
-            if (event.properties && '$process_person_profile' in event.properties) {
-                const propValue = event.properties.$process_person_profile
-                if (propValue === true) {
-                    // This is the default, and `true` is one of the two valid values.
-                } else if (propValue === false) {
-                    // Only a boolean `false` disables person processing.
-                    processPerson = false
-
-                    if (['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'].includes(event.event)) {
-                        warnings.push({
-                            type: 'invalid_event_when_process_person_profile_is_false',
-                            details: {
-                                eventUuid: event.uuid,
-                                event: event.event,
-                                distinctId: event.distinct_id,
-                            },
-                            alwaysSend: true,
-                        })
-
-                        return drop('invalid_event_for_flags', kafkaAcks, warnings)
-                    }
-
-                    // If person processing is disabled, go ahead and remove person related keys before
-                    // any plugins have a chance to see them.
-                    event = normalizeProcessPerson(event, processPerson)
-                } else {
-                    // Anything other than `true` or `false` is invalid, and the default (true) will be
-                    // used.
-                    warnings.push({
-                        type: 'invalid_process_person_profile',
-                        details: {
-                            eventUuid: event.uuid,
-                            event: event.event,
-                            distinctId: event.distinct_id,
-                            $process_person_profile: propValue,
-                            message: 'Only a boolean value is valid for the $process_person_profile property',
-                        },
-                        alwaysSend: false,
-                    })
-                }
-            }
-        }
 
         if (event.event === '$$client_ingestion_warning') {
             warnings.push({
