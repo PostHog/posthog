@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 import temporalio.activity
 import temporalio.workflow
+from asgiref.sync import sync_to_async
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
@@ -65,11 +66,14 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
         else queryset[inputs.offset :]
     )
 
+    # Convert queryset to list in async-safe way
+    actions = await sync_to_async(list)(queryset)
+
     actions_count = 0
 
     # Process each action with heartbeat to keep activity alive
     with HeartbeaterSync(logger=logger):
-        for idx, action in enumerate(queryset, 1):
+        for idx, action in enumerate(actions, 1):
             # Extract event name from the first step in steps_json
             if not action.steps_json or len(action.steps_json) == 0:
                 continue
