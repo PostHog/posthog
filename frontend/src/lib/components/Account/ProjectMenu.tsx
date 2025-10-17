@@ -67,7 +67,7 @@ export function ProjectMenu({
                 >
                     {iconOnly ? (
                         <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 dark:text-tertiary">
-                            {String.fromCodePoint(currentTeam.name.codePointAt(0)!).toUpperCase()}
+                            {String.fromCodePoint(currentTeam.name.codePointAt(0)!).toLocaleUpperCase()}
                         </div>
                     ) : (
                         <span className="truncate">{currentTeam.name ?? 'Project'}</span>
