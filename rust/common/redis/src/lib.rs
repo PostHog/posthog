@@ -16,9 +16,9 @@ fn get_redis_timeout_ms() -> u64 {
         .unwrap_or_else(|| {
             // Use longer timeout in test environments to handle concurrent test execution
             if cfg!(test) {
-                5000  // 5 seconds for tests
+                5000 // 5 seconds for tests
             } else {
-                DEFAULT_REDIS_TIMEOUT_MILLISECS  // 100ms for production
+                DEFAULT_REDIS_TIMEOUT_MILLISECS // 100ms for production
             }
         })
 }
