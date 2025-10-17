@@ -28,8 +28,10 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import ActorsQuery, HogQLQuery
 
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import capture_legacy_api_call
@@ -88,6 +90,42 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
 
 
+def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> [list[Any] | None, str | None]:
+    """
+    Generate HogQL bytecode for cohort filter data.
+    Similar to generate_template_bytecode in validation.py but for cohort-specific filters.
+    """
+    try:
+        from posthog.models.property.property import Property
+
+        # Convert the filter data to a Property object for bytecode generation
+        property_obj = Property(**filter_data)
+        expr = property_to_expr(property_obj, team)
+        return create_bytecode(expr, cohort_membership_supported=True).bytecode, None
+    except Exception as e:
+        logger.warning(f"Failed to generate bytecode for cohort filter: {e}")
+        return None, str(e)
+
+
+class FilterBytecodeMixin(BaseModel):
+    bytecode: list[Any] | None = None
+    bytecode_error: str | None = None
+
+    @model_validator(mode="after")
+    def _generate_bytecode(self, info):
+        """Generate bytecode for the filter if team context is available."""
+
+        if info and info.context:
+            team = info.context.get("team")
+            if team:
+                bytecode, error = generate_cohort_filter_bytecode(self.model_dump(), team)
+                if bytecode:
+                    self.bytecode = bytecode
+                if error:
+                    self.bytecode_error = error
+        return self
+
+
 class EventPropFilter(BaseModel, extra="forbid"):
     type: Literal["event", "element"]
     key: str
@@ -101,7 +139,7 @@ class HogQLFilter(BaseModel, extra="forbid"):
     value: Any | None = None
 
 
-class BehavioralFilter(BaseModel, extra="forbid"):
+class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["behavioral"]
     key: Union[str, int]  # action IDs can be ints
     value: str
@@ -121,14 +159,14 @@ class BehavioralFilter(BaseModel, extra="forbid"):
     explicit_datetime: str | None = None
 
 
-class CohortFilter(BaseModel, extra="forbid"):
+class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["cohort"]
     key: Literal["id"]
     value: int
     negation: bool = False
 
 
-class PersonFilter(BaseModel, extra="forbid"):
+class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["person"]
     key: str
     operator: str | None = None  # accept any legacy operator
@@ -544,6 +582,7 @@ class CohortSerializer(serializers.ModelSerializer):
         """
         1. structural/schema check → pydantic
         2. domain rules (feature-flag gotchas) → bespoke fn
+        3. bytecode generation → add bytecode fields to filters
         """
         # Skip validation for static cohorts
         if self.initial_data.get("is_static") or getattr(self.instance, "is_static", False):
@@ -553,7 +592,12 @@ class CohortSerializer(serializers.ModelSerializer):
                 {"detail": "Must contain a 'properties' key with type and values", "type": "validation_error"}
             )
         try:
-            CohortFilters.model_validate(raw)  # raises if malformed
+            # Validate structure
+            team = self.context.get("get_team", lambda: None)()
+            validated = CohortFilters.model_validate(raw, context={"team": team})
+            print(validated.model_dump())
+            raw = validated.model_dump()
+
         except PydanticValidationError as exc:
             # pydantic → drf error shape
             raise ValidationError(detail=self._cohort_error_message(exc))
