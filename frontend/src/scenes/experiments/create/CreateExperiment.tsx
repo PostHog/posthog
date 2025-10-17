@@ -236,6 +236,12 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                                     ...(experiment[context.orderingField] ?? []),
                                                     ...metrics.map((metric) => metric.uuid),
                                                 ],
+                                                saved_metrics: [
+                                                    ...(experiment.saved_metrics ?? []),
+                                                    ...metrics.map((metric) => ({
+                                                        saved_metric: metric.sharedMetricId,
+                                                    })),
+                                                ],
                                             })
                                             setSharedMetrics({
                                                 ...sharedMetrics,
