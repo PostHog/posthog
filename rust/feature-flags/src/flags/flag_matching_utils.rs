@@ -234,13 +234,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
     // Use structured logging helper
     log_query_duration("Person query", person_query_duration, config, || {
+        let cohort_count = static_cohort_ids.len();
+        let group_count = group_type_indexes.len();
+        let person_found = person_id.is_some();
         format!(
-            "distinct_id={}, team_id={}, cohort_count={}, group_count={}, person_found={}",
-            distinct_id,
-            team_id,
-            static_cohort_ids.len(),
-            group_type_indexes.len(),
-            person_id.is_some()
+            "distinct_id={distinct_id}, team_id={team_id}, cohort_count={cohort_count}, group_count={group_count}, person_found={person_found}"
         )
     });
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
@@ -286,8 +284,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             // Use structured logging helper
             log_query_duration("Cohort query", cohort_query_duration, config, || {
                 format!(
-                    "person_id={}, cohort_ids={:?}, team_id={}",
-                    person_id, static_cohort_ids, team_id
+                    "person_id={person_id}, cohort_ids={static_cohort_ids:?}, team_id={team_id}"
                 )
             });
 
@@ -378,12 +375,9 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
         // Use structured logging helper
         log_query_duration("Group query", group_query_duration, config, || {
+            let results = groups.len();
             format!(
-                "team_id={}, group_type_indexes={:?}, group_keys={:?}, results={}",
-                team_id,
-                group_type_indexes_vec,
-                group_keys_vec,
-                groups.len()
+                "team_id={team_id}, group_type_indexes={group_type_indexes_vec:?}, group_keys={group_keys_vec:?}, results={results}"
             )
         });
 
