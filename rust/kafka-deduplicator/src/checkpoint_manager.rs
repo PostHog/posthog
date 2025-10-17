@@ -92,35 +92,39 @@ impl CheckpointManager {
     /// Start the periodic flush task, returning the inner worker
     /// threads' health reporter flag for bubbling up failures
     pub fn start(&mut self) -> Option<Arc<AtomicBool>> {
-        if self.checkpoint_task.is_some() {
-            warn!("Checkpoint manager already started");
-            return None;
-        }
-        let health_reporter = Arc::new(AtomicBool::new(true));
+        // COMMENTED OUT FOR TESTING: Disable checkpointing to isolate performance issues
+        info!("Checkpoint manager start() called but disabled for testing");
+        return None;
 
-        info!(
-            "Starting checkpoint manager with interval: {:?}",
-            self.config.checkpoint_interval
-        );
+        // if self.checkpoint_task.is_some() {
+        //     warn!("Checkpoint manager already started");
+        //     return None;
+        // }
+        // let health_reporter = Arc::new(AtomicBool::new(true));
 
-        // clones we can reuse as bases within the checkpoint submission loop
-        // without involving "self" and moving it into the loop
-        let submit_loop_config = self.config.clone();
-        let store_manager = self.store_manager.clone();
-        let exporter = self.exporter.clone();
-        let cancel_submit_loop_token = self.cancel_token.child_token();
+        // info!(
+        //     "Starting checkpoint manager with interval: {:?}",
+        //     self.config.checkpoint_interval
+        // );
 
-        // loop-local counter for individual worker task logging
-        let mut worker_task_id = 1_u32;
+        // // clones we can reuse as bases within the checkpoint submission loop
+        // // without involving "self" and moving it into the loop
+        // let submit_loop_config = self.config.clone();
+        // let store_manager = self.store_manager.clone();
+        // let exporter = self.exporter.clone();
+        // let cancel_submit_loop_token = self.cancel_token.child_token();
 
-        // loop-local state variables
-        let is_checkpointing = self.is_checkpointing.clone();
-        // Track checkpoint counter and metadata per partition in a single map for atomic updates
-        let checkpoint_state: Arc<DashMap<Partition, (u32, CheckpointMetadata)>> =
-            Arc::new(DashMap::new());
-        let checkpoint_health_reporter = health_reporter.clone();
+        // // loop-local counter for individual worker task logging
+        // let mut worker_task_id = 1_u32;
 
-        let checkpoint_task_handle = tokio::spawn(async move {
+        // // loop-local state variables
+        // let is_checkpointing = self.is_checkpointing.clone();
+        // // Track checkpoint counter and metadata per partition in a single map for atomic updates
+        // let checkpoint_state: Arc<DashMap<Partition, (u32, CheckpointMetadata)>> =
+        //     Arc::new(DashMap::new());
+        // let checkpoint_health_reporter = health_reporter.clone();
+
+        // let checkpoint_task_handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(submit_loop_config.checkpoint_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -320,47 +324,50 @@ impl CheckpointManager {
 
     /// Stop the checkpoint manager
     pub async fn stop(&mut self) {
-        info!("Checkpoint manager: starting graceful shutdown...");
+        // COMMENTED OUT FOR TESTING: Checkpoint manager disabled
+        info!("Checkpoint manager stop() called but disabled for testing");
 
-        // Cancel the task
-        info!("Checkpoint manager: cancelling checkpoint manager task token...");
-        self.cancel_token.cancel();
+        // info!("Checkpoint manager: starting graceful shutdown...");
 
-        // Stop in-flight submissions to the checkpoint workers immediately
-        info!("Checkpoint manager: stopping in-flight checkpoint submissions...");
-        if let Some(task) = self.checkpoint_task.take() {
-            task.abort();
-        }
+        // // Cancel the task
+        // info!("Checkpoint manager: cancelling checkpoint manager task token...");
+        // self.cancel_token.cancel();
 
-        // Stop local checkpoint directory cleanup task
-        info!("Checkpoint manager: stopping local checkpoint directory cleanup...");
-        if let Some(task) = self.cleanup_task.take() {
-            task.abort();
-        }
+        // // Stop in-flight submissions to the checkpoint workers immediately
+        // info!("Checkpoint manager: stopping in-flight checkpoint submissions...");
+        // if let Some(task) = self.checkpoint_task.take() {
+        //     task.abort();
+        // }
 
-        let mut fail_interval =
-            tokio::time::interval(self.config.checkpoint_worker_shutdown_timeout);
-        let mut probe_interval = tokio::time::interval(Duration::from_secs(1));
-        loop {
-            tokio::select! {
-                _ = fail_interval.tick() => {
-                    warn!("Checkpoint manager: graceful shutdown - timed out awaiting in-flight checkpoints");
-                    break;
-                }
+        // // Stop local checkpoint directory cleanup task
+        // info!("Checkpoint manager: stopping local checkpoint directory cleanup...");
+        // if let Some(task) = self.cleanup_task.take() {
+        //     task.abort();
+        // }
 
-                _ = probe_interval.tick() => {
-                    let inflight_count = self.is_checkpointing.lock().await.len();
-                    if inflight_count == 0 {
-                        info!("Checkpoint manager: graceful shutdown - in-flight checkpoints completed");
-                        break;
-                    } else {
-                        info!(inflight_count, "Checkpoint manager: graceful shutdown - awaiting in-flight checkpoints...");
-                    }
-                }
-            }
-        }
+        // let mut fail_interval =
+        //     tokio::time::interval(self.config.checkpoint_worker_shutdown_timeout);
+        // let mut probe_interval = tokio::time::interval(Duration::from_secs(1));
+        // loop {
+        //     tokio::select! {
+        //         _ = fail_interval.tick() => {
+        //             warn!("Checkpoint manager: graceful shutdown - timed out awaiting in-flight checkpoints");
+        //             break;
+        //         }
 
-        info!("Checkpoint manager: graceful shutdown completed");
+        //         _ = probe_interval.tick() => {
+        //             let inflight_count = self.is_checkpointing.lock().await.len();
+        //             if inflight_count == 0 {
+        //                 info!("Checkpoint manager: graceful shutdown - in-flight checkpoints completed");
+        //                 break;
+        //             } else {
+        //                 info!(inflight_count, "Checkpoint manager: graceful shutdown - awaiting in-flight checkpoints...");
+        //             }
+        //         }
+        //     }
+        // }
+
+        // info!("Checkpoint manager: graceful shutdown completed");
     }
 
     pub fn export_enabled(&self) -> bool {

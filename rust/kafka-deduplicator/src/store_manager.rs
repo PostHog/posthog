@@ -290,15 +290,19 @@ impl StoreManager {
     /// on individual stores if the global capacity is exceeded. Cleanup is distributed
     /// across all stores by removing a percentage of each store's time range.
     pub fn cleanup_old_entries_if_needed(&self) -> Result<u64> {
-        // Try to acquire cleanup lock - if another cleanup is running, skip this one
-        if self
-            .cleanup_running
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            debug!("Cleanup already running, skipping this cycle");
-            return Ok(0);
-        }
+        // COMMENTED OUT FOR TESTING: Disable cleanup to isolate performance issues
+        info!("cleanup_old_entries_if_needed() called but disabled for testing");
+        return Ok(0);
+
+        // // Try to acquire cleanup lock - if another cleanup is running, skip this one
+        // if self
+        //     .cleanup_running
+        //     .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        //     .is_err()
+        // {
+        //     debug!("Cleanup already running, skipping this cycle");
+        //     return Ok(0);
+        // }
 
         // Ensure we release the lock when we're done
         let _guard = CleanupGuard {
@@ -397,25 +401,29 @@ impl StoreManager {
 
     /// Check if cleanup is needed based on current global size
     pub fn needs_cleanup(&self) -> bool {
-        // Log folder sizes and assigned partitions
-        self.log_folder_sizes_and_partitions();
+        // COMMENTED OUT FOR TESTING: Disable cleanup to isolate performance issues
+        info!("needs_cleanup() called but disabled for testing, returning false");
+        return false;
 
-        if self.store_config.max_capacity == 0 {
-            return false;
-        }
+        // // Log folder sizes and assigned partitions
+        // self.log_folder_sizes_and_partitions();
 
-        let mut total_size = 0u64;
-        for entry in self.stores.iter() {
-            if let Ok(size) = entry.value().get_total_size() {
-                total_size += size;
-            }
-        }
+        // if self.store_config.max_capacity == 0 {
+        //     return false;
+        // }
 
-        info!(
-            "Total size of all stores: {} bytes, max capacity: {} bytes",
-            total_size, self.store_config.max_capacity
-        );
-        total_size > self.store_config.max_capacity
+        // let mut total_size = 0u64;
+        // for entry in self.stores.iter() {
+        //     if let Ok(size) = entry.value().get_total_size() {
+        //         total_size += size;
+        //     }
+        // }
+
+        // info!(
+        //     "Total size of all stores: {} bytes, max capacity: {} bytes",
+        //     total_size, self.store_config.max_capacity
+        // );
+        // total_size > self.store_config.max_capacity
     }
 
     /// Start a periodic cleanup task that runs in the background
@@ -439,38 +447,41 @@ impl StoreManager {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        info!("Cleanup task tick - running periodic cleanup check");
+                        // COMMENTED OUT FOR TESTING: Disable cleanup to isolate performance issues
+                        info!("Cleanup task tick - but cleanup is disabled for testing");
 
-                        // First, clean up orphaned directories (unassigned partitions)
-                        match manager.cleanup_orphaned_directories() {
-                            Ok(0) => {
-                                debug!("No orphaned directories found");
-                            }
-                            Ok(bytes_freed) => {
-                                info!("Cleaned up {} bytes of orphaned directories", bytes_freed);
-                            }
-                            Err(e) => {
-                                warn!("Failed to clean up orphaned directories: {}", e);
-                            }
-                        }
+                        // info!("Cleanup task tick - running periodic cleanup check");
 
-                        // Then check if we need capacity-based cleanup
-                        if manager.needs_cleanup() {
-                            info!("Global capacity exceeded, triggering cleanup");
-                            match manager.cleanup_old_entries_if_needed() {
-                                Ok(0) => {
-                                    debug!("Cleanup skipped (may be already running or no data to clean)");
-                                }
-                                Ok(bytes_freed) => {
-                                    info!("Periodic cleanup freed {} bytes", bytes_freed);
-                                }
-                                Err(e) => {
-                                    error!("Periodic cleanup failed: {}", e);
-                                }
-                            }
-                        } else {
-                            info!("No cleanup needed, stores within capacity");
-                        }
+                        // // First, clean up orphaned directories (unassigned partitions)
+                        // match manager.cleanup_orphaned_directories() {
+                        //     Ok(0) => {
+                        //         debug!("No orphaned directories found");
+                        //     }
+                        //     Ok(bytes_freed) => {
+                        //         info!("Cleaned up {} bytes of orphaned directories", bytes_freed);
+                        //     }
+                        //     Err(e) => {
+                        //         warn!("Failed to clean up orphaned directories: {}", e);
+                        //     }
+                        // }
+
+                        // // Then check if we need capacity-based cleanup
+                        // if manager.needs_cleanup() {
+                        //     info!("Global capacity exceeded, triggering cleanup");
+                        //     match manager.cleanup_old_entries_if_needed() {
+                        //         Ok(0) => {
+                        //             debug!("Cleanup skipped (may be already running or no data to clean)");
+                        //         }
+                        //         Ok(bytes_freed) => {
+                        //             info!("Periodic cleanup freed {} bytes", bytes_freed);
+                        //         }
+                        //         Err(e) => {
+                        //             error!("Periodic cleanup failed: {}", e);
+                        //         }
+                        //     }
+                        // } else {
+                        //     info!("No cleanup needed, stores within capacity");
+                        // }
                     }
                     _ = &mut shutdown_rx => {
                         info!("Cleanup task received shutdown signal");
@@ -620,7 +631,11 @@ impl StoreManager {
 
     /// Clean up orphaned directories that don't belong to any assigned partition
     pub fn cleanup_orphaned_directories(&self) -> Result<u64> {
-        let mut total_freed = 0u64;
+        // COMMENTED OUT FOR TESTING: Disable cleanup to isolate performance issues
+        info!("cleanup_orphaned_directories() called but disabled for testing");
+        return Ok(0);
+
+        // let mut total_freed = 0u64;
 
         // Build a set of currently assigned partition directories
         let mut assigned_dirs = std::collections::HashSet::new();
