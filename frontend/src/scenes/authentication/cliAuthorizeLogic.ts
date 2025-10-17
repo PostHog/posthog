@@ -36,6 +36,20 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             },
         ],
     })),
+    listeners(({ actions, values }) => ({
+        loadProjectsSuccess: () => {
+            // Set default project to first project if not already set
+            if (values.projects.length > 0 && !values.authorize.projectId) {
+                actions.setAuthorizeValue('projectId', values.projects[0].id)
+            }
+        },
+        submitAuthorizeSuccess: () => {
+            actions.setSuccess(true)
+        },
+        submitAuthorizeFailure: () => {
+            // Error handling is done in the form errors
+        },
+    })),
     forms(() => ({
         authorize: {
             defaults: {
@@ -72,14 +86,6 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                     }
                 }
             },
-        },
-    })),
-    listeners(({ actions }) => ({
-        submitAuthorizeSuccess: () => {
-            actions.setSuccess(true)
-        },
-        submitAuthorizeFailure: () => {
-            // Error handling is done in the form errors
         },
     })),
     urlToAction(({ actions }) => ({

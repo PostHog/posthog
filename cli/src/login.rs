@@ -1,5 +1,5 @@
 use anyhow::{Context, Error};
-use inquire::Select;
+use inquire::{Select, Text};
 use serde::{Deserialize, Serialize};
 use std::thread;
 use std::time::Duration;
@@ -39,15 +39,19 @@ pub fn login(host_override: Option<String>) -> Result<(), Error> {
     let host = if let Some(override_host) = host_override {
         override_host
     } else {
-        // Prompt user to select region
-        let regions = vec!["US", "EU"];
-        let selection = Select::new("Select your PostHog region:", regions)
-            .with_help_message("Choose the region where your PostHog data is hosted")
+        // Prompt user to select region or manual login
+        let options = vec!["US", "EU", "Manual"];
+        let selection = Select::new("Select your PostHog region:", options)
+            .with_help_message("Choose the region where your PostHog data is hosted, or 'Manual' to enter your own details")
             .prompt()?;
 
         match selection {
             "US" => "https://us.posthog.com".to_string(),
             "EU" => "https://eu.posthog.com".to_string(),
+            "Manual" => {
+                // Manual login flow
+                return manual_login();
+            }
             _ => unreachable!(),
         }
     };
@@ -233,4 +237,44 @@ fn poll_for_authorization(
     Err(anyhow::anyhow!(
         "Authorization timed out. Please try again."
     ))
+}
+
+fn manual_login() -> Result<(), Error> {
+    info!("🔐 Manual login...");
+
+    let host = Text::new("Enter the PostHog host URL")
+        .with_default("https://us.posthog.com")
+        .with_validator(host_validator)
+        .prompt()?;
+
+    let env_id = Text::new("Enter your project ID (the number in your PostHog homepage URL)").prompt()?;
+
+    // Given this is an interactive command, we're happy enough to not join the capture handle
+    let _ = capture_command_invoked("manual_login", Some(env_id.clone()));
+
+    let token = Text::new(
+        "Enter your personal API token (see posthog.com/docs/api#private-endpoint-authentication)",
+    )
+    .with_validator(token_validator)
+    .prompt()?;
+
+    let token = Token {
+        host: Some(host.clone()),
+        token,
+        env_id,
+    };
+    let provider = HomeDirProvider;
+    provider.store_credentials(token)?;
+
+    info!("Token saved to: {}", provider.report_location());
+
+    println!();
+    println!("🎉 Authentication complete!");
+    println!("Credentials saved to: {}", provider.report_location());
+    println!();
+    println!("You can now use the CLI:");
+    println!("  posthog-cli schema pull");
+    println!();
+
+    Ok(())
 }
