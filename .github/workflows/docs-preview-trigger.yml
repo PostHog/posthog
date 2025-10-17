@@ -1,0 +1,234 @@
+name: Trigger Docs Preview Build
+
+on:
+  pull_request:
+    paths:
+      - 'docs/published/**'
+      - 'docs/DOCS_MIGRATION_PLAN.md'
+      - 'docs/MONOREPO_DOCS_BUILD_GUIDE.md'
+
+permissions:
+  pull-requests: write
+
+jobs:
+  trigger-preview:
+    name: Trigger posthog.com preview build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Get PR details
+        id: pr-info
+        run: |
+          echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          echo "pr_title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
+          echo "pr_branch=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+          echo "pr_ref=refs/pull/${{ github.event.pull_request.number }}/head" >> $GITHUB_OUTPUT
+
+      - name: Trigger Vercel preview build
+        id: trigger-build
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          # Check if all required secrets are configured
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "⚠️ Vercel secrets not configured (VERCEL_TOKEN, VERCEL_PROJECT_ID)"
+            echo "configure_needed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          PR_REF="refs/pull/${PR_NUMBER}/head"
+
+          echo "📢 Triggering Vercel deployment for posthog.com@master"
+          echo "   with POSTHOG_DOCS_REF=${PR_REF}"
+
+          # Build request payload with env var for monorepo docs
+          PAYLOAD='{
+            "name": "posthog-com",
+            "project": "'"$VERCEL_PROJECT_ID"'",
+            "gitSource": {
+              "type": "github",
+              "repo": "PostHog/posthog.com",
+              "ref": "master"
+            },
+            "env": [
+              {
+                "key": "POSTHOG_DOCS_REF",
+                "value": "'"$PR_REF"'",
+                "target": ["production", "preview", "development"]
+              }
+            ]
+          }'
+
+          # Add teamId if configured
+          if [ -n "$VERCEL_TEAM_ID" ]; then
+            PAYLOAD=$(echo "$PAYLOAD" | jq --arg team "$VERCEL_TEAM_ID" '.team = $team')
+          fi
+
+          # Call Vercel Deployments API
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.vercel.com/v13/deployments" \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+
+          if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
+            DEPLOYMENT_URL=$(echo "$BODY" | jq -r '.url // empty')
+            echo "✅ Successfully triggered Vercel preview build"
+            echo "trigger_status=success" >> $GITHUB_OUTPUT
+            if [ -n "$DEPLOYMENT_URL" ]; then
+              echo "deployment_url=https://${DEPLOYMENT_URL}" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "❌ Failed to trigger preview build (HTTP $HTTP_CODE)"
+            echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
+            echo "trigger_status=failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR with preview info
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.pr-info.outputs.pr_number }};
+            const prRef = "${{ steps.pr-info.outputs.pr_ref }}";
+            const triggerStatus = "${{ steps.trigger-build.outputs.trigger_status }}";
+            const configNeeded = "${{ steps.trigger-build.outputs.configure_needed }}";
+
+            let message = '';
+
+            if (configNeeded === 'true') {
+              message = `## 📚 Docs Preview Build
+
+⚠️ **Preview build not configured** - Required Vercel secrets not found.
+
+### Setup Required (One-time in PostHog/posthog repo)
+Add these repository secrets in Settings → Secrets and variables → Actions:
+
+1. **VERCEL_TOKEN** - Vercel API token for deployments
+   - Generate at: https://vercel.com/account/tokens
+   - Scope: Full access recommended
+
+2. **VERCEL_PROJECT_ID** - ID of posthog.com Vercel project
+   - Find at: https://vercel.com/posthog/posthog-com/settings/general
+
+3. **VERCEL_TEAM_ID** (Optional) - If posthog.com is in a team
+   - Find at: https://vercel.com/teams/settings
+
+### After Setup:
+- Re-run this workflow or push another commit
+- Preview build will trigger automatically
+
+See [MONOREPO_DOCS_BUILD_GUIDE.md](https://github.com/PostHog/posthog/blob/master/docs/MONOREPO_DOCS_BUILD_GUIDE.md) for details.`;
+            } else if (triggerStatus === 'success') {
+              message = `## 📚 Docs Preview Build ✅
+
+Successfully triggered Vercel deployment! Your docs are being built...
+
+### What's happening:
+1. posthog.com@master is being deployed with your docs
+2. Prebuild script clones posthog at: \`${prRef}\`
+3. Gatsby loads docs from \`docs/published/\` directory
+4. Pages created at \`/docs-from-monorepo/\` (PoC path)
+
+### Preview URL:
+Check the **Vercel** deployment check below - preview link will appear in 1-2 minutes
+
+### What to test:
+- [ ] Architecture docs at \`/docs-from-monorepo/architecture/\`
+- [ ] Contributing guides at \`/docs-from-monorepo/contributing/\`
+- [ ] Runbooks at \`/docs-from-monorepo/runbooks/\`
+- [ ] Relative links between docs work
+- [ ] Images render
+- [ ] Sidebar navigation displays
+- [ ] Frontmatter parsed correctly
+
+**Tip:** All files in \`docs/published/\` must have YAML frontmatter for rendering to work.
+
+See [DOCS_MIGRATION_PLAN.md](https://github.com/PostHog/posthog/blob/master/docs/DOCS_MIGRATION_PLAN.md) for architecture details.`;
+            } else {
+              message = `## 📚 Docs Preview Build ❌
+
+Failed to trigger preview build. Check the GitHub Action logs for details.
+
+### Common issues:
+- **Invalid git ref:** PR number doesn't exist or branch was deleted
+- **Vercel API error:** Check VERCEL_TOKEN and VERCEL_PROJECT_ID are correct
+- **Rate limit:** Too many builds triggered rapidly
+- **Network issue:** Temporary connectivity problem
+
+### Debugging steps:
+1. Check GitHub Action logs (click "Run" → scroll down)
+2. Verify Vercel secrets are correct and not expired
+3. Try re-running the workflow
+4. Check Vercel dashboard for API status
+
+**Manual workaround:** Ask a maintainer to manually trigger preview in Vercel.`;
+            }
+
+            github.rest.issues.createComment({
+              issue_number: prNumber,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+
+  validate-docs:
+    name: Validate docs structure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check frontmatter in published docs
+        run: |
+          echo "Checking for required frontmatter in published docs..."
+
+          MISSING_FRONTMATTER=0
+
+          # Find all markdown/mdx files in published docs
+          for file in docs/published/**/*.{md,mdx}; do
+            if [ -f "$file" ]; then
+              # Check if file starts with ---
+              if ! head -1 "$file" | grep -q "^---"; then
+                echo "❌ Missing frontmatter in: $file"
+                MISSING_FRONTMATTER=1
+              fi
+            fi
+          done
+
+          if [ $MISSING_FRONTMATTER -eq 1 ]; then
+            echo "Some files are missing required frontmatter. All docs in /docs/published/ must have YAML frontmatter."
+            exit 1
+          fi
+
+          echo "✅ All published docs have frontmatter"
+
+      - name: Verify internal docs not in published
+        run: |
+          echo "Verifying internal docs are not accidentally in published..."
+
+          if find docs/published -name "*internal*" -o -name "*private*" -o -name "*secret*" 2>/dev/null | grep -q .; then
+            echo "❌ Found internal/private docs in published directory!"
+            exit 1
+          fi
+
+          echo "✅ No internal docs found in published directory"
+
+      - name: Check for broken relative links
+        run: |
+          echo "Checking for obvious link issues..."
+
+          # Check for links pointing outside /published/
+          if grep -r '\[.*\](\.\.\/\.\./' docs/published/ 2>/dev/null; then
+            echo "⚠️ Found links that go outside /published/ directory - verify these are intentional"
+          else
+            echo "✅ Links appear to be within /published/ directory"
+          fi
