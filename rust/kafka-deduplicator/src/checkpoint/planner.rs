@@ -99,7 +99,7 @@ pub fn plan_checkpoint(
         if let Some(prev_file) = prev_file_map.get(filename) {
             if decide_with_duplicate(&candidate, prev_file) {
                 debug!("Duplicate file {} - new file will be uploaded", filename);
-                metrics::counter!(CHECKPOINT_PLAN_FILE_TRACKED_COUNTER, "file" => "modified")
+                metrics::counter!(CHECKPOINT_PLAN_FILE_TRACKED_COUNTER, "file" => "replaced")
                     .increment(1);
                 let remote_filepath = info.get_file_key(filename);
                 info.metadata.track_file(
