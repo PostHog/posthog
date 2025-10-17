@@ -15,6 +15,7 @@ from posthog.temporal.delete_recordings import WORKFLOWS as DELETE_RECORDING_WOR
 from posthog.temporal.enforce_max_replay_retention import WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOWS
+from posthog.temporal.recording_expiration_notification import WORKFLOWS as RECORDING_EXPIRATION_NOTIFICATION_WORKFLOWS
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
@@ -126,6 +127,7 @@ class Command(BaseCommand):
             + TEST_WORKFLOWS
             + DELETE_RECORDING_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+            + RECORDING_EXPIRATION_NOTIFICATION_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))
