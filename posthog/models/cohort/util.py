@@ -46,10 +46,9 @@ from posthog.queries.util import PersonPropertiesMode
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
+TARGET_CHUNK_SIZE = 5_000_000
 
 logger = structlog.get_logger(__name__)
-
-TARGET_CHUNK_SIZE = 5_000_000
 
 
 def run_cohort_query(
@@ -601,7 +600,7 @@ def _recalculate_cohortpeople_chunked(
 
         chunk_recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=chunk_cohort_query)
 
-        def execute_chunk_query(sql=chunk_recalculate_cohortpeople_sql, params=chunk_cohort_params):
+        def execute_chunk_query():
             tag_queries(
                 kind="cohort_calculation_chunk",
                 query_type="CohortsQueryHogQL",
@@ -612,9 +611,9 @@ def _recalculate_cohortpeople_chunked(
             hogql_global_settings = HogQLGlobalSettings()
 
             return sync_execute(
-                sql,
+                chunk_recalculate_cohortpeople_sql,
                 {
-                    **params,
+                    **chunk_cohort_params,
                     "cohort_id": cohort.pk,
                     "team_id": team.id,
                     "new_version": pending_version,
