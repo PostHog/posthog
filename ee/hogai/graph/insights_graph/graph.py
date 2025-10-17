@@ -4,7 +4,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.graph import BaseAssistantGraph
+from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 
