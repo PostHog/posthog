@@ -1607,10 +1607,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setMaskWindow(false)
             }
 
-            if (values.shouldPauseLoading) {
-                actions.pauseLoading()
-            } else if (values.shouldResumeLoading) {
+            if (values.shouldResumeLoading) {
                 actions.resumeLoading()
+            } else if (values.shouldPauseLoading) {
+                actions.pauseLoading()
             }
 
             // The normal loop. Progress the player position and continue the loop
