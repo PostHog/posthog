@@ -10,6 +10,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.action import Action
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
@@ -60,69 +61,70 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
 
     actions_count = 0
 
-    # Process each action
-    for action in queryset:
-        # Extract event name from the first step in steps_json
-        if not action.steps_json or len(action.steps_json) == 0:
-            continue
+    # Process each action with heartbeat to keep activity alive
+    with HeartbeaterSync(logger=logger):
+        for action in queryset:
+            # Extract event name from the first step in steps_json
+            if not action.steps_json or len(action.steps_json) == 0:
+                continue
 
-        first_step = action.steps_json[0] if isinstance(action.steps_json, list) else None
-        if not first_step or not isinstance(first_step, dict):
-            continue
+            first_step = action.steps_json[0] if isinstance(action.steps_json, list) else None
+            if not first_step or not isinstance(first_step, dict):
+                continue
 
-        event_name = first_step.get("event")
-        if not event_name:
-            continue
+            event_name = first_step.get("event")
+            if not event_name:
+                continue
 
-        # Query ClickHouse for persons who performed event X at least N times over the last X days
-        query = """
-            SELECT
-                person_id,
-                count() as total_event_count
-            FROM events
-            WHERE
-                team_id = %(team_id)s
-                AND event = %(event_name)s
-                AND timestamp >= now() - toIntervalDay(%(days)s)
-                AND timestamp <= now()
-            GROUP BY
-                person_id
-            HAVING
-                count() >= %(min_matches)s
-            ORDER BY
-                total_event_count DESC,
-                person_id
-        """
+            # Query ClickHouse for persons who performed event X at least N times over the last X days
+            query = """
+                SELECT
+                    person_id,
+                    count() as total_event_count
+                FROM events
+                WHERE
+                    team_id = %(team_id)s
+                    AND event = %(event_name)s
+                    AND timestamp >= now() - toIntervalDay(%(days)s)
+                    AND timestamp <= now()
+                GROUP BY
+                    person_id
+                HAVING
+                    count() >= %(min_matches)s
+                ORDER BY
+                    total_event_count DESC,
+                    person_id
+            """
 
-        try:
-            with tags_context(
-                team_id=action.team_id,
-                feature=Feature.ACTIONS,
-                product=Product.MESSAGING,
-                query_type="action_event_counts_per_person_per_day",
-            ):
-                sync_execute(
-                    query,
-                    {
-                        "team_id": action.team_id,
-                        "event_name": event_name,
-                        "days": inputs.days,
-                        "min_matches": inputs.min_matches,
-                    },
-                    ch_user=ClickHouseUser.DEFAULT,
-                    workload=Workload.OFFLINE,
+            try:
+                with tags_context(
+                    team_id=action.team_id,
+                    feature=Feature.ACTIONS,
+                    product=Product.MESSAGING,
+                    query_type="action_event_counts_per_person_per_day",
+                ):
+                    sync_execute(
+                        query,
+                        {
+                            "team_id": action.team_id,
+                            "event_name": event_name,
+                            "days": inputs.days,
+                            "min_matches": inputs.min_matches,
+                        },
+                        ch_user=ClickHouseUser.DEFAULT,
+                        workload=Workload.OFFLINE,
+                    )
+
+            except Exception as e:
+                logger.exception(
+                    f"Error querying events for action {action.id}",
+                    action_id=action.id,
+                    event_name=event_name,
+                    error=str(e),
                 )
+                continue
 
-        except Exception as e:
-            logger.exception(
-                f"Error querying events for action {action.id}",
-                action_id=action.id,
-                event_name=event_name,
-                error=str(e),
-            )
-            continue
-
-        actions_count += 1
+            actions_count += 1
 
     return ProcessActionsResult(
         actions_processed=actions_count,
