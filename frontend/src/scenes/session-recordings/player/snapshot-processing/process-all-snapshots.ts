@@ -123,9 +123,9 @@ export function processAllSnapshots(
         let seenHashes = new Set<number>()
 
         // Helper to inject a Meta event before a full snapshot when missing
-        const pushPatchedMeta = (ts: number, winId?: string): void => {
+        const pushPatchedMeta = (ts: number, winId?: string): boolean => {
             if (hasSeenMeta) {
-                return
+                return false
             }
             const viewport = viewportForTimestamp(ts)
             if (viewport && viewport.width && viewport.height) {
@@ -150,16 +150,17 @@ export function processAllSnapshots(
                         feature: 'session-recording-meta-patching',
                     })
                 })
-            } else {
-                throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
-                    posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
-                        throttleCaptureKey: `${sessionRecordingId}-no-viewport-found`,
-                        sessionRecordingId,
-                        sourceKey: sourceKey,
-                        feature: 'session-recording-meta-patching',
-                    })
-                })
+                return true
             }
+            throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
+                posthog.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
+                    throttleCaptureKey: `${sessionRecordingId}-no-viewport-found`,
+                    sessionRecordingId,
+                    sourceKey: sourceKey,
+                    feature: 'session-recording-meta-patching',
+                })
+            })
+            return false
         }
 
         while (snapshotIndex < sortedSnapshots.length) {
@@ -204,13 +205,14 @@ export function processAllSnapshots(
                 // Inject a synthetic full snapshot (and meta if needed) immediately before the first incremental
                 const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
 
-                pushPatchedMeta(syntheticTimestamp, snapshot.windowId)
+                const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId)
 
                 const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp)
                 result.push(syntheticFull)
                 sourceResult.push(syntheticFull)
                 seenFullByWindow[windowId] = true
-                hasSeenMeta = false // after a full snapshot, reset hasSeenMeta to expect next full patching if needed
+                // mark meta as seen only if we actually inserted it; otherwise allow next full to patch
+                hasSeenMeta = hasSeenMeta || metaInserted
             }
 
             // Process chrome extension data
