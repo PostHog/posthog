@@ -21,11 +21,9 @@ import { seekbarLogic } from './seekbarLogic'
 const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
     segment,
     durationMs,
-    fullyLoaded,
 }: {
     segment: RecordingSegment
     durationMs: number
-    fullyLoaded: boolean
 }): JSX.Element {
     const getTitle = (): 'Active period' | 'Inactive period' | undefined => {
         if (segment.kind === 'buffer') {
@@ -39,7 +37,7 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
             className={clsx(
                 'PlayerSeekbar__segments__item',
                 segment.isActive && 'PlayerSeekbar__segments__item--active',
-                segment.kind === 'buffer' && !fullyLoaded && 'PlayerSeekbar__segments__item--buffer-loading'
+                segment.kind === 'buffer' && 'PlayerSeekbar__segments__item--buffer-loading'
             )}
             title={getTitle()}
             // eslint-disable-next-line react/forbid-dom-props
@@ -51,7 +49,7 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
 })
 
 function SeekbarSegments(): JSX.Element {
-    const { logicProps, fullyLoaded } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { segments, durationMs } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
     return (
         <div className="PlayerSeekbar__segments">
@@ -59,7 +57,6 @@ function SeekbarSegments(): JSX.Element {
                 <SeekbarSegment
                     segment={segment}
                     durationMs={durationMs}
-                    fullyLoaded={fullyLoaded}
                     key={`${segment.startTimestamp}-${segment.endTimestamp}-${segment.windowId}-${segment.kind}`}
                 />
             ))}
