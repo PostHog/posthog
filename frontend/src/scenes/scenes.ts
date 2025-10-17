@@ -587,6 +587,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
+    [urls.maxHistory()]: [Scene.Max, 'maxHistory'],
     [urls.max()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
     [urls.organizationBilling()]: [Scene.Billing, 'organizationBilling'],
