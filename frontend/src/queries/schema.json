@@ -808,6 +808,10 @@
                 "session_summarization",
                 "create_dashboard",
                 "edit_current_dashboard",
+                "read_taxonomy",
+                "search",
+                "read_data",
+                "todo_write",
                 "filter_revenue_analytics"
             ],
             "type": "string"
@@ -11451,6 +11455,12 @@
                     "required": ["distinct_ids", "properties"],
                     "type": "object"
                 },
+                "person_id": {
+                    "type": "string"
+                },
+                "person_mode": {
+                    "type": "string"
+                },
                 "properties": {
                     "type": "object"
                 },
@@ -12035,6 +12045,9 @@
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -12054,6 +12067,9 @@
                         "$ref": "#/definitions/ExperimentFunnelMetricStep"
                     },
                     "type": "array"
+                },
+                "sharedMetricId": {
+                    "type": "number"
                 },
                 "uuid": {
                     "type": "string"
@@ -12259,6 +12275,9 @@
                 "ignore_zeros": {
                     "type": "boolean"
                 },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -12275,6 +12294,9 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "sharedMetricId": {
+                    "type": "number"
                 },
                 "source": {
                     "$ref": "#/definitions/ExperimentMetricSource"
@@ -12344,6 +12366,9 @@
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -12353,6 +12378,9 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "sharedMetricId": {
+                    "type": "number"
                 },
                 "uuid": {
                     "type": "string"
@@ -12614,6 +12642,9 @@
                 "goal": {
                     "$ref": "#/definitions/ExperimentMetricGoal"
                 },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentMetric",
                     "type": "string"
@@ -12630,6 +12661,9 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "sharedMetricId": {
+                    "type": "number"
                 },
                 "uuid": {
                     "type": "string"
@@ -13296,7 +13330,8 @@
                 "team_activity",
                 "home",
                 "apps",
-                "live"
+                "live",
+                "chat"
             ],
             "type": "string"
         },
@@ -18158,6 +18193,7 @@
             "enum": [
                 "meta",
                 "event",
+                "internal_event",
                 "event_metadata",
                 "person",
                 "element",
@@ -25775,6 +25811,7 @@
                 "data_warehouse_person_properties",
                 "elements",
                 "events",
+                "internal_events",
                 "event_properties",
                 "event_feature_flags",
                 "event_metadata",

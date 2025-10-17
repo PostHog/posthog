@@ -2528,6 +2528,8 @@ export type FileSystemIconType =
     | 'home'
     | 'apps'
     | 'live'
+    | 'chat'
+
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2662,6 +2664,8 @@ export interface ExperimentMetricBaseProperties extends Node {
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
     goal?: ExperimentMetricGoal
+    isSharedMetric?: boolean
+    sharedMetricId?: number
 }
 
 export type ExperimentMetricOutlierHandling = {
