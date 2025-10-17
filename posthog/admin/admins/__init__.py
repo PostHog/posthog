@@ -2,7 +2,6 @@ from products.links.backend.admin import LinkAdmin
 
 from .async_deletion_admin import AsyncDeletionAdmin
 from .batch_imports import BatchImportAdmin
-from .behavioral_cohorts_admin import BehavioralCohortAnalysisAdmin
 from .cohort_admin import CohortAdmin
 from .dashboard_admin import DashboardAdmin
 from .dashboard_template_admin import DashboardTemplateAdmin
@@ -31,7 +30,6 @@ from .user_admin import UserAdmin
 __all__ = [
     "AsyncDeletionAdmin",
     "BatchImportAdmin",
-    "BehavioralCohortAnalysisAdmin",
     "CohortAdmin",
     "DashboardAdmin",
     "DashboardTemplateAdmin",

@@ -13330,7 +13330,8 @@
                 "team_activity",
                 "home",
                 "apps",
-                "live"
+                "live",
+                "chat"
             ],
             "type": "string"
         },
@@ -18192,6 +18193,7 @@
             "enum": [
                 "meta",
                 "event",
+                "internal_event",
                 "event_metadata",
                 "person",
                 "element",
@@ -25809,6 +25811,7 @@
                 "data_warehouse_person_properties",
                 "elements",
                 "events",
+                "internal_events",
                 "event_properties",
                 "event_feature_flags",
                 "event_metadata",

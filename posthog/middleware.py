@@ -720,18 +720,18 @@ class CSPMiddleware:
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             csp_parts = [
                 "default-src 'self'",
-                f"style-src 'self' 'unsafe-inline' {resource_url}",
+                f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
                 f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com",
-                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://d1sdjtjk6xzm7.cloudfront.net",
+                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://d1sdjtjk6xzm7.cloudfront.net https://fonts.gstatic.com https://cdn.jsdelivr.net https://assets.faircado.com https://use.typekit.net",
                 "worker-src 'self'",
                 "child-src 'none'",
                 "object-src 'none'",
-                f"img-src 'self' data: {resource_url} https://www.gravatar.com",
+                f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com",
-                f"connect-src 'self' https://status.posthog.com {resource_url} {connect_debug_url}",
+                f"connect-src 'self' https://status.posthog.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps
                 "frame-src https:",
-                "manifest-src 'none'",
+                "manifest-src 'self'",
                 "base-uri 'self'",
                 "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2",
                 "report-to posthog",

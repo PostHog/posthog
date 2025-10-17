@@ -1406,15 +1406,20 @@ wheels = [
 
 [[package]]
 name = "django-axes"
-version = "5.9.0"
+version = "8.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "asgiref" },
     { name = "django" },
-    { name = "django-ipware" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fa/ce/96cb8139cbd71823728f4fd5d28d5f06185667d335cf8a6ce5cbc506da02/django-axes-5.9.0.tar.gz", hash = "sha256:320ddc577387b1b7926468b9313fd8048f86b70e35a02faa858cbac003900374", size = 213886, upload-time = "2020-11-06T22:41:30.91Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9b/bf/ce259e79cf66cdd1aa7b1968af04a036cf39737c3ff69ced3a39808cd40d/django_axes-8.0.0.tar.gz", hash = "sha256:f95b6ae67fd77d44cc688818cef174914c4ad98c48daf65020b6f03f37220e45", size = 249419, upload-time = "2025-05-10T11:17:43.657Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/9b/ed6077fcd0e2f432b877b5cb937eb6992a588949e74d3bf06a63a28f60c8/django_axes-5.9.0-py3-none-any.whl", hash = "sha256:25827cd722b006845e9abd5ecbfba92ebad3935a29258d457158212d4e1f0ded", size = 70472, upload-time = "2020-11-06T22:41:35.475Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/4b/8862d6d326411fe18854db98305dc292b694d84b2b91398c33a792b7e772/django_axes-8.0.0-py3-none-any.whl", hash = "sha256:7ddc55f21b704b7e9b3e793a75deac01ff16cb67f561649b04336e1e96980035", size = 68884, upload-time = "2025-05-10T11:17:41.351Z" },
+]
+
+[package.optional-dependencies]
+ipware = [
+    { name = "django-ipware" },
 ]
 
 [[package]]
@@ -1480,11 +1485,14 @@ wheels = [
 
 [[package]]
 name = "django-ipware"
-version = "3.0.7"
+version = "7.0.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/fb/9d/9acede125f2c57954c4d20b233d204c6d7f46c9ec175071a4742da350efc/django-ipware-3.0.7.tar.gz", hash = "sha256:753f8214a16ccaac54ea977349a96e37b582a28a54065e00c1c46d530862c85e", size = 17930, upload-time = "2021-07-29T17:42:10.302Z" }
+dependencies = [
+    { name = "python-ipware" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/23/64/c7e4791edf01ba483cce444770b3e6a930ba12195ba1eeb37b5bf6dce8a8/django-ipware-7.0.1.tar.gz", hash = "sha256:d9ec43d2bf7cdf216fed8d494a084deb5761a54860a53b2e74346a4f384cff47", size = 6827, upload-time = "2024-04-19T20:02:49.257Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3b/02/b84b7fc0de4f8a349691aa6696fe047ae1eff211f4b3f9097351ecac93e2/django_ipware-3.0.7-py2.py3-none-any.whl", hash = "sha256:a18820ea2b98ff3f87b7530eb6346f5feb65d18e89397606aacc098fa7b93db2", size = 23562, upload-time = "2021-07-29T17:42:09.152Z" },
+    { url = "https://files.pythonhosted.org/packages/11/33/bf539925b102d68200da5b1d3eacb8aa5d5d9a065972e8b8724d0d53bb0d/django_ipware-7.0.1-py2.py3-none-any.whl", hash = "sha256:db16bbee920f661ae7f678e4270460c85850f03c6761a4eaeb489bdc91f64709", size = 6425, upload-time = "2024-04-19T20:02:47.469Z" },
 ]
 
 [[package]]
@@ -4148,7 +4156,7 @@ dependencies = [
     { name = "dj-database-url" },
     { name = "django" },
     { name = "django-admin-inline-paginator" },
-    { name = "django-axes" },
+    { name = "django-axes", extra = ["ipware"] },
     { name = "django-cors-headers" },
     { name = "django-deprecate-fields" },
     { name = "django-extensions" },
@@ -4386,7 +4394,7 @@ requires-dist = [
     { name = "dj-database-url", specifier = "==0.5.0" },
     { name = "django", specifier = "~=4.2.17" },
     { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
-    { name = "django-axes", specifier = "==5.9.0" },
+    { name = "django-axes", extras = ["ipware"], specifier = "==8.0.0" },
     { name = "django-cors-headers", specifier = "~=4.8.0" },
     { name = "django-deprecate-fields", specifier = "==0.1.1" },
     { name = "django-extensions", specifier = "~=4.1.0" },
@@ -5250,6 +5258,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/88/2c/7bb1416c5620485aa793f2de31d3df393d3686aa8a8506d11e10e13c5baf/python_dotenv-1.1.0.tar.gz", hash = "sha256:41f90bc6f5f177fb41f53e87666db362025010eb28f60a01c9143bfa33a2b2d5", size = 39920, upload-time = "2025-03-25T10:14:56.835Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1e/18/98a99ad95133c6a6e2005fe89faedf294a748bd5dc803008059409ac9b1e/python_dotenv-1.1.0-py3-none-any.whl", hash = "sha256:d7c01d9e2293916c18baf562d95698754b0dbbb5e74d457c45d4f6561fb9d55d", size = 20256, upload-time = "2025-03-25T10:14:55.034Z" },
+]
+
+[[package]]
+name = "python-ipware"
+version = "3.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9e/60/da4426c3e9aee56f08b24091a9e85a0414260f928f97afd0013dfbd0332f/python_ipware-3.0.0.tar.gz", hash = "sha256:9117b1c4dddcb5d5ca49e6a9617de2fc66aec2ef35394563ac4eecabdf58c062", size = 16609, upload-time = "2024-04-19T20:00:58.938Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/08/bd/ccd7416fdb30f104ddf6cfd8ee9f699441c7d9880a26f9b3089438adee05/python_ipware-3.0.0-py3-none-any.whl", hash = "sha256:fc936e6e7ec9fcc107f9315df40658f468ac72f739482a707181742882e36b60", size = 10761, upload-time = "2024-04-19T20:00:57.171Z" },
 ]
 
 [[package]]

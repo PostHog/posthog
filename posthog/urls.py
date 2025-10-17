@@ -53,6 +53,7 @@ from .views import (
     login_required,
     preferences_page,
     preflight_check,
+    render_query,
     robots_txt,
     security_txt,
     stats,
@@ -210,6 +211,7 @@ urlpatterns = [
         "embedded/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
+    path("render_query", render_query, name="render_query"),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path(
         "exporter/<str:access_token>",

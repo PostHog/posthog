@@ -137,6 +137,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 minRows={1}
                                 maxRows={10}
                                 className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
+                                autoFocus
                             />
                         </SlashCommandAutocomplete>
                     </div>

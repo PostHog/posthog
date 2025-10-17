@@ -256,6 +256,37 @@ class TestLoginAPI(APIBaseTest):
                 },
             )
 
+    def test_login_lockout_is_ip_based(self):
+        """Verify brute force lockout applies per-IP, not globally"""
+        User.objects.create(email="locktest@posthog.com", password="87654321")
+
+        with self.settings(AXES_ENABLED=True, AXES_FAILURE_LIMIT=3):
+            # Lock out IP 1.1.1.1 with 3 failed attempts
+            for _ in range(3):
+                self.client.post(
+                    "/api/login",
+                    {"email": "locktest@posthog.com", "password": "invalid"},
+                    REMOTE_ADDR="1.1.1.1",
+                )
+
+            # Verify IP 1.1.1.1 is locked (403 even with correct credentials)
+            response = self.client.post(
+                "/api/login",
+                {"email": "locktest@posthog.com", "password": "87654321"},
+                REMOTE_ADDR="1.1.1.1",
+            )
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(response.json()["code"], "too_many_failed_attempts")
+
+            # Verify different IP 2.2.2.2 can still attempt login (not locked)
+            response = self.client.post(
+                "/api/login",
+                {"email": "locktest@posthog.com", "password": "87654321"},
+                REMOTE_ADDR="2.2.2.2",
+            )
+            # Second IP is not locked, so can attempt login
+            self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
 
 class TestTwoFactorAPI(APIBaseTest):
     """

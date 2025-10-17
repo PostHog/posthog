@@ -196,6 +196,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
         newTab: (href?: string | null) => ({ href }),
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
+        closeTabId: (tabId: string) => ({ tabId }),
         removeTab: (tab: SceneTab) => ({ tab }),
         activateTab: (tab: SceneTab) => ({ tab }),
         clickOnTab: (tab: SceneTab) => ({ tab }),
@@ -557,6 +558,12 @@ export const sceneLogic = kea<sceneLogicType>([
         activateTab: () => persistTabs(values.tabs),
         renameTab: ({ tab }) => {
             actions.startTabEdit(tab)
+        },
+        closeTabId: ({ tabId }) => {
+            const tab = values.tabs.find(({ id }) => id === tabId)
+            if (tab) {
+                actions.removeTab(tab)
+            }
         },
         removeTab: ({ tab }) => {
             if (tab.active) {

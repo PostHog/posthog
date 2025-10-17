@@ -139,6 +139,7 @@ export enum TaxonomicFilterGroupType {
     DataWarehousePersonProperties = 'data_warehouse_person_properties',
     Elements = 'elements',
     Events = 'events',
+    InternalEvents = 'internal_events',
     EventProperties = 'event_properties',
     EventFeatureFlags = 'event_feature_flags',
     EventMetadata = 'event_metadata',

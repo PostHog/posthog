@@ -502,8 +502,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             />
                                             <div className="text-secondary text-sm pl-7">
                                                 When enabled, this flag evaluates according to your release conditions.
-                                                When disabled, all evaluations return <code>false</code> regardless of
-                                                conditions.
+                                                When disabled, this flag will not be evaluated and PostHog SDKs default
+                                                to returning <code>false</code>.
                                             </div>
                                         </div>
                                     )}
@@ -913,6 +913,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         hasExperiment,
         isDraftExperiment,
         properties,
+        variantErrors,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -1146,6 +1147,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
                                         })
                                     }}
+                                    variantErrors={variantErrors}
                                 />
                             </SceneSection>
                         </>
@@ -1464,6 +1466,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             },
                                         })
                                     }}
+                                    variantErrors={variantErrors}
                                 />
                             </SceneSection>
                         </>

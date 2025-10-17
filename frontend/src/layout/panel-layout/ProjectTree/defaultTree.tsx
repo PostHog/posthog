@@ -13,6 +13,7 @@ import {
     IconDatabase,
     IconDecisionTree,
     IconExternal,
+    IconFeatures,
     IconFlask,
     IconFunnels,
     IconGraph,
@@ -225,6 +226,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     live: {
         icon: <IconLive />,
+    },
+    chat: {
+        icon: <IconFeatures />,
     },
 }
 

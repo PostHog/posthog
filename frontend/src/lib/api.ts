@@ -2305,7 +2305,11 @@ const api = {
 
         async streamTiles(
             id: number,
-            params: { layoutSize?: 'sm' | 'xs' } = {},
+            params: {
+                layoutSize?: 'sm' | 'xs'
+                filtersOverride?: DashboardFilter
+                variablesOverride?: Record<string, HogQLVariable>
+            } = {},
             onMessage: (data: any) => void,
             onComplete: () => void,
             onError: (error: any) => void
@@ -2313,7 +2317,13 @@ const api = {
             const url = new ApiRequest()
                 .dashboardsDetail(id)
                 .withAction('stream_tiles')
-                .withQueryString(toParams(params))
+                .withQueryString(
+                    toParams({
+                        layout_size: params.layoutSize,
+                        filters_override: params.filtersOverride,
+                        variables_override: params.variablesOverride,
+                    })
+                )
                 .assembleFullUrl(true)
 
             const abortController = new AbortController()

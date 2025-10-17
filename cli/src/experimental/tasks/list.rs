@@ -2,14 +2,16 @@ use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use std::collections::VecDeque;
 
-use super::{TaskListResponse, TaskWorkflow, WorkflowStage};
 use crate::{
-    commands::tasks::{
+    experimental::tasks::{
         utils::{fetch_stages, fetch_tasks, fetch_workflows},
         Task,
     },
-    utils::auth::Token,
+    invocation_context::context,
+    utils::{auth::Token, raise_for_err},
 };
+
+use super::{TaskListResponse, TaskWorkflow, WorkflowStage};
 
 const BUFFER_SIZE: usize = 50;
 
@@ -36,13 +38,7 @@ impl TaskIterator {
             .send()
             .context("Failed to send request")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .unwrap_or_else(|_| "No response body".to_string());
-            anyhow::bail!("Failed to fetch tasks: {} - {}", status, body);
-        }
+        let response = raise_for_err(response)?;
 
         let task_response: TaskListResponse = response
             .json()
@@ -73,13 +69,7 @@ impl TaskIterator {
             .send()
             .context("Failed to send request")?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .unwrap_or_else(|_| "No response body".to_string());
-            anyhow::bail!("Failed to fetch tasks: {} - {}", status, body);
-        }
+        let response = raise_for_err(response)?;
 
         let task_response: TaskListResponse = response
             .json()
@@ -174,9 +164,9 @@ pub fn print_task(task: &Task, workflows: &[TaskWorkflow], stages: &[WorkflowSta
 }
 
 pub fn list_tasks(limit: Option<&usize>, offset: Option<&usize>) -> Result<()> {
-    let token = crate::utils::auth::load_token().context("Failed to load authentication token")?;
-    let host = token.get_host(None);
-    let client = Client::new();
+    let token = context().token.clone();
+    let host = token.get_host();
+    let client = context().client.clone();
 
     let workflows: Result<Vec<TaskWorkflow>> =
         fetch_workflows(client.clone(), host.clone(), token.clone())?.collect();

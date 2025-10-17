@@ -4,6 +4,8 @@ use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod command;
+
 // TODO - we could formalise a lot of this and move it into posthog-rs, tbh
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

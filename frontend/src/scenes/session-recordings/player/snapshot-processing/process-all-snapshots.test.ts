@@ -34,33 +34,49 @@ describe('process all snapshots', () => {
             const snapshots = await parseEncodedSnapshots(rawSnapshots, sessionId)
             expect(snapshots).toHaveLength(99)
 
-            const start = performance.now()
-            const results = processAllSnapshots(
-                [
+            const durations: number[] = []
+            const runs = 10
+
+            for (let i = 0; i < runs; i++) {
+                const start = performance.now()
+                const results = processAllSnapshots(
+                    [
+                        {
+                            source: 'blob_v2',
+                            blob_key: '0',
+                        },
+                    ],
                     {
-                        source: 'blob_v2',
-                        blob_key: '0',
+                        [key]: {
+                            snapshots: snapshots,
+                        },
                     },
-                ],
-                {
-                    [key]: {
-                        snapshots: snapshots,
+                    {},
+                    () => {
+                        return {
+                            width: '100',
+                            height: '100',
+                            href: 'https://example.com',
+                        }
                     },
-                },
-                {},
-                () => {
-                    return {
-                        width: '100',
-                        height: '100',
-                        href: 'https://example.com',
-                    }
-                },
-                sessionId
+                    sessionId
+                )
+                const end = performance.now()
+                durations.push(end - start)
+                expect(results).toHaveLength(99)
+            }
+
+            durations.sort((a, b) => a - b)
+            // Drop slowest 2 runs (typically first runs with cold JIT/cache)
+            const trimmedDurations = durations.slice(0, -2)
+            const median = trimmedDurations[Math.floor(trimmedDurations.length / 2)]
+            const mean = trimmedDurations.reduce((sum, d) => sum + d, 0) / trimmedDurations.length
+            const stdDev = Math.sqrt(
+                trimmedDurations.reduce((sum, d) => sum + (d - mean) ** 2, 0) / trimmedDurations.length
             )
-            const end = performance.now()
-            const duration = end - start
-            expect(results).toHaveLength(99)
-            expect(duration).toBeLessThan(50)
+
+            expect(median).toBeLessThan(50)
+            expect(stdDev).toBeLessThan(25)
         })
 
         it('deduplicates snapshot', async () => {

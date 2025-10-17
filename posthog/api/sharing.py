@@ -172,6 +172,12 @@ def get_themes_for_team(team: Team):
     return themes
 
 
+def get_global_themes():
+    global_themes = DataColorTheme.objects.filter(Q(team_id=None))
+    themes = DataColorThemeSerializer(global_themes, many=True).data
+    return themes
+
+
 def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
     """
     Build app context for shared dashboards/insights similar to what render_template creates.

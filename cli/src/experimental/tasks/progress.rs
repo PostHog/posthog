@@ -3,9 +3,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::commands::tasks::utils::select_task;
-use crate::utils::auth::load_token;
-use crate::utils::client::get_client;
+use crate::{
+    experimental::tasks::utils::select_task, invocation_context::context, utils::raise_for_err,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TaskProgressResponse {
@@ -55,9 +55,9 @@ pub fn show_progress(task_id: Option<&Uuid>) -> Result<()> {
 }
 
 fn fetch_progress(task_id: &Uuid) -> Result<TaskProgressResponse> {
-    let token = load_token().context("Failed to load authentication token")?;
-    let host = token.get_host(None);
-    let client = get_client()?;
+    let token = context().token.clone();
+    let host = token.get_host();
+    let client = context().client.clone();
 
     let url = format!(
         "{}/api/environments/{}/tasks/{}/progress/",
@@ -70,13 +70,7 @@ fn fetch_progress(task_id: &Uuid) -> Result<TaskProgressResponse> {
         .send()
         .context("Failed to send request")?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .unwrap_or_else(|_| "No response body".to_string());
-        anyhow::bail!("Failed to fetch progress: {} - {}", status, body);
-    }
+    let response = raise_for_err(response)?;
 
     let progress: TaskProgressResponse = response
         .json()

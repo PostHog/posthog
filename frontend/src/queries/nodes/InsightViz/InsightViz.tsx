@@ -11,7 +11,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
+import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isRetentionQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
@@ -43,6 +43,7 @@ type InsightVizProps = {
     variablesOverride?: Record<string, HogQLVariable> | null
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
+    cachedResults?: AnyResponseType
 }
 
 let uniqueNode = 0
@@ -59,6 +60,7 @@ export function InsightViz({
     variablesOverride,
     attachTo,
     editMode,
+    cachedResults,
 }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
     const insightProps =
@@ -80,7 +82,7 @@ export function InsightViz({
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: vizKey,
-        cachedResults: getCachedResults(insightProps.cachedInsight, query.source),
+        cachedResults: cachedResults || getCachedResults(insightProps.cachedInsight, query.source),
         doNotLoad: insightProps.doNotLoad,
         onData: insightProps.onData,
         loadPriority: insightProps.loadPriority,
