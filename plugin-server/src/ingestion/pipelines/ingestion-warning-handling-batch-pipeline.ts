@@ -32,7 +32,8 @@ export class IngestionWarningHandlingBatchPipeline<
                         this.kafkaProducer,
                         resultWithContext.context.team.id,
                         warning.type,
-                        warning.details
+                        warning.details,
+                        { alwaysSend: warning.alwaysSend }
                     )
                 )
 
