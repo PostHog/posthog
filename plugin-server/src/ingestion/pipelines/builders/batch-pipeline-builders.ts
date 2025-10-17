@@ -1,21 +1,20 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Team } from '../../types'
-import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { BaseBatchPipeline, BatchProcessingStep } from './base-batch-pipeline'
-import { BatchPipeline } from './batch-pipeline.interface'
-import { BufferingBatchPipeline } from './buffering-batch-pipeline'
-import { ConcurrentBatchProcessingPipeline } from './concurrent-batch-pipeline'
-import { FilterOkBatchPipeline } from './filter-ok-batch-pipeline'
-import { GatheringBatchPipeline } from './gathering-batch-pipeline'
-import { IngestionWarningHandlingBatchPipeline } from './ingestion-warning-handling-batch-pipeline'
-import { MappingBatchPipeline, MappingFunction } from './mapping-batch-pipeline'
-import { PipelineBuilder, StartPipelineBuilder, newPipelineBuilder } from './pipeline-builder'
-import { Pipeline } from './pipeline.interface'
-import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
-import { SequentialBatchPipeline } from './sequential-batch-pipeline'
-import { SideEffectHandlingPipeline } from './side-effect-handling-pipeline'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { Team } from '../../../types'
+import { PromiseScheduler } from '../../../utils/promise-scheduler'
+import { BaseBatchPipeline, BatchProcessingStep } from '../base-batch-pipeline'
+import { BatchPipeline } from '../batch-pipeline.interface'
+import { ConcurrentBatchProcessingPipeline } from '../concurrent-batch-pipeline'
+import { FilterOkBatchPipeline } from '../filter-ok-batch-pipeline'
+import { GatheringBatchPipeline } from '../gathering-batch-pipeline'
+import { IngestionWarningHandlingBatchPipeline } from '../ingestion-warning-handling-batch-pipeline'
+import { MappingBatchPipeline, MappingFunction } from '../mapping-batch-pipeline'
+import { Pipeline } from '../pipeline.interface'
+import { PipelineConfig, ResultHandlingPipeline } from '../result-handling-pipeline'
+import { SequentialBatchPipeline } from '../sequential-batch-pipeline'
+import { SideEffectHandlingPipeline } from '../side-effect-handling-pipeline'
+import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
 
 export class FilteredBatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
     constructor(private filteredPipeline: FilterOkBatchPipeline<TInput, TOutput, CInput, COutput>) {}
@@ -42,7 +41,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
     concurrently<U>(
         callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput>
     ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
-        const processor = callback(newPipelineBuilder<TOutput, COutput>()).build()
+        const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
         return new BatchPipelineBuilder(new ConcurrentBatchProcessingPipeline(processor, this.pipeline))
     }
 
@@ -53,7 +52,7 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
     sequentially<U>(
         callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput>
     ): BatchPipelineBuilder<TInput, U, CInput, COutput> {
-        const processor = callback(newPipelineBuilder<TOutput, COutput>()).build()
+        const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
         return new BatchPipelineBuilder(new SequentialBatchPipeline(processor, this.pipeline))
     }
 
@@ -132,8 +131,4 @@ export class TeamAwareBatchPipelineBuilder<
     ): BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
         return new BatchPipelineBuilder(new IngestionWarningHandlingBatchPipeline(kafkaProducer, this.pipeline))
     }
-}
-
-export function newBatchPipelineBuilder<T, C>(): BatchPipelineBuilder<T, T, C> {
-    return new BatchPipelineBuilder(new BufferingBatchPipeline<T, C>())
 }

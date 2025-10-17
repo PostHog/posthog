@@ -3,7 +3,7 @@ import { v4 } from 'uuid'
 
 import { ProjectId, Team } from '../../types'
 import { BatchProcessingStep } from './base-batch-pipeline'
-import { newBatchPipelineBuilder } from './batch-pipeline-builder'
+import { newBatchPipelineBuilder } from './builders'
 import { createBatch, createNewPipeline, createUnwrapper } from './helpers'
 import { PipelineConfig } from './result-handling-pipeline'
 import { PipelineResult, dlq, drop, ok, redirect } from './results'
