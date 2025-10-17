@@ -3,11 +3,13 @@ from collections.abc import Awaitable, Sequence
 from typing import TYPE_CHECKING, Literal, Optional, TypeVar, Union, cast
 from uuid import uuid4
 
+import structlog
 import posthoganalytics
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
+    ToolCall,
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.prompts import ChatPromptTemplate
@@ -89,6 +91,8 @@ RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantT
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 RootTool = Union[type[BaseModel], "MaxTool"]
+
+logger = structlog.get_logger(__name__)
 
 
 class RootNode(AssistantNode):
@@ -238,18 +242,25 @@ class RootNode(AssistantNode):
     async def _get_tools(self, state: AssistantState, config: RunnableConfig) -> list[RootTool]:
         from ee.hogai.tool import get_contextual_tool_class
 
+        # Static toolkit
+        default_tools: list[type[MaxTool]] = [
+            ReadTaxonomyTool,
+            ReadDataTool,
+            SearchTool,
+            TodoWriteTool,
+        ]
+
+        # The contextual insights tool overrides the static tool. Only inject if it's injected.
+        if not CreateAndQueryInsightTool.is_editing_mode(self.context_manager):
+            default_tools.append(CreateAndQueryInsightTool)
+
+        # Processed tools
         available_tools: list[RootTool] = []
 
         # Initialize the static toolkit
         dynamic_tools = (
             tool_class.create_tool_class(team=self._team, user=self._user, state=state, config=config)
-            for tool_class in (
-                ReadTaxonomyTool,
-                ReadDataTool,
-                SearchTool,
-                TodoWriteTool,
-                CreateAndQueryInsightTool,
-            )
+            for tool_class in default_tools
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))
 
@@ -435,12 +446,15 @@ class RootNodeTools(AssistantNode):
         # Initialize the tool and process it
         tool_class = await ToolClass.create_tool_class(team=self._team, user=self._user, state=state, config=config)
         try:
-            result = await tool_class.ainvoke(tool_call.model_dump(), config)
+            result = await tool_class.ainvoke(
+                ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id), config=config
+            )
             if not isinstance(result, LangchainToolMessage):
                 raise ValueError(
                     f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
                 )
         except Exception as e:
+            logger.exception("Error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})
             capture_exception(
                 e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
             )

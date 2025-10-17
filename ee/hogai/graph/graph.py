@@ -44,7 +44,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
     ):
         path_map = path_map or {
-            "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
             "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
@@ -189,7 +188,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_memory_collector()
             .add_memory_collector_tools()
             .add_root()
-            .add_insights()
             .add_inkeep_docs()
             .add_insights_search()
             .add_session_summarization()
