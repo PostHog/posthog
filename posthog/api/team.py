@@ -252,6 +252,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
+    managed_viewsets = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
@@ -282,6 +283,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "group_types",
             "live_events_token",
             "product_intents",
+            "managed_viewsets",
         )
 
         read_only_fields = (
@@ -303,6 +305,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "user_access_level",
             "product_intents",
+            "managed_viewsets",
         )
 
     def to_representation(self, instance):
@@ -341,6 +344,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return ProductIntent.objects.filter(team=obj).values(
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
+
+    def get_managed_viewsets(self, obj):
+        from posthog.warehouse.models import DataWarehouseManagedViewSet
+
+        enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
+        enabled_set = set(enabled_viewsets)
+
+        return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSet.Kind.choices}
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -680,6 +691,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         }
 
         self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
+
+        if "events" in validated_data:
+            from posthog.warehouse.models import DataWarehouseManagedViewSet
+
+            managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+                team=instance,
+                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            )
+            managed_viewset.sync_views()
+
         return instance
 
     def _update_marketing_analytics_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:

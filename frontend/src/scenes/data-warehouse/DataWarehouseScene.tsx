@@ -11,9 +11,13 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { IconCancel, IconExclamation, IconRadioButtonUnchecked, IconSync } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { DataWarehouseActivityRecord, DataWarehouseDashboardDataSource } from '~/types'
 
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
@@ -195,21 +199,30 @@ export function DataWarehouseScene(): JSX.Element {
     }
 
     return (
-        <div className="space-y-4">
-            <div className="flex items-center justify-between">
-                <div className="flex flex-col">
-                    <h1 className="text-2xl font-semibold">Data Warehouse</h1>
-                    <p className="text-muted">Manage your data warehouse sources and queries</p>
-                </div>
-                <div className="flex gap-2">
-                    <LemonButton type="primary" to={urls.dataWarehouseSourceNew()} icon={<IconPlusSmall />}>
-                        New source
-                    </LemonButton>
-                    <LemonButton type="secondary" to={urls.sqlEditor()}>
-                        Create view
-                    </LemonButton>
-                </div>
-            </div>
+        <SceneContent>
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.DataWarehouse].name}
+                description={sceneConfigurations[Scene.DataWarehouse].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.DataWarehouse].iconType || 'default_icon_type',
+                }}
+                actions={
+                    <>
+                        <LemonButton
+                            type="primary"
+                            to={urls.dataWarehouseSourceNew()}
+                            icon={<IconPlusSmall />}
+                            size="small"
+                        >
+                            New source
+                        </LemonButton>
+                        <LemonButton type="secondary" to={urls.sqlEditor()} size="small">
+                            Create view
+                        </LemonButton>
+                    </>
+                }
+            />
+            <SceneDivider />
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <LemonCard className="p-4 hover:transform-none">
@@ -294,6 +307,6 @@ export function DataWarehouseScene(): JSX.Element {
                     </LemonCard>
                 </div>
             </div>
-        </div>
+        </SceneContent>
     )
 }

@@ -18,8 +18,7 @@ from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
 from langchain_core import messages
-from langchain_core.messages import AIMessageChunk
-from langchain_core.prompts.chat import ChatPromptValue
+from langchain_core.messages import AIMessageChunk, BaseMessage
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
@@ -41,6 +40,7 @@ from posthog.schema import (
     AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    ContextMessage,
     DashboardFilter,
     FailureMessage,
     HumanMessage,
@@ -71,9 +71,8 @@ from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.tool import search_documentation
 from ee.hogai.utils.state import GraphMessageUpdateTuple, GraphValueUpdateTuple, LangGraphState
-from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
+from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import (
     AssistantMode,
     AssistantNodeName,
@@ -81,6 +80,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
+from ee.hogai.utils.types.base import ReplaceMessages
 from ee.models.assistant import Conversation, CoreMemory
 
 from ..assistant import Assistant
@@ -547,8 +547,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 }
             }
 
-            def root_side_effect(prompt: ChatPromptValue):
-                if prompt.messages[-1].type == "tool":
+            def root_side_effect(msgs: list[BaseMessage]):
+                last_message = msgs[-1]
+
+                if (
+                    isinstance(last_message.content, list)
+                    and isinstance(last_message.content[-1], dict)
+                    and last_message.content[-1]["type"] == "tool_result"
+                ):
                     return RunnableLambda(lambda _: messages.AIMessage(content="Agent needs help with this query"))
 
                 return messages.AIMessage(
@@ -562,7 +568,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     ],
                 )
 
-            root_mock.return_value = FakeRunnableLambdaWithTokenCounter(root_side_effect)
+            root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(root_side_effect)
 
             # Interrupt the graph
             planner_mock.return_value = FakeChatOpenAI(
@@ -731,7 +737,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_full_trends_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
     ):
-        res1 = FakeRunnableLambdaWithTokenCounter(
+        res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
                 tool_calls=[
@@ -743,10 +749,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ],
             )
         )
-        res2 = FakeRunnableLambdaWithTokenCounter(
+        res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
+        root_mock.side_effect = cycle([res1, res2])
 
         planner_mock.return_value = FakeChatOpenAI(
             responses=[
@@ -803,24 +809,22 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_full_funnel_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
     ):
-        res1 = FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "xyz",
-                            "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "funnel"},
-                        }
-                    ],
-                )
-            ]
+        res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
+            lambda _: messages.AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "xyz",
+                        "name": "create_and_query_insight",
+                        "args": {"query_description": "Foobar", "query_kind": "funnel"},
+                    }
+                ],
+            )
         )
-        res2 = FakeChatOpenAI(
-            responses=[messages.AIMessage(content="The results indicate a great future for you.")],
+        res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
+            lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
+        root_mock.side_effect = cycle([res1, res2])
 
         planner_mock.return_value = FakeChatOpenAI(
             responses=[
@@ -884,7 +888,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     ):
         action = await Action.objects.acreate(team=self.team, name="Marius Tech Tips")
 
-        res1 = FakeRunnableLambdaWithTokenCounter(
+        res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
                 tool_calls=[
@@ -896,10 +900,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ],
             )
         )
-        res2 = FakeRunnableLambdaWithTokenCounter(
+        res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
+        root_mock.side_effect = cycle([res1, res2])
 
         planner_mock.return_value = FakeChatOpenAI(
             responses=[
@@ -961,7 +965,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_full_sql_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
     ):
-        res1 = FakeRunnableLambdaWithTokenCounter(
+        res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
                 tool_calls=[
@@ -973,10 +977,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ],
             )
         )
-        res2 = FakeRunnableLambdaWithTokenCounter(
+        res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res1, res2, res2])
+        root_mock.side_effect = cycle([res1, res2])
 
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
@@ -1206,7 +1210,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 )
             return messages.AIMessage(content="No more tool calls after 4th attempt")
 
-        get_model_mock.return_value = FakeRunnableLambdaWithTokenCounter(make_tool_call)
+        get_model_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(make_tool_call)
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
                 content="",
@@ -1253,7 +1257,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 self.assertEqual(self.conversation.status, Conversation.Status.IN_PROGRESS)
                 return messages.AIMessage(content="")
 
-            root_mock.return_value = FakeRunnableLambdaWithTokenCounter(assert_lock_status)
+            root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(assert_lock_status)
             await self._run_assistant_graph(graph)
             await self.conversation.arefresh_from_db()
             self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
@@ -1286,7 +1290,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     ],
                 )
 
-            root_mock.return_value = FakeRunnableLambdaWithTokenCounter(assert_lock_status)
+            root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(assert_lock_status)
             await self._run_assistant_graph(graph)
             snapshot = await graph.aget_state({"configurable": {"thread_id": str(self.conversation.id)}})
             self.assertEqual(snapshot.next, (AssistantNodeName.ROOT_TOOLS,))
@@ -1295,7 +1299,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock:
             # The graph must start from the root node despite being cancelled on the root tools node.
-            root_mock.return_value = FakeRunnableLambdaWithTokenCounter(
+            root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(
                 lambda _: messages.AIMessage(content="Finished")
             )
             expected_output = [
@@ -1324,10 +1328,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .compile()
         )
 
-        root_model_mock.return_value = FakeChatOpenAI(
+        root_model_mock.return_value = FakeChatAnthropic(
             responses=[
                 messages.AIMessage(
-                    content="", tool_calls=[{"name": search_documentation.__name__, "id": "1", "args": {}}]
+                    content="", tool_calls=[{"name": "search", "id": "1", "args": {"kind": "docs", "query": "test"}}]
                 )
             ]
         )
@@ -1340,7 +1344,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             output,
             [
                 ("message", HumanMessage(content="How do I use feature flags?")),
-                ("message", ReasoningMessage(content="Checking PostHog docs")),
+                ("message", ReasoningMessage(content="Searching for information")),
                 ("message", AssistantMessage(content="Here's what I found in the docs...")),
             ],
         )
@@ -1441,7 +1445,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_merges_messages_with_same_id(self):
         """Test that messages with the same ID are merged into one."""
-        message_id = str(uuid4())
+        message_ids = [str(uuid4()), str(uuid4())]
 
         # Create a simple graph that will return messages with the same ID but different content
         first_content = "First version of message"
@@ -1454,7 +1458,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             def __call__(self, state):
                 self.call_count += 1
                 content = first_content if self.call_count == 1 else updated_content
-                return {"messages": [AssistantMessage(id=message_id, content=content)]}
+                return {"messages": [AssistantMessage(id=message_ids[self.call_count - 1], content=content)]}
 
         updater = MessageUpdatingNode()
         graph = (
@@ -1469,13 +1473,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run should add the message with initial content
         output, _ = await self._run_assistant_graph(graph, conversation=self.conversation)
         self.assertEqual(len(output), 2)  # Human message + AI message
-        self.assertEqual(cast(AssistantMessage, output[1][1]).id, message_id)
+        self.assertEqual(cast(AssistantMessage, output[1][1]).id, message_ids[0])
         self.assertEqual(cast(AssistantMessage, output[1][1]).content, first_content)
 
         # Second run should update the message with new content
         output, _ = await self._run_assistant_graph(graph, conversation=self.conversation)
         self.assertEqual(len(output), 2)  # Human message + AI message
-        self.assertEqual(cast(AssistantMessage, output[1][1]).id, message_id)
+        self.assertEqual(cast(AssistantMessage, output[1][1]).id, message_ids[1])
         self.assertEqual(cast(AssistantMessage, output[1][1]).content, updated_content)
 
         # Verify the message was actually replaced, not duplicated
@@ -1483,7 +1487,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         messages = snapshot.values["messages"]
 
         # Count messages with our test ID
-        messages_with_id = [msg for msg in messages if msg.id == message_id]
+        messages_with_id = [msg for msg in messages if msg.id == message_ids[1]]
         self.assertEqual(len(messages_with_id), 1, "There should be exactly one message with the test ID")
         self.assertEqual(
             messages_with_id[0].content,
@@ -1609,8 +1613,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_create_and_query_insight_contextual_tool(
         self, root_mock, rag_mock, planner_mock, generator_mock, query_executor_mock
     ):
-        def root_side_effect(prompt: ChatPromptValue):
-            if prompt.messages[-1].type == "tool":
+        def root_side_effect(msgs: list[BaseMessage]):
+            last_message = msgs[-1]
+
+            if (
+                isinstance(last_message.content, list)
+                and isinstance(last_message.content[-1], dict)
+                and last_message.content[-1]["type"] == "tool_result"
+            ):
                 return RunnableLambda(lambda _: messages.AIMessage(content="Everything is fine"))
 
             return messages.AIMessage(
@@ -1624,7 +1634,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ],
             )
 
-        root_mock.return_value = FakeRunnableLambdaWithTokenCounter(root_side_effect)
+        root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(root_side_effect)
         rag_mock.return_value = PartialAssistantState(
             rag_context="",
         )
@@ -1683,7 +1693,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 AssistantToolCallMessage(
                     content="The results indicate a great future for you.",
                     tool_call_id="xyz",
-                    ui_payload={"create_and_query_insight": query.model_dump()},
+                    ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
                     visible=False,
                 ),
             ),
@@ -1694,6 +1704,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         snapshot = await assistant._graph.aget_state(assistant._get_config())
         state = AssistantState.model_validate(snapshot.values)
         expected_state_messages = [
+            ContextMessage(
+                content="<system_reminder>\nContextual tools that are available to you on this page are:\n<create_and_query_insight>\nThe user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:\n\n```json\nquery\n```\n\nIMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT CHANGE ANY OTHER FIELDS THAN THE ONES THE USER ASKED FOR. KEEP THE REST AS IS.\n</create_and_query_insight>\nIMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system_reminder>"
+            ),
             HumanMessage(content="Hello"),
             AssistantMessage(
                 content="",
@@ -1709,7 +1722,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             AssistantToolCallMessage(
                 content="The results indicate a great future for you.",
                 tool_call_id="xyz",
-                ui_payload={"create_and_query_insight": query.model_dump()},
+                ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
                 visible=False,
             ),
             AssistantMessage(content="Everything is fine"),
@@ -2089,3 +2102,137 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         assert result is task_message
         mock_persist.assert_awaited_once_with(DeepResearchNodeName.TASK_EXECUTOR, task_message)
+
+    async def test_messages_without_id_are_yielded(self):
+        """Test that messages without ID are always yielded."""
+
+        class MessageWithoutIdNode:
+            def __init__(self):
+                self.call_count = 0
+
+            def __call__(self, state):
+                self.call_count += 1
+                # Return message without ID - should always be yielded
+                return {
+                    "messages": [
+                        AssistantMessage(content=f"Message {self.call_count} without ID"),
+                        AssistantMessage(content=f"Message {self.call_count} without ID"),
+                    ]
+                }
+
+        node = MessageWithoutIdNode()
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_node(AssistantNodeName.ROOT, node)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+            .compile()
+        )
+
+        # Run the assistant multiple times
+        output1, _ = await self._run_assistant_graph(graph, message="First run", conversation=self.conversation)
+        output2, _ = await self._run_assistant_graph(graph, message="Second run", conversation=self.conversation)
+
+        # Both runs should yield their messages (human + assistant message each)
+        self.assertEqual(len(output1), 3)  # Human message + AI message + AI message
+        self.assertEqual(len(output2), 3)  # Human message + AI message + AI message
+
+    async def test_messages_with_id_are_deduplicated(self):
+        """Test that messages with ID are deduplicated during streaming."""
+        message_id = str(uuid4())
+
+        class DuplicateMessageNode:
+            def __init__(self):
+                self.call_count = 0
+
+            def __call__(self, state):
+                self.call_count += 1
+                # Always return the same message with same ID
+                return {
+                    "messages": [
+                        AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
+                        AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
+                    ]
+                }
+
+        node = DuplicateMessageNode()
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_node(AssistantNodeName.ROOT, node)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+            .compile()
+        )
+
+        # Create assistant and manually test the streaming behavior
+        assistant = Assistant.create(
+            self.team,
+            self.conversation,
+            new_message=HumanMessage(content="Test message"),
+            user=self.user,
+            is_new_conversation=False,
+        )
+        assistant._graph = AssistantCompiledStateGraph(graph, {})
+
+        # Collect all streamed messages
+        streamed_messages = []
+        async for event_type, message in assistant.astream(stream_first_message=False):
+            if event_type == AssistantEventType.MESSAGE:
+                streamed_messages.append(message)
+
+        # Should only get one message despite the node being called multiple times
+        assistant_messages = [
+            msg for msg in streamed_messages if isinstance(msg, AssistantMessage) and msg.id == message_id
+        ]
+        self.assertEqual(len(assistant_messages), 1, "Message with same ID should only be yielded once")
+
+        # Verify the message ID is in the streamed_update_ids set
+        self.assertIn(message_id, assistant._streamed_update_ids)
+
+    async def test_init_or_update_state_adds_existing_message_ids_to_streamed_set(self):
+        """Test that _init_or_update_state adds existing message IDs to _streamed_update_ids."""
+        # Create messages with IDs that should be tracked
+        message_id_1 = str(uuid4())
+        message_id_2 = str(uuid4())
+        call_count = [0]
+
+        # Create a simple graph that returns messages with IDs
+        def create_messages_with_ids(_):
+            result = None
+            if call_count[0] == 0:
+                result = PartialAssistantState(
+                    messages=[
+                        AssistantMessage(id=message_id_1, content="Message 1"),
+                    ]
+                )
+            else:
+                result = PartialAssistantState(
+                    messages=ReplaceMessages(
+                        [
+                            AssistantMessage(id=message_id_1, content="Message 1"),
+                            AssistantMessage(id=message_id_2, content="Message 2"),
+                        ]
+                    )
+                )
+            call_count[0] += 1
+            return result
+
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_node(AssistantNodeName.ROOT, create_messages_with_ids)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+            .compile()
+        )
+
+        output, _ = await self._run_assistant_graph(graph, message="First run", conversation=self.conversation)
+        # Filter for assistant messages only, as the test is about tracking assistant message IDs
+        assistant_output = [(event_type, msg) for event_type, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertEqual(len(assistant_output), 1)
+        self.assertEqual(cast(AssistantMessage, assistant_output[0][1]).id, message_id_1)
+
+        output, _ = await self._run_assistant_graph(graph, message="Second run", conversation=self.conversation)
+        # Filter for assistant messages only, as the test is about tracking assistant message IDs
+        assistant_output = [(event_type, msg) for event_type, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertEqual(len(assistant_output), 1)
+        self.assertEqual(cast(AssistantMessage, assistant_output[0][1]).id, message_id_2)
