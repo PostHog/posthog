@@ -1607,16 +1607,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setMaskWindow(false)
             }
 
-            // Check roughly once per second if we should pause/resume loading based on buffer window
-            const lastCheckedSecond = cache.lastLoadingCheckSecond || 0
-            if (values.currentPlayerTimeSeconds !== lastCheckedSecond) {
-                cache.lastLoadingCheckSecond = values.currentPlayerTimeSeconds
-                if (values.shouldPauseLoading) {
-                    actions.pauseLoading()
-                } else if (values.shouldResumeLoading) {
-                    // resumeLoading() will automatically trigger loading to continue
-                    actions.resumeLoading()
-                }
+            if (values.shouldPauseLoading) {
+                actions.pauseLoading()
+            } else if (values.shouldResumeLoading) {
+                actions.resumeLoading()
             }
 
             // The normal loop. Progress the player position and continue the loop
