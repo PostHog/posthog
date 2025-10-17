@@ -10,60 +10,80 @@
  *   // Typed events with autocomplete
  *   posthog.typed.your_event({ property: 'value' })
  */
-// First, import to ensure the module exists
-import 'posthog-js'
-// Import and re-export the default
+// Import the base posthog-js module
 import posthogJS from 'posthog-js'
+import type { PostHog } from 'posthog-js'
 
-// Then augment the module
-declare module 'posthog-js' {
-    interface PostHogEventSchemas {
-        $autocapture: Record<string, any>
-        $exception: Record<string, any>
-        $feature_flag_called: Record<string, any>
-        $groupidentify: Record<string, any>
-        $identify: Record<string, any>
-        $opt_in: Record<string, any>
-        $pageleave: Record<string, any>
-        $pageview: Record<string, any>
-        $set: Record<string, any>
-        $web_vitals: Record<string, any>
-        'activation sidebar task completed': Record<string, any>
-        'dashboard insight refreshed': Record<string, any>
-        'dashboard refreshed': Record<string, any>
-        downloaded_file: {
-            file_name?: string
-            file_size_b: number
-            file_type?: string
-        }
-        'event property definitions page load succeeded': Record<string, any>
-        'insight refresh time': Record<string, any>
-        invited_team_member: Record<string, any>
-        logged_out: Record<string, any>
-        memory_usage: Record<string, any>
-        'onFeatureFlags error': Record<string, any>
-        'onboarding_tasks team setting updated': Record<string, any>
-        paid_bill: Record<string, any>
-        'query completed': Record<string, any>
-        'query executed': Record<string, any>
-        'recording viewed with no playtime summary': Record<string, any>
-        signed_up: Record<string, any>
-        spinner_unloaded: Record<string, any>
-        'time to see data': Record<string, any>
-        'update user properties': Record<string, any>
-        upgraded_plan: Record<string, any>
-        uploaded_file: {
-            file_name?: string
-            file_size_b: number
-            file_type?: string
-        }
-        'user logged in': Record<string, any>
-        'viewed dashboard': Record<string, any>
+// Type helper that allows schema properties plus any additional properties
+type EventWithAdditionalProperties<T> = T & Record<string, any>
+
+// Define our event schemas
+interface PostHogCustomEventSchemas {
+    $autocapture: Record<string, any>
+    $exception: Record<string, any>
+    $feature_flag_called: Record<string, any>
+    $groupidentify: Record<string, any>
+    $identify: Record<string, any>
+    $opt_in: Record<string, any>
+    $pageleave: Record<string, any>
+    $pageview: Record<string, any>
+    $set: Record<string, any>
+    $web_vitals: Record<string, any>
+    'activation sidebar task completed': Record<string, any>
+    'dashboard insight refreshed': Record<string, any>
+    'dashboard refreshed': Record<string, any>
+    downloaded_file: {
+        file_name?: string
+        file_size_b: number
+        file_type?: string
     }
+    'event property definitions page load succeeded': Record<string, any>
+    'insight refresh time': Record<string, any>
+    invited_team_member: Record<string, any>
+    logged_out: Record<string, any>
+    memory_usage: Record<string, any>
+    'onFeatureFlags error': Record<string, any>
+    'onboarding_tasks team setting updated': Record<string, any>
+    paid_bill: Record<string, any>
+    'query completed': Record<string, any>
+    'query executed': Record<string, any>
+    'recording viewed with no playtime summary': Record<string, any>
+    signed_up: Record<string, any>
+    spinner_unloaded: Record<string, any>
+    'time to see data': Record<string, any>
+    'update user properties': Record<string, any>
+    upgraded_plan: Record<string, any>
+    uploaded_file: {
+        file_name?: string
+        file_size_b: number
+        file_type?: string
+    }
+    'user logged in': Record<string, any>
+    'viewed dashboard': Record<string, any>
 }
+
+// Define typed event capture interface as a mapped type
+type TypedEventCapture = {
+    [K in keyof PostHogCustomEventSchemas]: (
+        properties: EventWithAdditionalProperties<PostHogCustomEventSchemas[K]>
+    ) => any
+}
+
+// Extend PostHog interface to include typed property
+interface PostHogWithTyped extends PostHog {
+    typed: TypedEventCapture
+}
+
+// Augment the module to support typed events
+declare module 'posthog-js' {
+    interface PostHogEventSchemas extends PostHogCustomEventSchemas {}
+}
+
+// Cast the default export to include our typed property
+const typedPostHog = posthogJS as PostHogWithTyped
 
 // Re-export everything from posthog-js
 export * from 'posthog-js'
 
-export default posthogJS
-export { posthogJS as posthog }
+export default typedPostHog
+export { typedPostHog as posthog }
