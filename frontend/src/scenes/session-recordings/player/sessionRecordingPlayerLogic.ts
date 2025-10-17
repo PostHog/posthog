@@ -1015,15 +1015,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
 
-        targetBufferTimestamp: [
+        // the relative time in the recording to target for buffering
+        targetBufferTime: [
             (s) => [s.currentPlayerTime, s.sessionPlayerData],
             (currentPlayerTime, sessionPlayerData): number | null => {
-                if (!sessionPlayerData.start) {
-                    return null
-                }
                 const recordingStart = sessionPlayerData.start.valueOf()
-                // Load 15 minutes ahead
-                return recordingStart + currentPlayerTime + 15 * 60 * 1000
+                const fifteenMinutes = 15 * 60 * 1000
+                return recordingStart + currentPlayerTime + fifteenMinutes
             },
         ],
 
@@ -1051,7 +1049,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 // Resume loading when we're within 5 minutes of the buffer target
                 const bufferAhead = latestLoadedTimestamp - targetBufferTimestamp
-                return bufferAhead < 300000
+                const fiveMinutes = 5 * 60 * 1000
+                return bufferAhead < fiveMinutes
             },
         ],
     }),
