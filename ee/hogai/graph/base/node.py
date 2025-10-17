@@ -11,8 +11,7 @@ from langgraph.types import StreamWriter
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage, ReasoningMessage
 
-from posthog.models import Team
-from posthog.models.user import User
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context import AssistantContextManager

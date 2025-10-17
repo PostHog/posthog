@@ -4,13 +4,14 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
 from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState
-from ee.hogai.graph.graph import BaseAssistantGraph
+from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 
 
 class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
@@ -78,6 +79,15 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
         deep_research_report = DeepResearchReportNode(self._team, self._user)
         builder.add_node(DeepResearchNodeName.REPORT, deep_research_report)
         builder.add_edge(DeepResearchNodeName.REPORT, next_node)
+        return self
+
+    def add_title_generator(self, end_node: DeepResearchNodeName = DeepResearchNodeName.END):
+        self._has_start_node = True
+
+        title_generator = TitleGeneratorNode(self._team, self._user)
+        self._graph.add_node(DeepResearchNodeName.TITLE_GENERATOR, title_generator)
+        self._graph.add_edge(DeepResearchNodeName.START, DeepResearchNodeName.TITLE_GENERATOR)
+        self._graph.add_edge(DeepResearchNodeName.TITLE_GENERATOR, end_node)
         return self
 
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):

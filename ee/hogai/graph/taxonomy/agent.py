@@ -3,7 +3,7 @@ from typing import Generic
 from posthog.models import Team, User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.graph import BaseAssistantGraph
+from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.utils.types import PartialStateType, StateType
 
 from .nodes import StateClassMixin, TaxonomyAgentNode, TaxonomyAgentToolsNode
