@@ -235,6 +235,13 @@ export const ExperimentUpdateApiPayloadSchema = ExperimentSchema.omit({
 export type ExperimentUpdateApiPayload = z.infer<typeof ExperimentUpdateApiPayloadSchema>
 
 /**
+ * Helper to conditionally add properties only if they exist and are not empty
+ */
+const getPropertiesIfNotEmpty = (props: any) => {
+    return props && Object.keys(props).length > 0 ? { properties: props } : {}
+}
+
+/**
  * Transform tool input metrics to ExperimentMetric format for API
  */
 const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchema> => {
@@ -253,10 +260,7 @@ const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchem
                 source: {
                     kind: 'EventsNode',
                     event: metric.event_name,
-                    ...(metric.properties &&
-                        Object.keys(metric.properties).length > 0 && {
-                            properties: metric.properties,
-                        }),
+                    ...getPropertiesIfNotEmpty(metric.properties),
                 },
             }
 
@@ -267,10 +271,7 @@ const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchem
                 series: (metric.funnel_steps || [metric.event_name]).map((event: string) => ({
                     kind: 'EventsNode',
                     event,
-                    ...(metric.properties &&
-                        Object.keys(metric.properties).length > 0 && {
-                            properties: metric.properties,
-                        }),
+                    ...getPropertiesIfNotEmpty(metric.properties),
                 })),
             }
 
@@ -284,16 +285,12 @@ const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchem
                 numerator: {
                     kind: 'EventsNode',
                     event: metric.event_name,
-                    ...(numeratorProps &&
-                        Object.keys(numeratorProps).length > 0 && { properties: numeratorProps }),
+                    ...getPropertiesIfNotEmpty(numeratorProps),
                 },
                 denominator: {
                     kind: 'EventsNode',
                     event: metric.properties?.denominator_event || metric.event_name,
-                    ...(denominatorProps &&
-                        Object.keys(denominatorProps).length > 0 && {
-                            properties: denominatorProps,
-                        }),
+                    ...getPropertiesIfNotEmpty(denominatorProps),
                 },
             }
         }
