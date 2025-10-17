@@ -253,7 +253,10 @@ const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchem
                 source: {
                     kind: 'EventsNode',
                     event: metric.event_name,
-                    ...(metric.properties && { properties: metric.properties }),
+                    ...(metric.properties &&
+                        Object.keys(metric.properties).length > 0 && {
+                            properties: metric.properties,
+                        }),
                 },
             }
 
@@ -264,29 +267,36 @@ const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchem
                 series: (metric.funnel_steps || [metric.event_name]).map((event: string) => ({
                     kind: 'EventsNode',
                     event,
-                    ...(metric.properties && { properties: metric.properties }),
+                    ...(metric.properties &&
+                        Object.keys(metric.properties).length > 0 && {
+                            properties: metric.properties,
+                        }),
                 })),
             }
 
-        case 'ratio':
+        case 'ratio': {
+            const numeratorProps = metric.properties?.numerator || metric.properties
+            const denominatorProps = metric.properties?.denominator || metric.properties
+
             return {
                 ...base,
                 metric_type: 'ratio',
                 numerator: {
                     kind: 'EventsNode',
                     event: metric.event_name,
-                    ...((metric.properties?.numerator || metric.properties) && {
-                        properties: metric.properties?.numerator || metric.properties,
-                    }),
+                    ...(numeratorProps &&
+                        Object.keys(numeratorProps).length > 0 && { properties: numeratorProps }),
                 },
                 denominator: {
                     kind: 'EventsNode',
                     event: metric.properties?.denominator_event || metric.event_name,
-                    ...((metric.properties?.denominator || metric.properties) && {
-                        properties: metric.properties?.denominator || metric.properties,
-                    }),
+                    ...(denominatorProps &&
+                        Object.keys(denominatorProps).length > 0 && {
+                            properties: denominatorProps,
+                        }),
                 },
             }
+        }
 
         default:
             throw new Error(`Unknown metric type: ${metric.metric_type}`)
