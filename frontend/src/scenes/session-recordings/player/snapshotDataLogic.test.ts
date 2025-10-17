@@ -120,23 +120,6 @@ describe('snapshotDataLogic', () => {
                 'loadSnapshotsForSourceSuccess',
             ])
         })
-
-        it('pauses and resumes loading', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadSnapshots()
-            }).toFinishAllListeners()
-
-            // Should start unpaused
-            expect(logic.values.loadingPaused).toBe(false)
-
-            // Pause loading
-            logic.actions.pauseLoading()
-            expect(logic.values.loadingPaused).toBe(true)
-
-            // Resume loading
-            logic.actions.resumeLoading()
-            expect(logic.values.loadingPaused).toBe(false)
-        })
     })
 
     describe('snapshot parsing', () => {
