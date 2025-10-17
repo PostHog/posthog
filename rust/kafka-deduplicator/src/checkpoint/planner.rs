@@ -455,8 +455,7 @@ mod tests {
             .metadata
             .files
             .iter()
-            .filter(|f| f.remote_filepath == sst1_remote_path)
-            .next()
+            .find(|f| f.remote_filepath == sst1_remote_path)
             .unwrap();
 
         let sst2_file_meta = plan
@@ -464,8 +463,7 @@ mod tests {
             .metadata
             .files
             .iter()
-            .filter(|f| f.remote_filepath == sst2_remote_path)
-            .next()
+            .find(|f| f.remote_filepath == sst2_remote_path)
             .unwrap();
 
         let sst3_file_meta = plan
@@ -473,8 +471,7 @@ mod tests {
             .metadata
             .files
             .iter()
-            .filter(|f| f.remote_filepath == sst3_remote_path)
-            .next()
+            .find(|f| f.remote_filepath == sst3_remote_path)
             .unwrap();
 
         // checksums should match across checkpoint file meta and local file refs for upload
@@ -759,18 +756,12 @@ mod tests {
         assert!(plan
             .files_to_upload
             .iter()
-            .find(|f| f.filename == "file3.sst")
-            .is_some());
+            .any(|f| f.filename == "00003.sst"));
         assert!(plan
             .files_to_upload
             .iter()
-            .find(|f| f.filename == "00001.log")
-            .is_some());
-        assert!(plan
-            .files_to_upload
-            .iter()
-            .find(|f| f.filename == "CURRENT")
-            .is_some());
+            .any(|f| f.filename == "00001.log"));
+        assert!(plan.files_to_upload.iter().any(|f| f.filename == "CURRENT"));
 
         // total of 7 tracked files now: 4 from previous checkpoint, 3 from current
         assert_eq!(plan.info.metadata.files.len(), 7);

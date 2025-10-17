@@ -422,27 +422,29 @@ mod tests {
     #[async_trait]
     impl CheckpointUploader for FilesystemUploader {
         async fn upload_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<Vec<String>> {
+            // simulate remote upload path with local temp dir
             let dest_dir = self
                 .export_base_dir
                 .join(plan.info.get_remote_attempt_path());
             tokio::fs::create_dir_all(&dest_dir).await?;
 
+            // Upload only new files from local file path to local "upload" dir
+            // with remote file path appended, including remote namespace
             let mut uploaded_files = Vec::new();
-
-            // Upload only new files
-            for (filename, local_path) in &plan.files_to_upload {
-                let dest_path = dest_dir.join(filename);
-                if let Some(parent) = dest_path.parent() {
-                    tokio::fs::create_dir_all(parent).await?;
-                }
-                tokio::fs::copy(local_path, &dest_path).await?;
-                uploaded_files.push(dest_path.to_string_lossy().to_string());
+            for local_file in &plan.files_to_upload {
+                let src_filepath = &local_file.local_path;
+                let dest_filepath = self
+                    .export_base_dir
+                    .join(plan.info.get_file_key(&local_file.filename));
+                tokio::fs::copy(src_filepath, &dest_filepath).await?;
+                uploaded_files.push(dest_filepath.to_string_lossy().to_string());
             }
 
-            // Write metadata.json
-            let metadata_path = dest_dir.join("metadata.json");
-            let metadata_json = serde_json::to_string_pretty(&plan.info.metadata)?;
-            tokio::fs::write(&metadata_path, metadata_json).await?;
+            // Write metadata.json to local "upload" dir w/remote metadata
+            // file path appended, including remote namespace
+            let metadata_path = self.export_base_dir.join(plan.info.get_metadata_key());
+            let metadata_json = plan.info.metadata.to_json()?;
+            tokio::fs::write(&metadata_path, metadata_json.into_bytes()).await?;
             uploaded_files.push(metadata_path.to_string_lossy().to_string());
 
             Ok(uploaded_files)
