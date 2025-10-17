@@ -7,7 +7,7 @@ from ee.api.scim.auth import generate_scim_token
 from ee.api.test.base import APILicensedTest
 
 
-class TestSCIMAPI(APILicensedTest):
+class TestSCIMUsersAPI(APILicensedTest):
     def setUp(self):
         super().setUp()
 
@@ -493,9 +493,13 @@ class TestSCIMAPI(APILicensedTest):
         user.refresh_from_db()
         assert user.email == "primary@example.com"
 
-    def test_patch_remove_active_user_with_simple_path(self):
+    def test_patch_remove_user_family_name_with_simple_path(self):
         user = User.objects.create_user(
-            email="removeactive@example.com", password=None, first_name="Test", is_email_verified=True
+            email="removesimple@example.com",
+            password=None,
+            first_name="Simple",
+            last_name="Fam",
+            is_email_verified=True,
         )
         OrganizationMembership.objects.create(
             user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
@@ -503,7 +507,7 @@ class TestSCIMAPI(APILicensedTest):
 
         patch_data = {
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-            "Operations": [{"op": "remove", "path": "active"}],
+            "Operations": [{"op": "remove", "path": "name.familyName"}],
         }
 
         response = self.client.patch(
@@ -511,7 +515,9 @@ class TestSCIMAPI(APILicensedTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+        user.refresh_from_db()
+        assert user.first_name == "Simple"
+        assert user.last_name == ""
 
     def test_patch_remove_user_family_name_with_dotted_path(self):
         user = User.objects.create_user(

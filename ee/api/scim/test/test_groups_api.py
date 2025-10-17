@@ -220,7 +220,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert RoleMembership.objects.filter(role=role, user=user).exists()
 
-    def test_patch_replace_group_member_with_filtered_path(self):
+    def test_patch_replace_group_member_with_filtered_path_not_supported(self):
+        # Swapping members within a group with a filtered path is not supported
+        # Most IdPs send remove and add operations separately in this case
         user1 = User.objects.create_user(
             email="filteredmember1@example.com", password=None, first_name="Member1", is_email_verified=True
         )
@@ -250,9 +252,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, format="json", **self.scim_headers
         )
 
-        assert response.status_code == status.HTTP_200_OK
-        assert not RoleMembership.objects.filter(role=role, user=user1).exists()
-        assert RoleMembership.objects.filter(role=role, user=user2).exists()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert RoleMembership.objects.filter(role=role, user=user1).exists()
+        assert not RoleMembership.objects.filter(role=role, user=user2).exists()
 
     def test_patch_add_group_members_without_path(self):
         user = User.objects.create_user(

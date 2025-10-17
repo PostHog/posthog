@@ -1,7 +1,10 @@
+from typing import Union
+
 from django.db import transaction
 
 from django_scim import constants
 from django_scim.adapters import SCIMGroup
+from scim2_filter_parser.attr_paths import AttrPath
 
 from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
@@ -16,6 +19,15 @@ class PostHogSCIMGroup(SCIMGroup):
     """
 
     resource_type = "Group"
+
+    # Attribute map for SCIM path parsing
+    # Each key is a tuple of (attribute, sub-attribute, schema URI)
+    ATTR_MAP = {
+        ("displayName", None, None): "displayName",
+        ("members", None, None): "members",
+        ("members", "value", None): "members.value",
+        ("members", "display", None): "members.display",
+    }
 
     @property
     def id(self) -> str:
@@ -97,20 +109,15 @@ class PostHogSCIMGroup(SCIMGroup):
         Update role membership based on SCIM members list.
         """
         # Get list of user IDs from SCIM data
-        member_user_ids = {member.get("value") for member in members_data if member.get("value")}
+        member_user_ids = {member.get("value") for member in members_data}
 
         # Get current role members
         current_memberships = RoleMembership.objects.filter(role=role).select_related("user", "organization_member")
 
         current_user_ids = {str(rm.user.id) for rm in current_memberships}
-
-        # Users to add
         to_add = member_user_ids - current_user_ids
-
-        # Users to remove
         to_remove = current_user_ids - member_user_ids
 
-        # Add new members
         for user_id in to_add:
             try:
                 user = User.objects.get(id=user_id)
@@ -128,21 +135,22 @@ class PostHogSCIMGroup(SCIMGroup):
         # Remove members no longer in the group
         RoleMembership.objects.filter(role=role, user__id__in=to_remove).delete()
 
-    def replace(self, data: dict) -> None:
+    def put(self, data: dict) -> None:
         """
-        Replace role from SCIM Group data (for PUT operations).
+        Handle PUT operation - completely replace group.
+
+        Any attributes not provided are cleared.
         """
         display_name = data.get("displayName")
         if not display_name:
             raise ValueError("displayName is required for groups")
 
         with transaction.atomic():
-            if display_name != self.obj.name:
-                self.obj.name = display_name
-                self.obj.save()
+            self.obj.name = display_name
+            self.obj.save()
 
-            if "members" in data:
-                self._update_members(self.obj, data["members"], self._organization_domain)
+            members_data = data.get("members", [])
+            self._update_members(self.obj, members_data, self._organization_domain)
 
     def delete(self) -> None:
         """
@@ -150,17 +158,87 @@ class PostHogSCIMGroup(SCIMGroup):
         """
         self.obj.delete()
 
-    def update(self, data: dict) -> None:
+    def handle_replace(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
-        Update group from SCIM PATCH operation.
-        Applies partial updates to specific group attributes.
-        """
-        if "displayName" in data:
-            self.obj.name = data["displayName"]
-            self.obj.save()
+        Handle SCIM PATCH replace operations (called by django-scim2 handle_operations).
 
-        if "members" in data:
-            self._update_members(self.obj, data["members"], self._organization_domain)
+        Replace group name or members.
+        """
+        first_path = path.first_path
+        attr_name = first_path.attr_name
+
+        with transaction.atomic():
+            if attr_name == "displayName":
+                self.obj.name = value
+                self.obj.save()
+
+            elif attr_name == "members":
+                if path.is_complex:
+                    raise ValueError("Complex filtered paths for members are not supported")
+                else:
+                    members_data = value if isinstance(value, list) else [value]
+                    self._update_members(self.obj, members_data, self._organization_domain)
+
+    def handle_add(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
+        """
+        Handle SCIM PATCH add operations (called by django-scim2 handle_operations).
+
+        Add members to a group without replacing existing members.
+        """
+        first_path = path.first_path
+        attr_name = first_path.attr_name
+
+        with transaction.atomic():
+            if attr_name == "displayName":
+                # Add operation for displayName acts like replace
+                self.obj.name = value
+                self.obj.save()
+
+            elif attr_name == "members":
+                members_to_add = value if isinstance(value, list) else [value]
+
+                for member_data in members_to_add:
+                    user_id = member_data.get("value")
+                    if not user_id:
+                        continue
+
+                    try:
+                        user = User.objects.get(id=user_id)
+                        # Upsert organization membership
+                        org_membership, _ = OrganizationMembership.objects.get_or_create(
+                            user=user,
+                            organization=self._organization_domain.organization,
+                            defaults={"level": OrganizationMembership.Level.MEMBER},
+                        )
+
+                        RoleMembership.objects.get_or_create(
+                            role=self.obj, user=user, defaults={"organization_member": org_membership}
+                        )
+                    except User.DoesNotExist:
+                        continue
+
+    def handle_remove(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
+        """
+        Handle SCIM PATCH remove operations (called by django-scim2 handle_operations).
+
+        Remove members from a group. Reject removing group name.
+        """
+        first_path = path.first_path
+        attr_name = first_path.attr_name
+
+        with transaction.atomic():
+            if attr_name == "displayName":
+                raise ValueError("Group name cannot be removed")
+
+            elif attr_name == "members":
+                if path.is_complex:
+                    # Path like: members[value eq "<user-id>"]
+                    user_id = path.params_by_attr_paths.get(("members", "value", None))
+                    if user_id:
+                        RoleMembership.objects.filter(role=self.obj, user__id=str(user_id)).delete()
+                else:
+                    # Simple path, remove all members
+                    RoleMembership.objects.filter(role=self.obj).delete()
 
     @classmethod
     def get_for_organization(cls, organization_domain: OrganizationDomain) -> list["PostHogSCIMGroup"]:

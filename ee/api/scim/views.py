@@ -1,15 +1,18 @@
 from django.views.decorators.csrf import csrf_exempt
 
+from django_scim import constants
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.models import User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import SCIMBearerTokenAuthentication
 from ee.api.scim.group import PostHogSCIMGroup
 from ee.api.scim.user import PostHogSCIMUser
+from ee.models.rbac.role import Role
 
 
 @csrf_exempt
@@ -57,8 +60,6 @@ def scim_user_detail_view(request: Request, domain_id: str, user_id: str) -> Res
     organization_domain: OrganizationDomain = request.auth
 
     try:
-        from posthog.models import User
-
         user = User.objects.get(id=user_id)
         scim_user = PostHogSCIMUser(user, organization_domain)
     except User.DoesNotExist:
@@ -69,7 +70,7 @@ def scim_user_detail_view(request: Request, domain_id: str, user_id: str) -> Res
 
     elif request.method == "PUT":
         try:
-            scim_user.replace(request.data)
+            scim_user.put(request.data)
             return Response(scim_user.to_dict())
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -77,9 +78,8 @@ def scim_user_detail_view(request: Request, domain_id: str, user_id: str) -> Res
     elif request.method == "PATCH":
         try:
             operations = request.data.get("Operations", [])
-            for op in operations:
-                if op.get("op") == "replace":
-                    scim_user.update(op.get("value", {}))
+            # Use django-scim2 built-in PATCH operation handling
+            scim_user.handle_operations(operations)
             return Response(scim_user.to_dict())
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -134,8 +134,6 @@ def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> R
     organization_domain: OrganizationDomain = request.auth
 
     try:
-        from ee.models.rbac.role import Role
-
         role = Role.objects.get(id=group_id, organization=organization_domain.organization)
         scim_group = PostHogSCIMGroup(role, organization_domain)
     except Role.DoesNotExist:
@@ -146,7 +144,7 @@ def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> R
 
     elif request.method == "PUT":
         try:
-            scim_group.replace(request.data)
+            scim_group.put(request.data)
             return Response(scim_group.to_dict())
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -154,9 +152,8 @@ def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> R
     elif request.method == "PATCH":
         try:
             operations = request.data.get("Operations", [])
-            for op in operations:
-                if op.get("op") == "replace":
-                    scim_group.update(op.get("value", {}))
+            # Use django-scim2 built-in PATCH operation handling
+            scim_group.handle_operations(operations)
             return Response(scim_group.to_dict())
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -223,8 +220,6 @@ def scim_schemas_view(request: Request, domain_id: str) -> Response:
     """
     SCIM Schemas endpoint.
     """
-    from django_scim import constants
-
     return Response(
         {
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
