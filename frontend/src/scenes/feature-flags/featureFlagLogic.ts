@@ -1222,7 +1222,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
                 const sortKey = uuidv4()
                 newFilter.groups[0].sort_key = sortKey
-                actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
+                actions.setSchedulePayload(newFilter, NEW_FLAG.active, {}, null, null)
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
                 if (
