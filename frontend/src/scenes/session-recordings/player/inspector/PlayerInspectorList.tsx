@@ -97,7 +97,7 @@ export function PlayerInspectorList(): JSX.Element {
                 </CellMeasurer>
             )
         },
-        [items, cellMeasurerCache]
+        [items, cellMeasurerCache, createLayoutHandler]
     )
 
     return (

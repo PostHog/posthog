@@ -132,18 +132,18 @@ def schedule_experiment_metric_partitions(
         raise dagster.Failure(f"Failed to schedule refresh for {partition_name}: {e}")
 
 
-def discover_experiment_metric_partitions(
+def refresh_experiment_metric_partitions(
     context: dagster.SensorEvaluationContext,
     partition_name: str,
     partitions_def: dagster.DynamicPartitionsDefinition,
     get_metrics_fn,
 ) -> dagster.SensorResult | dagster.SkipReason:
     """
-    Automatically discover new experiment-metric combinations and trigger timeseries calculation.
+    Synchronize experiment-metric partitions with current database state.
 
-    This function continuously monitors for new experiments or metrics that need timeseries
-    analysis. When new combinations are found, it creates dynamic partitions and triggers
-    processing only for the new partitions.
+    This function compares expected partitions (based on active experiments/metrics in the database)
+    with existing Dagster partitions. It creates new partitions for newly discovered combinations
+    and removes obsolete partitions for deleted or inactive experiments.
 
     Args:
         context: Dagster sensor evaluation context
@@ -162,15 +162,22 @@ def discover_experiment_metric_partitions(
             context.log.debug(f"No {partition_name} found for timeseries analysis")
             return dagster.SkipReason(f"No experiments with {partition_name} found")
 
-        # Generate partition keys in format: experiment_{id}_metric_{uuid}_{fingerprint}
-        current_partition_keys = [
+        # Generate expected partition keys based on database state
+        # Format: experiment_{id}_metric_{uuid}_{fingerprint}
+        expected_partition_keys = [
             f"experiment_{exp_id}_metric_{metric_uuid}_{fingerprint}"
             for exp_id, metric_uuid, fingerprint in current_experiment_metrics
         ]
 
-        # Check which partitions are new
+        # Get existing partitions from Dagster
         existing_partitions = set(context.instance.get_dynamic_partitions(partition_name))
-        new_partitions = [key for key in current_partition_keys if key not in existing_partitions]
+
+        # Find new partitions (expected but not existing)
+        new_partitions = [key for key in expected_partition_keys if key not in existing_partitions]
+
+        # Find obsolete partitions (existing but not expected)
+        expected_partition_keys_set = set(expected_partition_keys)
+        obsolete_partitions = [key for key in existing_partitions if key not in expected_partition_keys_set]
 
         # Build response
         run_requests = []
@@ -190,9 +197,14 @@ def discover_experiment_metric_partitions(
                 )
                 for partition_key in new_partitions
             ]
-        else:
-            context.log.debug(f"No new {partition_name} discovered for timeseries analysis")
-            return dagster.SkipReason(f"No new {partition_name} to process")
+
+        if obsolete_partitions:
+            context.log.info(f"Removing {len(obsolete_partitions)} obsolete {partition_name} partitions")
+            dynamic_partitions_requests.append(partitions_def.build_delete_request(obsolete_partitions))
+
+        if not new_partitions and not obsolete_partitions:
+            context.log.debug(f"No partition changes needed for {partition_name}")
+            return dagster.SkipReason(f"No partition changes needed for {partition_name}")
 
         return dagster.SensorResult(
             run_requests=run_requests,
