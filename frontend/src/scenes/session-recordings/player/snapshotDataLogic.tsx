@@ -7,7 +7,7 @@ import '@posthog/rrweb-types'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/dayjs'
-import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 
@@ -84,10 +84,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const blob_v2 =
-                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] || !!props.accessToken
-                    const blob_v2_lts =
-                        values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_LTS_REPLAY] || !!props.accessToken
+                    const blob_v2 = true
+                    const blob_v2_lts = true
                     const response = await api.recordings.listSnapshotSources(
                         props.sessionRecordingId,
                         {
@@ -280,18 +278,12 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         // Check if we should pause loading based on buffer window
         // Resume loading when within 60 seconds (60000ms) of buffer edge
         shouldPauseLoading: [
-            (s) => [s.targetBufferTimestamp, s.snapshotSources, s.isPlaying, s.featureFlags],
+            (s) => [s.targetBufferTimestamp, s.snapshotSources, s.isPlaying],
             (
                 targetBufferTimestamp: number | null,
                 snapshotSources: SessionRecordingSnapshotSource[] | null,
-                isPlaying: boolean,
-                featureFlags: FeatureFlagsSet
+                isPlaying: boolean
             ): boolean => {
-                // Only apply buffer window logic to v2 recordings
-                if (!featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
-                    return false
-                }
-
                 // Never pause loading when paused - let it prefetch
                 if (!isPlaying) {
                     return false
@@ -318,21 +310,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         ],
 
         snapshotsLoading: [
-            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.featureFlags, s.snapshotsBySources],
+            (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshotsBySources],
             (
                 snapshotSourcesLoading: boolean,
                 snapshotsForSourceLoading: boolean,
-                featureFlags: FeatureFlagsSet,
                 snapshotsBySources: Record<string, RecordingSnapshot[]>
             ): boolean => {
                 const snapshots = Object.values(snapshotsBySources).flat()
-                // For v2 recordings, only show loading if we have no snapshots AND we're actually loading something.
-                if (featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]) {
-                    return snapshots?.length === 0 && (snapshotSourcesLoading || snapshotsForSourceLoading)
-                }
-
-                // Default behavior for non-v2 recordings
-                return snapshotSourcesLoading || snapshotsForSourceLoading
+                return snapshots?.length === 0 && (snapshotSourcesLoading || snapshotsForSourceLoading)
             },
         ],
 

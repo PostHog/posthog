@@ -24,7 +24,6 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
@@ -1343,24 +1342,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         setPlay: () => {
-            // For v2 recordings, only require minimum playable data (meta + full snapshot)
-            // For v1 recordings (legacy), wait for all snapshots to be loaded
-            const isV2Recording = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]
-
-            if (isV2Recording) {
-                if (!values.hasMinimumPlayableData) {
-                    // Don't have enough data yet to start playback
-                    return
-                }
-                // Ensure loading continues in background if not already started
-                if (!values.snapshotsLoaded) {
-                    actions.loadSnapshots()
-                }
-            } else {
-                // V1 behavior: wait for all snapshots
-                if (!values.snapshotsLoaded) {
-                    actions.loadSnapshots()
-                }
+            if (!values.hasMinimumPlayableData) {
+                // Don't have enough data yet to start playback
+                return
+            }
+            // Ensure loading continues in background if not already started
+            if (!values.snapshotsLoaded) {
+                actions.loadSnapshots()
             }
 
             actions.stopAnimation()
