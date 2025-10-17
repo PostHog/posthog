@@ -22,6 +22,11 @@ export type SAMLConfigType = Partial<
         Pick<OrganizationDomainType, 'id'>
 >
 
+export type SCIMConfigType = Partial<
+    Pick<OrganizationDomainType, 'scim_enabled' | 'scim_base_url' | 'scim_bearer_token'> &
+        Pick<OrganizationDomainType, 'id'>
+>
+
 export const isSecureURL = (url: string): boolean => {
     try {
         const parsed = new URL(url)
@@ -38,6 +43,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         replaceDomain: (domain: OrganizationDomainType) => ({ domain }),
         setAddModalShown: (shown: boolean) => ({ shown }),
         setConfigureSAMLModalId: (id: string | null) => ({ id }),
+        setConfigureSCIMModalId: (id: string | null) => ({ id }),
         setVerifyModal: (id: string | null) => ({ id }),
     }),
     reducers({
@@ -62,6 +68,12 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             null as null | string,
             {
                 setConfigureSAMLModalId: (_, { id }) => id,
+            },
+        ],
+        configureSCIMModalId: [
+            null as null | string,
+            {
+                setConfigureSCIMModalId: (_, { id }) => id,
             },
         ],
         verifyModal: [
@@ -122,6 +134,38 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 },
             },
         ],
+        scimConfig: [
+            {} as SCIMConfigType,
+            {
+                loadScimConfig: async (domainId: string) => {
+                    const response = await api.get<SCIMConfigType>(
+                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim`
+                    )
+                    return response
+                },
+                enableScim: async (domainId: string) => {
+                    const response = await api.create<SCIMConfigType>(
+                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim`
+                    )
+                    lemonToast.success('SCIM enabled successfully!')
+                    return response
+                },
+                disableScim: async (domainId: string) => {
+                    await api.create(
+                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim/disable`
+                    )
+                    lemonToast.success('SCIM disabled successfully!')
+                    return { id: domainId, scim_enabled: false }
+                },
+                regenerateScimToken: async (domainId: string) => {
+                    const response = await api.create<SCIMConfigType>(
+                        `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim/regenerate`
+                    )
+                    lemonToast.success('SCIM token regenerated successfully!')
+                    return response
+                },
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         setConfigureSAMLModalId: ({ id }) => {
@@ -129,6 +173,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             if (id && domain) {
                 const { saml_acs_url, saml_entity_id, saml_x509_cert } = domain
                 actions.setSamlConfigValues({ saml_acs_url, saml_entity_id, saml_x509_cert, id })
+            }
+        },
+        setConfigureSCIMModalId: ({ id }) => {
+            if (id) {
+                actions.loadScimConfig(id)
             }
         },
     })),
@@ -145,6 +194,10 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         isSAMLAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],
             (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.SAML),
+        ],
+        isSCIMAvailable: [
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.SCIM),
         ],
     }),
     afterMount(({ actions }) => actions.loadVerifiedDomains()),

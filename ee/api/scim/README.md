@@ -368,31 +368,40 @@ Test coverage:
     - givenName → name.givenName
     - surname → name.familyName
 
-## Next Steps (Not Yet Implemented)
+## Frontend UI
 
-### Required for Production
+The SCIM configuration interface is available in the PostHog settings:
 
-1. **Frontend UI**:
-    - Add SCIM config to VerifiedDomains settings page
-    - Show SCIM base URL and token (one-time display)
-    - Regenerate token button
-    - Enable/disable toggle
+**Location**: Settings → Organization → Verified Domains → [Domain] → More → Configure SCIM
 
-2. **Activity Logging**:
+**Features**:
+
+- Enable/disable SCIM toggle with confirmation dialogs
+- Display SCIM base URL (with copy button)
+- Display bearer token (one-time, shown only after enable/regenerate)
+- Regenerate token button with warning confirmation
+- Feature flag gating - button only visible if `AvailableFeature.SCIM` is enabled
+
+**Implementation**:
+
+- Modal component: `frontend/src/scenes/settings/organization/VerifiedDomains/ConfigureSCIMModal.tsx`
+- Logic: `frontend/src/scenes/settings/organization/VerifiedDomains/verifiedDomainsLogic.ts`
+
+## Remaining Nice-to-Haves:
+
+1. **Activity Logging**:
     - Log SCIM user create/update/delete events
     - Track which IdP made changes
 
-3. **Rate Limiting**:
+2. **Rate Limiting**:
     - Add per-domain rate limits
     - Protect against aggressive IdP sync
 
-### Nice to Have
-
-4. **Filtering Support**:
+3. **Filtering Support**:
     - `GET /Users?filter=userName eq "user@example.com"`
 
-5. **Pagination**:
+4. **Pagination**:
     - Support `startIndex` and `count` params
 
-6. **Bulk Operations**:
+5. **Bulk Operations**:
     - `POST /Bulk` endpoint
