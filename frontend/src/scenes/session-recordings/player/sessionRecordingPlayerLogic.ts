@@ -1016,9 +1016,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
 
         targetBufferTimestamp: [
-            (s) => [s.currentPlayerTime, s.snapshotSources, s.sessionPlayerData],
-            (currentPlayerTime, snapshotSources, sessionPlayerData): number | null => {
-                if (!snapshotSources || snapshotSources.length === 0 || !sessionPlayerData.start) {
+            (s) => [s.currentPlayerTime, s.sessionPlayerData],
+            (currentPlayerTime, sessionPlayerData): number | null => {
+                if (!sessionPlayerData.start) {
                     return null
                 }
                 const recordingStart = sessionPlayerData.start.valueOf()
