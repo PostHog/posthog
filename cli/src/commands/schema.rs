@@ -59,10 +59,10 @@ pub fn pull(host: Option<String>, output_override: Option<String>) -> Result<()>
 
     println!("\n✓ Schema sync complete!");
     println!("\nNext steps:");
-    println!("  1. Import the types in your code:");
-    println!("     import type {{}} from \"./posthog-events\"");
-    println!("  2. Use typed events with PostHog:");
-    println!("     posthog.capture(\"signed_up\", {{ email: \"...\" }})");
+    println!("  1. Import PostHog from your generated module:");
+    println!("     import posthog from './{}'", output_path);
+    println!("  2. Use typed events with autocomplete:");
+    println!("     posthog.typed.uploaded_file({{ file_size_b: 1024 }})");
     println!();
 
     Ok(())
@@ -87,8 +87,8 @@ fn determine_output_path(output_override: Option<String>) -> Result<String> {
     }
 
     // Prompt user for output path
-    let default_path = "posthog-events.d.ts".to_string();
-    let path = Text::new("Where should we save the TypeScript definitions?")
+    let default_path = "posthog-typed.ts".to_string();
+    let path = Text::new("Where should we save the typed PostHog module?")
         .with_default(&default_path)
         .with_help_message("This will be saved in posthog.json for future runs")
         .prompt()
