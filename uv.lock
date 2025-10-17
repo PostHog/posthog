@@ -4411,19 +4411,11 @@ requires-dist = [
     { name = "django-prometheus", specifier = "==2.2.0" },
     { name = "django-redis", specifier = "==5.2.0" },
     { name = "django-statsd", specifier = "==2.5.2" },
-<<<<<<< HEAD
-    { name = "django-structlog", specifier = "==2.1.3" },
+    { name = "django-structlog", extras = ["celery"], specifier = "~=9.1.0" },
     { name = "django-two-factor-auth", specifier = "~=1.18.0" },
     { name = "djangorestframework", specifier = "~=3.16.1" },
     { name = "djangorestframework-csv", specifier = "~=3.0.2" },
     { name = "djangorestframework-dataclasses", specifier = "~=1.4.0" },
-=======
-    { name = "django-structlog", extras = ["celery"], specifier = "~=9.1.0" },
-    { name = "django-two-factor-auth", specifier = "==1.14.0" },
-    { name = "djangorestframework", specifier = "==3.15.1" },
-    { name = "djangorestframework-csv", specifier = "==2.1.1" },
-    { name = "djangorestframework-dataclasses", specifier = "==1.2.0" },
->>>>>>> 06cbe2f4d5 (chore(deps): upgrade django-structlog to 9.1.0)
     { name = "dlt", specifier = "==1.3.0" },
     { name = "dnspython", specifier = "==2.2.1" },
     { name = "drf-exceptions-hog", specifier = "==0.4.0" },
@@ -5277,18 +5269,6 @@ wheels = [
 [[package]]
 name = "python-ipware"
 version = "3.0.0"
-<<<<<<< HEAD
-=======
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/9e/60/da4426c3e9aee56f08b24091a9e85a0414260f928f97afd0013dfbd0332f/python_ipware-3.0.0.tar.gz", hash = "sha256:9117b1c4dddcb5d5ca49e6a9617de2fc66aec2ef35394563ac4eecabdf58c062", size = 16609, upload-time = "2024-04-19T20:00:58.938Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/08/bd/ccd7416fdb30f104ddf6cfd8ee9f699441c7d9880a26f9b3089438adee05/python_ipware-3.0.0-py3-none-any.whl", hash = "sha256:fc936e6e7ec9fcc107f9315df40658f468ac72f739482a707181742882e36b60", size = 10761, upload-time = "2024-04-19T20:00:57.171Z" },
-]
-
-[[package]]
-name = "python-multipart"
-version = "0.0.20"
->>>>>>> 06cbe2f4d5 (chore(deps): upgrade django-structlog to 9.1.0)
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/9e/60/da4426c3e9aee56f08b24091a9e85a0414260f928f97afd0013dfbd0332f/python_ipware-3.0.0.tar.gz", hash = "sha256:9117b1c4dddcb5d5ca49e6a9617de2fc66aec2ef35394563ac4eecabdf58c062", size = 16609, upload-time = "2024-04-19T20:00:58.938Z" }
 wheels = [
