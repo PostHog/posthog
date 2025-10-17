@@ -48,7 +48,10 @@ export const metricRecentActivityLogic = kea<metricRecentActivityLogicType>([
         }
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        if (!equal(props, oldProps) || props.filterTestAccounts !== oldProps.filterTestAccounts) {
+        /**
+         * this brings back memories of componentWillReceiveProps...
+         */
+        if (!equal(props, oldProps)) {
             actions.loadEventCount()
         }
     }),
