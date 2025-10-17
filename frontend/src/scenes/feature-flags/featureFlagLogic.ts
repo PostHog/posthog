@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import { v4 as uuidv4 } from 'uuid'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -1216,15 +1217,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
-                lemonToast.success('Change scheduled successfully')
+                const newFilter = {
+                    ...NEW_FLAG.filters,
+                }
+                const sortKey = uuidv4()
+                newFilter.groups[0].sort_key = sortKey
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.loadScheduledChanges()
                 eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
-                if (values.featureFlag.id != null) {
+                if (
+                    values.featureFlag.id != null &&
+                    values.scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition
+                ) {
                     const releaseConditionsLogic = featureFlagReleaseConditionsLogic.findMounted({
                         id: createScheduleReleaseConditionsLogicKey(values.featureFlag.id),
                     })
-                    releaseConditionsLogic?.actions.resetAffectedUsers()
+                    if (releaseConditionsLogic != null) {
+                        releaseConditionsLogic.actions.resetAffectedUsers()
+                        releaseConditionsLogic.actions.setAffectedUsers(
+                            sortKey,
+                            releaseConditionsLogic.values.totalUsers ?? undefined
+                        )
+                    }
                 }
             }
         },
