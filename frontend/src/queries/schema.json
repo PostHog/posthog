@@ -13313,6 +13313,7 @@
                 "action",
                 "comment",
                 "annotation",
+                "event",
                 "event_definition",
                 "property_definition",
                 "ingestion_warning",
@@ -13381,6 +13382,10 @@
                 },
                 "ref": {
                     "description": "Object's ID or other unique reference",
+                    "type": "string"
+                },
+                "sceneKey": {
+                    "description": "Match this with the a base scene key or a specific one",
                     "type": "string"
                 },
                 "shortcut": {

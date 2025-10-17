@@ -9,6 +9,8 @@ import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -24,9 +26,6 @@ import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 type Tab = 'events' | 'data-warehouse'
-
-const DESCRIPTION =
-    'Revenue events are used to track revenue in revenue analytics. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event. You can also import revenue data from your PostHog data warehouse tables.'
 
 export function RevenueAnalyticsSettings(): JSX.Element {
     const [activeTab, setActiveTab] = useState<Tab>('events')
@@ -44,12 +43,18 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection name="Revenue" description={DESCRIPTION} resourceType={{ type: 'revenue_analytics' }} />
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.RevenueAnalytics].name}
+                description={sceneConfigurations[Scene.RevenueAnalytics].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.RevenueAnalytics].iconType || 'default_icon_type',
+                }}
+            />
             <SceneDivider />
             <ProductIntroduction
                 productName="Revenue tracking"
                 thingName="revenue source"
-                description={DESCRIPTION}
+                description={sceneConfigurations[Scene.RevenueAnalytics].description || ''}
                 isEmpty={hasNoEvents && hasNoDataWarehouseSources}
                 actionElementOverride={
                     <>
