@@ -3,8 +3,14 @@ import { join } from 'node:path'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
+import { getDecompressionWorkerManager } from './DecompressionWorkerManager'
 import { hasAnyWireframes, parseEncodedSnapshots, processAllSnapshots } from './process-all-snapshots'
 import { keyForSource } from './source-key'
+
+// Mock the decompression worker manager
+jest.mock('./DecompressionWorkerManager', () => ({
+    getDecompressionWorkerManager: jest.fn(),
+}))
 
 const pathForKeyZero = join(__dirname, '../__mocks__/perf-snapshot-key0.jsonl')
 
@@ -28,33 +34,49 @@ describe('process all snapshots', () => {
             const snapshots = await parseEncodedSnapshots(rawSnapshots, sessionId)
             expect(snapshots).toHaveLength(99)
 
-            const start = performance.now()
-            const results = processAllSnapshots(
-                [
+            const durations: number[] = []
+            const runs = 10
+
+            for (let i = 0; i < runs; i++) {
+                const start = performance.now()
+                const results = processAllSnapshots(
+                    [
+                        {
+                            source: 'blob_v2',
+                            blob_key: '0',
+                        },
+                    ],
                     {
-                        source: 'blob_v2',
-                        blob_key: '0',
+                        [key]: {
+                            snapshots: snapshots,
+                        },
                     },
-                ],
-                {
-                    [key]: {
-                        snapshots: snapshots,
+                    {},
+                    () => {
+                        return {
+                            width: '100',
+                            height: '100',
+                            href: 'https://example.com',
+                        }
                     },
-                },
-                {},
-                () => {
-                    return {
-                        width: '100',
-                        height: '100',
-                        href: 'https://example.com',
-                    }
-                },
-                sessionId
+                    sessionId
+                )
+                const end = performance.now()
+                durations.push(end - start)
+                expect(results).toHaveLength(99)
+            }
+
+            durations.sort((a, b) => a - b)
+            // Drop slowest 2 runs (typically first runs with cold JIT/cache)
+            const trimmedDurations = durations.slice(0, -2)
+            const median = trimmedDurations[Math.floor(trimmedDurations.length / 2)]
+            const mean = trimmedDurations.reduce((sum, d) => sum + d, 0) / trimmedDurations.length
+            const stdDev = Math.sqrt(
+                trimmedDurations.reduce((sum, d) => sum + (d - mean) ** 2, 0) / trimmedDurations.length
             )
-            const end = performance.now()
-            const duration = end - start
-            expect(results).toHaveLength(99)
-            expect(duration).toBeLessThan(50)
+
+            expect(median).toBeLessThan(50)
+            expect(stdDev).toBeLessThan(25)
         })
 
         it('deduplicates snapshot', async () => {
@@ -139,6 +161,131 @@ describe('process all snapshots', () => {
                     },
                 ])
             ).toBeTruthy()
+        })
+    })
+
+    describe('parseEncodedSnapshots with compressed data', () => {
+        const mockWorkerManager = {
+            decompress: jest.fn(),
+            decompressBatch: jest.fn(),
+            terminate: jest.fn(),
+        }
+
+        beforeEach(() => {
+            jest.clearAllMocks()
+            ;(getDecompressionWorkerManager as jest.Mock).mockReturnValue(mockWorkerManager)
+        })
+
+        const createLengthPrefixedData = (blocks: Uint8Array[]): Uint8Array => {
+            let totalLength = 0
+            for (const block of blocks) {
+                totalLength += 4 + block.byteLength
+            }
+
+            const result = new Uint8Array(totalLength)
+            let offset = 0
+
+            for (const block of blocks) {
+                const length = block.byteLength
+                result[offset] = (length >>> 24) & 0xff
+                result[offset + 1] = (length >>> 16) & 0xff
+                result[offset + 2] = (length >>> 8) & 0xff
+                result[offset + 3] = length & 0xff
+                offset += 4
+
+                result.set(block, offset)
+                offset += length
+            }
+
+            return result
+        }
+
+        it.each([
+            ['ArrayBuffer', (data: Uint8Array) => data.buffer as ArrayBuffer | Uint8Array],
+            ['Uint8Array', (data: Uint8Array) => data],
+        ])('handles %s input by decompressing and parsing', async (_name, convertInput) => {
+            const sessionId = 'test-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 2,
+                        timestamp: 1234567890,
+                        data: { href: 'https://example.com' },
+                    },
+                ],
+            })
+            const decompressedBytes = new TextEncoder().encode(snapshotJson + '\n')
+            const fakeCompressedBlock = new Uint8Array([1, 2, 3, 4, 5])
+            const mockCompressedData = createLengthPrefixedData([fakeCompressedBlock])
+
+            mockWorkerManager.decompress.mockResolvedValue(decompressedBytes)
+
+            const result = await parseEncodedSnapshots(convertInput(mockCompressedData), sessionId)
+
+            expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeCompressedBlock)
+            expect(result).toHaveLength(1)
+            expect(result[0].windowId).toBe('1')
+            expect(result[0].timestamp).toBe(1234567890)
+        })
+
+        it('handles multiple snapshots in decompressed data', async () => {
+            const sessionId = 'test-session'
+
+            const snapshot1 = JSON.stringify({
+                window_id: '1',
+                data: [{ type: 2, timestamp: 1000, data: {} }],
+            })
+            const snapshot2 = JSON.stringify({
+                window_id: '1',
+                data: [{ type: 3, timestamp: 2000, data: {} }],
+            })
+            const decompressedBytes1 = new TextEncoder().encode(snapshot1 + '\n')
+            const decompressedBytes2 = new TextEncoder().encode(snapshot2 + '\n')
+
+            const fakeCompressedBlock1 = new Uint8Array([1, 2, 3])
+            const fakeCompressedBlock2 = new Uint8Array([4, 5, 6])
+            const mockCompressedData = createLengthPrefixedData([fakeCompressedBlock1, fakeCompressedBlock2])
+
+            mockWorkerManager.decompress
+                .mockResolvedValueOnce(decompressedBytes1)
+                .mockResolvedValueOnce(decompressedBytes2)
+
+            const result = await parseEncodedSnapshots(mockCompressedData, sessionId)
+
+            expect(result).toHaveLength(2)
+            expect(result[0].timestamp).toBe(1000)
+            expect(result[1].timestamp).toBe(2000)
+        })
+
+        it('returns empty array and logs error on decompression failure', async () => {
+            const sessionId = 'test-session'
+            const mockCompressedData = new Uint8Array([1, 2, 3])
+
+            mockWorkerManager.decompress.mockRejectedValue(new Error('Decompression failed'))
+
+            const result = await parseEncodedSnapshots(mockCompressedData, sessionId)
+
+            expect(result).toHaveLength(0)
+        })
+
+        it('filters out empty lines in decompressed data', async () => {
+            const sessionId = 'test-session'
+
+            const snapshot = JSON.stringify({
+                window_id: '1',
+                data: [{ type: 2, timestamp: 1000, data: {} }],
+            })
+            const decompressedBytes = new TextEncoder().encode('\n\n' + snapshot + '\n\n\n')
+            const fakeCompressedBlock = new Uint8Array([10, 11, 12])
+            const mockCompressedData = createLengthPrefixedData([fakeCompressedBlock])
+
+            mockWorkerManager.decompress.mockResolvedValue(decompressedBytes)
+
+            const result = await parseEncodedSnapshots(mockCompressedData, sessionId)
+
+            expect(result).toHaveLength(1)
         })
     })
 })

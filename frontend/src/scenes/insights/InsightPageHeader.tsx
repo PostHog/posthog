@@ -6,7 +6,7 @@ import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash, Icon
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
-import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -14,7 +14,8 @@ import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashbo
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
+import { SceneFavorite } from 'lib/components/Scenes/SceneFavorite'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
@@ -59,7 +60,6 @@ import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeL
 import {
     ScenePanel,
     ScenePanelActionsSection,
-    ScenePanelCommonActions,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
@@ -78,7 +78,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { QueryEndpointModal } from 'products/embedded_analytics/frontend/QueryEndpointModal'
+import { EndpointModal } from 'products/endpoints/frontend/EndpointModal'
 
 import { getInsightIconTypeFromQuery } from './utils'
 
@@ -106,8 +106,17 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     )
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext, hogQLVariables, insightQuery } =
-        useValues(insightDataLogic(insightProps))
+    const {
+        query,
+        queryChanged,
+        showQueryEditor,
+        showDebugPanel,
+        hogQL,
+        exportContext,
+        hogQLVariables,
+        insightQuery,
+        insightData,
+    } = useValues(insightDataLogic(insightProps))
     const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
     const { createStaticCohort } = useActions(exportsLogic)
 
@@ -128,7 +137,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
-    const [queryEndpointModalOpen, setQueryEndpointModalOpen] = useState<boolean>(false)
+    const [endpointModalOpen, setEndpointModalOpen] = useState<boolean>(false)
 
     const dashboardOverridesExist =
         (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
@@ -140,6 +149,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
 
     const siteUrl = preflight?.site_url || window.location.origin
+
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
 
     async function handleDuplicateInsight(): Promise<void> {
         // We do not want to duplicate the dashboard filters that might be included in this insight
@@ -172,6 +183,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insight.short_id}
                         insight={insight}
+                        cachedResults={insightData}
                         previewIframe
                         userAccessLevel={insight.user_access_level}
                     />
@@ -188,6 +200,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             insightLogicProps={insightLogicProps}
                             insightId={insight.id as number}
                             insightShortId={insight.short_id as InsightShortId}
+                            canCreateAlertForInsight={canCreateAlertForInsight}
                         />
                     )}
 
@@ -206,9 +219,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     )}
                     <NewDashboardModal />
-                    <QueryEndpointModal
-                        isOpen={queryEndpointModalOpen}
-                        closeModal={() => setQueryEndpointModalOpen(false)}
+                    <EndpointModal
+                        isOpen={endpointModalOpen}
+                        closeModal={() => setEndpointModalOpen(false)}
                         tabId={insightProps.tabId || ''}
                         insightQuery={insightQuery as HogQLQuery | InsightQueryNode}
                     />
@@ -217,25 +230,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
             <ScenePanel>
                 <>
-                    <ScenePanelCommonActions>
-                        <SceneCommonButtons
-                            dataAttrKey={RESOURCE_TYPE}
-                            duplicate={
-                                hasDashboardItemId
-                                    ? {
-                                          onClick: () => void handleDuplicateInsight(),
-                                      }
-                                    : undefined
-                            }
-                            favorite={{
-                                active: insight.favorited,
-                                onClick: () => {
-                                    setInsightMetadata({ favorited: !insight.favorited })
-                                },
-                            }}
-                        />
-                    </ScenePanelCommonActions>
-                    <ScenePanelDivider />
                     <ScenePanelInfoSection>
                         <SceneTags
                             onSave={(tags) => {
@@ -259,9 +253,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                     <ScenePanelDivider />
 
                     <ScenePanelActionsSection>
-                        {hasDashboardItemId && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
+                        <SceneDuplicate dataAttrKey={RESOURCE_TYPE} onClick={() => void handleDuplicateInsight()} />
+                        <SceneFavorite
+                            dataAttrKey={RESOURCE_TYPE}
+                            onClick={() => {
+                                setInsightMetadata({ favorited: !insight.favorited })
+                            }}
+                            isFavorited={insight.favorited ?? false}
+                        />
 
-                        <SceneAddToNotebookDropdownMenu shortId={insight.short_id} dataAttrKey={RESOURCE_TYPE} />
+                        {insight.short_id && (
+                            <SceneAddToNotebookDropdownMenu shortId={insight.short_id} dataAttrKey={RESOURCE_TYPE} />
+                        )}
                         <SceneAddToDashboardButton
                             dashboard={
                                 hasDashboardItemId
@@ -318,7 +321,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <TemplateLinkSection
                                                 templateLink={templateLink}
                                                 heading={undefined}
-                                                tooltip={undefined}
                                                 piiWarning={TEMPLATE_LINK_PII_WARNING}
                                             />
                                         ),
@@ -336,7 +338,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </ButtonPrimitive>
                         )}
 
-                        {exportContext ? (
+                        {exportContext && insight.short_id != null ? (
                             <SceneExportDropdownMenu
                                 dropdownMenuItems={[
                                     {
@@ -358,10 +360,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         ) : null}
 
-                        {featureFlags[FEATURE_FLAGS.EMBEDDED_ANALYTICS] ? (
-                            <ButtonPrimitive onClick={() => setQueryEndpointModalOpen(true)} menuItem>
+                        {featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
+                            <ButtonPrimitive onClick={() => setEndpointModalOpen(true)} menuItem>
                                 <IconCode2 />
-                                Create query endpoint
+                                Create endpoint
                             </ButtonPrimitive>
                         ) : null}
 
@@ -423,6 +425,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 Save as static cohort
                             </ButtonPrimitive>
                         )}
+                        {hasDashboardItemId && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
                     </ScenePanelActionsSection>
                     <ScenePanelDivider />
                     <ScenePanelActionsSection>
@@ -512,10 +515,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
-                // Renaming insights is too fast, so we need to debounce it
-                renameDebounceMs={1000}
+                renameDebounceMs={0}
                 // Use onBlur-only saves to prevent autosave while typing
-                saveOnBlur={true}
+                saveOnBlur
                 actions={
                     <>
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (

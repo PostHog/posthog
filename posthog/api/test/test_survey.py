@@ -1165,6 +1165,7 @@ class TestSurvey(APIBaseTest):
                     "response_sampling_interval": None,
                     "response_sampling_limit": None,
                     "response_sampling_daily_limits": None,
+                    "user_access_level": "manager",
                 }
             ],
         }

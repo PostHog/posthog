@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { HogDebug } from 'scenes/debug/HogDebug'
+import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
@@ -38,6 +39,7 @@ import {
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
+    isMarketingAnalyticsAggregatedQuery,
     isRevenueAnalyticsGrossRevenueQuery,
     isRevenueAnalyticsMRRQuery,
     isRevenueAnalyticsMetricsQuery,
@@ -170,6 +172,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 readOnly={readOnly}
                 editMode={!!editMode}
                 uniqueKey={uniqueKey}
+                cachedResults={props.cachedResults}
                 embedded={embedded}
                 inSharedMode={inSharedMode}
                 filtersOverride={filtersOverride}
@@ -224,6 +227,16 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isWebOverviewQuery(query)) {
         component = (
             <WebOverview
+                attachTo={props.attachTo}
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+                uniqueKey={uniqueKey}
+            />
+        )
+    } else if (isMarketingAnalyticsAggregatedQuery(query)) {
+        component = (
+            <MarketingAnalyticsOverview
                 attachTo={props.attachTo}
                 query={query}
                 cachedResults={props.cachedResults}

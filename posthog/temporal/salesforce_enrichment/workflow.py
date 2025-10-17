@@ -78,13 +78,12 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
     """Cache all Salesforce accounts in Redis for fast chunk retrieval.
 
     Returns dict with total_accounts count. Reuses existing cache if available."""
-    logger = LOGGER.bind()
+    close_old_connections()
 
+    logger = LOGGER.bind()
     logger.info("Starting cache_all_accounts_activity")
 
     try:
-        close_old_connections()
-
         # Exit early if cache exists
         logger.info("Checking Redis cache")
         cached_count = await get_cached_accounts_count()

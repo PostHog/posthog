@@ -64,6 +64,9 @@ def register_all_admin():
         User,
     )
 
+    from products.tasks.backend.admin import SandboxSnapshotAdmin
+    from products.tasks.backend.models import SandboxSnapshot
+
     admin.site.register(Organization, OrganizationAdmin)
     admin.site.register(OrganizationDomain, OrganizationDomainAdmin)
     admin.site.register(Project, ProjectAdmin)
@@ -98,3 +101,5 @@ def register_all_admin():
     admin.site.register(BatchImport, BatchImportAdmin)
 
     admin.site.register(PersonalAPIKey, PersonalAPIKeyAdmin)
+
+    admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)

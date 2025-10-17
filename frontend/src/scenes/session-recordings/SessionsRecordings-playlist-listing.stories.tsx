@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordings } from 'scenes/session-recordings/__mocks__/recordings'
@@ -19,7 +18,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.replay(ReplayTabs.Playlists),
-        featureFlags: [FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN],
     },
     decorators: [
         mswDecorator({

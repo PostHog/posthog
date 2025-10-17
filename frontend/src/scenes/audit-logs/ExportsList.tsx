@@ -18,11 +18,6 @@ import { ExportedAsset, advancedActivityLogsLogic } from './advancedActivityLogs
 export function ExportsList(): JSX.Element {
     const { exports, exportsLoading } = useValues(advancedActivityLogsLogic)
 
-    if (exportsLoading) {
-        // You could add a skeleton here if desired
-        return <div>Loading exports...</div>
-    }
-
     if (!exports || exports.length === 0) {
         return <ExportsEmptyState />
     }
@@ -90,7 +85,7 @@ export function ExportsList(): JSX.Element {
             <LemonTable
                 dataSource={exports}
                 columns={columns}
-                loading={false}
+                loading={exportsLoading}
                 rowKey="id"
                 footer={
                     <div className="flex items-center justify-end mt-2 mr-2">

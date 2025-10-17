@@ -15,6 +15,7 @@ import { dayjs } from 'lib/dayjs'
 import { IconAreaChart, IconWithCount } from 'lib/lemon-ui/icons'
 import { DATE_FORMAT, formatDateRange } from 'lib/utils'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
+import MaxTool from 'scenes/max/MaxTool'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { RevenueAnalyticsBreakdown } from '~/queries/schema/schema-general'
@@ -109,7 +110,6 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
                     />
 
                     <RevenueAnalyticsPropertyFilters />
-                    <RevenueAnalyticsBreakdownBy />
                 </>
             }
         />
@@ -117,59 +117,84 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
 }
 
 const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
-    const { revenueAnalyticsFilter } = useValues(revenueAnalyticsLogic)
-    const { setRevenueAnalyticsFilters } = useActions(revenueAnalyticsLogic)
+    const {
+        revenueAnalyticsFilter,
+        breakdownProperties,
+        dateFilter: { dateTo, dateFrom },
+    } = useValues(revenueAnalyticsLogic)
+    const { setRevenueAnalyticsFilters, setDates, setBreakdownProperties } = useActions(revenueAnalyticsLogic)
 
     const [displayFilters, setDisplayFilters] = useState(false)
 
     return (
-        <Popover
-            visible={displayFilters}
-            onClickOutside={() => setDisplayFilters(false)}
-            placement="bottom"
-            className="max-w-200"
-            overlay={
-                <div className="p-2">
-                    <PropertyFilters
-                        disablePopover
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.RevenueAnalyticsProperties]}
-                        onChange={(filters) =>
-                            setRevenueAnalyticsFilters(filters.filter(isRevenueAnalyticsPropertyFilter))
-                        }
-                        propertyFilters={revenueAnalyticsFilter}
-                        pageKey="revenue-analytics"
-                        buttonSize="small"
-                    />
-                </div>
-            }
+        <MaxTool
+            identifier="filter_revenue_analytics"
+            context={{
+                current_filters: {
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    breakdown: breakdownProperties,
+                    properties: revenueAnalyticsFilter,
+                },
+            }}
+            callback={(toolOutput: Record<string, any>) => {
+                // Types suck here, but they *should* be correct if pydantic does its job correctly
+                setRevenueAnalyticsFilters(toolOutput.properties)
+                setDates(toolOutput.date_from, toolOutput.date_to)
+                setBreakdownProperties(toolOutput.breakdown)
+            }}
+            initialMaxPrompt="Show my revenue for "
+            suggestions={[
+                'Show my revenue from the last year',
+                'Show what my revenue is in France',
+                'Break down my revenue by product for the last year',
+            ]}
+            onMaxOpen={() => setDisplayFilters(false)}
         >
-            <LemonButton
-                data-attr="show-revenue-analytics-filters"
-                icon={
-                    <IconWithCount count={revenueAnalyticsFilter.length} showZero={false}>
-                        <IconFilter />
-                    </IconWithCount>
-                }
-                type="secondary"
-                size="small"
-                onClick={() => setDisplayFilters((displayFilters) => !displayFilters)}
-            >
-                Filters
-            </LemonButton>
-        </Popover>
-    )
-}
+            <div className="flex flex-row gap-2">
+                <Popover
+                    visible={displayFilters}
+                    onClickOutside={() => setDisplayFilters(false)}
+                    placement="bottom"
+                    className="max-w-200"
+                    overlay={
+                        <div className="p-2">
+                            <PropertyFilters
+                                disablePopover
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.RevenueAnalyticsProperties]}
+                                onChange={(filters) =>
+                                    setRevenueAnalyticsFilters(filters.filter(isRevenueAnalyticsPropertyFilter))
+                                }
+                                propertyFilters={revenueAnalyticsFilter}
+                                pageKey="revenue-analytics"
+                                buttonSize="small"
+                            />
+                        </div>
+                    }
+                >
+                    <LemonButton
+                        data-attr="show-revenue-analytics-filters"
+                        icon={
+                            <IconWithCount count={revenueAnalyticsFilter.length} showZero={false}>
+                                <IconFilter />
+                            </IconWithCount>
+                        }
+                        type="secondary"
+                        size="small"
+                        onClick={() => setDisplayFilters((displayFilters) => !displayFilters)}
+                    >
+                        Filters
+                    </LemonButton>
+                </Popover>
 
-const RevenueAnalyticsBreakdownBy = (): JSX.Element => {
-    const { breakdownProperties } = useValues(revenueAnalyticsLogic)
-
-    return (
-        <div className="flex flex-row gap-1">
-            {breakdownProperties.map((breakdown) => (
-                <EditableBreakdownTag key={breakdown.property} breakdown={breakdown} />
-            ))}
-            <AddBreakdownButton />
-        </div>
+                <div className="flex flex-row gap-1">
+                    {breakdownProperties.map((breakdown) => (
+                        <EditableBreakdownTag key={breakdown.property} breakdown={breakdown} />
+                    ))}
+                    <AddBreakdownButton />
+                </div>
+            </div>
+        </MaxTool>
     )
 }
 

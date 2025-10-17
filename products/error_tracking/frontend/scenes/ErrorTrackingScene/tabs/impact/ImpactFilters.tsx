@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { EventName } from 'products/actions/frontend/components/EventName'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
 import { errorTrackingImpactListLogic } from './errorTrackingImpactListLogic'
 
 export function ImpactFilters(): JSX.Element {
     const { initialState } = useValues(errorTrackingImpactListLogic)
 
-    return initialState ? <InitialState /> : <EventSelector />
+    return initialState ? <InitialState /> : <EventSelector multiple />
 }
 
 const InitialState = (): JSX.Element => {
@@ -19,21 +21,34 @@ const InitialState = (): JSX.Element => {
                 tracking in PostHog.
             </div>
 
-            <EventSelector />
+            <EventSelector multiple={false} />
         </div>
     )
 }
 
-const EventSelector = (): JSX.Element => {
+const EventSelector = ({ multiple }: { multiple: boolean }): JSX.Element => {
     const { events } = useValues(errorTrackingImpactListLogic)
-    const { setEvents } = useActions(errorTrackingImpactListLogic)
+    const { setEvent, setEvents } = useActions(errorTrackingImpactListLogic)
 
     return (
-        <EventName
-            value={events && events.length > 0 ? events[0] : null}
-            onChange={(event) => setEvents(event ? [event] : [])}
-            allEventsOption="clear"
+        <TaxonomicPopover<string | null>
+            size="small"
+            type="secondary"
+            groupType={TaxonomicFilterGroupType.Events}
+            onChange={(event) => (event ? setEvent(event) : setEvents([]))}
+            allowClear
+            selectedProperties={{ [TaxonomicFilterGroupType.Events]: events ?? undefined }}
+            excludedProperties={{ [TaxonomicFilterGroupType.Events]: [null, '$exception'] }}
+            placeholder={multiple ? 'Select events' : 'Select an event'}
             placement="bottom"
+            closeOnChange={!multiple}
+            value={events ? events[0] : null}
+            renderValue={(value) => (
+                <div className="flex gap-x-1">
+                    <PropertyKeyInfo value={value} disablePopover type={TaxonomicFilterGroupType.Events} />
+                    {events!.length > 1 ? <span className="text-muted">+ {events!.length - 1} more</span> : null}
+                </div>
+            )}
         />
     )
 }

@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { HogFlowAction } from '../../../../schema/hogflow'
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../../../types'
+import { HogExecutorExecuteAsyncOptions } from '../../hog-executor.service'
 
 export interface ActionHandlerResult {
     nextAction?: HogFlowAction
@@ -9,10 +10,13 @@ export interface ActionHandlerResult {
     finished?: boolean
 }
 
+export interface ActionHandlerOptions<T extends HogFlowAction> {
+    invocation: CyclotronJobInvocationHogFlow
+    action: T
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
+    hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+}
+
 export interface ActionHandler {
-    execute(
-        invocation: CyclotronJobInvocationHogFlow,
-        action: HogFlowAction,
-        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
-    ): ActionHandlerResult | Promise<ActionHandlerResult>
+    execute(options: ActionHandlerOptions<HogFlowAction>): ActionHandlerResult | Promise<ActionHandlerResult>
 }

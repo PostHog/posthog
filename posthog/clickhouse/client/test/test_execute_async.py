@@ -389,3 +389,98 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         # Verify final result
         self.assertEqual(result, "success")
+
+    @patch("posthog.clickhouse.client.execute_process_query")
+    def test_query_deduplication_prevents_duplicate_execution(self, execute_process_query_mock):
+        """Test that identical queries with same cache_key are deduplicated and only one execution occurs."""
+        query = build_query("SELECT count() FROM events WHERE event = 'test_event'")
+        cache_key = "test_cache_key_12345"
+
+        # Execute same query multiple times with same cache_key
+        query_status1 = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key=cache_key, _test_only_bypass_celery=True
+        )
+        query_status2 = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key=cache_key, _test_only_bypass_celery=True
+        )
+        query_status3 = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key=cache_key, _test_only_bypass_celery=True
+        )
+
+        # All should return the same query_id (first one)
+        self.assertEqual(query_status1.id, query_status2.id, "First and second queries should have same ID")
+        self.assertEqual(query_status2.id, query_status3.id, "Second and third queries should have same ID")
+
+        # Only one execution should occur
+        execute_process_query_mock.assert_called_once()
+
+    @patch("posthog.clickhouse.client.execute_process_query")
+    def test_query_deduplication_different_cache_keys_not_deduplicated(self, execute_process_query_mock):
+        """Test that queries with different cache_keys are not deduplicated."""
+        query = build_query("SELECT count() FROM events WHERE event = 'test_event'")
+
+        # Execute same query with different cache_keys
+        query_status1 = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key="cache_key_1", _test_only_bypass_celery=True
+        )
+        query_status2 = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key="cache_key_2", _test_only_bypass_celery=True
+        )
+        query_status3 = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key="cache_key_3", _test_only_bypass_celery=True
+        )
+
+        # All should have different query_ids
+        self.assertNotEqual(query_status1.id, query_status2.id, "Different cache_keys should have different IDs")
+        self.assertNotEqual(query_status2.id, query_status3.id, "Different cache_keys should have different IDs")
+        self.assertNotEqual(query_status1.id, query_status3.id, "Different cache_keys should have different IDs")
+
+        # All should execute separately
+        self.assertEqual(execute_process_query_mock.call_count, 3)
+
+    @patch("posthog.clickhouse.client.execute_process_query")
+    def test_query_deduplication_no_cache_key_not_deduplicated(self, execute_process_query_mock):
+        """Test that queries without cache_key are not deduplicated."""
+        query = build_query("SELECT count() FROM events WHERE event = 'test_event'")
+
+        # Execute same query multiple times without cache_key
+        query_status1 = client.enqueue_process_query_task(self.team, self.user.id, query, _test_only_bypass_celery=True)
+        query_status2 = client.enqueue_process_query_task(self.team, self.user.id, query, _test_only_bypass_celery=True)
+        query_status3 = client.enqueue_process_query_task(self.team, self.user.id, query, _test_only_bypass_celery=True)
+
+        # All should have different query_ids
+        self.assertNotEqual(query_status1.id, query_status2.id, "No cache_key should have different IDs")
+        self.assertNotEqual(query_status2.id, query_status3.id, "No cache_key should have different IDs")
+        self.assertNotEqual(query_status1.id, query_status3.id, "No cache_key should have different IDs")
+
+        # All should execute separately
+        self.assertEqual(execute_process_query_mock.call_count, 3)
+
+    @patch("posthog.clickhouse.client.execute_process_query")
+    def test_query_deduplication_force_bypasses_deduplication(self, execute_process_query_mock):
+        """Test that force=True bypasses deduplication."""
+        query = build_query("SELECT count() FROM events WHERE event = 'test_event'")
+        cache_key = "test_cache_key_force"
+        query_id = "force_test_query_id"
+
+        # Execute query normally first
+        query_status1 = client.enqueue_process_query_task(
+            self.team, self.user.id, query, cache_key=cache_key, query_id=query_id, _test_only_bypass_celery=True
+        )
+
+        # Execute same query with force=True (should re-execute with same query_id)
+        query_status2 = client.enqueue_process_query_task(
+            self.team,
+            self.user.id,
+            query,
+            cache_key=cache_key,
+            query_id=query_id,
+            force=True,
+            _test_only_bypass_celery=True,
+        )
+
+        # Should have same query_id (force reuses query_id but forces execution)
+        self.assertEqual(query_status1.id, query_status2.id, "Force should reuse query_id")
+
+        # Both should execute (force bypasses deduplication)
+        self.assertEqual(execute_process_query_mock.call_count, 2)

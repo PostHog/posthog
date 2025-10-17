@@ -2,7 +2,13 @@ import uuid
 from time import time_ns
 
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 
 from posthog.schema import FilterLogicalOperator, HogQLQueryModifiers, SessionTableVersion
 
@@ -18,7 +24,10 @@ from posthog.models.property_definition import PropertyType
 from posthog.models.utils import uuid7
 
 
+@snapshot_clickhouse_queries
 class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
+    snapshot_replace_all_numbers = True
+
     def __execute(
         self,
         query,
@@ -617,6 +626,60 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         assert response.results == [
             (0, 0, "https://example.com/pathname", "https://example.com/pathname", "/pathname", "/pathname")
         ]
+
+    def test_event_sessions_where_event_timestamp(self):
+        session_id = str(uuid7())
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={
+                "$current_url": "https://example.com/pathname",
+                "$pathname": "/pathname",
+                "$session_id": session_id,
+            },
+        )
+
+        response = self.__execute(
+            parse_select(
+                """
+                select
+                    session.id as session_id,
+                from events
+                where session_id = {session_id} AND timestamp >= '1970-01-01'
+                """,
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        assert response.results == [(session_id,)]
+
+    def test_event_sessions_where(self):
+        session_id = str(uuid7())
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={
+                "$current_url": "https://example.com/pathname",
+                "$pathname": "/pathname",
+                "$session_id": session_id,
+            },
+        )
+
+        response = self.__execute(
+            parse_select(
+                """
+                select
+                    count() from events
+                where events.session.$entry_pathname = '/pathname'
+                """,
+            ),
+        )
+
+        assert response.results == [(1,)]
 
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):

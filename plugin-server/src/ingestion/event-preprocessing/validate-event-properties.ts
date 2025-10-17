@@ -35,7 +35,7 @@ export function createValidateEventPropertiesStep<T extends { eventWithTeam: Inc
                         drop_cause: 'group_key_too_long',
                     })
                     .inc()
-                return drop('Group key too long')
+                return drop('group_key_too_long')
             }
         }
 

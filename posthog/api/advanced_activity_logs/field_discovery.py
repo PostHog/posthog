@@ -1,10 +1,12 @@
 import gc
 import json
 import dataclasses
+from datetime import timedelta
 from typing import Any, TypedDict
 
 from django.db import connection
 from django.db.models import QuerySet
+from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog, Change
 from posthog.models.utils import UUIDT
@@ -96,8 +98,49 @@ class AdvancedActivityLogFieldDiscovery:
     def _get_org_record_count(self) -> int:
         return ActivityLog.objects.filter(organization_id=self.organization_id).count()
 
-    def process_batch_for_large_org(self, offset: int, limit: int) -> None:
-        batch_fields = self._process_batch_memory(offset, limit, use_sampling=True)
+    def get_activity_logs_queryset(self, hours_back: int | None = None) -> QuerySet:
+        """Get the base queryset for activity logs, optionally filtered by time."""
+        queryset = ActivityLog.objects.filter(organization_id=self.organization_id, detail__isnull=False)
+
+        if hours_back is not None:
+            cutoff_time = timezone.now() - timedelta(hours=hours_back)
+            queryset = queryset.filter(created_at__gte=cutoff_time)
+
+        return queryset
+
+    def get_sampled_records(self, limit: int, offset: int = 0) -> list[dict]:
+        """Get sampled records using SQL TABLESAMPLE for large datasets."""
+        query = f"""
+            SELECT scope, detail
+            FROM posthog_activitylog TABLESAMPLE SYSTEM ({SAMPLING_PERCENTAGE})
+            WHERE organization_id = %s
+            AND detail IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s
+        """
+
+        with connection.cursor() as cursor:
+            cursor.execute(query, [str(self.organization_id), limit, offset])
+            records = []
+            for row in cursor.fetchall():
+                scope, detail = row
+                if isinstance(detail, str):
+                    try:
+                        detail = json.loads(detail)
+                    except (json.JSONDecodeError, TypeError):
+                        detail = None
+                records.append({"scope": scope, "detail": detail})
+        return records
+
+    def process_batch_for_large_org(self, records: list[dict], hours_back: int | None = None) -> None:
+        """Process a batch of records for large organizations.
+
+        Args:
+            records: List of activity log records to process
+            hours_back: If provided, used to get appropriate static filters for the time range
+        """
+        # Process the provided records
+        batch_fields = self._extract_fields_from_records(records)
         batch_converted = self._convert_to_discovery_format(batch_fields)
 
         existing_cache = get_cached_fields(str(self.organization_id))
@@ -108,11 +151,21 @@ class AdvancedActivityLogFieldDiscovery:
             current_detail_fields = {}
             self._merge_fields_into_result(current_detail_fields, batch_converted)
 
-        static_filters = (
-            existing_cache.get("static_filters")
-            if existing_cache
-            else self._get_static_filters(self._get_base_queryset())
-        )
+        # Get static filters for the appropriate time range
+        if hours_back is not None:
+            recent_queryset = self.get_activity_logs_queryset(hours_back=hours_back)
+            new_static_filters = self._get_static_filters(recent_queryset)
+
+            # Merge with existing static filters
+            if existing_cache and "static_filters" in existing_cache:
+                static_filters = self._merge_static_filters(existing_cache["static_filters"], new_static_filters)
+            else:
+                static_filters = new_static_filters
+        else:
+            if existing_cache and existing_cache.get("static_filters"):
+                static_filters = existing_cache["static_filters"]
+            else:
+                static_filters = self._get_static_filters(self._get_base_queryset())
 
         cache_data = {
             "static_filters": static_filters,
@@ -181,38 +234,8 @@ class AdvancedActivityLogFieldDiscovery:
 
         return all_fields
 
-    def _process_batch_memory(
-        self, offset: int, limit: int, use_sampling: bool = True
-    ) -> dict[str, set[tuple[str, str]]]:
-        if use_sampling:
-            query = f"""
-                SELECT scope, detail
-                FROM posthog_activitylog TABLESAMPLE SYSTEM ({SAMPLING_PERCENTAGE})
-                WHERE organization_id = %s
-                AND detail IS NOT NULL
-                ORDER BY created_at DESC
-                LIMIT %s OFFSET %s
-            """
-
-            with connection.cursor() as cursor:
-                cursor.execute(query, [str(self.organization_id), limit, offset])
-                records = []
-                for row in cursor.fetchall():
-                    scope, detail = row
-                    if isinstance(detail, str):
-                        try:
-                            detail = json.loads(detail)
-                        except (json.JSONDecodeError, TypeError):
-                            detail = None
-                    records.append({"scope": scope, "detail": detail})
-        else:
-            records = [
-                {"scope": record["scope"], "detail": record["detail"]}
-                for record in ActivityLog.objects.filter(
-                    organization_id=self.organization_id, detail__isnull=False
-                ).values("scope", "detail")[offset : offset + limit]
-            ]
-
+    def _extract_fields_from_records(self, records: list[dict]) -> dict[str, set[tuple[str, str]]]:
+        """Extract field information from a list of activity log records."""
         batch_fields: dict[str, set[tuple[str, str]]] = {}
 
         for record in records:
@@ -230,6 +253,20 @@ class AdvancedActivityLogFieldDiscovery:
                 batch_fields[scope].add((path, field_type))
 
         return batch_fields
+
+    def _process_batch_memory(
+        self, offset: int, limit: int, use_sampling: bool = True
+    ) -> dict[str, set[tuple[str, str]]]:
+        """Legacy method for backward compatibility."""
+        if use_sampling:
+            records = self.get_sampled_records(limit, offset)
+        else:
+            records = [
+                {"scope": record["scope"], "detail": record["detail"]}
+                for record in self.get_activity_logs_queryset().values("scope", "detail")[offset : offset + limit]
+            ]
+
+        return self._extract_fields_from_records(records)
 
     def _extract_json_paths(self, obj: Any, prefix: str = "") -> set[tuple[str, str]]:
         paths = set()
@@ -304,3 +341,31 @@ class AdvancedActivityLogFieldDiscovery:
                 result.append((scope, field_path, sorted(types)))
 
         return result
+
+    def _merge_static_filters(self, existing: dict, new: dict) -> dict:
+        """Merge static filters additively"""
+        merged = {
+            "users": existing.get("users", []),
+            "scopes": existing.get("scopes", []),
+            "activities": existing.get("activities", []),
+        }
+
+        # Merge users (by uuid)
+        existing_user_ids = {u["value"] for u in merged["users"]}
+        for user in new.get("users", []):
+            if user["value"] not in existing_user_ids:
+                merged["users"].append(user)
+
+        # Merge scopes
+        existing_scopes = {s["value"] for s in merged["scopes"]}
+        for scope in new.get("scopes", []):
+            if scope["value"] not in existing_scopes:
+                merged["scopes"].append(scope)
+
+        # Merge activities
+        existing_activities = {a["value"] for a in merged["activities"]}
+        for activity in new.get("activities", []):
+            if activity["value"] not in existing_activities:
+                merged["activities"].append(activity)
+
+        return merged

@@ -3,7 +3,7 @@
 {% block extrahead %}
   {{ block.super }}
 
-  <script nonce="{{ request.admin_csp_nonce }}">
+  <script nonce="{{ request.csp_nonce }}">
     window.addEventListener("DOMContentLoaded", () => {
         document.getElementById("send_verification_email_button")?.addEventListener("click", (event) => {
             // prevent anchor tag from navigating

@@ -18,12 +18,10 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
-import { maxLogic } from 'scenes/max/maxLogic'
-import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -34,16 +32,14 @@ import {
     AccessControlResourceType,
     PropertyOperator,
     RecordingUniversalFilters,
-    ReplayTabs,
-    SidePanelTab,
     UniversalFiltersGroup,
 } from '~/types'
 
+import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
 import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistLogic } from '../playlist/playlistLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
 import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
-import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
@@ -188,9 +184,7 @@ export const RecordingsUniversalFiltersEmbed = ({
     allowReplayGroupsFilters?: boolean
 }): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
-    const { threadLogicKey, conversation } = useValues(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: threadLogicKey, conversation }))
-    const { openSidePanel } = useActions(sidePanelSettingsLogic)
+    const { askSidePanelMax } = useActions(maxGlobalLogic)
 
     const [savedFilterName, setSavedFilterName] = useState('')
     const { featureFlags } = useValues(featureFlagLogic)
@@ -224,9 +218,8 @@ export const RecordingsUniversalFiltersEmbed = ({
         taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
-    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
-    const { savedFilters, appliedSavedFilter } = useValues(savedFiltersLogic)
-    const { loadSavedFilters, setAppliedSavedFilter } = useActions(savedFiltersLogic)
+    const { savedFilters, appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
+    const { loadSavedFilters, setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
 
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 
@@ -250,8 +243,7 @@ export const RecordingsUniversalFiltersEmbed = ({
     }
 
     const handleMaxOpen = (): void => {
-        openSidePanel(SidePanelTab.Max)
-        askMax(searchQuery)
+        askSidePanelMax(searchQuery)
         setSearchQuery('')
     }
 

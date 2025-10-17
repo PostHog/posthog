@@ -21,7 +21,7 @@ import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-f
 
 import { createEmitEventStep } from '../../src/ingestion/event-processing/emit-event-step'
 import { isOkResult } from '../../src/ingestion/pipelines/results'
-import { ClickHouseEvent, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
+import { ClickHouseEvent, Hub, Person, PluginsServerConfig, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
@@ -73,7 +73,7 @@ async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBat
 }
 
 const TEST_CONFIG: Partial<PluginsServerConfig> = {
-    LOG_LEVEL: LogLevel.Info,
+    LOG_LEVEL: 'info',
 }
 
 describe('processEvent', () => {

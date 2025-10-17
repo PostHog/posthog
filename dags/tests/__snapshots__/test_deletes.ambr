@@ -1,0 +1,11 @@
+# serializer version: 1
+# name: test_cleanup_old_events_delete_query_format
+  list([
+    '''
+      DELETE FROM posthog_test.sharded_events IN PARTITION '202408' WHERE 
+                      team_id IN (400, 401)
+                      AND age('month', timestamp, now()) >= 13
+                  
+    ''',
+  ])
+# ---

@@ -22,6 +22,7 @@ export class PersonPropertiesSizeViolationError extends Error {
         super(message)
         this.name = 'PersonPropertiesSizeViolationError'
     }
+    readonly isRetriable = false
 }
 
 export interface PersonRepository {

@@ -38,7 +38,9 @@ describe('createValidateEventUuidStep', () => {
                 person_processing_opt_out: false,
             } as any,
             message: {} as any,
-            headers: {},
+            headers: {
+                force_disable_person_processing: false,
+            },
         }
 
         step = createValidateEventUuidStep(mockHub)
@@ -59,7 +61,7 @@ describe('createValidateEventUuidStep', () => {
 
         const result = await step(input)
 
-        expect(result).toEqual(drop('Event has invalid UUID'))
+        expect(result).toEqual(drop('invalid_uuid'))
         expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
             mockHub.db.kafkaProducer,
             1,
@@ -74,7 +76,7 @@ describe('createValidateEventUuidStep', () => {
 
         const result = await step(input)
 
-        expect(result).toEqual(drop('Event has invalid UUID'))
+        expect(result).toEqual(drop('invalid_uuid'))
         expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
             mockHub.db.kafkaProducer,
             1,
@@ -89,7 +91,7 @@ describe('createValidateEventUuidStep', () => {
 
         const result = await step(input)
 
-        expect(result).toEqual(drop('Event has invalid UUID'))
+        expect(result).toEqual(drop('invalid_uuid'))
         expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
             mockHub.db.kafkaProducer,
             1,
@@ -104,7 +106,7 @@ describe('createValidateEventUuidStep', () => {
 
         const result = await step(input)
 
-        expect(result).toEqual(drop('Event has invalid UUID'))
+        expect(result).toEqual(drop('invalid_uuid'))
         expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
             mockHub.db.kafkaProducer,
             1,

@@ -1,21 +1,21 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { ConversationStatus, ConversationType } from '~/types'
 
 import { maxLogic } from './maxLogic'
-import { formatConversationDate, getConversationUrl } from './utils'
+import { formatConversationDate } from './utils'
 
 interface HistoryPreviewProps {
     sidePanel?: boolean
 }
 
 export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.Element | null {
-    const { location } = useValues(router)
     const { conversationHistory, conversationHistoryLoading } = useValues(maxLogic)
-    const { toggleConversationHistory } = useActions(maxLogic)
+    const { toggleConversationHistory, openConversation } = useActions(maxLogic)
 
     if (!conversationHistory.length && !conversationHistoryLoading) {
         return null
@@ -44,13 +44,14 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                 conversationHistory.slice(0, 3).map((conversation) => (
                     <Link
                         key={conversation.id}
-                        className="text-sm flex items-center text-primary hover:text-accent-hover active:text-accent-active justify-between"
-                        to={getConversationUrl({
-                            pathname: location.pathname,
-                            search: location.search,
-                            conversationId: conversation.id,
-                            includeHash: sidePanel,
-                        })}
+                        className="text-sm flex items-center gap-2 text-primary hover:text-accent-hover active:text-accent-active justify-between"
+                        to={urls.max(conversation.id)}
+                        onClick={(e) => {
+                            if (sidePanel) {
+                                e.preventDefault()
+                                openConversation(conversation.id)
+                            }
+                        }}
                     >
                         <div className="flex items-center gap-2">
                             <span className="flex-1 line-clamp-1">{conversation.title}</span>

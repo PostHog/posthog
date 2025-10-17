@@ -37,7 +37,7 @@ export const getFilterSummary = (exportAsset: ExportedAsset): string => {
 
     const activeFilters: string[] = []
     if (filters.start_date || filters.end_date) {
-        activeFilters.push(`Date filter: 1`)
+        activeFilters.push(`Date: 1`)
     }
     if (filters.users && filters.users.length > 0) {
         activeFilters.push(`Users: ${filters.users.length}`)
@@ -46,7 +46,7 @@ export const getFilterSummary = (exportAsset: ExportedAsset): string => {
         activeFilters.push(`Scopes: ${filters.scopes.length}`)
     }
     if (filters.activities && filters.activities.length > 0) {
-        activeFilters.push(`Actions: ${filters.activities.length}`)
+        activeFilters.push(`Activities: ${filters.activities.length}`)
     }
     if (filters.detail_filters && Object.keys(filters.detail_filters).length > 0) {
         activeFilters.push(`Detail filters: ${Object.keys(filters.detail_filters).length}`)
@@ -83,7 +83,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
 
         filterSections.push(
             <div key="dates">
-                <strong>Date Range:</strong>
+                <strong>Date range:</strong>
                 <br />
                 {filters.start_date && `From: ${formatDate(filters.start_date)}`}
                 {filters.start_date && filters.end_date && <br />}
@@ -117,7 +117,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
     if (filters.activities && filters.activities.length > 0) {
         filterSections.push(
             <div key="activities">
-                <strong>Actions ({filters.activities.length}):</strong>
+                <strong>Activities ({filters.activities.length}):</strong>
                 <br />
                 {filters.activities.slice(0, 5).join(', ')}
                 {filters.activities.length > 5 && `... and ${filters.activities.length - 5} more`}
@@ -136,7 +136,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
 
         filterSections.push(
             <div key="detail_filters">
-                <strong>Detail Filters ({detailFilterEntries.length}):</strong>
+                <strong>Detail filters ({detailFilterEntries.length}):</strong>
                 <br />
                 {detailFilterText.slice(0, 3).join(', ')}
                 {detailFilterText.length > 3 && `... and ${detailFilterText.length - 3} more`}
@@ -147,7 +147,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
     if (filters.was_impersonated !== undefined) {
         filterSections.push(
             <div key="was_impersonated">
-                <strong>Was Impersonated:</strong>
+                <strong>Was impersonated:</strong>
                 <br />
                 {filters.was_impersonated ? 'Yes' : 'No'}
             </div>
@@ -157,7 +157,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
     if (filters.is_system !== undefined) {
         filterSections.push(
             <div key="is_system">
-                <strong>Is System Action:</strong>
+                <strong>Is system activity:</strong>
                 <br />
                 {filters.is_system ? 'Yes' : 'No'}
             </div>

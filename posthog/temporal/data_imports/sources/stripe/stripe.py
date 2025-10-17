@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME,
@@ -55,7 +56,7 @@ def stripe_source(
 ):
     def get_rows():
         client = StripeClient(
-            api_key, stripe_account=account_id, stripe_version="2024-09-30.acacia", max_network_retries=100
+            api_key, stripe_account=account_id, stripe_version="2024-09-30.acacia", max_network_retries=2
         )
         default_params = {"limit": DEFAULT_LIMIT}
         resources: dict[str, Union[StripeResource, StripeNestedResource]] = {
@@ -76,6 +77,12 @@ def stripe_source(
             CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
             CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
                 method=client.customers.balance_transactions.list,
+                nested_parent_param="customer",
+                parent_id="id",
+                parent=StripeResource(method=client.customers.list),
+            ),
+            CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: StripeNestedResource(
+                method=client.customers.payment_methods.list,
                 nested_parent_param="customer",
                 parent_id="id",
                 parent=StripeResource(method=client.customers.list),

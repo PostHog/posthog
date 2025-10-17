@@ -1,0 +1,567 @@
+# serializer version: 1
+# name: TestSessionsV3.test_bounce_rate
+  '''
+  SELECT sessions.`$is_bounce` AS `$is_bounce`,
+         sessions.session_id AS session_id
+  FROM
+    (SELECT if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 0), 0), NULL, not(or(ifNull(greater(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 1), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE equals(raw_sessions_v3.team_id, 99999)
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  ORDER BY sessions.session_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_can_use_v1_and_v2_fields
+  '''
+  SELECT sessions.`$session_duration` AS `$session_duration`,
+         sessions.duration AS duration,
+         sessions.`$end_current_url` AS `$end_current_url`,
+         sessions.`$exit_current_url` AS `$exit_current_url`,
+         sessions.`$end_pathname` AS `$end_pathname`,
+         sessions.`$exit_pathname` AS `$exit_pathname`
+  FROM
+    (SELECT dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))) AS `$session_duration`,
+            dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))) AS duration,
+            argMaxMerge(raw_sessions_v3.end_url) AS `$end_current_url`,
+            argMaxMerge(raw_sessions_v3.end_url) AS `$exit_current_url`,
+            path(argMaxMerge(raw_sessions_v3.end_url)) AS `$end_pathname`,
+            path(argMaxMerge(raw_sessions_v3.end_url)) AS `$exit_pathname`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  WHERE ifNull(equals(sessions.session_id, '00000000-0000-0000-0000-000000000000'), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_channel_type
+  '''
+  SELECT sessions.`$channel_type` AS `$channel_type`
+  FROM
+    (SELECT multiIf(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), 'paid'), tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 5), isNotNull(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 7), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 7), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*video.*)$'), 'Paid Video', tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '$direct'), 0), isNull(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null'))), or(isNull(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null'))), in(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), 'push$'), 'Push', tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6), 'Organic Social', ifNull(equals(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '$direct'), 0), 'Direct', isNotNull(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4)), 'Referral', 'Unknown'))) AS `$channel_type`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  WHERE ifNull(equals(sessions.session_id, '00000000-0000-0000-0000-000000000000'), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_counts
+  '''
+  SELECT sessions.`$pageview_count` AS `$pageview_count`,
+         sessions.`$autocapture_count` AS `$autocapture_count`,
+         sessions.`$screen_count` AS `$screen_count`
+  FROM
+    (SELECT uniqExactMerge(raw_sessions_v3.pageview_uniq) AS `$pageview_count`,
+            uniqExactMerge(raw_sessions_v3.autocapture_uniq) AS `$autocapture_count`,
+            uniqExactMerge(raw_sessions_v3.screen_uniq) AS `$screen_count`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  WHERE ifNull(equals(sessions.id, '00000000-0000-0000-0000-000000000000'), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_custom_bounce_rate_duration
+  '''
+  SELECT sessions.`$is_bounce` AS `$is_bounce`,
+         sessions.session_id AS session_id
+  FROM
+    (SELECT if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 0), 0), NULL, not(or(ifNull(greater(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 1), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE equals(raw_sessions_v3.team_id, 99999)
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  ORDER BY sessions.session_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_custom_bounce_rate_duration.1
+  '''
+  SELECT sessions.`$is_bounce` AS `$is_bounce`,
+         sessions.session_id AS session_id
+  FROM
+    (SELECT if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 0), 0), NULL, not(or(ifNull(greater(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 1), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 10.0)))) AS `$is_bounce`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE equals(raw_sessions_v3.team_id, 99999)
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  ORDER BY sessions.session_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_custom_bounce_rate_duration.2
+  '''
+  SELECT sessions.`$is_bounce` AS `$is_bounce`,
+         sessions.session_id AS session_id
+  FROM
+    (SELECT if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 0), 0), NULL, not(or(ifNull(greater(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 1), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 30.0)))) AS `$is_bounce`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE equals(raw_sessions_v3.team_id, 99999)
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  ORDER BY sessions.session_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_empty_counts
+  '''
+  SELECT sessions.`$pageview_count` AS `$pageview_count`,
+         sessions.`$autocapture_count` AS `$autocapture_count`,
+         sessions.`$screen_count` AS `$screen_count`
+  FROM
+    (SELECT uniqExactMerge(raw_sessions_v3.pageview_uniq) AS `$pageview_count`,
+            uniqExactMerge(raw_sessions_v3.autocapture_uniq) AS `$autocapture_count`,
+            uniqExactMerge(raw_sessions_v3.screen_uniq) AS `$screen_count`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  WHERE ifNull(equals(sessions.id, '00000000-0000-0000-0000-000000000000'), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_event_sessions_where
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  LEFT JOIN
+    (SELECT path(argMinMerge(raw_sessions_v3.entry_url)) AS `$entry_pathname`,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE equals(raw_sessions_v3.team_id, 99999)
+     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(events__session.`$entry_pathname`, '/pathname'), 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_event_sessions_where_event_timestamp
+  '''
+  SELECT events__session.id AS session_id
+  FROM events
+  LEFT JOIN
+    (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))), greaterOrEquals(raw_sessions_v3.session_timestamp, minus('1970-01-01', toIntervalDay(3))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+  WHERE and(equals(events.team_id, 99999), ifNull(equals(session_id, '00000000-0000-0000-0000-000000000000'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '1970-01-01'))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_idempotent_event_counts
+  '''
+  SELECT sessions.`$pageview_count` AS `$pageview_count`,
+         sessions.`$autocapture_count` AS `$autocapture_count`,
+         sessions.`$screen_count` AS `$screen_count`
+  FROM
+    (SELECT uniqExactMerge(raw_sessions_v3.pageview_uniq) AS `$pageview_count`,
+            uniqExactMerge(raw_sessions_v3.autocapture_uniq) AS `$autocapture_count`,
+            uniqExactMerge(raw_sessions_v3.screen_uniq) AS `$screen_count`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  WHERE ifNull(equals(sessions.id, '00000000-0000-0000-0000-000000000000'), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_last_external_click_url
+  '''
+  SELECT sessions.`$last_external_click_url` AS `$last_external_click_url`
+  FROM
+    (SELECT argMaxMerge(raw_sessions_v3.last_external_click_url) AS `$last_external_click_url`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  WHERE ifNull(equals(sessions.session_id, '00000000-0000-0000-0000-000000000000'), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_page_screen_autocapture_count_up_to
+  '''
+  SELECT sessions.`$page_screen_autocapture_count_up_to` AS `$page_screen_autocapture_count_up_to`
+  FROM
+    (SELECT uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to) AS `$page_screen_autocapture_count_up_to`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE equals(raw_sessions_v3.team_id, 99999)
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  ORDER BY sessions.session_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_persons_and_sessions_on_events
+  '''
+  SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id,
+         events__session.`$entry_utm_source` AS `$entry_utm_source`
+  FROM events
+  LEFT JOIN
+    (SELECT argMinMerge(raw_sessions_v3.entry_utm_source) AS `$entry_utm_source`,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), or(equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80))))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+  WHERE and(equals(events.team_id, 99999), or(equals(events.`$session_id`, '00000000-0000-0000-0000-000000000000'), equals(events.`$session_id`, '00000000-0000-0000-0000-000000000000')))
+  ORDER BY 2 ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_select_session_replay_session_duration
+  '''
+  SELECT raw_session_replay_events__session.duration AS duration
+  FROM session_replay_events
+  LEFT JOIN
+    (SELECT dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))) AS duration,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE equals(raw_sessions_v3.team_id, 99999)
+     GROUP BY raw_sessions_v3.session_id_v7) AS raw_session_replay_events__session ON equals(toUInt128(accurateCastOrNull(session_replay_events.session_id, 'UUID')), raw_session_replay_events__session.session_id_v7)
+  WHERE equals(session_replay_events.team_id, 99999)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_select_star_from_raw_sessions
+  '''
+  SELECT toTimeZone(raw_sessions_v3.min_timestamp, 'UTC') AS min_timestamp,
+         toTimeZone(raw_sessions_v3.max_timestamp, 'UTC') AS max_timestamp,
+         toTimeZone(raw_sessions_v3.max_inserted_at, 'UTC') AS max_inserted_at,
+         raw_sessions_v3.urls AS urls
+  FROM raw_sessions_v3
+  WHERE equals(raw_sessions_v3.team_id, 99999)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_select_star_from_sessions
+  '''
+  SELECT sessions.session_id AS session_id,
+         sessions.session_timestamp AS session_timestamp,
+         sessions.distinct_id AS distinct_id,
+         sessions.person_id AS person_id,
+         sessions.`$start_timestamp` AS `$start_timestamp`,
+         sessions.`$end_timestamp` AS `$end_timestamp`,
+         sessions.max_inserted_at AS max_inserted_at,
+         sessions.`$urls` AS `$urls`,
+         sessions.`$num_uniq_urls` AS `$num_uniq_urls`,
+         sessions.`$entry_current_url` AS `$entry_current_url`,
+         sessions.`$entry_pathname` AS `$entry_pathname`,
+         sessions.`$entry_hostname` AS `$entry_hostname`,
+         sessions.`$end_current_url` AS `$end_current_url`,
+         sessions.`$end_pathname` AS `$end_pathname`,
+         sessions.`$end_hostname` AS `$end_hostname`,
+         sessions.`$entry_referring_domain` AS `$entry_referring_domain`,
+         sessions.`$last_external_click_url` AS `$last_external_click_url`,
+         sessions.`$entry_utm_source` AS `$entry_utm_source`,
+         sessions.`$entry_utm_campaign` AS `$entry_utm_campaign`,
+         sessions.`$entry_utm_medium` AS `$entry_utm_medium`,
+         sessions.`$entry_utm_term` AS `$entry_utm_term`,
+         sessions.`$entry_utm_content` AS `$entry_utm_content`,
+         sessions.`$entry_fbclid` AS `$entry_fbclid`,
+         sessions.`$entry_has_fbclid` AS `$entry_has_fbclid`,
+         sessions.`$entry_has_gclid` AS `$entry_has_gclid`,
+         sessions.`$pageview_count` AS `$pageview_count`,
+         sessions.`$autocapture_count` AS `$autocapture_count`,
+         sessions.`$screen_count` AS `$screen_count`,
+         sessions.`$channel_type` AS `$channel_type`,
+         sessions.`$session_duration` AS `$session_duration`,
+         sessions.`$is_bounce` AS `$is_bounce`,
+         sessions.`$entry_gclsrc` AS `$entry_gclsrc`,
+         sessions.`$entry_has_gclsrc` AS `$entry_has_gclsrc`,
+         sessions.`$entry_dclid` AS `$entry_dclid`,
+         sessions.`$entry_has_dclid` AS `$entry_has_dclid`,
+         sessions.`$entry_gbraid` AS `$entry_gbraid`,
+         sessions.`$entry_has_gbraid` AS `$entry_has_gbraid`,
+         sessions.`$entry_wbraid` AS `$entry_wbraid`,
+         sessions.`$entry_has_wbraid` AS `$entry_has_wbraid`,
+         sessions.`$entry_msclkid` AS `$entry_msclkid`,
+         sessions.`$entry_has_msclkid` AS `$entry_has_msclkid`,
+         sessions.`$entry_twclid` AS `$entry_twclid`,
+         sessions.`$entry_has_twclid` AS `$entry_has_twclid`,
+         sessions.`$entry_li_fat_id` AS `$entry_li_fat_id`,
+         sessions.`$entry_has_li_fat_id` AS `$entry_has_li_fat_id`,
+         sessions.`$entry_mc_cid` AS `$entry_mc_cid`,
+         sessions.`$entry_has_mc_cid` AS `$entry_has_mc_cid`,
+         sessions.`$entry_igshid` AS `$entry_igshid`,
+         sessions.`$entry_has_igshid` AS `$entry_has_igshid`,
+         sessions.`$entry_ttclid` AS `$entry_ttclid`,
+         sessions.`$entry_has_ttclid` AS `$entry_has_ttclid`,
+         sessions.`$entry_epik` AS `$entry_epik`,
+         sessions.`$entry_has_epik` AS `$entry_has_epik`,
+         sessions.`$entry_qclid` AS `$entry_qclid`,
+         sessions.`$entry_has_qclid` AS `$entry_has_qclid`,
+         sessions.`$entry_sccid` AS `$entry_sccid`,
+         sessions.`$entry_has_sccid` AS `$entry_has_sccid`,
+         sessions.`$entry__kx` AS `$entry__kx`,
+         sessions.`$entry_has__kx` AS `$entry_has__kx`,
+         sessions.`$entry_irclid` AS `$entry_irclid`,
+         sessions.`$entry_has_irclid` AS `$entry_has_irclid`
+  FROM
+    (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+            raw_sessions_v3.session_timestamp AS session_timestamp,
+            argMaxMerge(raw_sessions_v3.distinct_id) AS distinct_id,
+            argMaxMerge(raw_sessions_v3.person_id) AS person_id,
+            min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')) AS `$start_timestamp`,
+            max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC')) AS `$end_timestamp`,
+            max(toTimeZone(raw_sessions_v3.max_inserted_at, 'UTC')) AS max_inserted_at,
+            arrayDistinct(arrayFlatten(groupArray(raw_sessions_v3.urls))) AS `$urls`,
+            length(arrayDistinct(arrayFlatten(groupArray(raw_sessions_v3.urls)))) AS `$num_uniq_urls`,
+            argMinMerge(raw_sessions_v3.entry_url) AS `$entry_current_url`,
+            path(argMinMerge(raw_sessions_v3.entry_url)) AS `$entry_pathname`,
+            domain(argMinMerge(raw_sessions_v3.entry_url)) AS `$entry_hostname`,
+            argMaxMerge(raw_sessions_v3.end_url) AS `$end_current_url`,
+            path(argMaxMerge(raw_sessions_v3.end_url)) AS `$end_pathname`,
+            domain(argMaxMerge(raw_sessions_v3.end_url)) AS `$end_hostname`,
+            argMinMerge(raw_sessions_v3.entry_referring_domain) AS `$entry_referring_domain`,
+            argMaxMerge(raw_sessions_v3.last_external_click_url) AS `$last_external_click_url`,
+            argMinMerge(raw_sessions_v3.entry_utm_source) AS `$entry_utm_source`,
+            argMinMerge(raw_sessions_v3.entry_utm_campaign) AS `$entry_utm_campaign`,
+            argMinMerge(raw_sessions_v3.entry_utm_medium) AS `$entry_utm_medium`,
+            argMinMerge(raw_sessions_v3.entry_utm_term) AS `$entry_utm_term`,
+            argMinMerge(raw_sessions_v3.entry_utm_content) AS `$entry_utm_content`,
+            argMinMerge(raw_sessions_v3.entry_fbclid) AS `$entry_fbclid`,
+            argMinMerge(raw_sessions_v3.entry_has_fbclid) AS `$entry_has_fbclid`,
+            argMinMerge(raw_sessions_v3.entry_has_gclid) AS `$entry_has_gclid`,
+            uniqExactMerge(raw_sessions_v3.pageview_uniq) AS `$pageview_count`,
+            uniqExactMerge(raw_sessions_v3.autocapture_uniq) AS `$autocapture_count`,
+            uniqExactMerge(raw_sessions_v3.screen_uniq) AS `$screen_count`,
+            multiIf(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), 'paid'), tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 5), isNotNull(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 7), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 7), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*video.*)$'), 'Paid Video', tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '$direct'), 0), isNull(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null'))), or(isNull(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null'))), in(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), 'push$'), 'Push', tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6), 'Organic Social', ifNull(equals(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '$direct'), 0), 'Direct', isNotNull(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4)), 'Referral', 'Unknown'))) AS `$channel_type`,
+            dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))) AS `$session_duration`,
+            if(ifNull(equals(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 0), 0), NULL, not(or(ifNull(greater(uniqUpToMerge(1)(raw_sessions_v3.page_screen_autocapture_uniq_up_to), 1), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions_v3.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions_v3.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'gclsrc') AS `$entry_gclsrc`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'gclsrc') AS `$entry_has_gclsrc`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'dclid') AS `$entry_dclid`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'dclid') AS `$entry_has_dclid`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'gbraid') AS `$entry_gbraid`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'gbraid') AS `$entry_has_gbraid`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'wbraid') AS `$entry_wbraid`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'wbraid') AS `$entry_has_wbraid`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'msclkid') AS `$entry_msclkid`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'msclkid') AS `$entry_has_msclkid`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'twclid') AS `$entry_twclid`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'twclid') AS `$entry_has_twclid`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'li_fat_id') AS `$entry_li_fat_id`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'li_fat_id') AS `$entry_has_li_fat_id`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'mc_cid') AS `$entry_mc_cid`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'mc_cid') AS `$entry_has_mc_cid`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'igshid') AS `$entry_igshid`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'igshid') AS `$entry_has_igshid`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'ttclid') AS `$entry_ttclid`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'ttclid') AS `$entry_has_ttclid`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'epik') AS `$entry_epik`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'epik') AS `$entry_has_epik`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'qclid') AS `$entry_qclid`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'qclid') AS `$entry_has_qclid`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'sccid') AS `$entry_sccid`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'sccid') AS `$entry_has_sccid`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), '_kx') AS `$entry__kx`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), '_kx') AS `$entry_has__kx`,
+            arrayElement(argMinMerge(raw_sessions_v3.entry_ad_ids_map), 'irclid') AS `$entry_irclid`,
+            has(argMinMerge(raw_sessions_v3.entry_ad_ids_set), 'irclid') AS `$entry_has_irclid`,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
+     GROUP BY raw_sessions_v3.session_timestamp,
+              raw_sessions_v3.session_id_v7) AS sessions
+  WHERE ifNull(equals(sessions.session_id, '00000000-0000-0000-0000-000000000000'), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionsV3.test_session_dot_channel_type
+  '''
+  SELECT events__session.`$channel_type` AS `$channel_type`
+  FROM events
+  LEFT JOIN
+    (SELECT multiIf(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), 'cross-network'), 'Cross Network', or(in(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), tuple('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting')), startsWith(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), 'paid'), tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 5), isNotNull(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 7), ''), 'null'))), coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Paid Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '')), 'source'))), multiIf(ifNull(equals(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 7), ''), 'null'), '1'), 0), 'Paid Search', match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*video.*)$'), 'Paid Video', tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6), 'Paid Social', 'Paid Unknown')), and(ifNull(equals(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '$direct'), 0), isNull(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null'))), or(isNull(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null'))), in(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), tuple('(direct)', 'direct', '$direct'))), not(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6))), 'Direct', coalesce(coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 1), ''), 'null')), '')), 'source'))), if(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*(([^a-df-z]|^)shop|shopping).*)$'), 'Organic Shopping', NULL), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), ''), 'medium')), coalesce(dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), ''), 'source')), dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '')), 'source'))), multiIf(match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 3), ''), 'null')), '^(.*video.*)$'), 'Organic Video', match(lower(nullIf(nullIf(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 2), ''), 'null')), 'push$'), 'Push', tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 6), 'Organic Social', ifNull(equals(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4), '$direct'), 0), 'Direct', isNotNull(tupleElement(argMinMerge(raw_sessions_v3.entry_channel_type_properties), 4)), 'Referral', 'Unknown'))) AS `$channel_type`,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+  WHERE and(equals(events.team_id, 99999), equals(events.`$session_id`, '00000000-0000-0000-0000-000000000000'))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---

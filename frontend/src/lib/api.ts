@@ -7,17 +7,20 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
+import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     DashboardFilter,
+    DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
+    EndpointLastExecutionTimesRequest,
+    EndpointRequest,
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
@@ -30,7 +33,6 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
-    NamedQueryRequest,
     Node,
     NodeKind,
     PersistedFolder,
@@ -42,7 +44,7 @@ import {
     SourceConfig,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -56,13 +58,13 @@ import {
     BatchExportRun,
     BatchExportService,
     CohortType,
+    CommentCreationParams,
     CommentType,
     ConversationDetail,
     CoreMemory,
     CreateGroupParams,
     CyclotronJobFiltersType,
     CyclotronJobTestInvocationResult,
-    DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
     DashboardTemplateType,
@@ -70,6 +72,7 @@ import {
     DataColorThemeModel,
     DataModelingJob,
     DataWarehouseActivityRecord,
+    DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSourceRowCount,
@@ -79,6 +82,7 @@ import {
     DatasetItem,
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
+    EndpointType,
     EventDefinition,
     EventDefinitionMetrics,
     EventDefinitionType,
@@ -130,13 +134,13 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
-    QueryEndpointType,
     QueryTabState,
     RawAnnotationType,
     RawBatchExportBackfill,
     RawBatchExportRun,
     RoleMemberType,
     RoleType,
+    SavedSessionRecordingPlaylistsResult,
     ScheduledChangeType,
     SchemaIncrementalFieldsResponse,
     SearchListParams,
@@ -146,6 +150,7 @@ import {
     SessionRecordingSnapshotResponse,
     SessionRecordingType,
     SessionRecordingUpdateType,
+    SessionSummaryResponse,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
@@ -162,11 +167,11 @@ import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
-import { HogflowTestResult } from 'products/messaging/frontend/Campaigns/hogflows/steps/types'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
-import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
-import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
+import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
+import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
+import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
@@ -180,7 +185,6 @@ import {
 import {
     ACTIVITY_PAGE_SIZE,
     COHORT_PERSONS_QUERY_LIMIT,
-    DashboardPrivilegeLevel,
     EVENT_DEFINITIONS_PER_PAGE,
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     LOGS_PORTION_LIMIT,
@@ -678,6 +682,10 @@ export class ApiRequest {
         return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
     }
 
+    public cohortsCalculationHistory(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohortsDetail(cohortId, teamId).addPathComponent('calculation_history')
+    }
+
     // Recordings
     public recordings(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('session_recordings')
@@ -1008,6 +1016,10 @@ export class ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('assign')
     }
 
+    public errorTrackingSimilarIssues(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssues(teamId).addPathComponent(`${issueId}/similar_issues`)
+    }
+
     public errorTrackingExternalReference(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('external_references')
     }
@@ -1249,7 +1261,7 @@ export class ApiRequest {
         return this.featureFlag(flagId).addPathComponent('role_access')
     }
 
-    // # Queries
+    // Queries
     public query(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('query')
     }
@@ -1270,12 +1282,22 @@ export class ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
     }
 
-    public queryEndpoint(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('named_query')
+    // Endpoints
+    public endpoint(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('endpoints')
     }
 
-    public queryEndpointDetail(name: string): ApiRequest {
-        return this.queryEndpoint().addPathComponent(name)
+    public endpointDetail(name: string): ApiRequest {
+        return this.endpoint().addPathComponent(name)
+    }
+
+    public lastExecutionTimes(): ApiRequest {
+        return this.addPathComponent('last_execution_times')
+    }
+
+    // Managed Viewsets
+    public dataWarehouseManagedViewset(kind: DataWarehouseManagedViewsetKind, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
     }
 
     // Conversations
@@ -1504,6 +1526,15 @@ export class ApiRequest {
     public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
+
+    public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
+    }
+
+    // Session summary
+    public sessionSummary(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('session_summaries')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -1606,42 +1637,37 @@ const api = {
         },
     },
 
-    queryEndpoint: {
-        async list(): Promise<CountedPaginatedResponse<QueryEndpointType>> {
-            return await new ApiRequest().queryEndpoint().get()
+    endpoint: {
+        async list(): Promise<CountedPaginatedResponse<EndpointType>> {
+            return await new ApiRequest().endpoint().get()
         },
-        async create(data: NamedQueryRequest): Promise<QueryEndpointType> {
-            return await new ApiRequest().queryEndpoint().create({ data })
+        async create(data: EndpointRequest): Promise<EndpointType> {
+            return await new ApiRequest().endpoint().create({ data })
         },
         async delete(name: string): Promise<void> {
-            return await new ApiRequest().queryEndpointDetail(name).delete()
+            return await new ApiRequest().endpointDetail(name).delete()
         },
-        async update(name: string, data: NamedQueryRequest): Promise<QueryEndpointType> {
-            return await new ApiRequest().queryEndpointDetail(name).update({ data })
+        async update(name: string, data: EndpointRequest): Promise<EndpointType> {
+            return await new ApiRequest().endpointDetail(name).update({ data })
         },
-        async getLastExecutionTimes(names: string[]): Promise<Record<string, string>> {
-            if (names.length === 0) {
+        async getLastExecutionTimes(data: EndpointLastExecutionTimesRequest): Promise<Record<string, string>> {
+            if (data.names.length === 0) {
                 return {}
             }
 
-            const query = hogql`
-                SELECT
-                    name,
-                    max(query_start_time) as last_executed_at
-                FROM query_log
-                WHERE name in (${hogql.raw(names.map((name) => `'${name}'`).join(','))})
-                GROUP BY name
-            `
-
-            const response = await api.queryHogQL(query, {
-                refresh: 'force_blocking',
-            })
-
+            const response: QueryStatusResponse = await new ApiRequest()
+                .endpoint()
+                .lastExecutionTimes()
+                .create({ data })
             const result: Record<string, string> = {}
-            for (const row of response.results) {
-                const [name, lastExecutedAt] = row
-                if (name && lastExecutedAt) {
-                    result[name] = lastExecutedAt
+            if (response.query_status?.results) {
+                for (const row of response.query_status.results) {
+                    if (row && row.length >= 2) {
+                        const [name, timestamp] = row
+                        if (name && timestamp) {
+                            result[name] = timestamp
+                        }
+                    }
                 }
             }
 
@@ -1952,7 +1978,7 @@ const api = {
 
     comments: {
         async create(
-            data: Partial<CommentType> & { mentions?: number[] },
+            data: Partial<CommentType> & CommentCreationParams,
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
@@ -1961,7 +1987,7 @@ const api = {
 
         async update(
             id: CommentType['id'],
-            data: Partial<CommentType> & { new_mentions?: number[] },
+            data: Partial<CommentType> & CommentCreationParams,
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
@@ -2274,6 +2300,9 @@ const api = {
             const payload = { person_id: personId }
             return await new ApiRequest().cohortsRemovePersonFromStatic(cohortId).update({ data: payload })
         },
+        async getCalculationHistory(cohortId: CohortType['id']): Promise<CohortCalculationHistoryResponse> {
+            return await new ApiRequest().cohortsCalculationHistory(cohortId).get()
+        },
     },
 
     dashboards: {
@@ -2283,7 +2312,11 @@ const api = {
 
         async streamTiles(
             id: number,
-            params: { layoutSize?: 'sm' | 'xs' } = {},
+            params: {
+                layoutSize?: 'sm' | 'xs'
+                filtersOverride?: DashboardFilter
+                variablesOverride?: Record<string, HogQLVariable>
+            } = {},
             onMessage: (data: any) => void,
             onComplete: () => void,
             onError: (error: any) => void
@@ -2291,7 +2324,13 @@ const api = {
             const url = new ApiRequest()
                 .dashboardsDetail(id)
                 .withAction('stream_tiles')
-                .withQueryString(toParams(params))
+                .withQueryString(
+                    toParams({
+                        layout_size: params.layoutSize,
+                        filters_override: params.filtersOverride,
+                        variables_override: params.variablesOverride,
+                    })
+                )
                 .assembleFullUrl(true)
 
             const abortController = new AbortController()
@@ -2339,27 +2378,6 @@ const api = {
             }).catch(onError)
 
             return () => abortController.abort()
-        },
-
-        collaborators: {
-            async list(dashboardId: DashboardType['id']): Promise<DashboardCollaboratorType[]> {
-                return await new ApiRequest().dashboardCollaborators(dashboardId).get()
-            },
-            async create(
-                dashboardId: DashboardType['id'],
-                userUuid: UserType['uuid'],
-                level: DashboardPrivilegeLevel
-            ): Promise<DashboardCollaboratorType> {
-                return await new ApiRequest().dashboardCollaborators(dashboardId).create({
-                    data: {
-                        user_uuid: userUuid,
-                        level,
-                    },
-                })
-            },
-            async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
-                return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
-            },
         },
     },
 
@@ -2966,6 +2984,12 @@ const api = {
                 .errorTrackingExternalReference()
                 .create({ data: { integration_id: integrationId, issue: issueId, config } })
         },
+
+        async getSimilarIssues(
+            issueId: ErrorTrackingIssue['id']
+        ): Promise<Array<{ id: string; title: string; description: string }>> {
+            return await new ApiRequest().errorTrackingSimilarIssues(issueId).get()
+        },
     },
 
     recordings: {
@@ -3031,7 +3055,7 @@ const api = {
             recordingId: SessionRecordingType['id'],
             params: SessionRecordingSnapshotParams,
             headers: Record<string, string> = {}
-        ): Promise<string[]> {
+        ): Promise<string[] | Uint8Array> {
             const response = await new ApiRequest()
                 .recording(recordingId)
                 .withAction('snapshots')
@@ -3039,15 +3063,23 @@ const api = {
                 .getResponse({ headers })
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
+
+            // If client requested uncompressed data (decompress=false), return binary data
+            if (params.decompress === false) {
+                return contentBuffer
+            }
+
+            // Otherwise try to decode as text
             try {
                 const textDecoder = new TextDecoder()
                 const textLines = textDecoder.decode(contentBuffer)
 
                 if (textLines) {
-                    return textLines.split('\n')
+                    const lines = textLines.split('\n')
+                    return lines
                 }
-            } catch {
-                // we assume it is gzipped, swallow the error, and carry on below
+            } catch (error) {
+                console.error('Failed to decode snapshot response as text:', error)
             }
             return []
         },
@@ -3128,12 +3160,6 @@ const api = {
 
         async aiRegex(regex: string): Promise<{ result: string; data: any }> {
             return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
-        },
-
-        async getSimilarRecordings(
-            session_recording_id: SessionRecordingType['id']
-        ): Promise<{ count: number; results: string[] }> {
-            return await new ApiRequest().recording(session_recording_id).withAction('analyze/similar').get()
         },
 
         async bulkDeleteRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
@@ -3384,6 +3410,9 @@ const api = {
         },
         async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
             return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
+        },
+        async run(id: Task['id']): Promise<Task> {
+            return await new ApiRequest().task(id).withAction('run').create()
         },
     },
 
@@ -4172,6 +4201,17 @@ const api = {
         },
     },
 
+    evaluationRuns: {
+        async create(data: { evaluation_id: string; target_event_id: string }): Promise<{
+            workflow_id: string
+            status: string
+            evaluation: { id: string; name: string }
+            target_event_id: string
+        }> {
+            return await new ApiRequest().evaluationRuns().create({ data })
+        },
+    },
+
     datasetItems: {
         list(data: {
             dataset: string
@@ -4358,6 +4398,23 @@ const api = {
             url = next
         }
         return results
+    },
+
+    sessionSummaries: {
+        async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
+            return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
+        },
+    },
+
+    dataWarehouseManagedViewsets: {
+        async toggle(kind: DataWarehouseManagedViewsetKind, enabled: boolean): Promise<void> {
+            return await new ApiRequest().dataWarehouseManagedViewset(kind).put({ data: { enabled } })
+        },
+        async getViews(
+            kind: DataWarehouseManagedViewsetKind
+        ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
+            return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
+        },
     },
 }
 

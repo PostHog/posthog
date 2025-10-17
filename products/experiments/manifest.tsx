@@ -50,6 +50,7 @@ export const manifest: ProductManifest = {
             href: urls.experiments(),
             iconType: 'experiment',
             iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
+            sceneKey: 'Experiments',
         },
     ],
 }

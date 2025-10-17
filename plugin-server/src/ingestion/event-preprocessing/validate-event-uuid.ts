@@ -44,7 +44,7 @@ export function createValidateEventUuidStep<T extends { eventWithTeam: IncomingE
         const { eventWithTeam } = input
         const isValid = await isEventUuidValid(eventWithTeam, hub)
         if (!isValid) {
-            return drop('Event has invalid UUID')
+            return drop('invalid_uuid')
         }
         return ok(input)
     }

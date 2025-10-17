@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import {
     SURVEY_CREATED_SOURCE,
     SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT,
@@ -22,8 +23,9 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
+import { ActivityScope, AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
 
@@ -395,9 +397,9 @@ export const surveysLogic = kea<surveysLogicType>([
             (): Breadcrumb[] => [
                 {
                     key: Scene.Surveys,
-                    name: 'Surveys',
+                    name: sceneConfigurations[Scene.Surveys].name || 'Surveys',
                     path: urls.surveys(),
-                    iconType: 'survey',
+                    iconType: sceneConfigurations[Scene.Surveys].iconType || 'default_icon_type',
                 },
             ],
         ],
@@ -414,6 +416,12 @@ export const surveysLogic = kea<surveysLogicType>([
             (currentTeam) => {
                 return !currentTeam?.surveys_opt_in
             },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.SURVEY,
+            }),
         ],
     }),
     actionToUrl(({ values }) => ({

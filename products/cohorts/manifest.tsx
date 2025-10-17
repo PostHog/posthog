@@ -9,6 +9,7 @@ export const manifest: ProductManifest = {
     urls: {
         cohort: (id: string | number): string => `/cohorts/${id}`,
         cohorts: (): string => '/cohorts',
+        cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
     },
     fileSystemTypes: {
         cohort: {

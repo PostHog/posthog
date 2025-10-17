@@ -2,9 +2,10 @@ import '../../../funnels/Funnel.scss'
 
 import { createContext, useContext, useMemo } from 'react'
 
-import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import {
     ChartParams,
+    Experiment,
     FunnelStepReference,
     FunnelStepWithConversionMetrics,
     FunnelStepWithNestedBreakdown,
@@ -24,14 +25,18 @@ export interface FunnelChartProps extends ChartParams {
     disableBaseline?: boolean
     /** Experiment result data */
     experimentResult: NewExperimentQueryResponse
+    experiment?: Experiment
+    /** Experiment metric configuration */
+    metric?: ExperimentMetric
 }
 
 export interface FunnelChartDataContext {
-    visibleStepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
     stepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
     steps: FunnelStepWithNestedBreakdown[]
     hasFunnelResults: boolean
     experimentResult: NewExperimentQueryResponse
+    experiment?: Experiment
+    metric?: ExperimentMetric
 }
 
 const FunnelChartDataContext = createContext<FunnelChartDataContext | null>(null)
@@ -56,6 +61,8 @@ export function FunnelChart({
     disableBaseline = false,
     inCardView = false,
     experimentResult,
+    experiment,
+    metric,
     ...chartParams
 }: FunnelChartProps): JSX.Element {
     const processedData = useMemo(() => {
@@ -69,18 +76,19 @@ export function FunnelChart({
 
     const contextValue: FunnelChartDataContext = useMemo(
         () => ({
-            visibleStepsWithConversionMetrics: processedData.visibleStepsWithConversionMetrics,
             stepsWithConversionMetrics: processedData.stepsWithConversionMetrics,
             steps: processedData.steps,
             hasFunnelResults: processedData.hasFunnelResults,
             experimentResult,
+            experiment,
+            metric,
         }),
-        [processedData, experimentResult]
+        [processedData, experimentResult, experiment, metric]
     )
 
     return (
         <FunnelChartDataContext.Provider value={contextValue}>
-            <div className={`FunnelInsight FunnelInsight--type-steps-vertical${inCardView ? ' InsightCard' : ''}`}>
+            <div className={`pt-4 FunnelInsight FunnelInsight--type-steps-vertical${inCardView ? ' InsightCard' : ''}`}>
                 <FunnelBarVertical {...chartParams} inCardView={inCardView} />
             </div>
         </FunnelChartDataContext.Provider>

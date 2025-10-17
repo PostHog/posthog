@@ -39,6 +39,7 @@ import {
     PathsQuery,
     RetentionQuery,
     StickinessQuery,
+    TrendsFormulaNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import {
@@ -307,13 +308,17 @@ function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
             and came back to perform
             <EntityDisplay
                 entity={
-                    {
-                        ...query.retentionFilter.returningEntity,
-                        kind:
-                            query.retentionFilter.returningEntity?.type === 'actions'
-                                ? NodeKind.ActionsNode
-                                : NodeKind.EventsNode,
-                    } as AnyEntityNode
+                    query.retentionFilter.returningEntity?.type === 'actions'
+                        ? {
+                              kind: NodeKind.ActionsNode,
+                              name: query.retentionFilter.returningEntity.name,
+                              id: query.retentionFilter.returningEntity.id as number,
+                          }
+                        : {
+                              kind: NodeKind.EventsNode,
+                              name: query.retentionFilter.returningEntity?.name,
+                              event: query.retentionFilter.returningEntity?.id as string,
+                          }
                 }
             />
             in any of the next periods
@@ -337,16 +342,7 @@ export function SeriesSummary({
                 </CodeSnippet>
             ) : (
                 <div className="InsightDetails__query">
-                    {isTrendsQuery(query) && query.trendsFilter?.formula && (
-                        <>
-                            <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
-                                <span>
-                                    Formula:<code>{query.trendsFilter?.formula}</code>
-                                </span>
-                            </LemonRow>
-                            <LemonDivider />
-                        </>
-                    )}
+                    {isTrendsQuery(query) && <FormulaSummary query={query} />}
                     <div className="InsightDetails__series">
                         {isPathsQuery(query) ? (
                             <PathsSummary query={query} />
@@ -368,6 +364,37 @@ export function SeriesSummary({
                 </div>
             )}
         </section>
+    )
+}
+
+export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element | null {
+    const formulaNodes =
+        query.trendsFilter?.formulaNodes ||
+        (query.trendsFilter?.formula ? ([{ formula: query.trendsFilter?.formula }] as TrendsFormulaNode[]) : null)
+
+    if (formulaNodes == null) {
+        return null
+    }
+
+    return (
+        <>
+            {formulaNodes.map((node) => (
+                <>
+                    <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
+                        {node.custom_name ? (
+                            <span>
+                                Formula <b>"{node.custom_name}"</b>: <code>{node.formula}</code>
+                            </span>
+                        ) : (
+                            <span>
+                                Formula: <code>{node.formula}</code>
+                            </span>
+                        )}
+                    </LemonRow>
+                    <LemonDivider />
+                </>
+            ))}
+        </>
     )
 }
 

@@ -12,14 +12,14 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/EarlyAccessFeatures'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-            activityScope: 'EarlyAccessFeature',
+            description: 'Allow your users to individually enable or disable features that are in public beta.',
+            iconType: 'early_access_feature',
         },
         EarlyAccessFeature: {
             name: 'Early access feature',
             import: () => import('./frontend/EarlyAccessFeature'),
             projectBased: true,
             defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-            activityScope: 'EarlyAccessFeature',
         },
     },
     routes: {
@@ -68,6 +68,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-early-access-features-light)',
                 'var(--color-product-early-access-features-dark)',
             ] as FileSystemIconColor,
+            sceneKey: 'EarlyAccessFeatures',
         },
     ],
 }

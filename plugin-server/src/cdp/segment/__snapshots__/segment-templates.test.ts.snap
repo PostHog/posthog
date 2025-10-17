@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`segment templates template segment-actions-absmartly matches expected result 1`] = `
 {
@@ -25,7 +25,7 @@ exports[`segment templates template segment-actions-absmartly matches expected r
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -351,453 +351,6 @@ exports[`segment templates template segment-actions-absmartly matches expected r
   ],
   "name": "ABsmartly",
   "status": "alpha",
-  "type": "destination",
-}
-`;
-
-exports[`segment templates template segment-actions-accoil-analytics matches expected result 1`] = `
-{
-  "category": [],
-  "code": "return event",
-  "code_language": "javascript",
-  "description": "Send event data to Accoil Analytics",
-  "free": false,
-  "icon_url": "/static/services/accoil.com.png",
-  "id": "segment-actions-accoil-analytics",
-  "inputs_schema": [
-    {
-      "default": undefined,
-      "description": "Your Accoil.com API Key. You can find your API Key in your Accoil account settings.",
-      "key": "api_key",
-      "label": "API Key",
-      "required": true,
-      "secret": true,
-      "type": "string",
-    },
-    {
-      "default": false,
-      "description": "Will log configuration and request details",
-      "key": "debug_mode",
-      "label": "Debug Mode",
-      "type": "boolean",
-    },
-  ],
-  "mapping_templates": [
-    {
-      "filters": {
-        "events": [
-          {
-            "id": null,
-            "name": "All events",
-            "order": 0,
-            "properties": [
-              {
-                "key": "event not in ('$pageview', '$screen', '$alias', '$identify', '$set', '$groupidentify')",
-                "type": "hogql",
-                "value": null,
-              },
-            ],
-            "type": "events",
-          },
-        ],
-      },
-      "include_by_default": true,
-      "inputs_schema": [
-        {
-          "default": "{event.event}",
-          "description": "The event name",
-          "key": "event",
-          "label": "Event Name",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.id}",
-          "description": "The ID associated with the user",
-          "key": "userId",
-          "label": "User ID",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.timestamp}",
-          "description": "The timestamp of the event",
-          "key": "timestamp",
-          "label": "Timestamp",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "track",
-          "description": "The partner action to use",
-          "hidden": true,
-          "key": "internal_partner_action",
-          "label": "Partner Action",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-      ],
-      "name": "Track Calls",
-    },
-    {
-      "filters": {
-        "events": [
-          {
-            "id": null,
-            "name": "All events",
-            "order": 0,
-            "properties": [
-              {
-                "key": "event = '$pageview'",
-                "type": "hogql",
-                "value": null,
-              },
-            ],
-            "type": "events",
-          },
-        ],
-      },
-      "include_by_default": true,
-      "inputs_schema": [
-        {
-          "default": "{person.id}",
-          "description": "The ID associated with the user",
-          "key": "userId",
-          "label": "User ID",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.event}",
-          "description": "The name of the page",
-          "key": "name",
-          "label": "Page Name",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.timestamp}",
-          "description": "The timestamp of the event",
-          "key": "timestamp",
-          "label": "Timestamp",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "page",
-          "description": "The partner action to use",
-          "hidden": true,
-          "key": "internal_partner_action",
-          "label": "Partner Action",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-      ],
-      "name": "Page Calls",
-    },
-    {
-      "filters": {
-        "events": [
-          {
-            "id": null,
-            "name": "All events",
-            "order": 0,
-            "properties": [
-              {
-                "key": "event = '$screen'",
-                "type": "hogql",
-                "value": null,
-              },
-            ],
-            "type": "events",
-          },
-        ],
-      },
-      "include_by_default": true,
-      "inputs_schema": [
-        {
-          "default": "{person.id}",
-          "description": "The ID associated with the user",
-          "key": "userId",
-          "label": "User ID",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.event}",
-          "description": "The name of the screen",
-          "key": "name",
-          "label": "Screen Name",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.timestamp}",
-          "description": "The timestamp of the event",
-          "key": "timestamp",
-          "label": "Timestamp",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "screen",
-          "description": "The partner action to use",
-          "hidden": true,
-          "key": "internal_partner_action",
-          "label": "Partner Action",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-      ],
-      "name": "Screen Calls",
-    },
-    {
-      "filters": {
-        "events": [
-          {
-            "id": null,
-            "name": "All events",
-            "order": 0,
-            "properties": [
-              {
-                "key": "event in ('$identify', '$set')",
-                "type": "hogql",
-                "value": null,
-              },
-            ],
-            "type": "events",
-          },
-        ],
-      },
-      "include_by_default": true,
-      "inputs_schema": [
-        {
-          "default": "{person.id}",
-          "description": "The ID associated with the user",
-          "key": "userId",
-          "label": "User ID",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.properties.email}",
-          "description": "Email addresses are highly recommended as they are often used to identify users across multiple platforms. (Highly Recommended)",
-          "key": "email",
-          "label": "Email",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.properties.name}",
-          "description": "Providing a name helps display users in Accoil. If no name is provided, the email address is displayed instead. (Highly Recommended)",
-          "key": "name",
-          "label": "Name",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.properties.role}",
-          "description": "Describes the user's role in your product such as Admin, Owner, Team Member. (Suggested) ",
-          "key": "role",
-          "label": "Role",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.properties.accountStatus}",
-          "description": "Capturing the account status on the user can be helpful to segment users. Possible options include: Free, Trial, Paid, Cancelled (Suggested) ",
-          "key": "accountStatus",
-          "label": "Account Status",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.properties.createdAt}",
-          "description": "When was the user created, including this ensures that tenure tracking is accurate. (Highly Recommended) ",
-          "key": "createdAt",
-          "label": "Created at",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": {
-            "$$_extend_object": "{person.properties}",
-          },
-          "description": "Optionally send all traits to associate with the user or the group",
-          "key": "traits",
-          "label": "Traits",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": "{event.timestamp}",
-          "description": "The timestamp of the event",
-          "key": "timestamp",
-          "label": "Timestamp",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "identify",
-          "description": "The partner action to use",
-          "hidden": true,
-          "key": "internal_partner_action",
-          "label": "Partner Action",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-      ],
-      "name": "Identify Calls",
-    },
-    {
-      "filters": {
-        "events": [
-          {
-            "id": null,
-            "name": "All events",
-            "order": 0,
-            "properties": [
-              {
-                "key": "event = '$groupidentify'",
-                "type": "hogql",
-                "value": null,
-              },
-            ],
-            "type": "events",
-          },
-        ],
-      },
-      "include_by_default": true,
-      "inputs_schema": [
-        {
-          "default": "{event.distinct_id}",
-          "description": "Anonymous id",
-          "key": "anonymousId",
-          "label": "Anonymous ID",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.id}",
-          "description": "The ID associated with the user",
-          "key": "userId",
-          "label": "User ID",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{event.properties.$group_0}",
-          "description": "The group id",
-          "key": "groupId",
-          "label": "Group ID",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.properties.name}",
-          "description": "The name of the account. Without providing a name, accounts are displayed using a numeric ID, making them harder to identify. (Highly Recommended)",
-          "key": "name",
-          "label": "Name",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.properties.createdAt}",
-          "description": "Helps calculate account tenure. If no createdAt is provided, the earliest createdAt from the associated users will be used. (Highly Recommended)",
-          "key": "createdAt",
-          "label": "Created at",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.properties.status}",
-          "description": "The overall status of your the account subscription. Possible options include: Free, Trial, Paid, Cancelled (Highly Recommended)",
-          "key": "status",
-          "label": "Status",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.properties.plan}",
-          "description": "The plan type helps in segmenting accounts by their subscription tier (e.g., starter, pro, enterprise). (Recommended)",
-          "key": "plan",
-          "label": "Plan",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "{person.properties.mrr}",
-          "description": "Monthly recurring revenue (MRR) is important for segmenting accounts by value. It also allows Accoil to show the dollar value of different segments. Ideally this is passed in cents eg $99 becomes 9900. (Highly Recommended)",
-          "key": "mrr",
-          "label": "MRR",
-          "required": false,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": {
-            "$$_extend_object": "{person.properties}",
-          },
-          "description": "Optionally send all traits to associate with the user or the group",
-          "key": "traits",
-          "label": "Traits",
-          "required": false,
-          "secret": false,
-          "type": "dictionary",
-        },
-        {
-          "default": "{event.timestamp}",
-          "description": "The timestamp of the event",
-          "key": "timestamp",
-          "label": "Timestamp",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-        {
-          "default": "group",
-          "description": "The partner action to use",
-          "hidden": true,
-          "key": "internal_partner_action",
-          "label": "Partner Action",
-          "required": true,
-          "secret": false,
-          "type": "string",
-        },
-      ],
-      "name": "Group Calls",
-    },
-  ],
-  "name": "Accoil Analytics",
-  "status": "beta",
   "type": "destination",
 }
 `;
@@ -1339,7 +892,7 @@ exports[`segment templates template segment-actions-algolia-insights matches exp
       "key": "apiKey",
       "label": "apiKey",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -2062,7 +1615,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -2071,7 +1624,7 @@ exports[`segment templates template segment-actions-amplitude matches expected r
       "key": "secretKey",
       "label": "Secret Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -7586,7 +7139,7 @@ exports[`segment templates template segment-actions-attentive matches expected r
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -7705,7 +7258,7 @@ exports[`segment templates template segment-actions-blend-ai matches expected re
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -7823,7 +7376,7 @@ exports[`segment templates template segment-actions-canny matches expected resul
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -8957,7 +8510,7 @@ exports[`segment templates template segment-actions-drip matches expected result
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -10399,7 +9952,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -11402,7 +10955,7 @@ exports[`segment templates template segment-actions-iterable matches expected re
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -13880,7 +13433,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
       "key": "apiSecret",
       "label": "Secret Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -24230,7 +23783,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -25226,7 +24779,7 @@ exports[`segment templates template segment-actions-schematic matches expected r
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -25437,7 +24990,7 @@ exports[`segment templates template segment-actions-sprig matches expected resul
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -27222,7 +26775,7 @@ exports[`segment templates template segment-actions-usermotion matches expected 
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -27481,7 +27034,7 @@ exports[`segment templates template segment-actions-userpilot-cloud matches expe
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -27711,7 +27264,7 @@ exports[`segment templates template segment-actions-voyage matches expected resu
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -27941,7 +27494,7 @@ exports[`segment templates template segment-actions-vwo-cloud matches expected r
       "key": "apikey",
       "label": "VWO SDK Key",
       "required": false,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -28357,7 +27910,7 @@ exports[`segment templates template segment-actions-xtremepush matches expected 
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -29089,7 +28642,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -29817,7 +29370,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
       "key": "apiKey",
       "label": "API Key",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {
@@ -30982,7 +30535,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
       "key": "apiKey",
       "label": "Application ID",
       "required": true,
-      "secret": false,
+      "secret": true,
       "type": "string",
     },
     {

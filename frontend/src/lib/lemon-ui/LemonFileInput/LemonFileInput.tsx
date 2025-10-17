@@ -62,7 +62,7 @@ export const LemonFileInput = ({
     }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const handleCallToActionClick = (): void => {
-        if (disabledReason === undefined && fileInputRef.current) {
+        if (!disabledReason && fileInputRef.current) {
             fileInputRef.current.click()
         }
     }

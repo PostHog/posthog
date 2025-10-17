@@ -1410,6 +1410,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "is_sample": True,
                     "last_modified_at": ANY,
                     "last_modified_by": self_user_basic_serialized,
+                    "last_viewed_at": ANY,
                     "last_refresh": None,
                     "name": None,
                     "next_allowed_client_refresh": None,

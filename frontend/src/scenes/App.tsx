@@ -10,6 +10,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -26,6 +27,7 @@ export function App(): JSX.Element | null {
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(apiStatusLogic)
     useMountedLogic(eventIngestionRestrictionLogic)
+    useMountedLogic(maxGlobalLogic)
     useThemedHtml()
 
     if (showApp) {

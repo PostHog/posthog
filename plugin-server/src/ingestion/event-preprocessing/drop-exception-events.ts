@@ -14,7 +14,7 @@ export function createDropExceptionEventsStep<T extends { event: IncomingEvent }
                     drop_cause: 'exception_event',
                 })
                 .inc()
-            return Promise.resolve(drop('Exception events are processed separately in Rust'))
+            return Promise.resolve(drop('exception_event'))
         }
 
         return Promise.resolve(ok(input))

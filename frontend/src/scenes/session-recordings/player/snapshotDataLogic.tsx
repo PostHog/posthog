@@ -83,7 +83,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers
                     )
 
-                    if (!response.sources) {
+                    if (!response || !response.sources) {
                         return []
                     }
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
@@ -136,6 +136,12 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     if (props.accessToken) {
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
+
+                    const clientSideDecompression = values.featureFlags[FEATURE_FLAGS.REPLAY_CLIENT_SIDE_DECOMPRESSION]
+                    if (clientSideDecompression) {
+                        params = { ...params, decompress: false }
+                    }
+
                     const response = await api.recordings.getSnapshots(props.sessionRecordingId, params, headers)
 
                     // sorting is very cheap for already sorted lists
@@ -215,7 +221,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     }) || []
 
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 30))
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 15))
                 }
 
                 if (!props.blobV2PollingDisabled) {

@@ -15,6 +15,7 @@ from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods
 
@@ -47,6 +48,7 @@ from posthog.utils import (
     is_plugin_server_alive,
     is_postgres_alive,
     is_redis_alive,
+    render_template,
 )
 
 logger = structlog.get_logger(__name__)
@@ -138,6 +140,15 @@ def security_txt(request):
     return HttpResponse(SECURITY_TXT_CONTENT, content_type="text/plain")
 
 
+@xframe_options_exempt
+def render_query(request: HttpRequest) -> HttpResponse:
+    """Render a lightweight container for third parties to display PostHog visualizations."""
+    from posthog.api.sharing import get_global_themes
+
+    payload = {"query": None, "cachedResults": None, "context": None, "insight": None, "themes": get_global_themes()}
+    return render_template("render_query.html", request, context={"render_query_payload": payload})
+
+
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
     slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
@@ -174,6 +185,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
 
     if settings.DEBUG or settings.E2E_TESTING:
         response["is_debug"] = True
+
+    if settings.TEST:
+        response["is_test"] = True
 
     if settings.DEV_DISABLE_NAVIGATION_HOOKS:
         response["dev_disable_navigation_hooks"] = True

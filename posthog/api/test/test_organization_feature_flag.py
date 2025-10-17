@@ -131,6 +131,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "created_by": ANY,
             "id": ANY,
             "created_at": ANY,
+            "updated_at": ANY,
             "usage_dashboard": ANY,
             "is_simple_flag": True,
             "experiment_set": [],
@@ -149,6 +150,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "status": "ACTIVE",
             "version": 1,
             "last_modified_by": ANY,
+            "last_called_at": None,
             "evaluation_runtime": "all",
         }
 
@@ -222,6 +224,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_tags": [],
             "id": ANY,
             "created_at": ANY,
+            "updated_at": ANY,
             "usage_dashboard": ANY,
             "experiment_set": ANY,
             "surveys": ANY,
@@ -233,6 +236,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "status": "ACTIVE",
             "version": 2,
             "last_modified_by": ANY,
+            "last_called_at": None,
             "evaluation_runtime": "all",
         }
 
@@ -353,6 +357,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_tags": [],
             "id": ANY,
             "created_at": ANY,
+            "updated_at": ANY,
             "usage_dashboard": ANY,
             "experiment_set": ANY,
             "surveys": ANY,
@@ -364,6 +369,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "status": "ACTIVE",
             "version": 1,
             "last_modified_by": ANY,
+            "last_called_at": None,
             "evaluation_runtime": "all",
         }
         flag_response = response.json()["success"][0]

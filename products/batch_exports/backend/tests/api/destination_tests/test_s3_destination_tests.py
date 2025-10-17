@@ -7,7 +7,7 @@ from django.conf import settings
 
 import aioboto3
 
-from products.batch_exports.backend.api.destination_tests import S3EnsureBucketTestStep, Status
+from products.batch_exports.backend.api.destination_tests.s3 import S3EnsureBucketTestStep, Status
 
 pytestmark = [pytest.mark.asyncio]
 

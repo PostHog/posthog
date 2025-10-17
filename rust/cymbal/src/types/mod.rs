@@ -1,3 +1,5 @@
+use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
+use common_types::error_tracking::{ExceptionData, FrameData, FrameId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
@@ -10,7 +12,9 @@ use crate::fingerprinting::{
     Fingerprint, FingerprintBuilder, FingerprintComponent, FingerprintRecordPart,
 };
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
-use crate::frames::{Frame, FrameId, RawFrame};
+use crate::frames::{Frame, RawFrame};
+use crate::issue_resolution::Issue;
+use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {
@@ -38,7 +42,7 @@ pub struct Exception {
     pub exception_id: Option<String>,
     #[serde(rename = "type")]
     pub exception_type: String,
-    #[serde(rename = "value")]
+    #[serde(rename = "value", default)]
     pub exception_message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mechanism: Option<Mechanism>,
@@ -99,6 +103,28 @@ impl ExceptionList {
             .and_then(|e| e.mechanism.as_ref())
             .and_then(|m| m.handled)
             .unwrap_or(false)
+    }
+}
+
+impl From<&ExceptionList> for Vec<ExceptionData> {
+    fn from(exception_list: &ExceptionList) -> Self {
+        exception_list
+            .iter()
+            .map(|exception| ExceptionData {
+                exception_type: exception.exception_type.clone(),
+                exception_value: exception.exception_message.clone(),
+                frames: exception
+                    .stack
+                    .as_ref()
+                    .map(|stack| match stack {
+                        Stacktrace::Raw { frames: _ } => vec![], // Exception
+                        Stacktrace::Resolved { frames } => {
+                            frames.clone().into_iter().map(FrameData::from).collect()
+                        }
+                    })
+                    .unwrap_or_default(),
+            })
+            .collect()
     }
 }
 
@@ -317,6 +343,69 @@ impl OutputErrProps {
             }
         });
     }
+
+    pub fn to_fingerprint_embedding_request(&self, issue: &Issue) -> EmbeddingRequest {
+        let mut content = String::with_capacity(2048);
+
+        for exception in &self.exception_list.0 {
+            // Add exception type and value
+            let type_and_value = &format!(
+                "{}: {}\n",
+                exception.exception_type,
+                exception
+                    .exception_message
+                    .chars()
+                    .take(300)
+                    .collect::<String>()
+            );
+
+            content.push_str(type_and_value);
+
+            let Some(stack) = &exception.stack else {
+                continue;
+            };
+
+            // Add frame information
+            for frame in stack.get_frames() {
+                // Add resolved or mangled name
+                if let Some(resolved_name) = &frame.resolved_name {
+                    content.push_str(resolved_name);
+                } else {
+                    content.push_str(&frame.mangled_name);
+                }
+
+                // Add source file if available
+                if let Some(source) = &frame.source {
+                    content.push_str(&format!(" in {source}"));
+                }
+
+                // Add line number if available
+                if let Some(line) = frame.line {
+                    content.push_str(&format!(" line {line}"));
+                }
+
+                if let Some(column) = frame.column {
+                    content.push_str(&format!(" column {column}"));
+                }
+
+                content.push('\n');
+            }
+        }
+
+        EmbeddingRequest {
+            team_id: issue.team_id,
+            product: "error_tracking".to_string(),
+            document_type: "fingerprint".to_string(),
+            rendering: "type_message_and_stack".to_string(),
+            document_id: self.fingerprint.clone(),
+            timestamp: issue.created_at,
+            content,
+            models: vec![
+                EmbeddingModel::OpenAITextEmbeddingLarge,
+                EmbeddingModel::OpenAITextEmbeddingSmall,
+            ],
+        }
+    }
 }
 
 impl Stacktrace {
@@ -331,6 +420,10 @@ impl Stacktrace {
                 Some(resolved_frame) => resolved_frames.push(resolved_frame.clone()),
                 None => return None,
             }
+        }
+
+        if resolved_frames.iter().any(|f| f.suspicious) {
+            metrics::counter!(POSTHOG_SDK_EXCEPTION_RESOLVED).increment(1);
         }
 
         Some(Stacktrace::Resolved {
@@ -369,10 +462,7 @@ mod test {
             exception_list[0].exception_type,
             "UnhandledRejection".to_string()
         );
-        assert_eq!(
-            exception_list[0].exception_message,
-            "Unexpected usage".to_string()
-        );
+        assert_eq!(exception_list[0].exception_message, "Unexpected usage");
         let mechanism = exception_list[0].mechanism.as_ref().unwrap();
         assert_eq!(mechanism.handled, Some(false));
         assert_eq!(mechanism.mechanism_type, None);
@@ -425,12 +515,10 @@ mod test {
             }]
         }"#;
 
-        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
-        assert!(props.is_err());
-        assert_eq!(
-            props.unwrap_err().to_string(),
-            "missing field `value` at line 4 column 13"
-        );
+        // We support default values
+        let props: RawErrProps =
+            serde_json::from_str(raw).expect("Can deserialize with missing value");
+        assert_eq!(props.exception_list[0].exception_message, "");
 
         let raw: &'static str = r#"{
             "$exception_list": [{

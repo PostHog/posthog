@@ -7,6 +7,8 @@ import api from 'lib/api'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
@@ -51,8 +53,8 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
             (): Breadcrumb[] => [
                 {
                     key: 'persons',
-                    name: 'Persons',
-                    iconType: 'person',
+                    name: sceneConfigurations[Scene.Persons].name,
+                    iconType: sceneConfigurations[Scene.Persons].iconType || 'default_icon_type',
                 },
             ],
         ],

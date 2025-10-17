@@ -29,11 +29,13 @@ from posthog.models import (
     User,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.error_tracking import ErrorTrackingIssueAssignment
+from posthog.models.comment import Comment
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.user_permissions import UserPermissions
+
+from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 
 logger = structlog.get_logger(__name__)
 
@@ -42,9 +44,12 @@ class NotificationSetting(Enum):
     WEEKLY_PROJECT_DIGEST = "weekly_project_digest"
     PLUGIN_DISABLED = "plugin_disabled"
     ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
+    DISCUSSIONS_MENTIONED = "discussions_mentioned"
 
 
-NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled", "error_tracking_issue_assigned"]
+NotificationSettingType = Literal[
+    "weekly_project_digest", "plugin_disabled", "error_tracking_issue_assigned", "discussions_mentioned"
+]
 
 
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
@@ -111,6 +116,10 @@ def should_send_notification(
 
     # Default to True (enabled) if not set
     elif notification_type == NotificationSetting.ERROR_TRACKING_ISSUE_ASSIGNED.value:
+        return settings.get(notification_type, True)
+
+    # Default to True (enabled) if not set
+    elif notification_type == NotificationSetting.DISCUSSIONS_MENTIONED.value:
         return settings.get(notification_type, True)
 
     # The below typeerror is ignored because we're currently handling the notification
@@ -485,7 +494,11 @@ def login_from_new_device_notification(
     geoip_properties = get_geoip_properties(ip_address)
     country = geoip_properties.get("$geoip_country_name", "Unknown")
     city = geoip_properties.get("$geoip_city_name", "Unknown")
-    login_method = SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES.get(backend_name, "SSO")
+
+    if backend_name == "email_password":
+        login_method = "Email/password"
+    else:
+        login_method = SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES.get(backend_name, "SSO")
 
     is_new_device = check_and_cache_login_device(user_id, country, short_user_agent)
     if not is_new_device:
@@ -575,6 +588,44 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
             "site_url": settings.SITE_URL,
         },
     )
+    for membership in memberships_to_email:
+        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+    message.send()
+
+
+def send_discussions_mentioned(comment: Comment, mentioned_user_ids: list[int], slug: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    team = comment.team
+    commenter = comment.created_by
+    memberships_to_email = get_members_to_notify(team, NotificationSetting.DISCUSSIONS_MENTIONED.value)
+
+    if not memberships_to_email or not commenter:
+        return
+
+    # Filter the memberships list to only include users mentioned
+    memberships_to_email = [
+        membership
+        for membership in memberships_to_email
+        if (membership.user.id in mentioned_user_ids and membership.user != commenter)
+    ]
+
+    href = f"{settings.SITE_URL}{slug}"
+
+    campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"[Discussions]: {commenter.first_name} mentioned you in project '{team}'",
+        template_name="discussions_mentioned",
+        template_context={
+            "commenter": commenter,
+            "content": comment.content,
+            "team": team,
+            "href": href,
+        },
+    )
+
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
     message.send()

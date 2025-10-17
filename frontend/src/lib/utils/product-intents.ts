@@ -24,6 +24,7 @@ export enum ProductIntentContext {
 
     // Error Tracking
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
+    ERROR_TRACKING_ISSUE_SORTING = 'error_tracking_issue_sorting',
     ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',
 
     /*
@@ -67,6 +68,9 @@ export enum ProductIntentContext {
     SURVEY_DUPLICATED = 'survey_duplicated',
     SURVEY_EDITED = 'survey_edited',
     SURVEY_ANALYZED = 'survey_analyzed',
+
+    // Nav Panel Advertisement
+    NAV_PANEL_ADVERTISEMENT_CLICKED = 'nav_panel_advertisement_clicked',
 }
 
 export type ProductIntentMetadata = Record<string, unknown>

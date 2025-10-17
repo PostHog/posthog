@@ -22,6 +22,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     active: true,
     deleted: false,
     created_at: '2021-05-05T12:00:00Z',
+    updated_at: '2021-05-05T12:00:00Z',
     created_by: null,
     experiment_set: [],
     is_simple_flag: false,
@@ -38,6 +39,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     version: 0,
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+    evaluation_tags: [],
 }
 
 const GROUP_FEATURE_FLAG: FeatureFlagType = {

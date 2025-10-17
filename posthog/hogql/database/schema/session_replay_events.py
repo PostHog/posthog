@@ -26,10 +26,7 @@ from posthog.hogql.database.schema.sessions_v2 import (
     select_from_sessions_table_v2,
     session_id_to_session_id_v7_as_uint128_expr,
 )
-from posthog.hogql.database.schema.sessions_v3 import (
-    select_from_sessions_table_v3,
-    session_id_to_session_id_v7_as_uuid_expr,
-)
+from posthog.hogql.database.schema.sessions_v3 import select_from_sessions_table_v3, session_id_to_uint128_as_uuid_expr
 from posthog.hogql.errors import ResolutionError
 
 
@@ -91,7 +88,7 @@ def join_replay_table_to_sessions_table_v3(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=session_id_to_session_id_v7_as_uuid_expr(ast.Field(chain=[join_to_add.from_table, "session_id"])),
+            left=session_id_to_uint128_as_uuid_expr(ast.Field(chain=[join_to_add.from_table, "session_id"])),
             right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
         ),
         constraint_type="ON",

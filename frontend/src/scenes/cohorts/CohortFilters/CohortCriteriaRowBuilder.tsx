@@ -28,7 +28,6 @@ export interface CohortCriteriaRowBuilderProps {
 }
 
 export function CohortCriteriaRowBuilder({
-    id,
     type,
     groupIndex,
     index,
@@ -37,7 +36,7 @@ export function CohortCriteriaRowBuilder({
     hideDeleteIcon = false,
     onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
-    const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic({ id }))
+    const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic)
     const rowShape = ROWS[type]
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {

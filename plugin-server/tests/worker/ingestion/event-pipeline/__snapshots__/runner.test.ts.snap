@@ -120,6 +120,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
         "personUpdateCache": {},
         "updateLatencyPerDistinctIdSeconds": {},
       },
+      false,
     ],
   ],
   [

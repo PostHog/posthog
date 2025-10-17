@@ -106,6 +106,12 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
     Returns an empty list if the recording is invalid or incomplete.
     """
     recording_blocks = load_blocks(recording)
+    return build_block_list(recording.session_id, recording.team.id, recording_blocks)
+
+
+def build_block_list(
+    session_id: str, team_id: int, recording_blocks: RecordingBlockListing | None
+) -> list[RecordingBlock]:
     if not recording_blocks:
         return []
 
@@ -119,8 +125,8 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
     ):
         logger.error(
             "session recording metadata arrays length mismatch",
-            session_id=recording.session_id,
-            team_id=recording.team.id,
+            session_id=session_id,
+            team_id=team_id,
             first_timestamps_length=len(first_timestamps) if first_timestamps else 0,
             last_timestamps_length=len(last_timestamps) if last_timestamps else 0,
             urls_length=len(urls) if urls else 0,

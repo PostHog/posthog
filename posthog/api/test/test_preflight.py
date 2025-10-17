@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from typing import cast
 
@@ -32,6 +33,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "db": True,
             "initiated": True,
             "cloud": False,
+            "is_test": True,
             "data_warehouse_integrations": {"hubspot": {"client_id": ""}, "salesforce": {"client_id": ""}},
             "demo": False,
             "clickhouse": True,
@@ -62,7 +64,10 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "instance_preferences": {"debug_queries": True, "disable_paid_fs": False},
             "object_storage": False,
             "buffer_conversion_seconds": 60,
-            "openai_available": False,
+            # we calculate this here because otherwise it is non-deterministic when running locally
+            # it can be overridden in tests by passing in options
+            "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
+            "is_test": True,
             **options,
         }
 
@@ -77,8 +82,8 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             with self.settings(OBJECT_STORAGE_ENABLED=False):
                 response = self.client.get("/_preflight/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), self.preflight_dict())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == self.preflight_dict()
 
     def test_preflight_request(self):
         with self.is_cloud(False):
@@ -87,12 +92,12 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 OBJECT_STORAGE_ENABLED=False,
             ):
                 response = self.client.get("/_preflight/")
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 response = response.json()
                 available_timezones = cast(dict, response).pop("available_timezones")
 
-                self.assertEqual(response, self.preflight_authenticated_dict())
-                self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+                assert response == self.preflight_authenticated_dict()
+                assert {"Europe/Moscow": 3, "UTC": 0}.items() <= available_timezones.items()
 
     @patch("posthog.storage.object_storage._client")
     def test_preflight_request_with_object_storage_available(self, patched_s3_client):
@@ -104,15 +109,12 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 OBJECT_STORAGE_ENABLED=True,
             ):
                 response = self.client.get("/_preflight/")
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 response = response.json()
                 available_timezones = cast(dict, response).pop("available_timezones")
 
-                self.assertEqual(
-                    response,
-                    self.preflight_authenticated_dict({"object_storage": True}),
-                )
-                self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+                assert response == self.preflight_authenticated_dict({"object_storage": True})
+                assert {"Europe/Moscow": 3, "UTC": 0}.items() <= available_timezones.items()
 
     @pytest.mark.ee
     def test_cloud_preflight_request_unauthenticated(self):
@@ -124,24 +126,21 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         with self.is_cloud(True):
             with self.settings(OBJECT_STORAGE_ENABLED=False):
                 response = self.client.get("/_preflight/")
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
 
-                self.assertEqual(
-                    response.json(),
-                    self.preflight_dict(
-                        {
-                            "email_service_available": True,
-                            "slack_service": {
-                                "available": True,
-                                "client_id": "slack-client-id",
-                            },
-                            "can_create_org": True,
-                            "cloud": True,
-                            "realm": "cloud",
-                            "region": "US",
-                            "object_storage": True,
-                        }
-                    ),
+                assert response.json() == self.preflight_dict(
+                    {
+                        "email_service_available": True,
+                        "slack_service": {
+                            "available": True,
+                            "client_id": "slack-client-id",
+                        },
+                        "can_create_org": True,
+                        "cloud": True,
+                        "realm": "cloud",
+                        "region": "US",
+                        "object_storage": True,
+                    }
                 )
 
     @pytest.mark.ee
@@ -149,29 +148,26 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         with self.is_cloud(True):
             with self.settings(SITE_URL="https://app.posthog.com", OBJECT_STORAGE_ENABLED=False):
                 response = self.client.get("/_preflight/")
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 response = response.json()
                 available_timezones = cast(dict, response).pop("available_timezones")
 
-                self.assertEqual(
-                    response,
-                    self.preflight_authenticated_dict(
-                        {
-                            "can_create_org": True,
-                            "cloud": True,
-                            "realm": "cloud",
-                            "region": "US",
-                            "instance_preferences": {
-                                "debug_queries": False,
-                                "disable_paid_fs": False,
-                            },
-                            "site_url": "https://app.posthog.com",
-                            "email_service_available": True,
-                            "object_storage": True,
-                        }
-                    ),
+                assert response == self.preflight_authenticated_dict(
+                    {
+                        "can_create_org": True,
+                        "cloud": True,
+                        "realm": "cloud",
+                        "region": "US",
+                        "instance_preferences": {
+                            "debug_queries": False,
+                            "disable_paid_fs": False,
+                        },
+                        "site_url": "https://app.posthog.com",
+                        "email_service_available": True,
+                        "object_storage": True,
+                    }
                 )
-                self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+                assert {"Europe/Moscow": 3, "UTC": 0}.items() <= available_timezones.items()
 
     @pytest.mark.ee
     @snapshot_postgres_queries
@@ -180,7 +176,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             # :IMPORTANT: This code is hit _every_ web request on cloud so avoid ever increasing db load.
             with self.assertNumQueries(4):  # session, user, team and slack instance setting.
                 response = self.client.get("/_preflight/")
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
 
     @pytest.mark.ee
     def test_cloud_preflight_request_with_social_auth_providers(self):
@@ -194,34 +190,31 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 OBJECT_STORAGE_ENABLED=False,
             ):
                 response = self.client.get("/_preflight/")
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                assert response.status_code == status.HTTP_200_OK
                 response = response.json()
                 available_timezones = cast(dict, response).pop("available_timezones")
 
-                self.assertEqual(
-                    response,
-                    self.preflight_authenticated_dict(
-                        {
-                            "can_create_org": True,
-                            "cloud": True,
-                            "realm": "cloud",
-                            "region": "US",
-                            "instance_preferences": {
-                                "debug_queries": False,
-                                "disable_paid_fs": True,
-                            },
-                            "site_url": "http://localhost:8010",
-                            "available_social_auth_providers": {
-                                "google-oauth2": True,
-                                "github": False,
-                                "gitlab": False,
-                            },
-                            "email_service_available": True,
-                            "object_storage": True,
-                        }
-                    ),
+                assert response == self.preflight_authenticated_dict(
+                    {
+                        "can_create_org": True,
+                        "cloud": True,
+                        "realm": "cloud",
+                        "region": "US",
+                        "instance_preferences": {
+                            "debug_queries": False,
+                            "disable_paid_fs": True,
+                        },
+                        "site_url": "http://localhost:8010",
+                        "available_social_auth_providers": {
+                            "google-oauth2": True,
+                            "github": False,
+                            "gitlab": False,
+                        },
+                        "email_service_available": True,
+                        "object_storage": True,
+                    }
                 )
-                self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+                assert {"Europe/Moscow": 3, "UTC": 0}.items() <= available_timezones.items()
 
     @pytest.mark.skip_on_multitenancy
     def test_demo(self):
@@ -230,11 +223,8 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         with self.settings(DEMO=True, OBJECT_STORAGE_ENABLED=False):
             response = self.client.get("/_preflight/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            self.preflight_dict({"demo": True, "can_create_org": True, "realm": "demo"}),
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == self.preflight_dict({"demo": True, "can_create_org": True, "realm": "demo"})
 
     @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy
@@ -255,16 +245,16 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 OrganizationInvite.objects.create(organization=self.organization, target_email="invite@posthog.com")
 
                 response = self.client.get("/_preflight/")
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.assertEqual(response.json()["licensed_users_available"], 1)
-                self.assertEqual(response.json()["can_create_org"], False)
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["licensed_users_available"] == 1
+                assert response.json()["can_create_org"] is False
 
     def test_can_create_org_in_fresh_instance(self):
         Organization.objects.all().delete()
 
         response = self.client.get("/_preflight/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["can_create_org"], True)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["can_create_org"] is True
 
     @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy
@@ -273,8 +263,8 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         # First with no license
         with self.settings(MULTI_ORG_ENABLED=True):
             response = self.client.get("/_preflight/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["can_create_org"], False)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["can_create_org"] is False
 
         try:
             from ee.models.license import License, LicenseManager
@@ -289,8 +279,8 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             TEST_clear_instance_license_cache()
             with self.settings(MULTI_ORG_ENABLED=True):
                 response = self.client.get("/_preflight/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["can_create_org"], True)
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["can_create_org"] is True
 
     @pytest.mark.ee
     def test_cloud_preflight_based_on_region(self):

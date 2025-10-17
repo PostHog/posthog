@@ -80,7 +80,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                 </div>
 
                 <div className="flex flex-col gap-1">
-                    <label className="block text-sm font-medium mb-1">Action</label>
+                    <label className="block text-sm font-medium mb-1">Activity</label>
                     <LemonInputSelect
                         mode="multiple"
                         displayMode="count"
@@ -93,7 +93,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                                 label: humanizeActivity(a.value),
                             })) || []
                         }
-                        placeholder="All actions"
+                        placeholder="All activities"
                         allowCustomValues={false}
                         data-attr="audit-logs-action-filter"
                         size="small"
@@ -155,8 +155,8 @@ export const BasicFiltersTab = (): JSX.Element => {
 
                         <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-1 mb-1">
-                                <label className="block text-sm font-medium">Is system action?</label>
-                                <Tooltip title="Actions performed automatically by PostHog's system, such as scheduled tasks, background processes, or automated workflows.">
+                                <label className="block text-sm font-medium">Is system activity?</label>
+                                <Tooltip title="Activities performed automatically by PostHog's system, such as scheduled tasks, background processes, or automated workflows.">
                                     <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
                                 </Tooltip>
                             </div>

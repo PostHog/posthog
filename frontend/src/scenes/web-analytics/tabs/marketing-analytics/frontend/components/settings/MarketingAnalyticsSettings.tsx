@@ -1,28 +1,43 @@
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { AttributionSettings } from './AttributionSettings'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
 import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourceConfiguration'
 import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
 import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExternalDataSourceConfiguration'
 
-export function MarketingAnalyticsSettings({ hideTitle = false }: { hideTitle?: boolean }): JSX.Element {
+export function MarketingAnalyticsSettings({
+    hideTitle = false,
+    hideBaseCurrency = false,
+}: {
+    hideTitle?: boolean
+    hideBaseCurrency?: boolean
+}): JSX.Element {
     return (
         <SceneContent>
             {!hideTitle && (
                 <SceneTitleSection
-                    name="Marketing settings"
-                    description={null}
+                    name={sceneConfigurations[Scene.WebAnalyticsMarketing].name}
+                    description={sceneConfigurations[Scene.WebAnalyticsMarketing].description}
                     resourceType={{
-                        type: 'marketing_settings',
+                        type: sceneConfigurations[Scene.WebAnalyticsMarketing].iconType || 'default_icon_type',
                     }}
                 />
             )}
+            {!hideBaseCurrency && (
+                <>
+                    <SceneDivider />
+                    <BaseCurrency />
+                </>
+            )}
             <SceneDivider />
-            <BaseCurrency />
+            <AttributionSettings />
             <SceneDivider />
             <ConversionGoalsConfiguration />
             <SceneDivider />

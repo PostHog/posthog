@@ -88,7 +88,7 @@ def to_temporal_schedule(
         retry_policy=RetryPolicy(
             initial_interval=timedelta(seconds=10),
             maximum_interval=timedelta(seconds=60),
-            maximum_attempts=3,
+            maximum_attempts=1,
             non_retryable_error_types=["NondeterminismError"],
         ),
     )

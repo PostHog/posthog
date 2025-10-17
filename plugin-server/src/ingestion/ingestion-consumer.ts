@@ -29,8 +29,6 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import { deduplicateEvents } from './deduplication/events'
-import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
     createApplyCookielessProcessingStep,
     createApplyDropRestrictionsStep,
@@ -120,7 +118,6 @@ export class IngestionConsumer {
     private personStore: BatchWritingPersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    private deduplicationRedis: DeduplicationRedis
     public readonly promiseScheduler = new PromiseScheduler()
 
     private preprocessingPipeline!: BatchPipelineUnwrapper<
@@ -184,7 +181,6 @@ export class IngestionConsumer {
             optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
 
-        this.deduplicationRedis = createDeduplicationRedis(this.hub)
         this.kafkaConsumer = new KafkaConsumer({
             groupId: this.groupId,
             topic: this.topic,
@@ -340,8 +336,6 @@ export class IngestionConsumer {
         await this.kafkaOverflowProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
-        logger.info('🔁', `${this.name} - stopping deduplication redis`)
-        await this.deduplicationRedis.destroy()
         logger.info('👍', `${this.name} - stopped!`)
     }
 
@@ -390,13 +384,6 @@ export class IngestionConsumer {
         }
 
         const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
-        // Fire-and-forget deduplication call
-        void this.promiseScheduler.schedule(
-            deduplicateEvents(
-                this.deduplicationRedis,
-                preprocessedEvents.map((x) => x.event)
-            )
-        )
         const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents.map((x) => x.eventWithTeam))
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)

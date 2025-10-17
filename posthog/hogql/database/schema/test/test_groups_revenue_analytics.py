@@ -11,6 +11,10 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY
 
+from django.utils.timezone import now
+
+from dateutil.relativedelta import relativedelta
+
 from posthog.schema import CurrencyCode, HogQLQueryModifiers, RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
 from posthog.hogql import ast
@@ -234,11 +238,11 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(
                     response.results,
                     [
-                        ("cus_1", Decimal("297.0065541769")),
+                        ("cus_1", Decimal("283.8496260553")),
                         ("cus_2", Decimal("482.2158673452")),
-                        ("cus_3", Decimal("4171.09153")),
+                        ("cus_3", Decimal("4161.34422")),
                         ("cus_4", Decimal("254.12345")),
-                        ("cus_5", Decimal("1529.9212")),
+                        ("cus_5", Decimal("1494.0562")),
                         ("cus_6", Decimal("2796.37014")),
                         ("dummy", None),
                     ],
@@ -273,10 +277,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 [
                     ("jane.doe@example.com", Decimal("482.2158673452"), Decimal("482.2158673452")),
                     ("jane.smith@example.com", Decimal("254.12345"), Decimal("254.12345")),
-                    ("john.doe@example.com", Decimal("297.0065541769"), Decimal("297.0065541769")),
-                    ("john.doejr@example.com", Decimal("1529.9212"), Decimal("1529.9212")),
+                    ("john.doe@example.com", Decimal("283.8496260553"), Decimal("283.8496260553")),
+                    ("john.doejr@example.com", Decimal("1494.0562"), Decimal("1494.0562")),
                     ("john.doejrjr@example.com", Decimal("2796.37014"), Decimal("2796.37014")),
-                    ("john.smith@example.com", Decimal("4171.09153"), Decimal("4171.09153")),
+                    ("john.smith@example.com", Decimal("4161.34422"), Decimal("4161.34422")),
                     ("zdummy", None, None),
                 ],
             )
@@ -308,11 +312,11 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response.results,
                 [
-                    ("cus_1_metadata", Decimal("297.0065541769"), Decimal("297.0065541769")),
+                    ("cus_1_metadata", Decimal("283.8496260553"), Decimal("283.8496260553")),
                     ("cus_2_metadata", Decimal("482.2158673452"), Decimal("482.2158673452")),
-                    ("cus_3_metadata", Decimal("4171.09153"), Decimal("4171.09153")),
+                    ("cus_3_metadata", Decimal("4161.34422"), Decimal("4161.34422")),
                     ("cus_4_metadata", Decimal("254.12345"), Decimal("254.12345")),
-                    ("cus_5_metadata", Decimal("1529.9212"), Decimal("1529.9212")),
+                    ("cus_5_metadata", Decimal("1494.0562"), Decimal("1494.0562")),
                     ("cus_6_metadata", Decimal("2796.37014"), Decimal("2796.37014")),
                     ("dummy", None, None),
                 ],
@@ -347,10 +351,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 [
                     ("jane.doe@example.com", Decimal("482.2158673452"), ANY),
                     ("jane.smith@example.com", Decimal("254.12345"), ANY),
-                    ("john.doe@example.com", Decimal("297.0065541769"), ANY),
-                    ("john.doejr@example.com", Decimal("1529.9212"), ANY),
+                    ("john.doe@example.com", Decimal("283.8496260553"), ANY),
+                    ("john.doejr@example.com", Decimal("1494.0562"), ANY),
                     ("john.doejrjr@example.com", Decimal("2796.37014"), ANY),
-                    ("john.smith@example.com", Decimal("4171.09153"), ANY),
+                    ("john.smith@example.com", Decimal("4161.34422"), ANY),
                 ],
             )
 
@@ -382,4 +386,35 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     ("lolol1:xxx", Decimal("225"), None),
                     ("lolol1:xxx2", Decimal("32.23"), None),
                 ],
+            )
+
+    # Basic regression test when grouping on events only
+    def test_basic_events(self):
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName=self.PURCHASE_EVENT_NAME,
+                revenueProperty=self.REVENUE_PROPERTY,
+            )
+        ]
+        self.team.revenue_analytics_config.save()
+        self.team.save()
+
+        _create_event(
+            event=self.PURCHASE_EVENT_NAME,
+            team=self.team,
+            distinct_id=self.distinct_id,
+            timestamp=now() - relativedelta(hours=1),
+            properties={self.REVENUE_PROPERTY: 25042, "$group_0": self.group0_id},
+        )
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            results = execute_hogql_query(
+                parse_select("SELECT * FROM groups_revenue_analytics ORDER BY group_key ASC"),
+                self.team,
+                modifiers=self.MODIFIERS,
+            )
+
+            self.assertEqual(
+                results.results,
+                [(self.group0_id, Decimal("25042"), Decimal("25042"))],
             )

@@ -1,4 +1,4 @@
-import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -15,12 +15,19 @@ import { createCohortDataNodeLogicKey } from './cohortUtils'
 
 export type AddPersonToCohortModalProps = {
     id?: CohortType['id']
+    tabId: string
 }
 
 export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>([
     props({} as AddPersonToCohortModalProps),
     path(['scenes', 'cohorts', 'addPersonToCohortModalLogic']),
-    key((props) => props.id || 'new'),
+    key((props) => {
+        // This should not show when props.id === 'new' but we still handle the case
+        if (props.id === 'new' || !props.id) {
+            return 'new'
+        }
+        return `${props.id}-${props.tabId}`
+    }),
     actions({
         showAddPersonToCohortModal: true,
         hideAddPersonToCohortModal: true,
@@ -111,7 +118,7 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
                 await actions.loadCohortPersons()
                 if (response) {
                     lemonToast.success('Users added to cohort')
-                    const mountedCohortEditLogic = cohortEditLogic.findMounted({ id: cohortId })
+                    const mountedCohortEditLogic = cohortEditLogic.findMounted({ id: cohortId, tabId: props.tabId })
                     await mountedCohortEditLogic?.actions.updateCohortCount()
 
                     const mountedDataNodeLogic = dataNodeLogic.findMounted({
@@ -128,9 +135,7 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
                 actions.setCohortUpdating(false)
             }
         },
-    })),
-    events(({ actions }) => ({
-        afterMount: () => {
+        showAddPersonToCohortModal: () => {
             actions.loadCohortPersons()
         },
     })),

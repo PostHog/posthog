@@ -5,6 +5,12 @@ pub const DUPLICATE_EVENTS_TOTAL_COUNTER: &str = "duplicate_events_total";
 /// Counter for the number of unique events processed
 pub const UNIQUE_EVENTS_TOTAL_COUNTER: &str = "unique_events_total";
 
+/// Counter for duplicate events published to Kafka (with status label: success/failure)
+pub const DUPLICATE_EVENTS_PUBLISHED_COUNTER: &str = "duplicate_events_published_total";
+
+/// Counter for deduplication results broken down by result type, dedup type, and reason
+pub const DEDUPLICATION_RESULT_COUNTER: &str = "deduplication_result_total";
+
 /// Histogram for batch processing duration
 pub const BATCH_PROCESSING_DURATION_HISTOGRAM: &str = "batch_processing_duration_seconds";
 
@@ -91,3 +97,9 @@ pub const CHECKPOINT_CLEANER_DELETE_ATTEMPTS: &str = "checkpoint_cleaner_delete_
 /// finds no associated DeduplicationStore, meaning ownership
 /// has changed across a rebalance or other event asynchronously
 pub const CHECKPOINT_STORE_NOT_FOUND_COUNTER: &str = "checkpoint_store_not_found";
+
+/// Histogram for checkpoint upload duration
+pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
+
+/// Counter for checkpoint upload outcome status
+pub const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_status";

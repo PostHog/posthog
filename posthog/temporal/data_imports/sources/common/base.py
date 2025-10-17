@@ -28,6 +28,8 @@ FieldType = Union[
     SourceFieldSSHTunnelConfig,
 ]
 
+SourceCredentialsValidationResult = tuple[bool, str | None]
+
 
 class BaseSource(ABC, Generic[ConfigType]):
     """Base class for all data import sources"""

@@ -4,9 +4,10 @@ import { useMemo } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
+import { ScenePin } from 'lib/components/Scenes/ScenePin'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -17,7 +18,6 @@ import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSett
 import {
     ScenePanel,
     ScenePanelActionsSection,
-    ScenePanelCommonActions,
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
@@ -90,18 +90,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     return (
         <div>
             <ScenePanel>
-                <ScenePanelCommonActions>
-                    <SceneCommonButtons
-                        dataAttrKey={RESOURCE_TYPE}
-                        duplicate={{
-                            onClick: () => duplicatePlaylist(),
-                        }}
-                        pinned={{
-                            active: playlist.pinned,
-                            onClick: () => updatePlaylist({ pinned: !playlist.pinned }),
-                        }}
-                    />
-                </ScenePanelCommonActions>
                 <ScenePanelInfoSection>
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
                     <SceneActivityIndicator
@@ -112,7 +100,16 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 </ScenePanelInfoSection>
                 <ScenePanelDivider />
                 <ScenePanelActionsSection>
+                    <SceneDuplicate dataAttrKey={RESOURCE_TYPE} onClick={() => duplicatePlaylist()} />
+                    <ScenePin
+                        dataAttrKey={RESOURCE_TYPE}
+                        onClick={() => updatePlaylist({ pinned: !playlist.pinned })}
+                        isPinned={playlist.pinned ?? false}
+                    />
                     <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />
+                </ScenePanelActionsSection>
+                <ScenePanelDivider />
+                <ScenePanelActionsSection>
                     <ButtonPrimitive variant="danger" onClick={() => deletePlaylist()} menuItem>
                         Delete collection
                     </ButtonPrimitive>

@@ -113,8 +113,8 @@ export const actionLogic = kea<actionLogicType>([
                     ? {
                           activity_scope: ActivityScope.ACTION,
                           activity_item_id: `${action.id}`,
-                          //   access_control_resource: 'action',
-                          //   access_control_resource_id: `${action.id}`,
+                          access_control_resource: 'action',
+                          access_control_resource_id: `${action.id}`,
                       }
                     : null
             },
