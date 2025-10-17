@@ -9,6 +9,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.action import Action
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
@@ -65,11 +66,13 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
         else queryset[inputs.offset :]
     )
 
+    actions: list[Action] = await database_sync_to_async(lambda: list(queryset))()
+
     actions_count = 0
 
     # Process each action with heartbeat to keep activity alive
     with HeartbeaterSync(logger=logger):
-        for idx, action in enumerate(queryset, 1):
+        for idx, action in enumerate(actions, 1):
             # Extract event name from the first step in steps_json
             if not action.steps_json or len(action.steps_json) == 0:
                 continue
