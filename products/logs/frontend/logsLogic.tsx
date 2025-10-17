@@ -98,7 +98,6 @@ export const logsLogic = kea<logsLogicType>([
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
         zoomDateRange: (multiplier: number) => ({ multiplier }),
         setDateRangeFromSparkline: (startIndex: number, endIndex: number) => ({ startIndex, endIndex }),
-        setTimestampFormat: (timestampFormat: 'absolute' | 'relative') => ({ timestampFormat }),
     }),
 
     reducers({
@@ -150,13 +149,7 @@ export const logsLogic = kea<logsLogicType>([
                 setWrapBody: (_, { wrapBody }) => wrapBody,
             },
         ],
-        timestampFormat: [
-            'absolute' as 'absolute' | 'relative',
-            { persist: true },
-            {
-                setTimestampFormat: (_, { timestampFormat }) => timestampFormat,
-            },
-        ],
+
         logsAbortController: [
             null as AbortController | null,
             {

@@ -1,7 +1,7 @@
 import { Meta } from '@storybook/react'
 import { useState } from 'react'
 
-import { TZLabel } from 'lib/components/TZLabel/index'
+import { TZLabel, TZLabelFormatSelect } from 'lib/components/TZLabel/index'
 import { now } from 'lib/dayjs'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -26,8 +26,8 @@ export function MoreThanADayAgo(): JSX.Element {
     return <TZLabel time={now().subtract(2, 'day')} />
 }
 
-export function MoreThanADayAgoWithPopover(): JSX.Element {
-    return <TZLabel time={now().subtract(2, 'day')} showPopover={false} />
+export function MoreThanADayAgoWithoutPopover(): JSX.Element {
+    return <TZLabel time={now().subtract(2, 'day')} noPopover />
 }
 
 export function WithMoreThanOne(): JSX.Element {
@@ -60,6 +60,15 @@ export function WithMoreThanOne(): JSX.Element {
                 <span>floating-ui portals in the DOM</span>
             </div>
             <div>there should be 0!</div>
+        </div>
+    )
+}
+
+export function WithSeparateSelect(): JSX.Element {
+    return (
+        <div className="flex gap-4 items-center">
+            <TZLabelFormatSelect logicKey="storybook-with-separate-select" />
+            <TZLabel time={now()} logicKey="storybook-with-separate-select" />
         </div>
     )
 }

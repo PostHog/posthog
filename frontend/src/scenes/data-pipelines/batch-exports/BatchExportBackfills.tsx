@@ -142,7 +142,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         tooltip: 'Start of the time range to backfill',
                         render: (_, backfill) => {
                             return backfill.start_at ? (
-                                <TZLabel time={backfill.start_at} formatDate="MMMM DD, YYYY" formatTime="HH:mm:ss" />
+                                <TZLabel time={backfill.start_at} defaultTimestampFormat="absolute" />
                             ) : (
                                 'Beginning of time'
                             )
@@ -154,7 +154,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         tooltip: 'End of the time range to backfill',
                         render: (_, backfill) => {
                             return backfill.end_at ? (
-                                <TZLabel time={backfill.end_at} formatDate="MMMM DD, YYYY" formatTime="HH:mm:ss" />
+                                <TZLabel time={backfill.end_at} defaultTimestampFormat="absolute" />
                             ) : (
                                 'Until present'
                             )

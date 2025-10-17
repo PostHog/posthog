@@ -1,11 +1,11 @@
 import './index.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import React, { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
 
-import { IconCopy, IconGear, IconHome, IconLaptop } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
+import { IconClock, IconCopy, IconGear, IconHome, IconLaptop } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -16,21 +16,57 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { teamLogic } from '../../../scenes/teamLogic'
+import { TZLabelLogicProps, TimestampFormat, tzLabelLogic } from './tzlabelLogic'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
 const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'
 
-export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'children'> & {
-    time: string | dayjs.Dayjs
-    showSeconds?: boolean
-    formatDate?: string
-    formatTime?: string
-    /** whether to show a popover on hover - defaults to true */
-    showPopover?: boolean
-    noStyles?: boolean
-    className?: string
-    title?: string
-    children?: JSX.Element
+export type TZLabelProps = TZLabelLogicProps &
+    Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'children'> & {
+        time: string | dayjs.Dayjs
+        showSeconds?: boolean
+        /** Whether to show a popover on hover - defaults to true */
+        noPopover?: boolean
+        noStyles?: boolean
+        className?: string
+        title?: string
+        children?: JSX.Element
+        formatTime?: string
+        formatDate?: string
+    }
+
+function TZLabelFormatSelectBound({
+    ...props
+}: Omit<LemonSelectProps<TimestampFormat | null>, 'value' | 'onChange' | 'options' | 'allowClear'> &
+    Pick<TZLabelLogicProps, 'logicKey'>): JSX.Element {
+    const { timestampFormat } = useValues(tzLabelLogic)
+    const { setTimestampFormatChoice } = useActions(tzLabelLogic)
+    return (
+        <LemonSelect
+            icon={<IconClock />}
+            {...props}
+            allowClear={false}
+            options={[
+                { value: 'absolute', label: 'Absolute' },
+                { value: 'relative', label: 'Relative' },
+            ]}
+            onChange={(value) => setTimestampFormatChoice(value)}
+            value={timestampFormat}
+        />
+    )
+}
+
+export function TZLabelFormatSelect({
+    logicKey,
+    defaultTimestampFormat,
+    ...props
+}: TZLabelLogicProps &
+    Omit<LemonSelectProps<TimestampFormat | null>, 'value' | 'onChange' | 'options' | 'allowClear'>): JSX.Element {
+    return (
+        <BindLogic logic={tzLabelLogic} props={{ logicKey, defaultTimestampFormat }}>
+            <TZLabelFormatSelectBound {...props} />
+        </BindLogic>
+    )
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
@@ -106,6 +142,10 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                     </div>
                 )}
             </div>
+
+            <div className="border-t p-2">
+                <TZLabelFormatSelectBound size="xsmall" fullWidth />
+            </div>
         </div>
     )
 })
@@ -116,10 +156,10 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
     {
         time,
         showSeconds,
-        formatDate,
-        formatTime,
-        showPopover = true,
+        defaultTimestampFormat = 'relative',
+        noPopover = false,
         noStyles = false,
+        logicKey,
         title,
         className,
         children,
@@ -127,13 +167,17 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
     },
     ref
 ): JSX.Element {
+    const logicProps: TZLabelLogicProps = { defaultTimestampFormat, logicKey }
+    const { formatting } = useValues(tzLabelLogic(logicProps))
     const parsedTime = useMemo(() => (dayjs.isDayjs(time) ? time : dayjs(time)), [time])
 
     const format = useCallback(() => {
-        return formatDate || formatTime
-            ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime)
-            : parsedTime.fromNow()
-    }, [formatDate, formatTime, parsedTime])
+        if (!formatting) {
+            return parsedTime.fromNow()
+        }
+
+        return humanFriendlyDetailedTime(parsedTime, formatting.date, formatting.time)
+    }, [formatting, parsedTime])
 
     const [formattedContent, setFormattedContent] = useState(format())
 
@@ -157,7 +201,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         <span
             className={
                 !noStyles
-                    ? clsx('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
+                    ? clsx('whitespace-nowrap align-middle', !noPopover && 'border-dotted border-b', className)
                     : className
             }
             ref={ref}
@@ -166,22 +210,24 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         </span>
     )
 
-    if (showPopover) {
-        return (
-            <LemonDropdown
-                placement="top"
-                showArrow
-                {...dropdownProps}
-                trigger="hover"
-                closeOnClickInside={false}
-                overlay={<TZLabelPopoverContent time={parsedTime} showSeconds={showSeconds} title={title} />}
-            >
-                {innerContent}
-            </LemonDropdown>
-        )
-    }
-
-    return innerContent
+    return (
+        <BindLogic logic={tzLabelLogic} props={logicProps}>
+            {!noPopover ? (
+                <LemonDropdown
+                    placement="top"
+                    showArrow
+                    {...dropdownProps}
+                    trigger="hover"
+                    closeOnClickInside={false}
+                    overlay={<TZLabelPopoverContent time={parsedTime} showSeconds={showSeconds} title={title} />}
+                >
+                    {innerContent}
+                </LemonDropdown>
+            ) : (
+                innerContent
+            )}
+        </BindLogic>
+    )
 })
 // Timezone calculations are quite expensive, so the component is memoized to reduce them.
 export const TZLabel = React.memo(TZLabelRaw) as typeof TZLabelRaw
