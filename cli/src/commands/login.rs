@@ -46,7 +46,6 @@ pub fn login(host_override: Option<String>) -> Result<(), Error> {
             "US" => "https://us.posthog.com".to_string(),
             "EU" => "https://eu.posthog.com".to_string(),
             "Manual" => {
-                // Manual login flow
                 return manual_login();
             }
             _ => unreachable!(),
