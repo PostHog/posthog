@@ -32,33 +32,36 @@ impl RebalanceHandler for ProcessorRebalanceHandler {
     async fn on_partitions_revoked(&self, partitions: &TopicPartitionList) -> Result<()> {
         info!("Partitions revoked: {} partitions", partitions.count());
 
-        // Extract partition info for cleanup
-        let partition_infos: Vec<Partition> = partitions
-            .elements()
-            .into_iter()
-            .map(Partition::from)
-            .collect();
+        // COMMENTED OUT FOR TESTING: Disable store removal to isolate performance issues
+        info!("Store removal disabled for testing - revoked stores will remain in memory");
 
-        // Clean up stores for revoked partitions
-        for partition in &partition_infos {
-            if let Err(e) = self
-                .store_manager
-                .remove(partition.topic(), partition.partition_number())
-            {
-                error!(
-                    "Failed to remove store for revoked partition {}:{}: {}",
-                    partition.topic(),
-                    partition.partition_number(),
-                    e
-                );
-            } else {
-                info!(
-                    "Cleaned up deduplication store and files for revoked partition {}:{}",
-                    partition.topic(),
-                    partition.partition_number()
-                );
-            }
-        }
+        // // Extract partition info for cleanup
+        // let partition_infos: Vec<Partition> = partitions
+        //     .elements()
+        //     .into_iter()
+        //     .map(Partition::from)
+        //     .collect();
+
+        // // Clean up stores for revoked partitions
+        // for partition in &partition_infos {
+        //     if let Err(e) = self
+        //         .store_manager
+        //         .remove(partition.topic(), partition.partition_number())
+        //     {
+        //         error!(
+        //             "Failed to remove store for revoked partition {}:{}: {}",
+        //             partition.topic(),
+        //             partition.partition_number(),
+        //             e
+        //         );
+        //     } else {
+        //         info!(
+        //             "Cleaned up deduplication store and files for revoked partition {}:{}",
+        //             partition.topic(),
+        //             partition.partition_number()
+        //         );
+        //     }
+        // }
 
         Ok(())
     }

@@ -79,60 +79,66 @@ impl KafkaDeduplicatorService {
         let store_manager = Arc::new(StoreManager::new(store_config.clone()));
 
         // Start periodic cleanup task if max_capacity is configured
-        let cleanup_task_handle = if store_config.max_capacity > 0 {
-            let cleanup_interval = config.cleanup_interval();
-            let handle = store_manager
-                .clone()
-                .start_periodic_cleanup(cleanup_interval);
-            info!(
-                "Started periodic cleanup task with interval: {:?} for max capacity: {} bytes",
-                cleanup_interval, store_config.max_capacity
-            );
-            Some(handle)
-        } else {
-            info!("Cleanup task not started - max_capacity is unlimited (0)");
-            None
-        };
+        // COMMENTED OUT FOR TESTING: Disable cleanup to isolate performance issues
+        // let cleanup_task_handle = if store_config.max_capacity > 0 {
+        //     let cleanup_interval = config.cleanup_interval();
+        //     let handle = store_manager
+        //         .clone()
+        //         .start_periodic_cleanup(cleanup_interval);
+        //     info!(
+        //         "Started periodic cleanup task with interval: {:?} for max capacity: {} bytes",
+        //         cleanup_interval, store_config.max_capacity
+        //     );
+        //     Some(handle)
+        // } else {
+        //     info!("Cleanup task not started - max_capacity is unlimited (0)");
+        //     None
+        // };
+        let cleanup_task_handle = None;
+        info!("Cleanup task disabled for testing");
 
         // Create checkpoint manager and inject an exporter to enable uploads
-        let checkpoint_config = CheckpointConfig {
-            checkpoint_interval: config.checkpoint_interval(),
-            cleanup_interval: config.checkpoint_cleanup_interval(),
-            local_checkpoint_dir: config.local_checkpoint_dir.clone(),
-            s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
-            s3_key_prefix: config.s3_key_prefix.clone(),
-            full_upload_interval: config.checkpoint_full_upload_interval,
-            aws_region: config.aws_region.clone(),
-            checkpoints_per_partition: config.checkpoints_per_partition,
-            max_checkpoint_retention_hours: config.max_checkpoint_retention_hours,
-            max_concurrent_checkpoints: config.max_concurrent_checkpoints,
-            checkpoint_gate_interval: config.checkpoint_gate_interval(),
-            checkpoint_worker_shutdown_timeout: config.checkpoint_worker_shutdown_timeout(),
-            s3_timeout: config.s3_timeout(),
-        };
+        // COMMENTED OUT FOR TESTING: Disable checkpointing to isolate performance issues
+        // let checkpoint_config = CheckpointConfig {
+        //     checkpoint_interval: config.checkpoint_interval(),
+        //     cleanup_interval: config.checkpoint_cleanup_interval(),
+        //     local_checkpoint_dir: config.local_checkpoint_dir.clone(),
+        //     s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
+        //     s3_key_prefix: config.s3_key_prefix.clone(),
+        //     full_upload_interval: config.checkpoint_full_upload_interval,
+        //     aws_region: config.aws_region.clone(),
+        //     checkpoints_per_partition: config.checkpoints_per_partition,
+        //     max_checkpoint_retention_hours: config.max_checkpoint_retention_hours,
+        //     max_concurrent_checkpoints: config.max_concurrent_checkpoints,
+        //     checkpoint_gate_interval: config.checkpoint_gate_interval(),
+        //     checkpoint_worker_shutdown_timeout: config.checkpoint_worker_shutdown_timeout(),
+        //     s3_timeout: config.s3_timeout(),
+        // };
 
-        // Reset local checkpoint directory on startup (it's temporary storage)
-        Self::reset_checkpoint_directory(&checkpoint_config.local_checkpoint_dir)?;
+        // // Reset local checkpoint directory on startup (it's temporary storage)
+        // Self::reset_checkpoint_directory(&checkpoint_config.local_checkpoint_dir)?;
 
-        // create exporter conditionally if S3 config is populated
-        let exporter = if !config.aws_region.is_empty() && config.s3_bucket.is_some() {
-            let uploader = Box::new(S3Uploader::new(checkpoint_config.clone()).await.unwrap());
-            Some(Arc::new(CheckpointExporter::new(
-                checkpoint_config.clone(),
-                uploader,
-            )))
-        } else {
-            None
-        };
+        // // create exporter conditionally if S3 config is populated
+        // let exporter = if !config.aws_region.is_empty() && config.s3_bucket.is_some() {
+        //     let uploader = Box::new(S3Uploader::new(checkpoint_config.clone()).await.unwrap());
+        //     Some(Arc::new(CheckpointExporter::new(
+        //         checkpoint_config.clone(),
+        //         uploader,
+        //     )))
+        // } else {
+        //     None
+        // };
 
-        let checkpoint_manager =
-            CheckpointManager::new(checkpoint_config, store_manager.clone(), exporter);
+        // let checkpoint_manager =
+        //     CheckpointManager::new(checkpoint_config, store_manager.clone(), exporter);
+
+        info!("Checkpoint manager creation disabled for testing");
 
         Ok(Self {
             config,
             consumer: None,
             store_manager,
-            checkpoint_manager: Some(checkpoint_manager),
+            checkpoint_manager: None, // Disabled for testing
             cleanup_task_handle,
             processor_pool_handles: None,
             processor_pool_health: None,
@@ -276,44 +282,47 @@ impl KafkaDeduplicatorService {
             .await;
 
         // start checkpoint manager and async work loop threads, register health monitor
-        let checkpoint_health_reporter = self.checkpoint_manager.as_mut().unwrap().start();
+        // COMMENTED OUT FOR TESTING: Disable checkpointing to isolate performance issues
+        // let checkpoint_health_reporter = self.checkpoint_manager.as_mut().unwrap().start();
 
-        // if health reporter is Some, this is the first time initializing
-        // the checkpoint manager, and we should start the health monitor thread
-        if checkpoint_health_reporter.is_some() {
-            let checkpoint_health_handle = self
-                .liveness
-                .register("checkpoint_manager".to_string(), Duration::from_secs(30))
-                .await;
-            let cancellation = self.health_task_cancellation.child_token();
-            let handle = tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(10));
-                loop {
-                    tokio::select! {
-                        _ = cancellation.cancelled() => {
-                            break;
-                        }
-                        _ = interval.tick() => {
-                            if checkpoint_health_reporter.as_ref().unwrap().load(Ordering::SeqCst) {
-                                checkpoint_health_handle.report_healthy().await;
-                            } else {
-                                // Explicitly report unhealthy when a worker dies
-                                checkpoint_health_handle.report_status(health::ComponentStatus::Unhealthy).await;
-                                error!("Checkpoint manager is unhealthy - checkpoint and/or cleanup loops died");
-                            }
-                        }
-                    }
-                }
-            });
-            self.health_task_handles.push(handle);
-        }
+        // // if health reporter is Some, this is the first time initializing
+        // // the checkpoint manager, and we should start the health monitor thread
+        // if checkpoint_health_reporter.is_some() {
+        //     let checkpoint_health_handle = self
+        //         .liveness
+        //         .register("checkpoint_manager".to_string(), Duration::from_secs(30))
+        //         .await;
+        //     let cancellation = self.health_task_cancellation.child_token();
+        //     let handle = tokio::spawn(async move {
+        //         let mut interval = tokio::time::interval(Duration::from_secs(10));
+        //         loop {
+        //             tokio::select! {
+        //                 _ = cancellation.cancelled() => {
+        //                     break;
+        //                 }
+        //                 _ = interval.tick() => {
+        //                     if checkpoint_health_reporter.as_ref().unwrap().load(Ordering::SeqCst) {
+        //                         checkpoint_health_handle.report_healthy().await;
+        //                     } else {
+        //                         // Explicitly report unhealthy when a worker dies
+        //                         checkpoint_health_handle.report_status(health::ComponentStatus::Unhealthy).await;
+        //                         error!("Checkpoint manager is unhealthy - checkpoint and/or cleanup loops died");
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     });
+        //     self.health_task_handles.push(handle);
+        // }
 
-        info!(
-            "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?}, checkpoint_cleanup interval = {:?})",
-            self.checkpoint_manager.as_ref().unwrap().export_enabled(),
-            self.config.checkpoint_interval(),
-            self.config.checkpoint_cleanup_interval(),
-        );
+        // info!(
+        //     "Started checkpoint manager (export enabled = {:?}, checkpoint interval = {:?}, checkpoint_cleanup interval = {:?})",
+        //     self.checkpoint_manager.as_ref().unwrap().export_enabled(),
+        //     self.config.checkpoint_interval(),
+        //     self.config.checkpoint_cleanup_interval(),
+        // );
+
+        info!("Checkpoint manager start disabled for testing");
 
         // Spawn task to report processor pool health
         let pool_health_reporter = pool_health.clone();
@@ -437,9 +446,10 @@ impl KafkaDeduplicatorService {
         }
 
         // Stop the checkpoint manager
-        if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
-            checkpoint_manager.stop().await;
-        }
+        // COMMENTED OUT FOR TESTING: Checkpoint manager disabled
+        // if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
+        //     checkpoint_manager.stop().await;
+        // }
 
         // Wait for processor pool workers to finish
         if let Some(handles) = self.processor_pool_handles.take() {
@@ -522,9 +532,10 @@ impl KafkaDeduplicatorService {
         }
 
         // Stop the checkpoint manager
-        if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
-            checkpoint_manager.stop().await;
-        }
+        // COMMENTED OUT FOR TESTING: Checkpoint manager disabled
+        // if let Some(mut checkpoint_manager) = self.checkpoint_manager.take() {
+        //     checkpoint_manager.stop().await;
+        // }
 
         // Wait for processor pool workers to finish
         if let Some(handles) = self.processor_pool_handles.take() {
@@ -559,10 +570,11 @@ impl KafkaDeduplicatorService {
         }
 
         // Stop cleanup task if running
-        if let Some(handle) = self.cleanup_task_handle.take() {
-            info!("Stopping cleanup task...");
-            handle.stop().await;
-        }
+        // COMMENTED OUT FOR TESTING: Cleanup task disabled
+        // if let Some(handle) = self.cleanup_task_handle.take() {
+        //     info!("Stopping cleanup task...");
+        //     handle.stop().await;
+        // }
 
         // Give some time for graceful shutdown
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
