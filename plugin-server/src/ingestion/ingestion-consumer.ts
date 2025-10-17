@@ -266,13 +266,13 @@ export class IngestionConsumer {
                         b
                             .concurrently((c) =>
                                 c
-                                    .pipe(createValidateEventPropertiesStep(this.hub))
+                                    .pipe(createValidateEventPropertiesStep())
                                     .pipe(
                                         createApplyPersonProcessingRestrictionsStep(
                                             this.eventIngestionRestrictionManager
                                         )
                                     )
-                                    .pipe(createValidateEventUuidStep(this.hub))
+                                    .pipe(createValidateEventUuidStep())
                             )
                             .gather()
                             .pipeBatch(createApplyCookielessProcessingStep(this.hub))
