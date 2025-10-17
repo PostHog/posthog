@@ -280,6 +280,31 @@ class Task(models.Model):
         default=dict, help_text="Repository configuration with organization and repository fields"
     )
 
+    # DEPRECATED FIELDS - these have been moved to TaskRun
+    # These fields are kept for backwards compatibility but should not be used
+    # editable=False prevents them from appearing in forms/admin
+    current_stage = models.ForeignKey(
+        WorkflowStage,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="DEPRECATED: Moved to TaskRun.current_stage. Use task.latest_run.current_stage instead.",
+    )
+    github_branch = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        editable=False,
+        help_text="DEPRECATED: Moved to TaskRun.branch. Use task.latest_run.branch instead.",
+    )
+    github_pr_url = models.URLField(
+        blank=True,
+        null=True,
+        editable=False,
+        help_text="DEPRECATED: Moved to TaskRun.output['pr_url']. Use task.latest_run.output.get('pr_url') instead.",
+    )
+
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -436,6 +461,75 @@ class Task(models.Model):
         return task
 
 
+class TaskProgress(models.Model):
+    """
+    DEPRECATED: This model has been renamed to TaskRun.
+    Use TaskRun instead. This class is kept for backwards compatibility only.
+
+    The table still exists in the database but should not be used.
+    Any attempt to use this model will raise an error.
+    """
+
+    class Status(models.TextChoices):
+        STARTED = "started", "Started"
+        IN_PROGRESS = "in_progress", "In Progress"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="progress_logs")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+
+    # Progress tracking
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
+    current_step = models.CharField(max_length=255, blank=True, help_text="Current step being executed")
+    total_steps = models.IntegerField(default=0, help_text="Total number of steps if known")
+    completed_steps = models.IntegerField(default=0, help_text="Number of completed steps")
+
+    # Claude Code output
+    output_log = models.TextField(blank=True, help_text="Live output from Claude Code execution")
+    error_message = models.TextField(blank=True, help_text="Error message if execution failed")
+
+    # Workflow metadata
+    workflow_id = models.CharField(max_length=255, blank=True, help_text="Temporal workflow ID")
+    workflow_run_id = models.CharField(max_length=255, blank=True, help_text="Temporal workflow run ID")
+    activity_id = models.CharField(max_length=255, blank=True, help_text="Temporal activity ID")
+
+    # Timestamps
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_progress"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        raise DeprecationWarning(
+            "TaskProgress has been renamed to TaskRun. Use TaskRun instead. "
+            "This model is deprecated and should not be used."
+        )
+
+    def save(self, *args, **kwargs):
+        raise DeprecationWarning(
+            "TaskProgress has been renamed to TaskRun. Use TaskRun.objects.create() instead. "
+            "This model is deprecated and should not be used."
+        )
+
+    def delete(self, *args, **kwargs):
+        raise DeprecationWarning(
+            "TaskProgress has been renamed to TaskRun. Use TaskRun instead. "
+            "This model is deprecated and should not be used."
+        )
+
+    @classmethod
+    def _raise_deprecation_error(cls):
+        raise DeprecationWarning(
+            "TaskProgress has been renamed to TaskRun. Use TaskRun instead. "
+            "This model is deprecated and should not be used."
+        )
+
+
 class TaskRun(models.Model):
     class Status(models.TextChoices):
         STARTED = "started", "Started"
@@ -447,7 +541,7 @@ class TaskRun(models.Model):
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
-    branch = models.CharField(max_length=255, blank=True, help_text="Branch name for the run")
+    branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
 
     current_stage = models.ForeignKey(
         WorkflowStage,
@@ -460,13 +554,13 @@ class TaskRun(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
 
     # Claude Code output
-    log = models.TextField(blank=True, help_text="Live output from Claude Code execution")
-    error_message = models.TextField(blank=True, help_text="Error message if execution failed")
+    log = models.TextField(blank=True, default="", help_text="Live output from Claude Code execution")
+    error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
 
     # This is a structured output of the run. This is used to store the PR URL, commit SHA, etc.
     output = models.JSONField(
-        default=dict,
         blank=True,
+        null=True,
         help_text="Run output data (e.g., PR URL, commit SHA, etc.)",
     )
 
@@ -482,7 +576,7 @@ class TaskRun(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        db_table = "posthog_task_progress"
+        db_table = "posthog_task_run"
         ordering = ["-created_at"]
 
     def __str__(self):
