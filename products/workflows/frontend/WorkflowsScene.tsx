@@ -11,6 +11,7 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -176,8 +177,9 @@ export function WorkflowsScene(): JSX.Element {
     return (
         <SceneContent className="workflows">
             <SceneTitleSection
-                name="Workflows"
-                resourceType={{ type: 'workflows' }}
+                name={sceneConfigurations[Scene.Workflows].name}
+                description={sceneConfigurations[Scene.Workflows].description}
+                resourceType={{ type: sceneConfigurations[Scene.Workflows].iconType || 'default_icon_type' }}
                 actions={
                     <>
                         {currentTab === 'workflows' && (

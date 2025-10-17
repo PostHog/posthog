@@ -300,6 +300,42 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertIn("Task 1", task_titles)
         self.assertIn("Task 2", task_titles)
 
+    def test_list_tasks_includes_latest_run(self):
+        workflow = self.create_workflow()
+        task1 = self.create_task("Task 1", workflow=workflow)
+        task2 = self.create_task("Task 2", workflow=workflow)
+
+        # Create runs for task1
+        TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.STARTED)
+        run1_latest = TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        # Task2 has no runs
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(len(data["results"]), 2)
+
+        # Find task1 and task2 in results
+        task1_data = next((t for t in data["results"] if t["id"] == str(task1.id)), None)
+        task2_data = next((t for t in data["results"] if t["id"] == str(task2.id)), None)
+
+        self.assertIsNotNone(task1_data)
+        self.assertIsNotNone(task2_data)
+        assert task1_data is not None  # Type narrowing
+        assert task2_data is not None  # Type narrowing
+
+        # task1 should have latest_run populated
+        self.assertIn("latest_run", task1_data)
+        self.assertIsNotNone(task1_data["latest_run"])
+        self.assertEqual(task1_data["latest_run"]["id"], str(run1_latest.id))
+        self.assertEqual(task1_data["latest_run"]["status"], "in_progress")
+
+        # task2 should have latest_run as None
+        self.assertIn("latest_run", task2_data)
+        self.assertIsNone(task2_data["latest_run"])
+
     def test_retrieve_task(self):
         task = self.create_task("Test Task")
 

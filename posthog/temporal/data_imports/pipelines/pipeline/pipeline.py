@@ -322,6 +322,7 @@ class PipelineNonDLT:
             # delete existing files if it's the first chunk, otherwise we'll just append to the existing files
             delete_existing=chunk_index == 0,
             use_timestamped_folders=False,
+            logger=self._logger,
         )
         self._logger.debug("Validating schema and updating table")
         validate_schema_and_update_table_sync(
@@ -348,7 +349,12 @@ class PipelineNonDLT:
         file_uris = delta_table.file_uris()
         self._logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
         queryable_folder = prepare_s3_files_for_querying(
-            self._job.folder_path(), self._resource_name, file_uris, delete_existing=True, use_timestamped_folders=True
+            self._job.folder_path(),
+            self._resource_name,
+            file_uris,
+            delete_existing=True,
+            existing_queryable_folder=self._schema.table.queryable_folder if self._schema.table else None,
+            logger=self._logger,
         )
 
         self._logger.debug("Updating last synced at timestamp on schema")

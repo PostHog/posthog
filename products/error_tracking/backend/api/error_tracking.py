@@ -1022,6 +1022,13 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         # Grab the release ID from the request json
         release_id: str | None = request.data.get("release_id", None)
 
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_upload_started",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id, "endpoint": "bulk_start_upload"},
+            groups=groups(self.team.organization, self.team),
+        )
+
         # Validate symbol_sets using the serializer
         symbol_sets: list[SymbolSetUpload] = []
         if "symbol_sets" in request.data:
