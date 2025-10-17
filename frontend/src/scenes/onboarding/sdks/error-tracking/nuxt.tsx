@@ -40,7 +40,7 @@ export function NuxtInstructions(): JSX.Element {
                 <NuxtModuleInstructions
                     apiKey={currentTeam?.api_token ?? '<ph_project_api_key>'}
                     host={host}
-                    teamId={currentTeam?.id}
+                    teamId={currentTeam?.id!}
                 />
             ) : (
                 <NuxtLegacyInstructions apiKey={currentTeam?.api_token ?? '<ph_project_api_key>'} host={host} />
