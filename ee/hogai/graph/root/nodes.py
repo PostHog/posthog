@@ -545,7 +545,7 @@ class RootNodeTools(AssistantNode):
                     return "billing"
                 if tool_call_name == "create_dashboard":
                     return "create_dashboard"
-            elif state.search_insights_query:
+            if state.search_insights_query:
                 return "insights_search"
             elif state.session_summarization_query:
                 return "session_summarization"
