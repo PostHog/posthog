@@ -1,196 +1,398 @@
-# SCIM 2.0 Implementation for PostHog
+# SCIM Implementation Spike Summary
 
-This directory contains the SCIM 2.0 (System for Cross-domain Identity Management) implementation for PostHog, enabling automated user provisioning and group management from identity providers.
+## Overview
+
+SCIM 2.0 (System for Cross-domain Identity Management) enables automated user provisioning and deprovisioning from identity providers (Okta, Azure AD, etc.) into PostHog.
 
 ## Architecture
 
-The SCIM implementation follows PostHog's existing multitenant SAML architecture:
+### Domain-Level Tenancy
 
-- **Per-Domain Tenancy**: Each `OrganizationDomain` has its own SCIM configuration and bearer token
-- **SAML Integration**: SCIM provisioned users authenticate via SAML (no passwords)
-- **RBAC Mapping**: SCIM Groups map to PostHog RBAC Roles
+- SCIM configuration stored on `OrganizationDomain` model (follows SAML pattern)
+- Each domain has unique bearer token for authentication
+- URL structure: `/scim/v2/{domain_id}/Users`
+- Ensures tenant isolation matching existing SAML implementation
 
-## Components
+### User Provisioning Strategy
 
-### Models (`posthog/models/organization_domain.py`)
-
-Extended `OrganizationDomain` with:
-- `scim_enabled`: Boolean flag to enable/disable SCIM
-- `scim_bearer_token`: Hashed bearer token for authentication
-- `has_scim`: Property to check if SCIM is properly configured
-
-### Authentication (`auth.py`)
-
-- `SCIMBearerTokenAuthentication`: DRF authentication class
-  - Extracts domain ID from URL path
-  - Validates bearer token against hashed value
-  - Returns `OrganizationDomain` as auth object for tenant isolation
-
-### Adapters
-
-#### User Adapter (`user.py`)
-- Maps SCIM User schema to PostHog `User` model
-- **Create**: Creates user with no password, marks as email verified
-- **Update**: Updates user attributes
-- **Delete**: Removes `OrganizationMembership` (user remains active in other orgs)
-- **Upsert**: If user exists, adds them to organization
-
-#### Group Adapter (`group.py`)
-- Maps SCIM Group schema to PostHog RBAC `Role` model
-- **Create**: Upserts role by name
-- **Update**: Manages role membership via `RoleMembership`
-- **Delete**: Deletes the role
-
-### Views (`views.py`)
-
-SCIM 2.0 compliant endpoints:
-
-**Users:**
-- `GET /scim/v2/{domain_id}/Users` - List users
-- `POST /scim/v2/{domain_id}/Users` - Create user
-- `GET /scim/v2/{domain_id}/Users/{id}` - Get user
-- `PUT /scim/v2/{domain_id}/Users/{id}` - Replace user
-- `PATCH /scim/v2/{domain_id}/Users/{id}` - Update user
-- `DELETE /scim/v2/{domain_id}/Users/{id}` - Deactivate user
-
-**Groups:**
-- `GET /scim/v2/{domain_id}/Groups` - List groups
-- `POST /scim/v2/{domain_id}/Groups` - Create group
-- `GET /scim/v2/{domain_id}/Groups/{id}` - Get group
-- `PUT /scim/v2/{domain_id}/Groups/{id}` - Replace group
-- `PATCH /scim/v2/{domain_id}/Groups/{id}` - Update group
-- `DELETE /scim/v2/{domain_id}/Groups/{id}` - Delete group
-
-**Discovery:**
-- `GET /scim/v2/{domain_id}/ServiceProviderConfig` - Provider capabilities
-- `GET /scim/v2/{domain_id}/ResourceTypes` - Available resource types
-- `GET /scim/v2/{domain_id}/Schemas` - SCIM schemas
-
-## Usage
-
-### Enabling SCIM
-
-```python
-from ee.api.scim.utils import enable_scim_for_domain
-from posthog.models.organization_domain import OrganizationDomain
-
-domain = OrganizationDomain.objects.get(id="...")
-token = enable_scim_for_domain(domain)  # Returns plain token (show once!)
-
-# Get SCIM base URL
-from ee.api.scim.utils import get_scim_base_url
-scim_url = get_scim_base_url(domain)  # https://app.posthog.com/scim/v2/{domain_id}
-```
-
-### IdP Configuration
-
-Configure your IdP (Okta, Azure AD, etc.) with:
-
-1. **SCIM Base URL**: `https://app.posthog.com/scim/v2/{domain_id}`
-2. **Authentication**: Bearer Token (from enable step above)
-3. **User Attributes**:
-   - userName → email
-   - name.givenName → first_name
-   - name.familyName → last_name
-4. **Group Mapping**: IdP groups → PostHog Roles (by name)
-
-### User Lifecycle
-
-1. **Create**: IdP sends `POST /Users`
-   - Creates `User` with no password
-   - Creates `OrganizationMembership` with MEMBER level
-   - User authenticates via SAML
-
-2. **Update**: IdP sends `PATCH /Users/{id}`
-   - Updates user attributes
-   - Can modify group memberships
-
-3. **Deactivate**: IdP sends `PATCH /Users/{id}` with `active=false` or `DELETE`
-   - Removes `OrganizationMembership`
-   - User remains active in other organizations
-
-### Group Management
-
-1. **Create Group**: IdP sends `POST /Groups`
-   - Upserts `Role` by name matching
-
-2. **Add Members**: IdP sends `PATCH /Groups/{id}`
-   - Creates `RoleMembership` entries
-   - Removes members not in updated list
-
-3. **Delete Group**: IdP sends `DELETE /Groups/{id}`
-   - Deletes the `Role`
-
-## Behavior Details
-
-### User Creation
-- **New User**: Creates user, adds to org
-- **Existing User**: Adds to org, updates attributes
-- **Password**: Always `None` (SAML authentication required)
-- **Email Verification**: Auto-verified (`is_email_verified=True`)
-- **Default Role**: `OrganizationMembership.Level.MEMBER`
-
-### User Deactivation
-- Removes `OrganizationMembership` only
-- User remains active for other organizations
-- Does NOT set `User.is_active=False`
+- **No passwords**: SCIM-created users have `password=None`
+- **SAML authentication required**: Users must use SAML to login
+- **Email auto-verified**: `is_email_verified=True`
+- **Default membership level**: `OrganizationMembership.Level.MEMBER`
+- **Existing user handling**: If user exists, add to org and update attributes
 
 ### Group Mapping
-- SCIM Groups → PostHog Roles (1:1)
-- Group name must match Role name (case-sensitive)
-- Auto-creates roles if they don't exist
-- Members managed via `RoleMembership`
 
-### Tenant Isolation
-- Each domain has unique bearer token
-- URL includes `domain_id` for scoping
-- All queries filtered by `organization`
+- SCIM Groups → PostHog RBAC Roles
+- **Upsert by name**: Groups auto-create roles if they don't exist
+- **Name matching**: Case-sensitive role name matching
+- **Membership sync**: PATCH operations sync role memberships
+
+### User Deactivation
+
+- DELETE or `active=false` removes `OrganizationMembership` only
+- User remains active in other organizations
+- Does NOT set `User.is_active=False` globally
+
+## Files
+
+### Models
+
+- `posthog/models/organization_domain.py` - Added `scim_enabled`, `scim_bearer_token` fields
+
+### Core SCIM Implementation (`ee/api/scim/`)
+
+- `auth.py` - Bearer token authentication
+- `user.py` - SCIM User adapter (maps to PostHog User model)
+- `group.py` - SCIM Group adapter (maps to PostHog Role model)
+- `views.py` - SCIM 2.0 endpoints
+- `utils.py` - Helper functions for token management
+
+### API Management
+
+- `posthog/api/organization_domain_scim.py` - Mixin for SCIM config endpoints
+
+### Configuration
+
+- `ee/urls.py` - SCIM URL routing
+- `ee/settings.py` - SCIM service provider config
+- `pyproject.toml` - Added `django-scim2==0.19.0` dependency
+
+### Testing
+
+- `ee/api/scim/test/test_scim_api.py` - Comprehensive SCIM endpoint tests
+
+### Migration
+
+- `posthog/migrations/0868_add_scim_fields_to_organization_domain.py` - Database migration
+
+## API Endpoints
+
+### SCIM Endpoints (IdP Integration)
+
+```text
+GET    /scim/v2/{domain_id}/Users              # List users
+POST   /scim/v2/{domain_id}/Users              # Create user
+GET    /scim/v2/{domain_id}/Users/{id}         # Get user
+PUT    /scim/v2/{domain_id}/Users/{id}         # Replace user
+PATCH  /scim/v2/{domain_id}/Users/{id}         # Update user
+DELETE /scim/v2/{domain_id}/Users/{id}         # Deactivate user
+
+GET    /scim/v2/{domain_id}/Groups             # List groups
+POST   /scim/v2/{domain_id}/Groups             # Create group
+GET    /scim/v2/{domain_id}/Groups/{id}        # Get group
+PUT    /scim/v2/{domain_id}/Groups/{id}        # Replace group
+PATCH  /scim/v2/{domain_id}/Groups/{id}        # Update group
+DELETE /scim/v2/{domain_id}/Groups/{id}        # Delete group
+
+GET    /scim/v2/{domain_id}/ServiceProviderConfig  # Provider capabilities
+GET    /scim/v2/{domain_id}/ResourceTypes          # Resource types
+GET    /scim/v2/{domain_id}/Schemas                # SCIM schemas
+```
+
+### Management Endpoints (PostHog UI)
+
+```text
+GET  /api/organizations/{org_id}/domains/{domain_id}/scim              # Get config
+POST /api/organizations/{org_id}/domains/{domain_id}/scim              # Enable SCIM
+POST /api/organizations/{org_id}/domains/{domain_id}/scim/regenerate   # Regenerate token
+POST /api/organizations/{org_id}/domains/{domain_id}/scim/disable      # Disable SCIM
+```
+
+## Authentication Flow
+
+1. IdP makes request to SCIM endpoint with `Authorization: Bearer {token}`
+2. `SCIMBearerTokenAuthentication` extracts domain_id from URL
+3. Retrieves `OrganizationDomain` and validates token (hashed comparison)
+4. Returns domain as `request.auth` for tenant scoping
+5. Views filter all queries by `organization_domain.organization`
+
+## PATCH Operations Support
+
+Both Users and Groups support standard SCIM PATCH operations via the `django-scim2` library.
+
+### User PATCH Operations
+
+**Replace** - Update user attributes:
+
+```json
+{
+    "Operations": [
+        { "op": "replace", "path": "name.givenName", "value": "Alice" },
+        { "op": "replace", "path": "name.familyName", "value": "Smith" },
+        { "op": "replace", "path": "active", "value": false }
+    ]
+}
+```
+
+**Add** - Add/set attributes (reactivate user if adding `active=true`):
+
+```json
+{
+    "Operations": [{ "op": "add", "path": "name.givenName", "value": "Bob" }]
+}
+```
+
+**Remove** - Clear attributes (deactivates user if removing `active`):
+
+```json
+{
+    "Operations": [
+        { "op": "remove", "path": "name.givenName" },
+        { "op": "remove", "path": "active" }
+    ]
+}
+```
+
+### Group PATCH Operations
+
+**Replace** - Update group name or sync members:
+
+```json
+{
+    "Operations": [
+        { "op": "replace", "path": "displayName", "value": "Engineering" },
+        { "op": "replace", "path": "members", "value": [{ "value": "user-uuid-1" }, { "value": "user-uuid-2" }] }
+    ]
+}
+```
+
+**Add** - Add members without removing existing ones:
+
+```json
+{
+    "Operations": [{ "op": "add", "path": "members", "value": [{ "value": "user-uuid-3" }] }]
+}
+```
+
+**Remove** - Remove specific members or all members:
+
+```json
+{
+    "Operations": [{ "op": "remove", "path": "members[value eq \"user-uuid\"]" }]
+}
+```
+
+## License Feature Availability
+
+SCIM is a licensed feature that requires `AvailableFeature.SCIM` to be enabled for the organization.
+
+### How It Works
+
+- The SCIM endpoints check if the organization has the SCIM feature enabled
+- License checks happen in the authentication layer via `SCIMBearerTokenAuthentication`
+- If the feature is not available, requests return `403 Forbidden`
+
+### Testing Locally
+
+To enable SCIM feature for local development via Django shell:
+
+```python
+from posthog.constants import AvailableFeature
+from posthog.models.organization_domain import OrganizationDomain
+domain = OrganizationDomain.objects.get(domain="posthog.com")
+org = domain.organization
+
+# Add SCIM to available features
+org.available_product_features.append({
+    "key": AvailableFeature.SCIM,
+    "name": "SCIM"
+})
+org.save()
+```
+
+### Enabling SCIM via Django Shell
+
+To enable SCIM and get the bearer token via Django shell:
+
+```python
+from posthog.models.organization_domain import OrganizationDomain
+from ee.api.scim.utils import enable_scim_for_domain, get_scim_base_url
+
+domain = OrganizationDomain.objects.get(domain="posthog.com")
+
+token = enable_scim_for_domain(domain)
+print(f"Bearer Token: {token}")
+
+scim_url = get_scim_base_url(domain)
+print(f"SCIM Base URL: {scim_url}")
+
+# Now you can use this to make requests via Postman
+```
+
+## User Lifecycle Examples
+
+### Create User (New)
+
+```json
+POST /scim/v2/{domain_id}/Users
+{
+  "userName": "alice@example.com",
+  "name": {"givenName": "Alice", "familyName": "Smith"},
+  "active": true
+}
+```
+
+**Result**:
+
+- Creates `User` with `password=None`, `is_email_verified=True`
+- Creates `OrganizationMembership` with `level=MEMBER`
+- User must authenticate via SAML
+
+### Create User (Existing)
+
+If user exists in another org:
+
+- Adds `OrganizationMembership` to this org
+- Updates `first_name`, `last_name` if provided
+- No duplicate user created
+
+### Update User
+
+```json
+PATCH /scim/v2/{domain_id}/Users/{id}
+{
+  "Operations": [
+    {"op": "replace", "value": {"name": {"givenName": "Alicia"}}}
+  ]
+}
+```
+
+**Result**: Updates `user.first_name = "Alicia"`
+
+### Deactivate User
+
+```json
+PATCH /scim/v2/{domain_id}/Users/{id}
+{
+  "Operations": [
+    {"op": "replace", "value": {"active": false}}
+  ]
+}
+```
+
+**Result**: Deletes `OrganizationMembership` (user stays active elsewhere)
+
+## Group Management Examples
+
+### Create Group
+
+```json
+POST /scim/v2/{domain_id}/Groups
+{
+  "displayName": "Engineering",
+  "members": [{"value": "user-uuid"}]
+}
+```
+
+**Result**:
+
+- Upserts `Role` with `name="Engineering"`
+- Creates `RoleMembership` for specified users
+
+### Update Group Members
+
+```json
+PATCH /scim/v2/{domain_id}/Groups/{id}
+{
+  "Operations": [
+    {"op": "replace", "value": {"members": [{"value": "user-uuid-1"}, {"value": "user-uuid-2"}]}}
+  ]
+}
+```
+
+**Result**: Syncs `RoleMembership` to match provided list
+
+## SCIM + JIT Provisioning
+
+When both SCIM and JIT (Just-In-Time) provisioning are enabled for a domain:
+
+1. **User joins via SAML**: User can self-join the organization through SAML authentication and automatically gets `MEMBER` access level
+2. **SCIM synchronization**: IdP's SCIM sync will then update:
+    - User's first name and last name
+    - User's role/group memberships (via Group operations)
+    - Any other SCIM-managed attributes
+
+This allows for a hybrid approach where users can access the organization immediately via SAML, and SCIM handles ongoing attribute and role synchronization from the IdP.
+
+**Note**: When SCIM provisions a user that already exists (from JIT), it adds them to the organization if they're not already a member, then updates their attributes.
+
+## Security Considerations
+
+1. **Token Storage**: Bearer tokens hashed with Django password hashers
+2. **Tenant Isolation**: Domain ID in URL enforces scoping
+3. **No Password Leakage**: SCIM users never have passwords
+4. **SAML Required**: Must configure SAML before SCIM is useful
+5. **License Check**: `AvailableFeature.SCIM` required for access
 
 ## Testing
 
 Run tests:
+
 ```bash
-pytest ee/api/scim/test/test_scim_api.py
+pytest ee/api/scim/test/test_scim_api.py -v
 ```
 
-Key test scenarios:
-- User CRUD operations
-- Group CRUD operations
-- Member management
-- Token authentication
-- Existing user handling
-- Multi-org scenarios
+Test coverage:
 
-## Security
+- ✅ User CRUD operations
+- ✅ Group CRUD operations
+- ✅ Token authentication (valid/invalid/missing)
+- ✅ Existing user handling
+- ✅ Multi-org scenarios
+- ✅ Member deactivation
+- ✅ Group membership sync
+- ✅ Service provider config
+- ✅ PATCH operations (replace, add, remove)
 
-- **Bearer Token**: Hashed with Django's password hashers
-- **Tenant Isolation**: Domain ID in URL path enforces scoping
-- **No Password Storage**: SCIM users have `password=None`
-- **SAML Required**: Users must authenticate via SAML
+## IdP Configuration Guide
 
-## Limitations
+### Okta
 
-- No bulk operations support
-- No filtering support
-- No sorting support
-- Groups must match existing Role names exactly
-- User creation requires SAML to be configured
+1. Applications → Create SCIM Integration
+2. SCIM Base URL: `https://app.posthog.com/scim/v2/{domain_id}`
+3. Auth: OAuth Bearer Token (paste generated token)
+4. Supported features: Push New Users, Push Profile Updates, Push Groups
+5. Attribute mappings:
+    - userName → email
+    - name.givenName → firstName
+    - name.familyName → lastName
 
-## Migration Path
+### Azure AD
 
-1. Run migration: `python manage.py migrate`
-2. Add SCIM config to frontend (VerifiedDomains settings)
-3. Enable SCIM per domain via admin/API
-4. Configure IdP with SCIM endpoint and token
-5. Test user provisioning
-6. Enable SSO enforcement if desired
+1. Enterprise Apps → Provision User Accounts
+2. Tenant URL: `https://app.posthog.com/scim/v2/{domain_id}`
+3. Secret Token: (paste generated token)
+4. Mappings:
+    - userPrincipalName → userName
+    - givenName → name.givenName
+    - surname → name.familyName
 
-## Future Enhancements
+## Next Steps (Not Yet Implemented)
 
-- [ ] Add filtering support (e.g., `filter=userName eq "user@example.com"`)
-- [ ] Add pagination for large result sets
-- [ ] Support bulk operations
-- [ ] Auto-create default team for SCIM users
-- [ ] Activity logging for SCIM operations
-- [ ] Rate limiting per domain
-- [ ] SCIM event webhooks
+### Required for Production
+
+1. **Frontend UI**:
+    - Add SCIM config to VerifiedDomains settings page
+    - Show SCIM base URL and token (one-time display)
+    - Regenerate token button
+    - Enable/disable toggle
+
+2. **Activity Logging**:
+    - Log SCIM user create/update/delete events
+    - Track which IdP made changes
+
+3. **Rate Limiting**:
+    - Add per-domain rate limits
+    - Protect against aggressive IdP sync
+
+### Nice to Have
+
+4. **Filtering Support**:
+    - `GET /Users?filter=userName eq "user@example.com"`
+
+5. **Pagination**:
+    - Support `startIndex` and `count` params
+
+6. **Bulk Operations**:
+    - `POST /Bulk` endpoint

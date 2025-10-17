@@ -187,7 +187,7 @@ def scim_service_provider_config_view(request: Request, domain_id: str) -> Respo
                     "name": "OAuth Bearer Token",
                     "description": "Authentication scheme using the OAuth Bearer Token Standard",
                     "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
-                    "documentationUri": "https://posthog.com/docs/scim",
+                    "documentationUri": "https://posthog.com/docs/settings/scim",  # TODO: Add docs for SCIM
                 }
             ],
         }
