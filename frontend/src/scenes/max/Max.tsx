@@ -232,7 +232,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                             sideIcon={<IconClockRewind />}
                             onClick={() => toggleConversationHistory()}
                         >
-                            Chat History
+                            Chat history
                         </LemonButton>
                     ) : undefined
                 }
