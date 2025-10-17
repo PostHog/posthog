@@ -1784,20 +1784,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 })
             }
         },
-        currentPlayerState: (value, oldValue) => {
+        currentPlayerState: (value) => {
             if (value === SessionPlayerState.PLAY && !values.wasMarkedViewed) {
                 actions.markViewed(0)
             }
 
-            // Update snapshot loading logic with playing state
-            const isPlaying = value === SessionPlayerState.PLAY
-            const wasPlaying = oldValue === SessionPlayerState.PLAY
-            if (isPlaying !== wasPlaying) {
-                actions.setPlayingState(isPlaying)
-                // When state changes, check if we should resume loading
-                if (!isPlaying || (isPlaying && !wasPlaying)) {
-                    actions.loadNextSnapshotSource()
-                }
+            // When paused, trigger loading to prefetch more data
+            if (value === SessionPlayerState.PAUSE && !values.fullyLoaded) {
+                actions.loadNextSnapshotSource()
             }
         },
         currentPlayerTime: (() => {
