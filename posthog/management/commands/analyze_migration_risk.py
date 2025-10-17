@@ -22,8 +22,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # Check for missing migrations BEFORE loading migration state
-        # This prevents deprecated fields from being detected as needing removal
+        # Check for missing migrations first
         missing_migrations_warning = self.check_missing_migrations()
 
         migrations = self.get_unapplied_migrations()
@@ -137,8 +136,9 @@ class Command(BaseCommand):
                 output = stdout_capture.getvalue()
                 if output.strip():
                     # Check if ALL operations are "Remove field" (likely deprecated fields)
-                    # We skip these because django-deprecate-fields hides fields at runtime
-                    # but Django still sees them in the DB, causing false positives
+                    # Django-deprecate-fields hides deprecated fields when sys.argv doesn't
+                    # contain 'makemigrations'. Since we load models before calling makemigrations,
+                    # fields are hidden, causing false positives for deprecated-but-not-yet-removed fields.
                     lines = [line.strip() for line in output.split("\n") if line.strip()]
                     operation_lines = [line for line in lines if line.startswith("- ")]
 
