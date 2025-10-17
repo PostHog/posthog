@@ -1,6 +1,0 @@
-{
-    "schema_version": 1760690938175,
-    "updated_at": "2025-10-17T08:48:58.175844579+00:00",
-    "event_count": 15,
-    "output_path": "src/lib/posthog-typed.ts"
-}
