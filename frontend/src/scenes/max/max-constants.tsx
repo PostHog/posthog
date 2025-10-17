@@ -372,13 +372,27 @@ export const MAX_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
 
 export const MAX_GENERALLY_CANNOT: string[] = [
     'Access your source code or third‑party tools',
-    'Browse the web beyond PostHog documentation',
     'See data outside this PostHog project',
     'Guarantee correctness',
     'Order tungsten cubes',
 ]
 
 export function getToolDefinition(identifier: string): ToolDefinition | null {
+    // Handle web_search as a special case (native Anthropic tool)
+    if (identifier === 'web_search') {
+        return {
+            name: 'Search the web',
+            description: 'Search the web for up-to-date information',
+            icon: <IconSearch />,
+            displayFormatter: (toolCall) => {
+                if (toolCall.status === 'completed') {
+                    return `Searched the web for **${toolCall.args.query}**...`
+                }
+                return `Searching the web for **${toolCall.args.query}**...`
+            },
+        }
+    }
+
     const flatTools = Object.entries(TOOL_DEFINITIONS).flatMap(([key, tool]) => {
         if (tool.subtools) {
             return [{ ...tool, key }, ...Object.entries(tool.subtools).map(([key, value]) => ({ ...value, key }))]

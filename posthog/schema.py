@@ -5925,6 +5925,9 @@ class AssistantMessage(BaseModel):
     id: Optional[str] = None
     meta: Optional[AssistantMessageMetadata] = None
     parent_tool_call_id: Optional[str] = None
+    server_tool_calls: Optional[list[AssistantToolCall]] = Field(
+        default=None, description="Tools like web_search, fully handled by the LLM provider API."
+    )
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai"] = "ai"
 

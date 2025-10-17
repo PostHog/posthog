@@ -15,6 +15,7 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+from pydantic import BaseModel
 
 from posthog.schema import (
     AssistantEventType,
@@ -33,12 +34,14 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.utils.exceptions import GenerationCanceled
-from ee.hogai.utils.helpers import extract_stream_update
+from ee.hogai.utils.helpers import extract_stream_update, normalize_ai_message
 from ee.hogai.utils.state import (
+    GraphMessageUpdateTuple,
     GraphValueUpdateTuple,
     is_message_update,
     is_state_update,
     is_value_update,
+    merge_message_chunk,
     validate_state_update,
 )
 from ee.hogai.utils.stream_processor import AssistantStreamProcessor
@@ -340,11 +343,41 @@ class BaseAssistant(ABC):
 
         if isinstance(update, AssistantDispatcherEvent) and (new_message := self._stream_processor.process(update)):
             return [new_message] if new_message else None
-
+        elif is_value_update(update) and (new_message := await self._aprocess_value_update(update)):
+            return [new_message] if new_message else None
+        elif is_message_update(update) and (new_messages := await self._aprocess_message_update(update)):
+            return new_messages[-1:]  # Stream only the latest message, no point in streaming previous ones
         return None
 
     async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
         return None
+
+    async def _aprocess_message_update(self, update: GraphMessageUpdateTuple) -> list[BaseModel] | None:
+        """
+        Process LLM chunks from "messages" stream mode.
+
+        With dispatch pattern, complete messages are dispatched by nodes.
+        This handles AIMessageChunk for ephemeral streaming (responsiveness).
+        """
+        langchain_message, state = update[1]
+        node_name = state["langgraph_node"]
+
+        # Return ready messages as is (dispatched by nodes, streamed to client)
+        if isinstance(langchain_message, get_args(AssistantMessageUnion)):
+            raise ValueError("AssistantMessageUnion messages should be dispatched by nodes, not processed here.")
+
+        if node_name not in self.STREAMING_NODES:
+            return None
+
+        # Only process LLM chunks for streaming
+        if not isinstance(langchain_message, AIMessageChunk):
+            return None
+
+        # Merge message chunks
+        self._chunks = merge_message_chunk(self._chunks, langchain_message)
+
+        # Stream ephemeral messages (no ID = not persisted)
+        return normalize_ai_message(self._chunks)
 
     def _build_root_config_for_persistence(self) -> RunnableConfig:
         """

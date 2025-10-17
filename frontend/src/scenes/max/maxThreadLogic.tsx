@@ -44,12 +44,13 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
+import { EnhancedToolCall } from './Thread'
 import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
-import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isNotebookUpdateMessage } from './utils'
+import { isAssistantMessage, isAssistantMessageBlank, isAssistantToolCallMessage, isHumanMessage, isNotebookUpdateMessage } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
@@ -732,12 +733,13 @@ function enhanceThreadToolCalls(
     }
 
     // Enhance assistant messages with tool call status
-    return group.map((message, index) => {
+    return group.map((message, messageIndex) => {
+        message = { ...message }
+        // A message is in the final group if it comes after or is the last human message
+        const isFinalGroup = messageIndex >= lastHumanMessageIndex
         if (isAssistantMessage(message) && message.tool_calls && message.tool_calls.length > 0) {
-            // A message is in the final group if it comes after or is the last human message
-            const isFinalGroup = index >= lastHumanMessageIndex
             const isLastPlanningMessage = message.id === lastPlanningMessageId
-            const enhancedToolCalls = message.tool_calls.map((toolCall) => {
+            message.tool_calls = message.tool_calls.map<EnhancedToolCall>((toolCall) => {
                 const isCompleted = !!toolCallCompletions.get(toolCall.id)
                 const isFailed = !isCompleted && (!isFinalGroup || !isLoading)
                 return {
@@ -751,11 +753,20 @@ function enhanceThreadToolCalls(
                     updates: toolCallUpdateMap.get(toolCall.id) ?? [],
                 }
             })
-
-            return {
-                ...message,
-                tool_calls: enhancedToolCalls,
-            }
+        }
+        if (isAssistantMessage(message) && message.server_tool_calls?.length) {
+            message.server_tool_calls = message.server_tool_calls.map<EnhancedToolCall>((toolCall) => {
+                const isCompleted = !isFinalGroup || messageIndex < group.length - 1
+                const isFailed = !isCompleted && !isLoading
+                return {
+                    ...toolCall,
+                    status: isFailed
+                        ? TaskExecutionStatus.Failed
+                        : isCompleted
+                          ? TaskExecutionStatus.Completed
+                          : TaskExecutionStatus.InProgress,
+                }
+            })
         }
         return message
     })
@@ -834,6 +845,7 @@ async function onEventImplementation(
                 ? values.threadRaw.findIndex((msg) => msg.id === parsedResponse.id)
                 : -1
 
+            const lastCompletedMessageIndex = values.threadRaw.findLastIndex((msg) => msg.status === 'completed')
             if (existingMessageIndex >= 0) {
                 // Replace existing message with same ID
                 actions.replaceMessage(existingMessageIndex, {
@@ -841,15 +853,21 @@ async function onEventImplementation(
                     status: !parsedResponse.id ? 'loading' : 'completed',
                 })
             } else if (
-                values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
-                values.threadRaw.length === 0
+                // Nice property that for an empty threadRaw `values.threadRaw.length - 1` is -1, so also works
+                lastCompletedMessageIndex === values.threadRaw.length - 1 ||
+                // After a server tool call, the next message must be blank - then we move onto the new post-tool message
+                // (example: web search, where the post-search message shows up as distinct from the one calling search)
+                (isAssistantMessage(parsedResponse) && isAssistantMessageBlank(parsedResponse))
             ) {
                 actions.addMessage({
                     ...parsedResponse,
                     status: !parsedResponse.id ? 'loading' : 'completed',
                 })
             } else if (parsedResponse) {
-                actions.replaceMessage(values.threadRaw.length - 1, {
+                // When streaming incomplete messages (ID-less), we always replace the last message so far.
+                // When we get the completed ones, we replace from the last completed message to obtain the final state.
+                const indexToReplaceAt = parsedResponse.id ? lastCompletedMessageIndex + 1 : values.threadRaw.length - 1
+                actions.replaceMessage(indexToReplaceAt, {
                     ...parsedResponse,
                     status: !parsedResponse.id ? 'loading' : 'completed',
                 })
