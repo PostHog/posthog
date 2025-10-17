@@ -45,8 +45,7 @@ from ..parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionI
 from .tools import (
     TaxonomyTool,
     ask_user_for_help,
-    retrieve_entity_properties,
-    retrieve_entity_property_values,
+    get_dynamic_entity_tools,
     retrieve_event_properties,
     retrieve_event_property_values,
 )
@@ -276,11 +275,16 @@ class TaxonomyAgentToolkit:
 
     def _get_default_tools(self) -> list:
         """Get default taxonomy tools."""
+        dynamic_retrieve_entity_properties, dynamic_retrieve_entity_property_values = get_dynamic_entity_tools(
+            self._team_group_types
+        )
         return [
             retrieve_event_properties,
-            retrieve_entity_properties,
-            retrieve_entity_property_values,
+            # retrieve_entity_properties,
+            # retrieve_entity_property_values,
+            dynamic_retrieve_entity_properties,
             retrieve_event_property_values,
+            dynamic_retrieve_entity_property_values,
             ask_user_for_help,
         ]
 
