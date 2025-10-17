@@ -1,10 +1,11 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { posthog } from 'posthog-js'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { pluralize } from 'lib/utils'
 
 import { performQuery } from '~/queries/query'
 import { NodeKind, SessionsTimelineQuery, SessionsTimelineQueryResponse } from '~/queries/schema/schema-general'
@@ -28,10 +29,11 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
     actions({
         summarizeSessions: true,
         summarizeSession: (sessionId: string) => ({ sessionId }),
-        setSummarizingState: (state: 'idle' | 'loading' | 'success' | 'error') => ({ state }),
+        setSummarizingState: (state: 'idle' | 'loading' | 'completed') => ({ state }),
+        setSummarizingErrors: (error: Record<string, string>) => ({ error }),
     }),
 
-    loaders(({ values, props }) => ({
+    loaders(({ actions, values, props }) => ({
         sessions: [
             null as SessionsTimelineQueryResponse['results'] | null,
             {
@@ -47,7 +49,7 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             },
         ],
         summaries: [
-            {} as Record<string, SessionSummary | 'error'>,
+            {} as Record<string, SessionSummary>,
             {
                 summarizeSession: async ({ sessionId }) => {
                     try {
@@ -57,7 +59,9 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                         return { ...values.summaries, ...response }
                     } catch (error) {
                         posthog.captureException(error)
-                        return { ...values.summaries, [sessionId]: 'error' }
+                        const errorMessage = error instanceof Error ? error.message : 'Failed to generate summary'
+                        actions.setSummarizingErrors({ [sessionId]: errorMessage })
+                        return { ...values.summaries }
                     }
                 },
             },
@@ -69,23 +73,45 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             values.sessionIdsWithRecording.forEach((sessionId) => actions.summarizeSession(sessionId))
         },
         summarizeSessionSuccess: () => {
-            if (values.allSessionsSummarized) {
-                actions.setSummarizingState('success')
+            if (values.numSessionsProcessed === values.numSessionsWithRecording) {
+                actions.setSummarizingState('completed')
             }
         },
     })),
 
     reducers({
         summarizingState: [
-            'idle' as 'idle' | 'loading' | 'success' | 'error',
+            'idle' as 'idle' | 'loading' | 'completed',
             {
                 setSummarizingState: (_, { state }) => state,
                 summarizeSessions: () => 'loading',
             },
         ],
+        summarizingErrors: [
+            {} as Record<string, string>,
+            {
+                setSummarizingErrors: (state, { error }) => ({ ...state, ...error }),
+            },
+        ],
     }),
 
     selectors({
+        canSummarize: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]],
+        numErrors: [(s) => [s.summarizingErrors], (summarizingErrors) => Object.keys(summarizingErrors).length],
+        numSessionsProcessed: [
+            (s) => [s.numErrors, s.numSummaries],
+            (numErrors, numSummaries) => numErrors + numSummaries,
+        ],
+        numSessionsWithRecording: [
+            (s) => [s.sessionIdsWithRecording],
+            (sessionIdsWithRecording) => sessionIdsWithRecording.length,
+        ],
+        numSummaries: [(s) => [s.summaries], (summaries) => Object.keys(summaries).length],
+        progressText: [
+            (s) => [s.numSessionsProcessed, s.numSessionsWithRecording],
+            (numSessionsProcessed, numSessionsWithRecording) =>
+                `${numSessionsProcessed} out of ${pluralize(numSessionsWithRecording, 'session')} analyzed.`,
+        ],
         sessionIdsWithRecording: [
             (s) => [s.sessions],
             (sessions) =>
@@ -93,16 +119,6 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
                     ?.filter((session) => !!session.recording_duration_s)
                     .map((session) => session.sessionId)
                     .filter((id) => id !== undefined) as string[],
-        ],
-        canSummarize: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]],
-        allSessionsSummarized: [
-            (s) => [s.summaries, s.sessionIdsWithRecording],
-            (summaries, sessionIdsWithRecording) =>
-                sessionIdsWithRecording.every((sessionId) => sessionId in summaries),
-        ],
-        hasErrors: [
-            (s) => [s.summaries],
-            (summaries) => Object.values(summaries).some((summary) => summary === 'error'),
         ],
     }),
 
