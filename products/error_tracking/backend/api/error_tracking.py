@@ -1016,8 +1016,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_start_upload(self, request, **kwargs):
-        if self.user.pk:
-            posthoganalytics.identify_context(self.user.pk)
+        if request.user.pk:
+            posthoganalytics.identify_context(request.user.pk)
         # Earlier ones send a list of chunk IDs, all associated with one release
         # Extract a list of chunk IDs from the request json
         chunk_ids: list[str] = request.data.get("chunk_ids") or []
@@ -1050,8 +1050,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_finish_upload(self, request, **kwargs):
-        if self.user.pk:
-            posthoganalytics.identify_context(self.user.pk)
+        if request.user.pk:
+            posthoganalytics.identify_context(request.user.pk)
         # Get the map of symbol_set_id:content_hashes
         content_hashes = request.data.get("content_hashes", {})
         if content_hashes is None:
