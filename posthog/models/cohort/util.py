@@ -600,7 +600,7 @@ def _recalculate_cohortpeople_chunked(
 
         chunk_recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=chunk_cohort_query)
 
-        def execute_chunk_query():
+        def execute_chunk_query(sql=chunk_recalculate_cohortpeople_sql, params=chunk_cohort_params):
             tag_queries(
                 kind="cohort_calculation_chunk",
                 query_type="CohortsQueryHogQL",
@@ -611,9 +611,9 @@ def _recalculate_cohortpeople_chunked(
             hogql_global_settings = HogQLGlobalSettings()
 
             return sync_execute(
-                chunk_recalculate_cohortpeople_sql,
+                sql,
                 {
-                    **chunk_cohort_params,
+                    **params,
                     "cohort_id": cohort.pk,
                     "team_id": team.id,
                     "new_version": pending_version,
