@@ -41,9 +41,6 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
-# KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
-# KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails 🤷
-RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ || true
 
 #
 # ---------------------------------------------------------

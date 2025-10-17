@@ -242,7 +242,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         with freeze_time(timezone.now() - timedelta(days=8)):
-            # These should not count
+            # These should not count in `value`, but should count in `previous`
             for _ in range(3):
                 _create_event(
                     event="metric_event",
@@ -252,7 +252,7 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
 
         with freeze_time(timezone.now() - timedelta(days=7)):
-            # These should count, as date_from check is gte
+            # These should count in `value` only, as date_from check is gte and `previous` check is lt
             for _ in range(2):
                 _create_event(
                     event="metric_event",
@@ -279,6 +279,8 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], str(metric.id))
         self.assertEqual(results[0]["value"], 4.0)
+        self.assertEqual(results[0]["previous"], 3.0)
+        self.assertEqual(results[0]["change_from_previous_pct"], 33.33333333333333)
 
     @freeze_time("2025-10-09T12:11:00")
     @snapshot_clickhouse_queries
