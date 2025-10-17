@@ -1443,6 +1443,7 @@ class FileSystemIconType(StrEnum):
     ACTION = "action"
     COMMENT = "comment"
     ANNOTATION = "annotation"
+    EVENT = "event"
     EVENT_DEFINITION = "event_definition"
     PROPERTY_DEFINITION = "property_definition"
     INGESTION_WARNING = "ingestion_warning"
@@ -1461,6 +1462,7 @@ class FileSystemIconType(StrEnum):
     HOME = "home"
     APPS = "apps"
     LIVE = "live"
+    CHAT = "chat"
 
 
 class FileSystemImport(BaseModel):
@@ -1483,6 +1485,7 @@ class FileSystemImport(BaseModel):
     path: str = Field(..., description="Object's name and folder")
     protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    sceneKey: Optional[str] = Field(default=None, description="Match this with the a base scene key or a specific one")
     shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
     type: Optional[str] = Field(
@@ -2177,6 +2180,7 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
+    INTERNAL_EVENT = "internal_event"
     EVENT_METADATA = "event_metadata"
     PERSON = "person"
     ELEMENT = "element"
@@ -2809,6 +2813,7 @@ class TaxonomicFilterGroupType(StrEnum):
     DATA_WAREHOUSE_PERSON_PROPERTIES = "data_warehouse_person_properties"
     ELEMENTS = "elements"
     EVENTS = "events"
+    INTERNAL_EVENTS = "internal_events"
     EVENT_PROPERTIES = "event_properties"
     EVENT_FEATURE_FLAGS = "event_feature_flags"
     EVENT_METADATA = "event_metadata"

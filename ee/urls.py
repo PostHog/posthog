@@ -102,12 +102,25 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
+    from posthog.admin.admins.actions_admin import analyze_actions_view
+    from posthog.admin.admins.behavioral_cohorts_admin import analyze_behavioral_cohorts_view
+
     admin_urlpatterns = [
         re_path(r"^admin/oauth2/callback$", admin_oauth2_callback, name="admin_oauth2_callback"),
         re_path(r"^admin/oauth2/success$", admin_oauth_success, name="admin_oauth_success"),
         re_path(r"^admin/auth_check$", admin_auth_check, name="admin_auth_check"),
         re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
         re_path(r"^admin/apikeysearch$", api_key_search_view, name="api_key_search"),
+        path(
+            "admin/actions-analysis/",
+            admin.site.admin_view(analyze_actions_view),
+            name="actions-analysis",
+        ),
+        path(
+            "admin/behavioral-cohort-analysis/",
+            admin.site.admin_view(analyze_behavioral_cohorts_view),
+            name="behavioral-cohort-analysis",
+        ),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]
