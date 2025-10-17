@@ -347,7 +347,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'customRRWebEvents',
                 'fullyLoaded',
                 'trackedWindow',
-                'hasMinimumPlayableData',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
@@ -1347,10 +1346,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         setPlay: () => {
-            if (!values.hasMinimumPlayableData) {
-                // Don't have enough data yet to start playback
-                return
-            }
             // Ensure loading continues in background if not already started
             if (!values.snapshotsLoaded) {
                 actions.loadSnapshots()
