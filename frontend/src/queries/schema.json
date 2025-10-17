@@ -13285,7 +13285,6 @@
         "FileSystemIconType": {
             "enum": [
                 "default_icon_type",
-                "annotation",
                 "dashboard",
                 "llm_analytics",
                 "product_analytics",
@@ -13313,6 +13312,7 @@
                 "notebook",
                 "action",
                 "comment",
+                "annotation",
                 "event",
                 "event_definition",
                 "property_definition",

@@ -1410,7 +1410,6 @@ class FileSystemEntry(BaseModel):
 
 class FileSystemIconType(StrEnum):
     DEFAULT_ICON_TYPE = "default_icon_type"
-    ANNOTATION = "annotation"
     DASHBOARD = "dashboard"
     LLM_ANALYTICS = "llm_analytics"
     PRODUCT_ANALYTICS = "product_analytics"
@@ -1438,6 +1437,7 @@ class FileSystemIconType(StrEnum):
     NOTEBOOK = "notebook"
     ACTION = "action"
     COMMENT = "comment"
+    ANNOTATION = "annotation"
     EVENT = "event"
     EVENT_DEFINITION = "event_definition"
     PROPERTY_DEFINITION = "property_definition"
