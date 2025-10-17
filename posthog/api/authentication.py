@@ -26,6 +26,7 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from loginas.utils import is_impersonated_session, restore_original_login
 from prometheus_client import Counter
 from rest_framework import mixins, permissions, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -41,11 +42,16 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.two_factor_session import clear_two_factor_session_flags, set_two_factor_verified_in_session
+from posthog.helpers.two_factor_session import (
+    clear_two_factor_session_flags,
+    email_mfa_token_generator,
+    set_two_factor_verified_in_session,
+)
 from posthog.models import OrganizationDomain, User
 from posthog.rate_limit import UserPasswordResetThrottle
 from posthog.tasks.email import (
     login_from_new_device_notification,
+    send_email_mfa_link,
     send_password_reset,
     send_two_factor_auth_backup_code_used_email,
 )
@@ -132,6 +138,16 @@ class TwoFactorRequired(APIException):
     default_code = "2fa_required"
 
 
+class EmailMFARequired(APIException):
+    status_code = 400
+    default_detail = "Email MFA is required."
+    default_code = "email_mfa_required"
+
+    def __init__(self, email: str | None = None):
+        detail = {"email": email} if email else self.default_detail
+        super().__init__(detail=detail, code=self.default_code)
+
+
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
@@ -142,8 +158,17 @@ class LoginSerializer(serializers.Serializer):
     def _check_if_2fa_required(self, user: User) -> bool:
         device = default_device(user)
         if not device:
-            return False
-        # If user has a valid 2FA cookie, use that instead of showing them the 2FA screen
+            # No TOTP device - check for email MFA remember cookie
+            for key, value in self.context["request"].COOKIES.items():
+                if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
+                    try:
+                        if validate_remember_device_cookie(value, user=user, otp_device_id="email_mfa"):
+                            return False
+                    except BadSignature:
+                        pass
+            # No remember cookie found - email MFA required
+            return True
+        # Has TOTP device - check for TOTP remember cookie
         for key, value in self.context["request"].COOKIES.items():
             if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
                 try:
@@ -196,7 +221,25 @@ class LoginSerializer(serializers.Serializer):
         if self._check_if_2fa_required(user):
             request.session["user_authenticated_but_no_2fa"] = user.pk
             request.session["user_authenticated_time"] = time.time()
-            raise TwoFactorRequired()
+
+            # Check if user has TOTP device
+            totp_device = default_device(user)
+            if totp_device:
+                # Existing TOTP flow
+                raise TwoFactorRequired()
+            else:
+                # Email MFA flow
+
+                token = email_mfa_token_generator.make_token(user)
+
+                # Store in session for verification
+                request.session["email_mfa_pending_user_id"] = user.pk
+                request.session["email_mfa_token_created_at"] = int(time.time())
+
+                # Send email with link
+                send_email_mfa_link.delay(user.id, token)
+
+                raise serializers.ValidationError({"email": user.email}, code="email_mfa_required")
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
@@ -316,6 +359,100 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
                 return self._token_is_valid(request, user, static_device)
 
         raise serializers.ValidationError(detail="Invalid authentication code", code="2fa_invalid")
+
+
+class EmailMFASerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    token = serializers.CharField()
+
+
+class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    """Handle email MFA link verification"""
+
+    serializer_class = EmailMFASerializer
+    queryset = User.objects.none()
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes = [UserPasswordResetThrottle]
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Verify email MFA token from link"""
+        email = request.data.get("email")
+        token = request.data.get("token")
+        validation_error = serializers.ValidationError(
+            {"token": ["This verification link is invalid or has expired."]}, code="invalid_token"
+        )
+
+        try:
+            user = User.objects.filter(is_active=True, email=email).get()
+        except User.DoesNotExist:
+            raise validation_error
+
+        if not email_mfa_token_generator.check_token(user, token):
+            raise validation_error
+
+        # Token valid - complete login
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        set_two_factor_verified_in_session(request)
+        report_user_logged_in(user, social_provider="")
+
+        # Always set remember device cookie (30 days), same as TOTP 2FA
+        cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
+        # Use "email_mfa" as device ID for email MFA (TOTP uses device.persistent_id)
+        cookie_value = get_remember_device_cookie(user=user, otp_device_id="email_mfa")
+        response = Response({"success": True})
+        response.set_cookie(
+            cookie_key,
+            cookie_value,
+            max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,  # 30 days
+            domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
+            path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
+            secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
+            httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
+            samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
+        )
+
+        # Also add device to fingerprint cache
+        short_user_agent = get_short_user_agent(request)
+        ip_address = get_ip_address(request)
+        geoip = get_geoip_properties(ip_address)
+        country = geoip.get("$geoip_country_name", "Unknown")
+
+        check_and_cache_login_device(user.id, country, short_user_agent)
+
+        return response
+
+    @action(detail=False, methods=["post"])
+    def resend(self, request: Request) -> Response:
+        """Resend email MFA link"""
+        # Get user from session
+        user_id = request.session.get("email_mfa_pending_user_id")
+        if not user_id:
+            raise serializers.ValidationError(
+                {"detail": "No pending email MFA verification found."}, code="no_pending_verification"
+            )
+
+        # Check if email was sent recently (throttle)
+        created_at = request.session.get("email_mfa_token_created_at", 0)
+        if int(time.time()) - created_at < 60:  # 60 second cooldown
+            raise serializers.ValidationError(
+                {"detail": "Please wait before requesting another email."}, code="too_soon"
+            )
+
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
+
+        # Generate new token and send email
+        token = email_mfa_token_generator.make_token(user)
+
+        # Update session with new token time
+        request.session["email_mfa_token_created_at"] = int(time.time())
+
+        # Send email
+        send_email_mfa_link.delay(user.id, token)
+
+        return Response({"success": True, "message": "Verification email sent"})
 
 
 class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):

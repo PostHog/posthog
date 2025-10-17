@@ -243,6 +243,30 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+def send_email_mfa_link(user_id: int, token: str) -> None:
+    """Send email MFA verification link"""
+    user: User = User.objects.get(pk=user_id)
+
+    verification_link = f"{settings.SITE_URL}/login/verify?email={user.email}&token={token}"
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"email_mfa_{user.uuid}-{timezone.now().timestamp()}",
+        subject="Verify your PostHog login",
+        template_name="email_mfa_link",
+        template_context={
+            "preheader": "Please follow the link inside to verify your login.",
+            "user_name": user.first_name,
+            "verification_link": verification_link,
+            "expiration_minutes": 10,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_fatal_plugin_error(
     plugin_config_id: int,
     plugin_config_updated_at: Optional[str],
