@@ -216,17 +216,10 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
             let scoped_organizations: Option<Vec<String>> =
                 row.try_get("scoped_organizations").ok();
 
-            // Get the team's organization_id (from cache or database)
-            let team_organization_id = match team.organization_id {
-                Some(org_id) => org_id,
-                None => {
-                    // Old cache entry without organization_id - fetch it from database
-                    sqlx::query_scalar("SELECT organization_id FROM posthog_team WHERE id = $1")
-                        .bind(team.id)
-                        .fetch_one(&mut *conn)
-                        .await?
-                }
-            };
+            // Get the team's organization_id (guaranteed to be present)
+            let team_organization_id = team
+                .organization_id
+                .expect("organization_id should always be present");
             let team_organization_id_str = team_organization_id.to_string();
 
             // Check organization access:

@@ -31,10 +31,31 @@ where
     Fut: Future<Output = Result<Team, FlagError>>,
 {
     // Try to get team from cache first
-    match Team::from_redis(redis_reader, token).await {
-        Ok(team) => {
-            debug!(team_id = team.id, "Found team in Redis cache");
+    match Team::from_redis(redis_reader.clone(), token).await {
+        Ok(team) if team.organization_id.is_some() => {
+            debug!(team_id = team.id, "Found complete team in Redis cache");
             Ok(team)
+        }
+        Ok(team) => {
+            debug!(
+                team_id = team.id,
+                "Team in cache missing organization_id, treating as cache miss"
+            );
+            // Treat as cache miss - fetch complete team from database
+            match db_lookup().await {
+                Ok(team) => {
+                    debug!(team_id = team.id, "Found team in PostgreSQL");
+                    // Update Redis cache with complete team
+                    if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
+                        warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
+                    }
+                    Ok(team)
+                }
+                Err(e) => {
+                    warn!(error = %e, "Team not found in PostgreSQL");
+                    Err(e)
+                }
+            }
         }
         Err(e) => {
             debug!(error = %e, "Team not found in Redis cache");
