@@ -5,8 +5,10 @@ import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    ActionsNode,
     CachedExperimentQueryResponse,
     ExperimentDataWarehouseNode,
+    ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentQuery,
@@ -35,9 +37,11 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     get_winsorized_metric_values_query,
 )
 from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
+from posthog.hogql_queries.experiments.experiment_query_builder import ExperimentQueryBuilder
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
+    normalize_to_exposure_criteria,
 )
 from posthog.hogql_queries.experiments.utils import (
     get_bayesian_experiment_result,
@@ -60,9 +64,16 @@ class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
 
-    def __init__(self, *args, override_end_date: Optional[datetime] = None, **kwargs):
+    def __init__(
+        self,
+        *args,
+        override_end_date: Optional[datetime] = None,
+        use_new_query_builder: Optional[bool] = False,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
+        self.use_new_query_builder = use_new_query_builder
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -106,6 +117,49 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Just to simplify access
         self.metric = self.query.metric
+
+    @property
+    def is_new_query_builder_supported(self) -> bool:
+        """
+        Determines whether to use the map aggregation query builder.
+        Only enabled for mean metrics without data warehouse support (MVP scope).
+        """
+        # Only for mean metrics (MVP scope)
+        if not isinstance(self.metric, ExperimentMeanMetric):
+            return False
+
+        # No data warehouse support yet
+        if self.is_data_warehouse_query:
+            return False
+
+        # No outlier handling supported yet
+        if isinstance(self.metric, ExperimentMeanMetric) and (
+            self.metric.lower_bound_percentile or self.metric.upper_bound_percentile
+        ):
+            return False
+
+        return self.use_new_query_builder is True
+
+    def _should_use_new_query_builder(self) -> bool:
+        """
+        Determines whether to use the new CTE-based query builder.
+        Supports both mean and funnel metrics.
+        """
+        # Check if metric type is supported
+        if not isinstance(self.metric, ExperimentMeanMetric | ExperimentFunnelMetric):
+            return False
+
+        # No data warehouse support yet
+        if self.is_data_warehouse_query:
+            return False
+
+        # Mean metric-specific checks
+        if isinstance(self.metric, ExperimentMeanMetric):
+            # No outlier handling supported yet for mean metrics
+            if self.metric.lower_bound_percentile or self.metric.upper_bound_percentile:
+                return False
+
+        return self.use_new_query_builder is True
 
     def _get_metrics_aggregated_per_entity_query(
         self,
@@ -439,6 +493,44 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
     def _get_experiment_query(self) -> ast.SelectQuery:
+        """
+        Returns the main experiment query.
+        """
+        if self._should_use_new_query_builder():
+            assert isinstance(self.metric, ExperimentMeanMetric | ExperimentFunnelMetric)
+
+            # TODO: Refactor this. Essentially, we are taking an experiment metric here and
+            # prepare inputs for the query builder. Could be extracted to it's own function.
+            criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
+            exposure_config: ExperimentEventExposureConfig | ActionsNode
+            if criteria is None:
+                exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+                filter_test_accounts = False
+                multiple_variant_handling = MultipleVariantHandling.EXCLUDE
+            else:
+                if criteria.exposure_config is None:
+                    exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+                else:
+                    exposure_config = criteria.exposure_config
+                filter_test_accounts = (
+                    bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else False
+                )
+                multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.EXCLUDE
+
+            builder = ExperimentQueryBuilder(
+                team=self.team,
+                feature_flag_key=self.feature_flag.key,
+                metric=self.metric,
+                exposure_config=exposure_config,
+                filter_test_accounts=filter_test_accounts,
+                multiple_variant_handling=multiple_variant_handling,
+                variants=self.variants,
+                date_range_query=self.date_range_query,
+                entity_key=self.entity_key,
+            )
+            return builder.build_query()
+
+        # Old implementation
         # Get all entities that should be included in the experiment
         exposure_query = get_experiment_exposure_query(
             self.experiment,
