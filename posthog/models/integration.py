@@ -15,6 +15,8 @@ from django.db import models
 import jwt
 import requests
 import structlog
+from disposable_email_domains import blocklist as disposable_email_domains_list
+from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
 from prometheus_client import Counter
@@ -35,7 +37,6 @@ from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
 
 from products.workflows.backend.providers import MailjetProvider, SESProvider, TwilioProvider
-from products.workflows.backend.providers.constants import UNSUPPORTED_EMAIL_DOMAINS
 
 logger = structlog.get_logger(__name__)
 
@@ -1151,7 +1152,7 @@ class EmailIntegration:
         domain: str = email_address.split("@")[1]
         provider: str = config.get("provider", "mailjet")  # Default to mailjet for backward compatibility
 
-        if domain in UNSUPPORTED_EMAIL_DOMAINS:
+        if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
 
         # Check if any other integration already exists in a different team with the same domain

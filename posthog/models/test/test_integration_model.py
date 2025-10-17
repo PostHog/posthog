@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from django.db import connection
 
+from disposable_email_domains import blocklist as disposable_email_domains_list
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.instance_setting import set_instance_setting
@@ -24,8 +25,6 @@ from posthog.models.integration import (
     SlackIntegration,
 )
 from posthog.models.team.team import Team
-
-from products.workflows.backend.providers.constants import UNSUPPORTED_EMAIL_DOMAINS
 
 
 def get_db_field_value(field, model_id):
@@ -636,11 +635,19 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 
     @override_settings(MAILJET_PUBLIC_KEY="test_api_key", MAILJET_SECRET_KEY="test_secret_key")
     def test_unsupported_email_domain(self):
-        # Use a domain from the unsupported list
-        unsupported_domain = next(iter(UNSUPPORTED_EMAIL_DOMAINS))
-        config = {"email": f"user@{unsupported_domain}", "name": "Test User"}
+        # Test with a free email domain
+        config = {"email": "user@gmail.com", "name": "Test User"}
 
         with pytest.raises(ValidationError) as exc:
             EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
-        assert unsupported_domain in str(exc.value)
+        assert "gmail.com" in str(exc.value)
+        assert "not supported" in str(exc.value)
+
+        # Test with a disposable email domain
+        disposable_domain = next(iter(disposable_email_domains_list))
+        config = {"email": f"user@{disposable_domain}", "name": "Test User"}
+
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(config, team_id=self.team.id, created_by=self.user)
+        assert disposable_domain in str(exc.value)
         assert "not supported" in str(exc.value)
