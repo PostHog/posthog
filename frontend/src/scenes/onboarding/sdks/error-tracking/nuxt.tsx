@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SDKInstallNuxtJSInstructions } from '../sdk-install-instructions/nuxt'
+import { SDK_DEFAULTS_DATE } from '../sdk-install-instructions/constants'
+import { JSInstallSnippet } from '../sdk-install-instructions/js-web'
 import { JSManualCapture } from './FinalSteps'
 import { type NuxtVersion, nuxtInstructionsLogic } from './nuxtInstructionsLogic'
 
@@ -18,10 +21,6 @@ export function NuxtInstructions(): JSX.Element {
 
     return (
         <>
-            <p>
-                For Nuxt v3.7 and above, we recommend using the official <code>@posthog/nuxt</code> module which
-                provides automatic error tracking with built-in source map support.
-            </p>
             <LemonTabs
                 activeKey={nuxtVersion}
                 onChange={(key) => setNuxtVersion(key as NuxtVersion)}
@@ -50,7 +49,11 @@ function NuxtModuleInstructions({ apiKey, host }: { apiKey: string; host: string
         <>
             <h3>Install the PostHog Nuxt module</h3>
             <p>Install the PostHog Nuxt module using your package manager:</p>
-            <CodeSnippet language={Language.Bash}>npm install @posthog/nuxt</CodeSnippet>
+            <CodeSnippet language={Language.Bash}>
+                {['npm install @posthog/nuxt', '# OR', 'yarn add @posthog/nuxt', '# OR', 'pnpm add @posthog/nuxt'].join(
+                    '\n'
+                )}
+            </CodeSnippet>
             <p>
                 Add the module to your <code>nuxt.config.ts</code> file:
             </p>
@@ -77,14 +80,66 @@ function NuxtModuleInstructions({ apiKey, host }: { apiKey: string; host: string
 }
 
 function NuxtLegacyInstructions({ apiKey, host }: { apiKey: string; host: string }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
+
     return (
         <>
             <h3>Install PostHog SDK</h3>
             <p>
-                The below guide is for Nuxt v3.6 and below. For Nuxt v3.7 and above, see the <strong>Nuxt v3.7+</strong>{' '}
-                tab.
+                The below guide is for Nuxt v3.0 and above. For Nuxt v2.16 and below, see our{' '}
+                <Link to="https://posthog.com/docs/libraries/nuxt-js#nuxt-v216-and-below">Nuxt docs</Link>
             </p>
-            <SDKInstallNuxtJSInstructions />
+            <h4>Install posthog-js using your package manager</h4>
+            <JSInstallSnippet />
+            <h4>Add environment variables</h4>
+            <p>
+                Add your PostHog API key and host to your <code>nuxt.config.js</code> file.
+            </p>
+            <CodeSnippet language={Language.JavaScript}>
+                {`export default defineNuxtConfig({
+  runtimeConfig: {
+    public: {
+      posthogPublicKey: '${apiKey}',
+      posthogHost: '${host}',
+      posthogDefaults: '${SDK_DEFAULTS_DATE}'
+    }
+  }
+})`}
+            </CodeSnippet>
+            <h4>Create a plugin</h4>
+            <p>
+                Create a new plugin by creating a new file <code>posthog.client.js</code> in your{' '}
+                <Link to="https://nuxt.com/docs/guide/directory-structure/plugins" target="_blank">
+                    plugins directory
+                </Link>
+                :
+            </p>
+            <CodeSnippet language={Language.JavaScript}>
+                {`import { defineNuxtPlugin } from '#app'
+import posthog from 'posthog-js'
+export default defineNuxtPlugin(nuxtApp => {
+  const runtimeConfig = useRuntimeConfig();
+  const posthogClient = posthog.init(runtimeConfig.public.posthogPublicKey, {
+    api_host: runtimeConfig.public.posthogHost,
+    defaults: runtimeConfig.public.posthogDefaults,
+    ${
+        isPersonProfilesDisabled
+            ? ``
+            : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+    }
+    loaded: (posthog) => {
+      if (import.meta.env.MODE === 'development') posthog.debug();
+    }
+  })
+
+  return {
+    provide: {
+      posthog: () => posthogClient
+    }
+  }
+})`}
+            </CodeSnippet>
             <h3>Configure exception autocapture</h3>
             <p>
                 Update your <code>posthog.client.js</code> to add an error hook:
