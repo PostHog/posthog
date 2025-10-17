@@ -25,12 +25,12 @@ class TestAnalyzeMigrationRisk(TestCase):
         command = Command()
 
         def mock_makemigrations(*args, **kwargs):
-            # Simulate Django's output to stdout
+            # Simulate Django's output to stdout with mixed operations
             import sys
 
             sys.stdout.write("Migrations for 'posthog':\n")
             sys.stdout.write("  posthog/migrations/0001_test.py\n")
-            sys.stdout.write("    - Remove field test_field from testmodel\n")
+            sys.stdout.write("    - Add field new_field to testmodel\n")
             raise SystemExit(1)
 
         with patch("django.core.management.call_command", side_effect=mock_makemigrations):
@@ -38,7 +38,7 @@ class TestAnalyzeMigrationRisk(TestCase):
 
         assert "**Summary:** ⚠️ Missing migrations detected" in result
         assert "makemigrations" in result
-        assert "Remove field test_field from testmodel" in result
+        assert "Add field new_field to testmodel" in result
 
     def test_check_missing_migrations_handles_errors(self):
         """Should return empty string on other errors."""
@@ -65,10 +65,10 @@ class TestAnalyzeMigrationRisk(TestCase):
 
         def selective_mock_call_command(command_name, *args, **kwargs):
             if command_name == "makemigrations":
-                # Simulate Django's output to stdout
+                # Simulate Django's output to stdout with mixed operations
                 sys.stdout.write("Migrations for 'posthog':\n")
                 sys.stdout.write("  posthog/migrations/0001_test.py\n")
-                sys.stdout.write("    - Remove field test_field from testmodel\n")
+                sys.stdout.write("    - Add field new_field to testmodel\n")
                 raise SystemExit(1)
             else:
                 # Call the real command for other commands
@@ -112,3 +112,48 @@ class TestAnalyzeMigrationRisk(TestCase):
 
         output = out.getvalue()
         assert output == ""
+
+    def test_check_missing_migrations_filters_deprecated_fields(self):
+        """Should return empty string when only deprecated field removals are detected."""
+        from posthog.management.commands.analyze_migration_risk import Command
+
+        command = Command()
+
+        def mock_makemigrations(*args, **kwargs):
+            # Simulate Django detecting deprecated fields needing removal
+            import sys
+
+            sys.stdout.write("Migrations for 'posthog':\n")
+            sys.stdout.write("  posthog/migrations/0886_remove_annotation_is_emoji_and_more.py\n")
+            sys.stdout.write("    - Remove field is_emoji from annotation\n")
+            sys.stdout.write("    - Remove field recording_id from annotation\n")
+            raise SystemExit(1)
+
+        with patch("django.core.management.call_command", side_effect=mock_makemigrations):
+            result = command.check_missing_migrations()
+
+        # Should return empty string because all operations are "Remove field"
+        assert result == ""
+
+    def test_check_missing_migrations_does_not_filter_mixed_operations(self):
+        """Should return warning when there are non-removal operations."""
+        from posthog.management.commands.analyze_migration_risk import Command
+
+        command = Command()
+
+        def mock_makemigrations(*args, **kwargs):
+            # Simulate mixed operations (not just removals)
+            import sys
+
+            sys.stdout.write("Migrations for 'posthog':\n")
+            sys.stdout.write("  posthog/migrations/0887_test.py\n")
+            sys.stdout.write("    - Remove field is_emoji from annotation\n")
+            sys.stdout.write("    - Add field new_field to testmodel\n")
+            raise SystemExit(1)
+
+        with patch("django.core.management.call_command", side_effect=mock_makemigrations):
+            result = command.check_missing_migrations()
+
+        # Should return warning because there are non-removal operations
+        assert "**Summary:** ⚠️ Missing migrations detected" in result
+        assert "Add field new_field to testmodel" in result

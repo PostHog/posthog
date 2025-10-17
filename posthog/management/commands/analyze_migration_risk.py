@@ -22,10 +22,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        migrations = self.get_unapplied_migrations()
-
-        # Check for missing migrations first
+        # Check for missing migrations BEFORE loading migration state
+        # This prevents deprecated fields from being detected as needing removal
         missing_migrations_warning = self.check_missing_migrations()
+
+        migrations = self.get_unapplied_migrations()
 
         if not migrations and not missing_migrations_warning:
             # Return silently when no migrations to analyze and no missing migrations (for CI)
@@ -135,6 +136,16 @@ class Command(BaseCommand):
                 # Exit code 1 means migrations needed
                 output = stdout_capture.getvalue()
                 if output.strip():
+                    # Check if ALL operations are "Remove field" (likely deprecated fields)
+                    # We skip these because django-deprecate-fields hides fields at runtime
+                    # but Django still sees them in the DB, causing false positives
+                    lines = [line.strip() for line in output.split("\n") if line.strip()]
+                    operation_lines = [line for line in lines if line.startswith("- ")]
+
+                    # If all operations are "Remove field", skip the warning
+                    if operation_lines and all(line.startswith("- Remove field") for line in operation_lines):
+                        return ""
+
                     # Prepend Summary for CI workflow, wrap Django's output in code block
                     return f"**Summary:** ⚠️ Missing migrations detected\n\n```\n{output}```\n\nRun `python manage.py makemigrations` to create them.\n"
                 return ""
