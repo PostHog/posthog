@@ -27,6 +27,8 @@ class BuiltQuery:
     prefix: str
     # HogQL AST for the view
     query: ast.Expr
+    # Useful for debugging purposes, only asserted by in tests
+    test_comments: str | None = None
 
 
 # A builder is a function that takes a SourceHandle and returns a single BuiltQuery object

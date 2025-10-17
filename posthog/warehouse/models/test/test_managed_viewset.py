@@ -58,8 +58,6 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             self.assertIsNotNone(view.columns)
             self.assertIn("HogQLQuery", view.query.get("kind", ""))  # type: ignore
 
-        # TODO: There's a bug here, these shouldn't include the weird `no_property` bit
-        # Will fix in a follow-up, not related to the changes that introduced this test
         expected_view_names = sorted(
             [
                 "revenue_analytics.all.revenue_analytics_charge",
@@ -70,13 +68,13 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
                 "revenue_analytics.events.purchase.charge_events_revenue_view",
                 "revenue_analytics.events.purchase.customer_events_revenue_view",
                 "revenue_analytics.events.purchase.revenue_item_events_revenue_view",
-                "revenue_analytics.events.purchase_no_property.product_events_revenue_view",
-                "revenue_analytics.events.purchase_no_property.subscription_events_revenue_view",
+                "revenue_analytics.events.purchase.product_events_revenue_view",
+                "revenue_analytics.events.purchase.subscription_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.charge_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.customer_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.product_events_revenue_view",
                 "revenue_analytics.events.subscription_charge.revenue_item_events_revenue_view",
-                "revenue_analytics.events.subscription_charge_no_property.subscription_events_revenue_view",
+                "revenue_analytics.events.subscription_charge.subscription_events_revenue_view",
             ]
         )
 
