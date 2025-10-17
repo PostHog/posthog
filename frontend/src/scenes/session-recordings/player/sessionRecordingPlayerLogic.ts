@@ -336,7 +336,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             snapshotDataLogic(props),
-            ['snapshotsLoaded', 'snapshotsLoading', 'snapshotSources', 'latestLoadedTimestamp'],
+            ['snapshotsLoaded', 'snapshotsLoading', 'snapshotSources'],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'urls',

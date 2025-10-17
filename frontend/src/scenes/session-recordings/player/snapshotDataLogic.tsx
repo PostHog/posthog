@@ -258,26 +258,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
     })),
     selectors(({ cache }) => ({
-        latestLoadedTimestamp: [
-            (s) => [s.snapshotSources],
-            (snapshotSources): number => {
-                if (!snapshotSources || snapshotSources.length === 0) {
-                    return 0
-                }
-
-                let latestLoadedTimestamp = 0
-                snapshotSources.forEach((source) => {
-                    const sourceKey = keyForSource(source)
-                    if (cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && source.end_timestamp) {
-                        const sourceEndTime = new Date(source.end_timestamp).getTime()
-                        latestLoadedTimestamp = Math.max(latestLoadedTimestamp, sourceEndTime)
-                    }
-                })
-
-                return latestLoadedTimestamp
-            },
-        ],
-
         snapshotsLoading: [
             (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshotsBySources],
             (
