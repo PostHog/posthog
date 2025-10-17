@@ -1425,6 +1425,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.pauseIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
+
+            if (!values.fullyLoaded) {
+                actions.resumeLoading()
+                actions.loadNextSnapshotSource()
+            }
         },
         setEndReached: ({ reached }) => {
             if (reached) {
@@ -1581,6 +1586,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setMaskWindow(true)
             } else {
                 actions.setMaskWindow(false)
+            }
+
+            // Check once per second if we should pause/resume loading based on buffer window
+            cache.lastLoadingCheck = cache.lastLoadingCheck || 0
+            const now = performance.now()
+            if (now - cache.lastLoadingCheck > 1000) {
+                cache.lastLoadingCheck = now
+                if (values.shouldPauseLoading) {
+                    actions.pauseLoading()
+                } else {
+                    actions.resumeLoading()
+                }
             }
 
             // The normal loop. Progress the player position and continue the loop
@@ -1814,31 +1831,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         currentPlayerState: (value) => {
             if (value === SessionPlayerState.PLAY && !values.wasMarkedViewed) {
                 actions.markViewed(0)
-            }
-
-            if (value === SessionPlayerState.PAUSE && !values.fullyLoaded) {
-                actions.resumeLoading()
-                actions.loadNextSnapshotSource()
-            } else if (value === SessionPlayerState.PLAY) {
-                if (values.shouldPauseLoading) {
-                    actions.pauseLoading()
-                } else {
-                    actions.resumeLoading()
-                    actions.loadNextSnapshotSource()
-                }
-            }
-        },
-
-        shouldPauseLoading: (value) => {
-            if (values.currentPlayerState !== SessionPlayerState.PLAY) {
-                return
-            }
-
-            if (value) {
-                actions.pauseLoading()
-            } else {
-                actions.resumeLoading()
-                actions.loadNextSnapshotSource()
             }
         },
     })),
