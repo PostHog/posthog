@@ -543,8 +543,6 @@ class TestErrorTracking(APIBaseTest):
             format="json",
         )
 
-        print(response.json())
-
         assert response.status_code == status.HTTP_201_CREATED
 
     def test_bulk_start_upload_updates_release_for_pending_symbol_set(self) -> None:
