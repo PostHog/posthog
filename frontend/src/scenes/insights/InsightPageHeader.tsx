@@ -515,10 +515,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
-                // Renaming insights is too fast, so we need to debounce it
-                renameDebounceMs={1000}
+                renameDebounceMs={0}
                 // Use onBlur-only saves to prevent autosave while typing
-                saveOnBlur={true}
+                saveOnBlur
                 actions={
                     <>
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
