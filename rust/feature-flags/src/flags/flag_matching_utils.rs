@@ -16,7 +16,7 @@ use sqlx::{Acquire, Row};
 use tokio::time::timeout;
 use tracing::{error, info, instrument, warn};
 
-// Add thread-local imports for test-specific counter
+// Use thread-local storage for test counter to isolate concurrent tests
 #[cfg(test)]
 use std::cell::RefCell;
 
@@ -42,10 +42,83 @@ use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluati
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
-// Replace the static counter with thread-local storage
+// Thread-local counter ensures test isolation when running in parallel
 #[cfg(test)]
 thread_local! {
-    static FETCH_CALLS: RefCell<u64> = const { RefCell::new(0) };
+    static FETCH_CALLS: RefCell<usize> = const { RefCell::new(0) };
+}
+
+/// Context for flag queries - encapsulates common parameters
+pub struct FlagQueryContext<'a> {
+    pub reader: PostgresReader,
+    pub team_id: TeamId,
+    pub config: &'a Config,
+}
+
+/// RAII guard for timing queries with automatic logging
+struct QueryTimer<'a> {
+    name: &'static str,
+    start: Instant,
+    _metric_guard: common_metrics::TimingGuard<'a>,
+}
+
+impl<'a> QueryTimer<'a> {
+    fn new(name: &'static str, metric_name: &'static str) -> Self {
+        Self {
+            name,
+            start: Instant::now(),
+            _metric_guard: common_metrics::timing_guard(metric_name, &[]),
+        }
+    }
+
+    fn elapsed_ms(&self) -> u128 {
+        self.start.elapsed().as_millis()
+    }
+}
+
+impl<'a> Drop for QueryTimer<'a> {
+    fn drop(&mut self) {
+        // Metric is automatically finalized via the guard drop
+        let duration = self.elapsed_ms();
+        if duration > 500 {
+            warn!("{} took {}ms", self.name, duration);
+        }
+    }
+}
+
+/// Log query duration based on configured thresholds
+fn log_query_duration(
+    query_name: &str,
+    duration_ms: u128,
+    config: &Config,
+    context: impl FnOnce() -> String,
+) {
+    let threshold_ms = config.flag_query_slow_error_threshold_ms as u128;
+    let warn_ms = config.flag_query_slow_warn_threshold_ms as u128;
+    let info_ms = config.flag_query_slow_info_threshold_ms as u128;
+
+    match duration_ms {
+        d if d > threshold_ms => {
+            error!(
+                duration_ms = d,
+                query = query_name,
+                "CRITICAL: Very slow query - {}",
+                context()
+            );
+        }
+        d if d > warn_ms => {
+            warn!(
+                duration_ms = d,
+                query = query_name,
+                "Slow query detected - {}",
+                context()
+            );
+        }
+        d if d > info_ms => {
+            info!(duration_ms = d, query = query_name, "Query completed");
+        }
+        _ => {}
+    }
 }
 
 /// Calculates a deterministic hash value between 0 and 1 for a given identifier and salt.
@@ -96,18 +169,18 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     #[cfg(test)]
     increment_fetch_calls_count();
 
-    // Log pool state at function entry to track patterns
+    // Log pool state at function entry to track patterns - use structured logging
     if let Some(stats) = reader.as_ref().get_pool_stats() {
         let utilization =
             (stats.size.saturating_sub(stats.num_idle as u32) as f64) / stats.size as f64;
         if utilization > 0.8 {
             warn!(
-                "High pool utilization at function entry: {:.1}% (idle={}/{}) for team_id={}, distinct_id={}",
-                utilization * 100.0,
-                stats.num_idle,
-                stats.size,
-                team_id,
-                distinct_id
+                utilization_pct = utilization * 100.0,
+                idle = stats.num_idle,
+                total = stats.size,
+                %team_id,
+                %distinct_id,
+                "High pool utilization at function entry"
             );
         }
     }
@@ -137,67 +210,39 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             AND ppd.team_id = $2
     "#;
 
-    let person_query_start = Instant::now();
-    let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &[]);
+    let _person_timer = QueryTimer::new("Person query", FLAG_PERSON_QUERY_TIME);
 
-    // Get connection, execute query, then immediately release
     let (person_id, person_props): (Option<PersonId>, Option<Value>) = {
         let mut conn = reader.get_connection().await?;
-        let query_result = timeout(
+        timeout(
             Duration::from_millis(config.flag_person_query_timeout_ms),
             sqlx::query_as(person_query)
                 .bind(&distinct_id)
                 .bind(team_id)
                 .fetch_optional(&mut *conn),
         )
-        .await;
+        .await
+        .map_err(|_| {
+            warn!("Person query timeout");
+            FlagError::Timeout("Person query")
+        })?
+        .map(|opt| opt.unwrap_or((None, None)))
+        .map_err(|e: sqlx::Error| FlagError::from(e))?
+    };
 
-        match query_result {
-            Ok(Ok(result)) => result.unwrap_or((None, None)),
-            Ok(Err(e)) => return Err(e.into()),
-            Err(_) => {
-                warn!(
-                    "Person query timeout for distinct_id={}, team_id={}",
-                    distinct_id, team_id
-                );
-                return Err(FlagError::Timeout("Person query exceeded timeout"));
-            }
-        }
-    }; // Connection is dropped here
-    person_query_timer.fin();
+    let person_query_duration = _person_timer.elapsed_ms();
 
-    let person_query_duration = person_query_start.elapsed();
-
-    // Enhanced logging to identify spike triggers
-    if person_query_duration.as_millis() > config.flag_query_slow_error_threshold_ms as u128 {
-        error!(
-            "CRITICAL: Very slow person query! duration_ms={}, distinct_id={}, team_id={}, \
-             cohort_count={}, group_count={}, person_found={}",
-            person_query_duration.as_millis(),
+    // Use structured logging helper
+    log_query_duration("Person query", person_query_duration, config, || {
+        format!(
+            "distinct_id={}, team_id={}, cohort_count={}, group_count={}, person_found={}",
             distinct_id,
             team_id,
             static_cohort_ids.len(),
             group_type_indexes.len(),
             person_id.is_some()
-        );
-    } else if person_query_duration.as_millis() > config.flag_query_slow_warn_threshold_ms as u128 {
-        warn!(
-            "Slow person query detected: {}ms for distinct_id={}, team_id={}, \
-             cohort_count={}, group_count={}",
-            person_query_duration.as_millis(),
-            distinct_id,
-            team_id,
-            static_cohort_ids.len(),
-            group_type_indexes.len()
-        );
-    } else if person_query_duration.as_millis() > config.flag_query_slow_info_threshold_ms as u128 {
-        info!(
-            "Person query completed: {}ms for distinct_id={}, team_id={}",
-            person_query_duration.as_millis(),
-            distinct_id,
-            team_id,
-        );
-    }
+        )
+    });
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
     if let Some(person_id) = person_id {
         // NB: this is where we actually set our person ID in the flag evaluation state.
@@ -217,67 +262,34 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                     FROM cohort_membership
                 "#;
 
-            let cohort_query_start = Instant::now();
-            let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
+            let _cohort_timer = QueryTimer::new("Cohort query", FLAG_COHORT_QUERY_TIME);
 
-            // Get connection, execute query, then immediately release
             let cohort_rows = {
                 let mut conn = reader.get_connection().await?;
-                let cohort_result = timeout(
+                timeout(
                     Duration::from_millis(config.flag_cohort_query_timeout_ms),
                     sqlx::query(cohort_query)
                         .bind(&static_cohort_ids)
                         .bind(person_id)
                         .fetch_all(&mut *conn),
                 )
-                .await;
+                .await
+                .map_err(|_| {
+                    warn!("Cohort query timeout");
+                    FlagError::Timeout("Cohort query")
+                })?
+                .map_err(|e: sqlx::Error| FlagError::from(e))?
+            };
 
-                match cohort_result {
-                    Ok(Ok(rows)) => rows,
-                    Ok(Err(e)) => return Err(e.into()),
-                    Err(_) => {
-                        warn!(
-                            "Cohort query timeout for person_id={}, cohorts={:?}",
-                            person_id, static_cohort_ids
-                        );
-                        return Err(FlagError::Timeout("Cohort query exceeded timeout"));
-                    }
-                }
-            }; // Connection is dropped here
-            cohort_timer.fin();
+            let cohort_query_duration = _cohort_timer.elapsed_ms();
 
-            let cohort_query_duration = cohort_query_start.elapsed();
-
-            // Enhanced cohort query logging
-            if cohort_query_duration.as_millis() > config.flag_query_slow_error_threshold_ms as u128
-            {
-                error!(
-                    "CRITICAL: Very slow cohort query! duration_ms={}, person_id={}, \
-                     cohort_ids={:?}, team_id={}",
-                    cohort_query_duration.as_millis(),
-                    person_id,
-                    static_cohort_ids,
-                    team_id
-                );
-            } else if cohort_query_duration.as_millis()
-                > config.flag_query_slow_warn_threshold_ms as u128
-            {
-                warn!(
-                    "Slow cohort query detected: {}ms for person_id={}, cohort_count={}",
-                    cohort_query_duration.as_millis(),
-                    person_id,
-                    static_cohort_ids.len()
-                );
-            } else if cohort_query_duration.as_millis()
-                > config.flag_query_slow_info_threshold_ms as u128
-            {
-                info!(
-                    "Cohort query completed: {}ms for person_id={}, cohort_count={}",
-                    cohort_query_duration.as_millis(),
-                    person_id,
-                    static_cohort_ids.len()
-                );
-            }
+            // Use structured logging helper
+            log_query_duration("Cohort query", cohort_query_duration, config, || {
+                format!(
+                    "person_id={}, cohort_ids={:?}, team_id={}",
+                    person_id, static_cohort_ids, team_id
+                )
+            });
 
             let cohort_processing_timer =
                 common_metrics::timing_guard(FLAG_COHORT_PROCESSING_TIME, &[]);
@@ -342,13 +354,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             group_type_indexes.iter().copied().collect();
         let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
-        let group_query_start = Instant::now();
-        let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &[]);
+        let _group_timer = QueryTimer::new("Group query", FLAG_GROUP_QUERY_TIME);
 
-        // Get connection, execute query, then immediately release
         let groups = {
             let mut conn = reader.get_connection().await?;
-            let group_result = timeout(
+            timeout(
                 Duration::from_millis(config.flag_group_query_timeout_ms),
                 sqlx::query(group_query)
                     .bind(team_id)
@@ -356,57 +366,26 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                     .bind(&group_keys_vec)
                     .fetch_all(&mut *conn),
             )
-            .await;
+            .await
+            .map_err(|_| {
+                warn!("Group query timeout");
+                FlagError::Timeout("Group query")
+            })?
+            .map_err(|e: sqlx::Error| FlagError::from(e))?
+        };
 
-            match group_result {
-                Ok(Ok(groups)) => groups,
-                Ok(Err(e)) => return Err(e.into()),
-                Err(_) => {
-                    warn!(
-                        "Group query timeout for team_id={}, groups={:?}",
-                        team_id, group_keys_vec
-                    );
-                    return Err(FlagError::Timeout("Group query exceeded timeout"));
-                }
-            }
-        }; // Connection is dropped here
-        group_query_timer.fin();
+        let group_query_duration = _group_timer.elapsed_ms();
 
-        let group_query_duration = group_query_start.elapsed();
-
-        // Enhanced group query logging
-        if group_query_duration.as_millis() > config.flag_query_slow_error_threshold_ms as u128 {
-            error!(
-                "CRITICAL: Very slow group query! duration_ms={}, team_id={}, \
-                 group_type_indexes={:?}, group_keys={:?}, results={}",
-                group_query_duration.as_millis(),
+        // Use structured logging helper
+        log_query_duration("Group query", group_query_duration, config, || {
+            format!(
+                "team_id={}, group_type_indexes={:?}, group_keys={:?}, results={}",
                 team_id,
                 group_type_indexes_vec,
                 group_keys_vec,
                 groups.len()
-            );
-        } else if group_query_duration.as_millis()
-            > config.flag_query_slow_warn_threshold_ms as u128
-        {
-            warn!(
-                "Slow group query detected: {}ms for team_id={}, group_types={}, group_keys={}",
-                group_query_duration.as_millis(),
-                team_id,
-                group_type_indexes_vec.len(),
-                group_keys_vec.len()
-            );
-        } else if group_query_duration.as_millis()
-            > config.flag_query_slow_info_threshold_ms as u128
-        {
-            info!(
-                "Group query completed: {}ms for team_id={}, group_types={}, group_keys={}, results={}",
-                group_query_duration.as_millis(),
-                team_id,
-                group_type_indexes_vec.len(),
-                group_keys_vec.len(),
-                groups.len()
-            );
-        }
+            )
+        });
 
         let group_processing_timer = common_metrics::timing_guard(FLAG_GROUP_PROCESSING_TIME, &[]);
         for row in groups {
@@ -421,25 +400,26 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         group_processing_timer.fin();
     }
 
-    // Log if the entire function took too long
+    // Log if the entire function took too long - use structured logging
     let total_duration = function_start.elapsed();
-    if total_duration.as_millis() > config.flag_total_execution_error_threshold_ms as u128 {
+    let total_duration_ms = total_duration.as_millis();
+
+    if total_duration_ms > config.flag_total_execution_error_threshold_ms as u128 {
         error!(
-            "CRITICAL: Total property fetch took {}ms! team_id={}, distinct_id={}, \
-             had_person={}, cohort_count={}, group_count={}",
-            total_duration.as_millis(),
-            team_id,
-            distinct_id,
-            flag_evaluation_state.get_person_id().is_some(),
-            static_cohort_ids.len(),
-            group_type_indexes.len()
+            duration_ms = total_duration_ms,
+            %team_id,
+            %distinct_id,
+            had_person = flag_evaluation_state.get_person_id().is_some(),
+            cohort_count = static_cohort_ids.len(),
+            group_count = group_type_indexes.len(),
+            "CRITICAL: Total property fetch exceeded threshold"
         );
-    } else if total_duration.as_millis() > config.flag_total_execution_warn_threshold_ms as u128 {
+    } else if total_duration_ms > config.flag_total_execution_warn_threshold_ms as u128 {
         warn!(
-            "Slow total property fetch: {}ms for team_id={}, distinct_id={}",
-            total_duration.as_millis(),
-            team_id,
-            distinct_id
+            duration_ms = total_duration_ms,
+            %team_id,
+            %distinct_id,
+            "Slow total property fetch"
         );
     }
 
@@ -1432,7 +1412,7 @@ async fn try_should_write_hash_key_override(
 }
 
 #[cfg(test)]
-pub fn get_fetch_calls_count() -> u64 {
+pub fn get_fetch_calls_count() -> usize {
     FETCH_CALLS.with(|counter| *counter.borrow())
 }
 
