@@ -855,8 +855,8 @@ class SymbolSetUpload:
 
 class ErrorTrackingSymbolSetUploadSerializer(serializers.Serializer):
     chunk_id = serializers.CharField()
-    release_id = serializers.CharField(default=None)
-    content_hash = serializers.CharField(default=None)
+    release_id = serializers.CharField(allow_null=True, required=False)
+    content_hash = serializers.CharField(allow_null=True, required=False)
 
 
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
