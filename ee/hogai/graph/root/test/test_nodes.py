@@ -39,6 +39,7 @@ from ee.hogai.graph.root.prompts import (
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
 )
+from ee.hogai.tool import ToolMessagesArtifact
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion
@@ -702,7 +703,10 @@ class TestRootNodeTools(BaseTest):
         result = await node.arun(state, {})
         self.assertEqual(result, PartialAssistantState(root_tool_calls_count=0))
 
-    async def test_run_valid_tool_call(self):
+    @patch("ee.hogai.graph.root.tools.create_and_query_insight.CreateAndQueryInsightTool._arun_impl")
+    async def test_run_valid_tool_call(self, create_and_query_insight_mock):
+        create_and_query_insight_mock.return_value = AsyncMock(return_value=("", ToolMessagesArtifact(messages=[])))
+
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -713,7 +717,7 @@ class TestRootNodeTools(BaseTest):
                         AssistantToolCall(
                             id="xyz",
                             name="create_and_query_insight",
-                            args={"query_kind": "trends", "query_description": "test query"},
+                            args={"query_description": "test query"},
                         )
                     ],
                 )
@@ -721,9 +725,9 @@ class TestRootNodeTools(BaseTest):
         )
         result = await node.arun(state, {})
         self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(result.root_tool_call_id, "xyz")
-        self.assertEqual(result.root_tool_insight_plan, "test query")
-        self.assertEqual(result.root_tool_insight_type, None)  # Insight type is determined by query planner node
+        assert isinstance(result.messages[-1], AssistantToolCallMessage)
+        self.assertEqual(result.messages[-1].tool_call_id, "xyz")
+        create_and_query_insight_mock.assert_called_once_with(query_description="test query", tool_call_id="xyz")
 
     async def test_run_valid_contextual_tool_call(self):
         node = RootNodeTools(self.team, self.user)
@@ -879,6 +883,24 @@ class TestRootNodeTools(BaseTest):
         )
 
         self.assertEqual(node.router(state), "insights")
+
+    def test_billing_tool_routing(self):
+        """Test that billing tool calls are routed correctly"""
+        node = RootNodeTools(self.team, self.user)
+
+        # Create state with billing tool call (read_data with kind=billing_info)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Let me check your billing information",
+                    tool_calls=[AssistantToolCall(id="billing-123", name="read_data", args={"kind": "billing_info"})],
+                )
+            ],
+            root_tool_call_id="billing-123",
+        )
+
+        # Should route to billing
+        self.assertEqual(node.router(state), "billing")
 
     def test_router_insights_search_path(self):
         """Test router routes to insights_search when search_insights_query is set"""
