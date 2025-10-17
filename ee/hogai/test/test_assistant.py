@@ -124,7 +124,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         ).start()
 
-        self.checkpointer_patch = patch("ee.hogai.graph.graph.global_checkpointer", new=DjangoCheckpointer())
+        self.checkpointer_patch = patch("ee.hogai.graph.base.graph.global_checkpointer", new=DjangoCheckpointer())
         self.checkpointer_patch.start()
 
     def tearDown(self):
@@ -529,12 +529,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root(
                 {
-                    "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
                     "root": AssistantNodeName.ROOT,
                     "end": AssistantNodeName.END,
                 }
             )
-            .add_insights(AssistantNodeName.ROOT)
             .compile()
         )
 
@@ -564,7 +562,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         {
                             "id": "1",
                             "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": insight_type},
+                            "args": {"query_description": "Foobar"},
                         }
                     ],
                 )
@@ -745,7 +743,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "trends"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -817,7 +815,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "funnel"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -896,7 +894,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "retention"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -973,7 +971,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "sql"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -1205,7 +1203,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         {
                             "id": str(uuid4()),
                             "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "trends"},
+                            "args": {"query_description": "Foobar"},
                         }
                     ],
                 )
@@ -1286,7 +1284,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         {
                             "id": "1",
                             "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "trends"},
+                            "args": {"query_description": "Foobar"},
                         }
                     ],
                 )
@@ -1630,7 +1628,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "trends"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -1669,11 +1667,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_root(
                 {
                     "root": AssistantNodeName.ROOT,
-                    "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
                     "end": AssistantNodeName.END,
                 }
             )
-            .add_insights()
             .compile(),
             conversation=self.conversation,
             is_new_conversation=True,
@@ -1715,7 +1711,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     AssistantToolCall(
                         id="xyz",
                         name="create_and_query_insight",
-                        args={"query_description": "Foobar", "query_kind": "trends"},
+                        args={"query_description": "Foobar"},
                     )
                 ],
             ),

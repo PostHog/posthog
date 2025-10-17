@@ -1,4 +1,4 @@
-from .graph import AssistantCompiledStateGraph, BaseAssistantGraph
+from .graph import AssistantCompiledStateGraph, BaseAssistantGraph, global_checkpointer
 from .node import AssistantNode, BaseAssistantNode
 
 __all__ = [
@@ -6,4 +6,5 @@ __all__ = [
     "AssistantNode",
     "BaseAssistantGraph",
     "AssistantCompiledStateGraph",
+    "global_checkpointer",
 ]
