@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 
 import { BaseBatchPipeline } from './base-batch-pipeline'
-import { createBatch, createContext, createNewBatchPipeline } from './helpers'
+import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { DefaultContext, createBatch, createContext, createNewBatchPipeline } from './helpers'
 import { dlq, drop, ok } from './results'
 
 function createTestMessage(overrides: Partial<Message> = {}): Message {
@@ -371,6 +372,146 @@ describe('BaseBatchPipeline', () => {
 
             // Third item: only step side effects (context has none)
             expect(results![2].context.sideEffects).toEqual([step3aSideEffect, step3bSideEffect])
+        })
+    })
+
+    describe('warning accumulation', () => {
+        it('should accumulate warnings from step results', async () => {
+            const messages: Message[] = [createTestMessage({ value: Buffer.from('test1'), offset: 1 })]
+
+            const batch = createBatch(messages.map((message) => ({ message })))
+            const rootPipeline = createNewBatchPipeline().build()
+
+            const stepWarning = { type: 'test_warning', details: { message: 'step warning' } }
+            const pipeline = new BaseBatchPipeline((items: any[]) => {
+                return Promise.resolve(items.map(() => ok({ processed: 'result' }, [], [stepWarning])))
+            }, rootPipeline)
+
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toHaveLength(1)
+            expect(results![0].context.warnings).toEqual([stepWarning])
+        })
+
+        it('should merge context warnings with step warnings', async () => {
+            const messages: Message[] = [createTestMessage({ value: Buffer.from('test1'), offset: 1 })]
+
+            const contextWarning = { type: 'context_warning', details: { message: 'from context' } }
+            const batch = [
+                createContext(ok({ message: messages[0] }), {
+                    message: messages[0],
+                    sideEffects: [],
+                    warnings: [contextWarning],
+                }),
+            ]
+
+            const rootPipeline = createNewBatchPipeline().build()
+
+            const stepWarning = { type: 'step_warning', details: { message: 'from step' } }
+            const pipeline = new BaseBatchPipeline((items: any[]) => {
+                return Promise.resolve(items.map(() => ok({ processed: 'result' }, [], [stepWarning])))
+            }, rootPipeline)
+
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toHaveLength(1)
+            expect(results![0].context.warnings).toEqual([contextWarning, stepWarning])
+        })
+
+        it('should handle multiple warnings from multiple items', async () => {
+            const messages: Message[] = [
+                createTestMessage({ value: Buffer.from('item1'), offset: 1 }),
+                createTestMessage({ value: Buffer.from('item2'), offset: 2 }),
+                createTestMessage({ value: Buffer.from('item3'), offset: 3 }),
+            ]
+
+            const contextWarning1 = { type: 'context_warning_1', details: { idx: 1 } }
+            const contextWarning2 = { type: 'context_warning_2', details: { idx: 2 } }
+
+            const batch = [
+                createContext(ok({ message: messages[0] }), {
+                    message: messages[0],
+                    sideEffects: [],
+                    warnings: [contextWarning1],
+                }),
+                createContext(ok({ message: messages[1] }), {
+                    message: messages[1],
+                    sideEffects: [],
+                    warnings: [contextWarning2],
+                }),
+                createContext(ok({ message: messages[2] }), {
+                    message: messages[2],
+                    sideEffects: [],
+                    warnings: [],
+                }),
+            ]
+
+            const rootPipeline = createNewBatchPipeline().build()
+
+            const stepWarning1 = { type: 'step_warning_1', details: { result: 1 } }
+            const stepWarning3a = { type: 'step_warning_3a', details: { result: 3 } }
+            const stepWarning3b = { type: 'step_warning_3b', details: { result: 3 } }
+            const pipeline = new BaseBatchPipeline((_: any[]) => {
+                return Promise.resolve([
+                    ok({ processed: 'result1' }, [], [stepWarning1]),
+                    ok({ processed: 'result2' }), // No step warnings
+                    ok({ processed: 'result3' }, [], [stepWarning3a, stepWarning3b]),
+                ])
+            }, rootPipeline)
+
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toHaveLength(3)
+
+            // First item: context + step warnings
+            expect(results![0].context.warnings).toEqual([contextWarning1, stepWarning1])
+
+            // Second item: only context warnings (step has none)
+            expect(results![1].context.warnings).toEqual([contextWarning2])
+
+            // Third item: only step warnings (context has none)
+            expect(results![2].context.warnings).toEqual([stepWarning3a, stepWarning3b])
+        })
+
+        it('should preserve warnings for non-success results', async () => {
+            const messages: Message[] = [
+                createTestMessage({ value: Buffer.from('1'), offset: 1 }),
+                createTestMessage({ value: Buffer.from('drop'), offset: 2 }),
+            ]
+
+            const contextWarning = { type: 'context_warning', details: { message: 'existing' } }
+            const batch: BatchPipelineResultWithContext<{ message: Message }, DefaultContext> = [
+                createContext(ok({ message: messages[0] }), {
+                    message: messages[0],
+                    sideEffects: [],
+                    warnings: [contextWarning],
+                }),
+                createContext(drop('drop_reason'), {
+                    message: messages[1],
+                    sideEffects: [],
+                    warnings: [contextWarning],
+                }),
+            ]
+
+            const rootPipeline = createNewBatchPipeline().build()
+            const pipeline = new BaseBatchPipeline((items: any[]) => {
+                // Only process OK results
+                return Promise.resolve(items.map(() => ok({ processed: 'result' })))
+            }, rootPipeline)
+
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toHaveLength(2)
+
+            // OK result should have warnings accumulated
+            expect(results![0].context.warnings).toEqual([contextWarning])
+
+            // Drop result should preserve context warnings
+            expect(results![1].context.warnings).toEqual([contextWarning])
         })
     })
 })

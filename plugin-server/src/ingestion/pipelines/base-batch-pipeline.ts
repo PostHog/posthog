@@ -65,6 +65,7 @@ export class BaseBatchPipeline<TInput, TIntermediate, TOutput, CInput, COutput =
                         ...resultWithContext.context,
                         lastStep: this.stepName,
                         sideEffects: [...resultWithContext.context.sideEffects, ...stepResult.sideEffects],
+                        warnings: [...resultWithContext.context.warnings, ...stepResult.warnings],
                     },
                 }
             } else {

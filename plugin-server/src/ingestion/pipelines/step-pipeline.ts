@@ -37,6 +37,7 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C> implements Pipeline
                 ...previousResultWithContext.context,
                 lastStep: this.stepName,
                 sideEffects: [...previousResultWithContext.context.sideEffects, ...currentResult.sideEffects],
+                warnings: [...previousResultWithContext.context.warnings, ...currentResult.warnings],
             },
         }
     }
