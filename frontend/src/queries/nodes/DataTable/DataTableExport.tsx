@@ -225,10 +225,10 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                             },
                         },
                         {
-                            label: 'Save to a static cohort',
+                            label: 'Add to existing cohort',
                             onClick: () => {
                                 LemonDialog.open({
-                                    title: 'Save to a static cohort',
+                                    title: 'Add to existing cohort',
                                     description: 'This will add the current list of people to a static cohort.',
                                     content: (closeDialog) => (
                                         <SaveToCohortModalContent closeModal={closeDialog} query={source} />
