@@ -253,7 +253,7 @@ const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchem
                 source: {
                     kind: 'EventsNode',
                     event: metric.event_name,
-                    properties: metric.properties || {},
+                    ...(metric.properties && { properties: metric.properties }),
                 },
             }
 
@@ -264,7 +264,7 @@ const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchem
                 series: (metric.funnel_steps || [metric.event_name]).map((event: string) => ({
                     kind: 'EventsNode',
                     event,
-                    properties: metric.properties || {},
+                    ...(metric.properties && { properties: metric.properties }),
                 })),
             }
 
@@ -275,12 +275,16 @@ const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchem
                 numerator: {
                     kind: 'EventsNode',
                     event: metric.event_name,
-                    properties: metric.properties?.numerator || metric.properties || {},
+                    ...((metric.properties?.numerator || metric.properties) && {
+                        properties: metric.properties?.numerator || metric.properties,
+                    }),
                 },
                 denominator: {
                     kind: 'EventsNode',
                     event: metric.properties?.denominator_event || metric.event_name,
-                    properties: metric.properties?.denominator || metric.properties || {},
+                    ...((metric.properties?.denominator || metric.properties) && {
+                        properties: metric.properties?.denominator || metric.properties,
+                    }),
                 },
             }
 
