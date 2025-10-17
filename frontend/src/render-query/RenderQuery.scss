@@ -1,0 +1,52 @@
+@import '../styles/mixins';
+@import '../styles/global';
+
+body.RenderQueryBody {
+    min-height: 100vh;
+    margin: 0;
+    background: var(--bg-3000);
+}
+
+.RenderQuery {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-height: 100vh;
+    padding: 0;
+}
+
+.RenderQuery__messages {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.RenderQuery__message {
+    padding: 0.75rem 1rem;
+    font-weight: 500;
+    color: var(--danger);
+    background: var(--danger-highlight-bg);
+    border-radius: var(--radius);
+}
+
+.RenderQuery__placeholder {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    color: var(--muted-4000);
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+}
+
+.RenderQuery__content {
+    flex: 1;
+    min-height: 0;
+}
+
+.InsightCard__viz {
+    height: 100vh;
+}

@@ -61,7 +61,7 @@ export function SharedMetricModal({
         <LemonModal
             isOpen={isModalOpen}
             onClose={closeSharedMetricModal}
-            width={500}
+            maxWidth={800}
             title={isCreateMode ? 'Select one or more shared metrics' : 'Shared metric'}
             footer={
                 <div className="flex justify-between w-full">

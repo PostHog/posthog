@@ -267,7 +267,7 @@ class DatabricksClient:
                 # user agent can be used for usage tracking
                 user_agent_entry="PostHog batch exports",
                 enable_telemetry=False,
-                _socket_timeout=5,
+                _socket_timeout=300,  # Databricks seems to use this for all timeouts
                 _retry_stop_after_attempts_count=2,
                 _retry_delay_max=1,
             )
