@@ -1,4 +1,4 @@
-import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, defaults, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -31,13 +31,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
         return {
             actions: [
                 snapshotLogic,
-                [
-                    'loadSnapshots',
-                    'loadSnapshotSources',
-                    'loadNextSnapshotSource',
-                    'loadSnapshotsForSourceSuccess',
-                    'setSnapshots',
-                ],
+                ['loadSnapshots', 'loadSnapshotSources', 'loadSnapshotsForSourceSuccess', 'setSnapshots'],
             ],
             values: [
                 teamLogic,
@@ -140,5 +134,4 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
             }
         },
     })),
-    selectors(() => ({})),
 ])

@@ -32,6 +32,8 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
+export const DEFAULT_LOADING_BUFFER = 15 * 60 * 1000
+
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
@@ -47,8 +49,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
             sources,
         }),
-        pauseLoading: true,
-        resumeLoading: true,
+        loadUntilTimestamp: (targetBufferTimestampMillis: number | null) => ({ targetBufferTimestampMillis }),
     }),
     reducers(() => ({
         snapshotsBySourceSuccessCount: [
@@ -57,11 +58,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 loadSnapshotsForSourceSuccess: (state) => state + 1,
             },
         ],
-        loadingPaused: [
-            false as boolean,
+        targetTimestampToBufferMillis: [
+            null as number | null,
             {
-                pauseLoading: () => true,
-                resumeLoading: () => false,
+                loadUntilTimestamp: (_, { targetBufferTimestampMillis }) => targetBufferTimestampMillis,
             },
         ],
     })),
@@ -216,31 +216,29 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             actions.loadNextSnapshotSource()
         },
 
-        resumeLoading: () => {
-            // When loading is resumed, automatically continue loading if we have sources
-            if (values.snapshotSources && values.snapshotSources.length > 0) {
-                actions.loadNextSnapshotSource()
-            }
-        },
-
         loadNextSnapshotSource: () => {
             // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
             if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
-                // For v2 recordings, check if loading is paused
-                if (values.loadingPaused) {
-                    return
-                }
+                const nextSourcesToLoad = values.snapshotSources.filter((s) => {
+                    if (s.source === SnapshotSourceType.file) {
+                        return false
+                    }
+                    const sourceKey = keyForSource(s)
+                    if (cache.snapshotsBySource?.[sourceKey]?.sourceLoaded) {
+                        return false
+                    }
+                    // Load sources that have timestamps <= target, once a target is set
+                    if (s.start_timestamp && values.targetTimestampToBufferMillis) {
+                        const sourceStartTime = new Date(s.start_timestamp).getTime()
+                        return sourceStartTime <= values.targetTimestampToBufferMillis
+                    }
 
-                const nextSourcesToLoad =
-                    values.snapshotSources?.filter((s) => {
-                        const sourceKey = keyForSource(s)
-                        return (
-                            !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded && s.source !== SnapshotSourceType.file
-                        )
-                    }) || []
+                    return true
+                })
 
+                // Load up to 10 sources at once
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource([nextSourcesToLoad[0]])
+                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 10))
                 }
 
                 if (!props.blobV2PollingDisabled) {

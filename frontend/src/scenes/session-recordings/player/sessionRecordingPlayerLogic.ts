@@ -50,7 +50,7 @@ import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, make
 import { AudioMuteReplayerPlugin } from './rrweb/audio/audio-mute-plugin'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
-import { snapshotDataLogic } from './snapshotDataLogic'
+import { DEFAULT_LOADING_BUFFER, snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
@@ -360,14 +360,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
         actions: [
             snapshotDataLogic(props),
-            [
-                'loadSnapshots',
-                'loadSnapshotsForSourceFailure',
-                'loadSnapshotSourcesFailure',
-                'pauseLoading',
-                'resumeLoading',
-                'loadNextSnapshotSource',
-            ],
+            ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure', 'loadUntilTimestamp'],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
             playerSettingsLogic,
@@ -1015,42 +1008,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
 
-        // the relative time in the recording to target for buffering
+        // Target timestamp to buffer ahead to (current position + 15 minutes)
         targetBufferTimestamp: [
-            (s) => [s.currentPlayerTime, s.sessionPlayerData],
-            (currentPlayerTime, sessionPlayerData): number | null => {
-                const recordingStart = sessionPlayerData.start.valueOf()
-                const fifteenMinutes = 15 * 60 * 1000
-                return recordingStart + currentPlayerTime + fifteenMinutes
-            },
-        ],
-
-        shouldPauseLoading: [
-            (s) => [s.targetBufferTimestamp, s.latestLoadedTimestamp],
-            (targetBufferTimestamp, latestLoadedTimestamp): boolean => {
-                if (!targetBufferTimestamp || !latestLoadedTimestamp) {
-                    return false
+            (s) => [s.currentTimestamp],
+            (currentTimestamp): number | null => {
+                if (!currentTimestamp) {
+                    return null
                 }
 
-                // targetBufferTimestamp is where we want to buffer to (current + 15 minutes)
-                // latestLoadedTimestamp is the furthest we've loaded
-                // If we've loaded past our target, pause loading
-                const bufferAhead = latestLoadedTimestamp - targetBufferTimestamp
-                return bufferAhead > 0
-            },
-        ],
-
-        shouldResumeLoading: [
-            (s) => [s.targetBufferTimestamp, s.latestLoadedTimestamp],
-            (targetBufferTimestamp: number | null, latestLoadedTimestamp: number): boolean => {
-                if (!targetBufferTimestamp || !latestLoadedTimestamp) {
-                    return false
-                }
-
-                // Resume loading when we're within 5 minutes of the buffer target
-                const bufferAhead = latestLoadedTimestamp - targetBufferTimestamp
-                const fiveMinutes = 5 * 60 * 1000
-                return bufferAhead < fiveMinutes
+                return currentTimestamp + DEFAULT_LOADING_BUFFER
             },
         ],
     }),
@@ -1485,12 +1451,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.player?.replayer?.pause()
                     actions.startBuffer()
                     actions.clearPlayerError()
-
-                    // When seeking forward into a buffer, aggressively load data to catch up
-                    // resumeLoading() will automatically trigger loading to continue
-                    if (!values.fullyLoaded) {
-                        actions.resumeLoading()
-                    }
                 }
             }
 
@@ -1601,11 +1561,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setMaskWindow(false)
             }
 
-            if (values.shouldResumeLoading) {
-                actions.resumeLoading()
-            } else if (values.shouldPauseLoading) {
-                actions.pauseLoading()
-            }
+            // Tell the data logic what timestamp we want buffered to
+            // It will decide if it needs to load more data
+            actions.loadUntilTimestamp(values.targetBufferTimestamp)
 
             // The normal loop. Progress the player position and continue the loop
             actions.setCurrentTimestamp(newTimestamp)
