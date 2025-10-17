@@ -40,7 +40,7 @@ export function NuxtInstructions(): JSX.Element {
                 <NuxtModuleInstructions
                     apiKey={currentTeam?.api_token ?? '<ph_project_api_key>'}
                     host={host}
-                    teamId={currentTeam?.id!}
+                    teamId={currentTeam?.id?.toString() ?? '<team_id>'}
                 />
             ) : (
                 <NuxtLegacyInstructions apiKey={currentTeam?.api_token ?? '<ph_project_api_key>'} host={host} />
@@ -56,7 +56,7 @@ function NuxtModuleInstructions({
 }: {
     apiKey: string
     host: string
-    teamId: number
+    teamId: string
 }): JSX.Element {
     return (
         <>
@@ -165,7 +165,7 @@ export default defineNuxtPlugin(nuxtApp => {
     )
 }
 
-const nuxtModuleConfig = (apiKey: string, host: string, teamId: number): string => `export default defineNuxtConfig({
+const nuxtModuleConfig = (apiKey: string, host: string, teamId: string): string => `export default defineNuxtConfig({
   modules: ['@posthog/nuxt'],
 
   // Enable source maps generation in both vue and nitro
@@ -191,7 +191,7 @@ const nuxtModuleConfig = (apiKey: string, host: string, teamId: number): string 
     },
     sourcemaps: {
       enabled: true,
-      envId: '${teamId}', // Your environment ID from PostHog settings
+      envId: '${teamId}',
       personalApiKey: '<ph_personal_api_key>', // Your personal API key from PostHog settings
       project: 'my-application', // Optional: defaults to git repository name
       version: '1.0.0', // Optional: defaults to current git commit
