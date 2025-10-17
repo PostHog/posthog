@@ -129,7 +129,9 @@ class DatabricksOperationTimeoutError(Exception):
     """
 
     def __init__(self, operation: str, timeout: float):
-        super().__init__(f"{operation} timed out after {timeout} seconds")
+        super().__init__(
+            f"{operation} timed out after {timeout} seconds. If this happens regularly, you may want to increase the size of your Databricks SQL warehouse."
+        )
 
 
 @dataclasses.dataclass(kw_only=True)
