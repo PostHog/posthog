@@ -129,10 +129,6 @@ export enum Scene {
     EmbeddedAnalytics = 'EmbeddedAnalytics',
     QueryEndpoints = 'QueryEndpoints',
     Wizard = 'Wizard',
-
-    // MARKER DO NOT REMOVE THIS COMMENT
-
-    // AUTO-GENERATED PRODUCT SCENES - DO NOT EDIT MANUALLY
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
     EndpointsUsage = 'EndpointsUsage',
