@@ -353,7 +353,7 @@ class PipelineNonDLT:
             self._resource_name,
             file_uris,
             delete_existing=True,
-            use_timestamped_folders=True,
+            existing_queryable_folder=self._schema.table.queryable_folder if self._schema.table else None,
             logger=self._logger,
         )
 

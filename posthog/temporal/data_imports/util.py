@@ -20,9 +20,10 @@ def prepare_s3_files_for_querying(
     folder_path: str,
     table_name: str,
     file_uris: list[str],
+    use_timestamped_folders: bool = True,
+    existing_queryable_folder: Optional[str] = None,
     preserve_table_name_casing: Optional[bool] = False,
     delete_existing: bool = True,
-    use_timestamped_folders: bool = False,
     logger: Optional[FilteringBoundLogger] = None,
 ) -> str:
     """Copies files from a given S3 folder to a new S3 folder that is used for querying.
@@ -87,9 +88,14 @@ def prepare_s3_files_for_querying(
             # Delete query folders if it's older than 10 minutes except for the last folder
             for index, directory in enumerate(timestamped_query_folders):
                 directory_path, directory_timestamp = directory
-                if index == total_dirs - 1:
-                    _log(f"Skipping deletion of most recent query folder: {directory_path}")
-                    continue
+                if existing_queryable_folder:
+                    if existing_queryable_folder == f"{normalized_table_name}__query_{directory_timestamp}":
+                        _log(f"Skipping deletion of existing querying folder: {directory_path}")
+                        continue
+                else:
+                    if index == total_dirs - 1:
+                        _log(f"Skipping deletion of most recent query folder: {directory_path}")
+                        continue
 
                 try:
                     if (datetime.now().timestamp() - directory_timestamp) >= S3_DELETE_TIME_BUFFER:
