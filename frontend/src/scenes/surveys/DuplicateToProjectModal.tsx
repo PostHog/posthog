@@ -24,13 +24,13 @@ export function DuplicateToProjectModal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { duplicatedToProjectSurveyLoading } = useValues(surveyLogic)
-    const { duplicateToProject, setIsDuplicateToProjectModalOpen } = useActions(surveyLogic)
+    const { duplicateToProject, setIsDuplicateToProjectModalOpen, duplicateSurvey } = useActions(surveyLogic)
     const { isDuplicateToProjectModalOpen, survey } = useValues(surveyLogic)
-    const [selectedProject, setSelectedProject] = useState<TeamBasicType | null>(null)
+    const [selectedTeam, setSelectedTeam] = useState<TeamBasicType | null>(null)
 
     const handleCloseModal = (): void => {
         setIsDuplicateToProjectModalOpen(false)
-        setSelectedProject(null)
+        setSelectedTeam(null)
     }
 
     return (
@@ -49,9 +49,15 @@ export function DuplicateToProjectModal(): JSX.Element {
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={() => duplicateToProject({ sourceSurvey: survey, targetTeamId: selectedProject?.id })}
+                        onClick={() => {
+                            if (selectedTeam?.id === currentTeam?.id) {
+                                return duplicateSurvey()
+                            }
+
+                            duplicateToProject({ sourceSurvey: survey, targetTeamId: selectedTeam?.id })
+                        }}
                         loading={duplicatedToProjectSurveyLoading}
-                        disabledReason={!selectedProject ? 'Select a project' : undefined}
+                        disabledReason={!selectedTeam ? 'Select a project' : undefined}
                     >
                         Duplicate
                     </LemonButton>
@@ -71,8 +77,8 @@ export function DuplicateToProjectModal(): JSX.Element {
                             .map((team) => (
                                 <LemonButton
                                     key={team.id}
-                                    onClick={() => setSelectedProject(team)}
-                                    active={selectedProject?.id === team.id}
+                                    onClick={() => setSelectedTeam(team)}
+                                    active={selectedTeam?.id === team.id}
                                     fullWidth
                                 >
                                     <div className="flex items-center justify-between w-full">

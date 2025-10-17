@@ -1,0 +1,27 @@
+[package]
+name = "common-hypercache"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+mock-client = ["common-s3/mock-client"]
+
+[dependencies]
+anyhow = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+common-compression = { path = "../compression" }
+common-metrics = { path = "../metrics" }
+common-redis = { path = "../redis" }
+common-s3 = { path = "../s3" }
+common-types = { path = "../types" }
+serde_json = { workspace = true }
+serde-pickle = "1.2.0"
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+mockall = { workspace = true }
+common-hypercache = { path = ".", features = ["mock-client"] }

@@ -1,6 +1,12 @@
 import datetime
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
@@ -22,7 +28,10 @@ def create_session_id():
     return str(uuid7(random=session_id_counter))
 
 
+@snapshot_clickhouse_queries
 class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
+    snapshot_replace_all_numbers = True
+
     def select_by_session_id(self, session_id):
         flush_persons_and_events()
         return query_with_columns(
@@ -31,7 +40,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
                 *
             from raw_sessions_v3_v
             where
-                session_id_v7 = toUUID(%(session_id)s)  AND
+                session_id_v7 = toUInt128(toUUID(%(session_id)s)) AND
                 team_id = %(team_id)s
                 """,
             {
@@ -58,7 +67,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
                 team_id
             from raw_sessions_v3_v
             where
-                session_id_v7 = toUUID(%(session_id)s)  AND
+                session_id_v7 = toUInt128(toUUID(%(session_id)s))  AND
                 team_id = %(team_id)s
                 """,
             {
@@ -252,7 +261,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             max_timestamp,
             urls
         FROM raw_sessions_v3
-        WHERE session_id_v7 = toUUID(%(session_id)s) AND team_id = %(team_id)s
+        WHERE session_id_v7 = toUInt128(toUUID(%(session_id)s)) AND team_id = %(team_id)s
         """,
             {
                 "session_id": session_id,
@@ -283,7 +292,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             max_timestamp,
             urls
         FROM raw_sessions_v3_mv
-        WHERE session_id_v7 = toUUID(%(session_id)s) AND team_id = %(team_id)s
+        WHERE session_id_v7 = toUInt128(toUUID(%(session_id)s)) AND team_id = %(team_id)s
         """,
             {
                 "session_id": session_id,
@@ -542,3 +551,26 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         assert not result[1]["has_f1_a"]
         assert not result[1]["has_f1_b"]
         assert result[1]["has_f1_c"]
+
+    def test_tracks_all_distinct_ids(self):
+        distinct_id_1 = create_distinct_id()
+        distinct_id_2 = create_distinct_id()
+        session_id = create_session_id()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id_1,
+            properties={"$current_url": "/", "$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id_2,
+            properties={"$current_url": "/", "$session_id": session_id},
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert set(result[0]["distinct_ids"]) == {distinct_id_1, distinct_id_2}

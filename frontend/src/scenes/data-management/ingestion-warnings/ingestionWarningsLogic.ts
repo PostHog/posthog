@@ -71,11 +71,13 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
                         key: Scene.DataManagement,
                         name: `Data management`,
                         path: urls.eventDefinitions(),
+                        iconType: 'event_definition',
                     },
                     {
                         key: DataManagementTab.IngestionWarnings,
                         name: 'Ingestion warnings',
                         path: urls.ingestionWarnings(),
+                        iconType: 'ingestion_warning',
                     },
                 ]
             },

@@ -1,9 +1,11 @@
+import clsx from 'clsx'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconInfo } from '@posthog/icons'
+import { IconChevronRight, IconInfo } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -16,6 +18,9 @@ interface TemplateLinkSectionProps {
     heading?: string
     tooltip?: string
     piiWarning?: string
+    copyButtonLabel?: string
+    collapsible?: boolean
+    defaultExpanded?: boolean
 }
 
 export function TemplateLinkSection({
@@ -23,10 +28,16 @@ export function TemplateLinkSection({
     onShortenLink,
     showShortenButton = false,
     heading,
-    tooltip = 'Share this link to let others create a copy of this insight with the same configuration.',
+    tooltip,
     piiWarning = 'Be aware that you may be sharing sensitive data if contained in your event, property names or filters.',
+    collapsible = false,
+    defaultExpanded = true,
+    copyButtonLabel,
 }: TemplateLinkSectionProps): JSX.Element {
     const [copied, setCopied] = useState(false)
+    const [isExpanded, setIsExpanded] = useState(collapsible ? defaultExpanded : true)
+
+    const isMultiline = templateLink.includes('\n')
 
     const handleCopyLink = async (): Promise<void> => {
         try {
@@ -38,56 +49,90 @@ export function TemplateLinkSection({
         }
     }
 
+    const headingIcon =
+        tooltip && tooltip.trim() ? (
+            <Tooltip title={tooltip}>
+                <IconInfo />
+            </Tooltip>
+        ) : undefined
+
+    const contentVisible = collapsible ? isExpanded : true
+
     return (
         <div className="deprecated-space-y-2">
-            {typeof heading === 'string' && heading && (
-                <TitleWithIcon
-                    icon={
-                        tooltip ? (
-                            <Tooltip title={tooltip}>
-                                <IconInfo />
-                            </Tooltip>
+            {typeof heading === 'string' &&
+                heading &&
+                (collapsible ? (
+                    <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded bg-transparent p-0 text-left cursor-pointer"
+                        onClick={() => setIsExpanded((value) => !value)}
+                        aria-expanded={isExpanded}
+                    >
+                        <IconChevronRight
+                            className={clsx('shrink-0 text-lg text-secondary transition-transform', {
+                                'rotate-90': isExpanded,
+                            })}
+                        />
+                        {headingIcon ? (
+                            <span className="flex items-center gap-2">
+                                {headingIcon}
+                                <b>{heading}</b>
+                            </span>
                         ) : (
-                            <span />
-                        )
-                    }
-                >
-                    <b>{heading}</b>
-                </TitleWithIcon>
-            )}
-            {piiWarning && <p className="text-muted mb-1">{piiWarning}</p>}
-            <div className="flex gap-2">
-                <div className="flex-1">
-                    <input
-                        type="text"
-                        value={templateLink}
-                        readOnly
-                        className="w-full px-3 py-2 text-sm border rounded bg-bg-light"
-                        onClick={(e) => (e.target as HTMLInputElement).select()}
-                    />
-                </div>
-                <LemonButton
-                    type="secondary"
-                    onClick={() => {
-                        void handleCopyLink()
-                    }}
-                    icon={<IconLink />}
-                >
-                    {copied ? 'Copied!' : 'Copy link'}
-                </LemonButton>
-            </div>
-
-            {showShortenButton && (
+                            <b>{heading}</b>
+                        )}
+                    </button>
+                ) : (
+                    <TitleWithIcon icon={headingIcon ?? <span />}>
+                        <b>{heading}</b>
+                    </TitleWithIcon>
+                ))}
+            {contentVisible && (
                 <>
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <LemonButton type="secondary" onClick={onShortenLink} disabled={!onShortenLink}>
-                                    Shorten URL
-                                </LemonButton>
-                            </div>
+                    {piiWarning && <p className="text-muted mb-1">{piiWarning}</p>}
+                    <div className="flex items-start gap-2">
+                        <div className="flex-1">
+                            {isMultiline ? (
+                                <CodeSnippet language={Language.JavaScript} maxLinesWithoutExpansion={3} wrap compact>
+                                    {templateLink}
+                                </CodeSnippet>
+                            ) : (
+                                <input
+                                    type="text"
+                                    value={templateLink}
+                                    readOnly
+                                    className="w-full px-3 py-2 text-sm border rounded bg-bg-light"
+                                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                                />
+                            )}
                         </div>
+                        {copyButtonLabel ? (
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    void handleCopyLink()
+                                }}
+                                icon={<IconLink />}
+                            >
+                                {copied ? 'Copied!' : copyButtonLabel}
+                            </LemonButton>
+                        ) : null}
                     </div>
+
+                    {showShortenButton && (
+                        <>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <LemonButton type="secondary" onClick={onShortenLink} disabled={!onShortenLink}>
+                                            Shorten URL
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </>
             )}
         </div>

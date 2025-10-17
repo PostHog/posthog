@@ -21,7 +21,8 @@ interface TaskDetailPageProps {
 }
 
 export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
-    const { updateTask } = useActions(taskDetailLogic)
+    const { updateTask, runTask } = useActions(taskDetailLogic)
+    const { taskLoading } = useValues(taskDetailLogic)
     const { assignTaskToWorkflow } = useActions(tasksLogic)
     const { allWorkflows } = useValues(tasksLogic)
 
@@ -200,34 +201,48 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
                     </div>
 
                     {/* Actions */}
-                    {isInBacklog && allWorkflows.length > 0 && (
-                        <div className="pt-4 border-t border-border">
-                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                <LemonSelect
-                                    value={selectedWorkflowId}
-                                    onChange={(value) => setSelectedWorkflowId(value)}
-                                    options={[
-                                        { value: '', label: 'Select workflow...' },
-                                        ...allWorkflows.map((workflow) => ({
-                                            value: workflow.id,
-                                            label: workflow.name,
-                                        })),
-                                    ]}
-                                    placeholder="Select workflow"
-                                    size="small"
-                                    className="min-w-32"
-                                />
+                    <div className="space-y-4">
+                        {task.workflow && (
+                            <div className="pt-4 border-t border-border">
                                 <LemonButton
-                                    size="xsmall"
                                     type="primary"
-                                    onClick={handleAssignToWorkflow}
-                                    disabled={!selectedWorkflowId}
+                                    onClick={() => runTask(task.id)}
+                                    loading={taskLoading}
+                                    fullWidth
                                 >
-                                    Assign
+                                    Run Task
                                 </LemonButton>
                             </div>
-                        </div>
-                    )}
+                        )}
+                        {isInBacklog && allWorkflows.length > 0 && (
+                            <div className="pt-4 border-t border-border">
+                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                    <LemonSelect
+                                        value={selectedWorkflowId}
+                                        onChange={(value) => setSelectedWorkflowId(value)}
+                                        options={[
+                                            { value: '', label: 'Select workflow...' },
+                                            ...allWorkflows.map((workflow) => ({
+                                                value: workflow.id,
+                                                label: workflow.name,
+                                            })),
+                                        ]}
+                                        placeholder="Select workflow"
+                                        size="small"
+                                        className="min-w-32"
+                                    />
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="primary"
+                                        onClick={handleAssignToWorkflow}
+                                        disabled={!selectedWorkflowId}
+                                    >
+                                        Assign
+                                    </LemonButton>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Right panel - Agent output */}

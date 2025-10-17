@@ -6,7 +6,7 @@ from langchain_core.runnables import Runnable, RunnableConfig
 
 from posthog.schema import NotebookUpdateMessage, ProsemirrorJSONContent
 
-from posthog.models.notebook.notebook import Notebook
+from products.notebooks.backend.models import Notebook
 
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState

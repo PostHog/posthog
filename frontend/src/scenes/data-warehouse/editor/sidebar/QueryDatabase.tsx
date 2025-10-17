@@ -12,7 +12,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
@@ -20,7 +19,6 @@ import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/Sea
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
-import { multitabEditorLogic } from '../multitabEditorLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = (): JSX.Element => {
@@ -45,7 +43,6 @@ export const QueryDatabase = (): JSX.Element => {
         openUnsavedQuery,
         deleteUnsavedQuery,
     } = useActions(queryDatabaseLogic)
-    const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
 
@@ -158,13 +155,7 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    if (activeSceneId === Scene.SQLEditor && activeTabId) {
-                                        multitabEditorLogic({ tabId: activeTabId }).actions.createTab(
-                                            `SELECT * FROM ${item.name}`
-                                        )
-                                    } else {
-                                        router.actions.push(urls.sqlEditor(`SELECT * FROM ${item.name}`))
-                                    }
+                                    sceneLogic.actions.newTab(urls.sqlEditor(`SELECT * FROM ${item.name}`))
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
@@ -209,14 +200,7 @@ export const QueryDatabase = (): JSX.Element => {
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            if (activeSceneId === Scene.SQLEditor && activeTabId) {
-                                                multitabEditorLogic({ tabId: activeTabId }).actions.editView(
-                                                    item.record?.view.query.query,
-                                                    item.record?.view
-                                                )
-                                            } else {
-                                                router.actions.push(urls.sqlEditor(undefined, item.record?.view.id))
-                                            }
+                                            sceneLogic.actions.newTab(urls.sqlEditor(undefined, item.record?.view.id))
                                         }}
                                     >
                                         <ButtonPrimitive menuItem>Edit view definition</ButtonPrimitive>

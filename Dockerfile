@@ -41,9 +41,6 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
-# KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
-# KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails 🤷
-RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ || true
 
 #
 # ---------------------------------------------------------
@@ -103,6 +100,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./plugin-server/src/
 COPY ./plugin-server/tests/ ./plugin-server/tests/
+COPY ./plugin-server/assets/ ./plugin-server/assets/
 
 # Build cyclotron first with increased memory
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
@@ -120,7 +118,8 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.11.13-slim-bookworm AS posthog-build
+# Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
+FROM python:3.12.11-slim-bookworm AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -182,7 +181,7 @@ RUN apt-get update && \
 # ---------------------------------------------------------
 #
 # NOTE: v1.32 is running bullseye, v1.33 is running bookworm
-FROM unit:1.33.0-python3.11
+FROM unit:1.33.0-python3.12
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
@@ -287,6 +286,7 @@ COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
+COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/assets /code/plugin-server/assets
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles

@@ -2,7 +2,7 @@ import { actions, connect, defaults, events, kea, key, path, props, propsChanged
 
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import type { sessionTabLogicType } from './sessionTabLogicType'
@@ -37,7 +37,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
     key(({ sessionId }) => sessionId as KeyType),
     connect(({ sessionId }: SessionTabLogicProps) => ({
         values: [
-            sessionRecordingDataLogic(getRecordingProps(sessionId)),
+            sessionRecordingDataCoordinatorLogic(getRecordingProps(sessionId)),
             ['isNotFound', 'sessionPlayerMetaDataLoading'],
         ],
         actions: [

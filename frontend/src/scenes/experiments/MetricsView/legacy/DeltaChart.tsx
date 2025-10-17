@@ -238,7 +238,6 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                             experimentId={experimentId as ExperimentIdType}
                             variantKey={variant.key}
                             fontSize={10}
-                            muted
                         />
                     </foreignObject>
                     {variant.key === 'control' ? (
@@ -315,7 +314,6 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                             experimentId={experimentId as ExperimentIdType}
                             variantKey={variant.key}
                             fontSize={10}
-                            muted
                         />
                     </foreignObject>
 
@@ -480,7 +478,6 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
             <ChartEmptyState
                 height={chartHeight}
                 experimentStarted={!!experiment.start_date}
-                hasMinimumExposure={hasMinimumExposureForResults}
                 metric={metric}
                 error={error}
             />
@@ -555,6 +552,7 @@ export function DeltaChart({
     const metricTitlePanel = (
         <MetricHeader
             displayOrder={displayOrder}
+            experiment={experiment}
             metric={metric}
             metricType={metricType}
             isPrimaryMetric={!isSecondary}

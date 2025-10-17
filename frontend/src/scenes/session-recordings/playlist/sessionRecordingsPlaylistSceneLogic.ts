@@ -184,10 +184,12 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                     key: ReplayTabs.Playlists,
                     name: 'Collections',
                     path: urls.replay(ReplayTabs.Playlists),
+                    iconType: 'session_replay',
                 },
                 {
                     key: [Scene.ReplayPlaylist, playlist?.short_id || 'new'],
                     name: playlist?.name || playlist?.derived_name || 'Unnamed',
+                    iconType: 'session_replay',
                 },
             ],
         ],

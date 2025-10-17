@@ -76,26 +76,26 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs
-                tabKey={`groups-${groupTypeIndex}`}
-                buttons={
-                    <LemonButton
-                        type="primary"
-                        data-attr={`new-group-${groupTypeIndex}`}
-                        onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
-                    >
-                        New {aggregationLabel(groupTypeIndex).singular}
-                    </LemonButton>
-                }
-            />
+            <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
 
             <SceneTitleSection
                 name={capitalizeFirstLetter(groupTypeNamePlural)}
                 description={`A catalog of all ${groupTypeNamePlural} for this project`}
                 resourceType={{
-                    type: groupTypeName,
-                    forceIcon: <IconPeople />,
+                    type: 'cohort',
                 }}
+                actions={
+                    hasCrmIterationOneEnabled ? (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            data-attr={`new-group-${groupTypeIndex}`}
+                            onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                        >
+                            New {aggregationLabel(groupTypeIndex).singular}
+                        </LemonButton>
+                    ) : undefined
+                }
             />
             <SceneDivider />
 
@@ -170,5 +170,5 @@ export function GroupsScene(): JSX.Element {
 export const scene: SceneExport = {
     component: GroupsScene,
     logic: groupsSceneLogic,
-    settingSectionId: 'environment-crm',
+    settingSectionId: 'environment-customer-analytics',
 }

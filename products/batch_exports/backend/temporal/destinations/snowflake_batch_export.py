@@ -33,7 +33,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
@@ -55,6 +55,7 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
 )
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
+from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -67,13 +68,14 @@ from products.batch_exports.backend.temporal.spmc import (
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 class NamedBytesIO(io.BytesIO):
@@ -395,6 +397,9 @@ class SnowflakeClient:
         This enables asynchronous execution of queries to release the event loop to execute other tasks
         while we poll for a query to be done. For example, the event loop may use this time for heartbeating.
 
+        The main advantage of using execute_async and polling for the result is that we don't need to maintain a network
+        connection to the Snowflake server, which could timeout or be interrupted.
+
         Args:
             connection: A SnowflakeConnection object as produced by snowflake.connector.connect.
             query: A query string to run asynchronously.
@@ -557,9 +562,7 @@ class SnowflakeClient:
         file_stream: io.BufferedReader | io.BytesIO
         if isinstance(file, BatchExportTemporaryFile):
             file.rewind()
-            # We comply with the file-like interface of io.IOBase.
-            # So we ask mypy to be nice with us.
-            file_stream = io.BufferedReader(file)  # type: ignore
+            file_stream = io.BufferedReader(file)
         else:
             file.seek(0)
             file_stream = file
@@ -701,7 +704,7 @@ class SnowflakeClient:
         update_key: collections.abc.Iterable[str],
         update_when_matched: collections.abc.Iterable[SnowflakeField],
     ):
-        """Merge two identical person model tables in Snowflake."""
+        """Merge two identical model tables in Snowflake."""
 
         # handle the case where the final table doesn't contain all the fields present in the stage table
         # (for example, if we've added new fields to the person model)
@@ -1154,7 +1157,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Batch
                 ]
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
-        stagle_table_name = (
+        stage_table_name = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
             if requires_merge
             else inputs.table_name
@@ -1166,7 +1169,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Batch
                     inputs.table_name, data_interval_end_str, table_fields, delete=False
                 ) as snow_table,
                 snow_client.managed_table(
-                    stagle_table_name,
+                    stage_table_name,
                     data_interval_end_str,
                     table_fields,
                     create=requires_merge,
@@ -1281,8 +1284,9 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
         requires_merge, merge_key, update_key = _get_snowflake_merge_config(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
+        attempt = activity.info().attempt
         stage_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
             if requires_merge
             else inputs.table_name
         )
@@ -1306,14 +1310,18 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     snowflake_table_stage_prefix=data_interval_end_str,
                 )
 
+                transformer = ParquetStreamTransformer(
+                    schema=cast_record_batch_schema_json_columns(
+                        record_batch_schema, json_columns=known_variant_columns
+                    ),
+                    compression="zstd",
+                )
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
+                    transformer=transformer,
                     schema=record_batch_schema,
-                    file_format="Parquet",
-                    compression="zstd",
-                    include_inserted_at=False,
                     max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
                 )
@@ -1382,7 +1390,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
                     maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
         except OverBillingLimitError:

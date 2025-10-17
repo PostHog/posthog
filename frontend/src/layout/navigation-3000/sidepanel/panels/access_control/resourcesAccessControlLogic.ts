@@ -1,5 +1,7 @@
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -33,16 +35,23 @@ export type RoleResourceAccessControls = DefaultResourceAccessControls & {
 
 export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>([
     path(['scenes', 'accessControl', 'resourcesAccessControlLogic']),
-    connect({
+    connect(() => ({
         values: [roleAccessControlLogic, ['roles'], teamLogic, ['currentTeam'], membersLogic, ['sortedMembers']],
-    }),
+    })),
     actions({
         updateResourceAccessControls: (
             accessControls: Pick<
                 AccessControlUpdateType,
                 'resource' | 'access_level' | 'role' | 'organization_member'
-            >[]
-        ) => ({ accessControls }),
+            >[],
+            saveType: 'member' | 'role' | 'default'
+        ) => ({ accessControls, saveType }),
+        openMemberModal: (editingMember: MemberResourceAccessControls | null = null) => ({ editingMember }),
+        closeMemberModal: true,
+        openRoleModal: (editingRole: RoleResourceAccessControls | null = null) => ({ editingRole }),
+        closeRoleModal: true,
+        openDefaultModal: true,
+        closeDefaultModal: true,
     }),
     loaders(({ values }) => ({
         resourceAccessControls: [
@@ -67,8 +76,60 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             },
         ],
     })),
-    listeners(({ actions }) => ({
-        updateResourceAccessControlsSuccess: () => actions.loadResourceAccessControls(),
+    reducers({
+        memberModalOpen: [
+            false as boolean,
+            {
+                openMemberModal: () => true,
+                closeMemberModal: () => false,
+            },
+        ],
+        editingMember: [
+            null as MemberResourceAccessControls | null,
+            {
+                openMemberModal: (_, { editingMember }) => editingMember,
+                closeMemberModal: () => null,
+            },
+        ],
+        roleModalOpen: [
+            false as boolean,
+            {
+                openRoleModal: () => true,
+                closeRoleModal: () => false,
+            },
+        ],
+        editingRole: [
+            null as RoleResourceAccessControls | null,
+            {
+                openRoleModal: (_, { editingRole }) => editingRole,
+                closeRoleModal: () => null,
+            },
+        ],
+        defaultModalOpen: [
+            false as boolean,
+            {
+                openDefaultModal: () => true,
+                closeDefaultModal: () => false,
+            },
+        ],
+    }),
+
+    listeners(({ actions, cache }) => ({
+        updateResourceAccessControls: ({ saveType }) => {
+            cache.pendingSaveType = saveType
+        },
+        updateResourceAccessControlsSuccess: () => {
+            actions.loadResourceAccessControls()
+            lemonToast.success('Access controls updated successfully')
+            if (cache.pendingSaveType === 'member') {
+                actions.closeMemberModal()
+            } else if (cache.pendingSaveType === 'role') {
+                actions.closeRoleModal()
+            } else if (cache.pendingSaveType === 'default') {
+                actions.closeDefaultModal()
+            }
+            cache.pendingSaveType = null
+        },
     })),
 
     selectors({
@@ -204,12 +265,16 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             () => [],
             (): AccessControlType['resource'][] => {
                 return [
+                    AccessControlResourceType.Action,
                     AccessControlResourceType.Dashboard,
+                    AccessControlResourceType.Experiment,
                     AccessControlResourceType.FeatureFlag,
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.Notebook,
                     AccessControlResourceType.RevenueAnalytics,
                     AccessControlResourceType.SessionRecording,
+                    AccessControlResourceType.Survey,
+                    AccessControlResourceType.WebAnalytics,
                 ]
             },
         ],

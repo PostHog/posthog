@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { IconApps } from '@posthog/icons'
-
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -16,15 +14,12 @@ import { ActivityTab } from '~/types'
 
 import { eventsSceneLogic } from './eventsSceneLogic'
 
-const RESOURCE_TYPE = 'event'
-
 export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { query } = useValues(eventsSceneLogic)
     const { setQuery } = useActions(eventsSceneLogic)
 
     return (
         <SceneContent>
-            <PageHeader tabbedPage />
             <LemonTabs
                 activeKey={ActivityTab.ExploreEvents}
                 tabs={[
@@ -42,11 +37,10 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 sceneInset
             />
             <SceneTitleSection
-                name="Explore events"
-                description="A catalog of all user interactions with your app or website."
+                name={sceneConfigurations[Scene.ExploreEvents].name}
+                description={sceneConfigurations[Scene.ExploreEvents].description}
                 resourceType={{
-                    type: RESOURCE_TYPE,
-                    forceIcon: <IconApps />,
+                    type: sceneConfigurations[Scene.ExploreEvents].iconType || 'default_icon_type',
                 }}
             />
             <SceneDivider />

@@ -75,7 +75,7 @@ impl MixpanelEvent {
             let properties = mx.properties.other;
             let properties = map_geoip_props(properties);
             let properties = remove_mp_props(properties);
-            let properties = add_source_data(properties);
+            let properties = add_source_data(properties, context.job_id);
 
             let raw_event = RawEvent {
                 token: Some(token.clone()),
@@ -221,11 +221,71 @@ fn remove_mp_props(mut props: HashMap<String, Value>) -> HashMap<String, Value> 
     props
 }
 
-fn add_source_data(mut props: HashMap<String, Value>) -> HashMap<String, Value> {
+fn add_source_data(
+    mut props: HashMap<String, Value>,
+    job_id: uuid::Uuid,
+) -> HashMap<String, Value> {
     props.insert("historical_migration".to_string(), Value::Bool(true));
     props.insert(
         "analytics_source".to_string(),
         Value::String("mixpanel".to_string()),
     );
+    props.insert(
+        "$import_job_id".to_string(),
+        Value::String(job_id.to_string()),
+    );
     props
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn identity_transform(event: RawEvent) -> Result<Option<RawEvent>, Error> {
+        Ok(Some(event))
+    }
+
+    #[test]
+    fn test_job_id_in_mixpanel_event() {
+        let test_job_id = Uuid::now_v7();
+
+        let mx_event = MixpanelEvent {
+            event: "test_event".to_string(),
+            properties: MixpanelProperties {
+                timestamp: 1697379000,
+                distinct_id: Some("user123".to_string()),
+                other: HashMap::new(),
+            },
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: std::sync::Arc::new(crate::cache::MockIdentifyCache::new()),
+            group_cache: std::sync::Arc::new(crate::cache::MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: false,
+        };
+
+        let parser =
+            MixpanelEvent::parse_fn(context, false, Duration::seconds(0), identity_transform);
+        let result = parser(mx_event).unwrap().unwrap();
+
+        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        assert_eq!(
+            data.properties.get("$import_job_id"),
+            Some(&json!(test_job_id.to_string()))
+        );
+        assert_eq!(
+            data.properties.get("historical_migration"),
+            Some(&json!(true))
+        );
+        assert_eq!(
+            data.properties.get("analytics_source"),
+            Some(&json!("mixpanel"))
+        );
+    }
 }

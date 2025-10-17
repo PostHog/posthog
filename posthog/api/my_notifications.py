@@ -13,7 +13,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.models import ActivityLog, Cohort, FeatureFlag, HogFunction, Insight, NotificationViewed, User
 from posthog.models.comment import Comment
-from posthog.models.notebook.notebook import Notebook
+
+from products.notebooks.backend.models import Notebook
 
 
 class MyNotificationsSerializer(serializers.ModelSerializer):

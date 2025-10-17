@@ -21,12 +21,13 @@ import {
     HealthCheckResultDegraded,
     HealthCheckResultError,
     HealthCheckResultOk,
+    LogLevel,
 } from '~/types'
 import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
 import { defaultConfig } from '../config/config'
-import { kafkaConsumerAssignment } from '../main/ingestion-queues/metrics'
+import { kafkaConsumerAssignment, kafkaHeaderStatusCounter } from '../main/ingestion-queues/metrics'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
@@ -110,7 +111,8 @@ export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPart
             return {
                 topic,
                 partition: parseInt(partition),
-                offset: highestOffset,
+                // When committing to Kafka you commit the offset of the next message you want to consume
+                offset: highestOffset + 1,
             }
         })
     })
@@ -163,6 +165,7 @@ export class KafkaConsumer {
         rebalanceTimeoutMs: 20000,
         rebalanceStartTime: 0,
     }
+    private consumerLogStatsLevel: LogLevel
 
     constructor(
         private config: KafkaConsumerConfig,
@@ -182,6 +185,7 @@ export class KafkaConsumer {
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
         this.consumerLoopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS
+        this.consumerLogStatsLevel = defaultConfig.CONSUMER_LOG_STATS_LEVEL
 
         const rebalancecb: RebalanceCallback = this.config.waitForBackgroundTasksOnRebalance
             ? this.rebalanceCallback.bind(this)
@@ -523,11 +527,8 @@ export class KafkaConsumer {
                     topics: Object.keys(parsedStats.topics || {}),
                     broker_count: brokerStats.size,
                     brokers: Array.from(brokerStats.entries()).map(([name, stats]) => ({
+                        ...stats,
                         name,
-                        state: stats.state,
-                        rtt_avg: stats.rtt?.avg,
-                        connects: stats.connects,
-                        disconnects: stats.disconnects,
                     })),
                 }
 
@@ -540,7 +541,7 @@ export class KafkaConsumer {
                     logData.assignment_size = parsedStats.cgrp.assignment_size
                 }
 
-                logger.debug('📊', 'Kafka consumer statistics', logData)
+                logger[this.consumerLogStatsLevel]('📊', 'Kafka consumer statistics', logData)
             } catch (error) {
                 logger.error('📊', 'Failed to parse consumer statistics', {
                     error: error instanceof Error ? error.message : String(error),
@@ -568,26 +569,18 @@ export class KafkaConsumer {
         return consumer
     }
 
-    private storeOffsetsForMessages = (messages: Message[]): void => {
-        const topicPartitionOffsets = findOffsetsToCommit(messages).map((message) => {
-            return {
-                ...message,
-                // When committing to Kafka you commit the offset of the next message you want to consume
-                offset: message.offset + 1,
-            }
-        })
-
-        if (topicPartitionOffsets.length > 0) {
-            logger.debug('📝', 'Storing offsets', { topicPartitionOffsets })
+    private storeOffsetsForMessages = (topicPartitionOffsetsToCommit: TopicPartitionOffset[]): void => {
+        if (topicPartitionOffsetsToCommit.length > 0) {
+            logger.debug('📝', 'Storing offsets', { topicPartitionOffsetsToCommit })
             try {
-                this.rdKafkaConsumer.offsetsStore(topicPartitionOffsets)
+                this.rdKafkaConsumer.offsetsStore(topicPartitionOffsetsToCommit)
             } catch (e) {
                 // NOTE: We don't throw here - this can happen if we were re-assigned partitions
                 // and the offsets are no longer valid whilst processing a batch
                 logger.error('📝', 'Failed to store offsets', {
                     error: String(e),
                     assignedPartitions: this.assignments(),
-                    topicPartitionOffsets,
+                    topicPartitionOffsetsToCommit,
                 })
                 captureException(e)
             }
@@ -696,14 +689,11 @@ export class KafkaConsumer {
                     // it would be hard to mix background work with non-background work.
                     // So we just create pretend work to simplify the rest of the logic
                     const backgroundTask = result?.backgroundTask ?? Promise.resolve()
-
                     const backgroundTaskStart = performance.now()
+                    // Pull out the offsets to commit from the messages so we can release the messages reference
+                    const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
 
                     void backgroundTask.finally(async () => {
-                        // Only when we are fully done with the background work we store the offsets
-                        // TODO: Test if this fully works as expected - like what if backgroundBatches[1] finishes after backgroundBatches[0]
-                        // Remove the background work from the queue when it is finished
-
                         // First of all clear ourselves from the queue
                         const index = this.backgroundTask.indexOf(backgroundTask)
                         void this.backgroundTask.splice(index, 1)
@@ -712,7 +702,7 @@ export class KafkaConsumer {
                         await Promise.all(this.backgroundTask.slice(0, index))
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
-                            this.storeOffsetsForMessages(messages)
+                            this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
                         }
 
                         if (result?.backgroundTask) {
@@ -830,7 +820,9 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
     // Kafka headers come from librdkafka as an array of objects with keys value pairs per header.
     // We extract the specific headers we care about into a structured format.
 
-    const result: EventHeaders = {}
+    const result: EventHeaders = {
+        force_disable_person_processing: false,
+    }
 
     headers?.forEach((header) => {
         Object.keys(header).forEach((key) => {
@@ -841,8 +833,28 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.distinct_id = value
             } else if (key === 'timestamp') {
                 result.timestamp = value
+            } else if (key === 'event') {
+                result.event = value
+            } else if (key === 'uuid') {
+                result.uuid = value
+            } else if (key === 'force_disable_person_processing') {
+                result.force_disable_person_processing = value === 'true'
             }
         })
+    })
+
+    // Track comprehensive header status metrics
+    const trackedHeaders = [
+        'token',
+        'distinct_id',
+        'timestamp',
+        'event',
+        'uuid',
+        'force_disable_person_processing',
+    ] as const
+    trackedHeaders.forEach((header) => {
+        const status = result[header] ? 'present' : 'absent'
+        kafkaHeaderStatusCounter.labels(header, status).inc()
     })
 
     return result

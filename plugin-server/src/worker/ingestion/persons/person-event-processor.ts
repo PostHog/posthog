@@ -4,9 +4,9 @@ import { DateTime } from 'luxon'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ONE_HOUR } from '../../../config/constants'
+import { PipelineResult, dlq, ok, redirect } from '../../../ingestion/pipelines/results'
 import { InternalPerson, Person } from '../../../types'
 import { logger } from '../../../utils/logger'
-import { PipelineStepResult, dlq, redirect, success } from '../event-pipeline/pipeline-step-result'
 import { uuidFromDistinctId } from '../person-uuid'
 import { PersonContext } from './person-context'
 import { PersonMergeService } from './person-merge-service'
@@ -32,10 +32,11 @@ export class PersonEventProcessor {
     constructor(
         private context: PersonContext,
         private propertyService: PersonPropertyService,
-        private mergeService: PersonMergeService
+        private mergeService: PersonMergeService,
+        private forceDisablePersonProcessing: boolean = false
     ) {}
 
-    async processEvent(): Promise<[PipelineStepResult<Person>, Promise<void>]> {
+    async processEvent(): Promise<[PipelineResult<Person>, Promise<void>]> {
         if (!this.context.processPerson) {
             return await this.handlePersonlessMode()
         }
@@ -65,10 +66,7 @@ export class PersonEventProcessor {
             try {
                 const [updatedPerson, updateKafkaAck] =
                     await this.propertyService.updatePersonProperties(personFromMerge)
-                return [
-                    success(updatedPerson),
-                    Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined),
-                ]
+                return [ok(updatedPerson), Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
             } catch (error) {
                 // Shortcut didn't work, swallow the error and try normal retry loop below
                 logger.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
@@ -77,10 +75,15 @@ export class PersonEventProcessor {
 
         // Handle regular property updates
         const [updatedPerson, updateKafkaAck] = await this.propertyService.handleUpdate()
-        return [success(updatedPerson), Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
+        return [ok(updatedPerson), Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
     }
 
-    private async handlePersonlessMode(): Promise<[PipelineStepResult<Person>, Promise<void>]> {
+    private async handlePersonlessMode(): Promise<[PipelineResult<Person>, Promise<void>]> {
+        // If forceDisablePersonProcessing is true, skip all personless processing and just return a fake person
+        if (this.forceDisablePersonProcessing) {
+            return [ok(this.createFakePerson()), Promise.resolve()]
+        }
+
         let existingPerson = await this.context.personStore.fetchForChecking(
             this.context.team.id,
             this.context.distinctId
@@ -135,29 +138,33 @@ export class PersonEventProcessor {
                 person.force_upgrade = true
             }
 
-            return [success(person), Promise.resolve()]
+            return [ok(person), Promise.resolve()]
         }
 
+        const fakePerson = this.createFakePerson()
+        return [ok(fakePerson), Promise.resolve()]
+    }
+
+    private createFakePerson(): Person {
         // We need a value from the `person_created_column` in ClickHouse. This should be
         // hidden from users for events without a real person, anyway. It's slightly offset
         // from the 0 date (by 5 seconds) in order to assist in debugging by being
         // harmlessly distinct from Unix UTC "0".
         const createdAt = DateTime.utc(1970, 1, 1, 0, 0, 5)
 
-        const fakePerson: Person = {
+        return {
             team_id: this.context.team.id,
             properties: {},
             uuid: uuidFromDistinctId(this.context.team.id, this.context.distinctId),
             created_at: createdAt,
         }
-        return [success(fakePerson), Promise.resolve()]
     }
 
     getContext(): PersonContext {
         return this.context
     }
 
-    private handleMergeError(error: unknown, event: PluginEvent): PipelineStepResult<Person> | null {
+    private handleMergeError(error: unknown, event: PluginEvent): PipelineResult<Person> | null {
         const mergeMode = this.context.mergeMode
 
         if (error instanceof PersonMergeLimitExceededError) {

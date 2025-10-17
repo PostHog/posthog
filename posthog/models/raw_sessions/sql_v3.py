@@ -14,7 +14,6 @@ table should always aggregate again on session_id (the HogQL session table will 
 don't need to consider this).
 
 Upgrades over v2:
-* Uses the UUIDv7ToDateTime function in the ORDER BY clause, which was not available when we built v2
 * Has a property map for storing lower-tier ad ids, making it easier to add new ad ids in the future
 * Stores presence of ad ids separately from the value, so e.g. channel type calculations only need to read 1 bit instead of a gclid string up to 100 chars
 * Parses JSON only once per event rather than once per column per event, saving CPU usage
@@ -41,7 +40,7 @@ def TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3():
     return f"TRUNCATE TABLE IF EXISTS {SHARDED_RAW_SESSIONS_TABLE_V3()}"
 
 
-def DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3():
+def DROP_RAW_SESSION_TABLE_SQL_V3():
     return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_TABLE_V3()}"
 
 
@@ -67,12 +66,22 @@ RAW_SESSIONS_TABLE_BASE_SQL_V3 = """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
-    session_id_v7 UUID,
+
+    -- Both UInt128 and UUID are imperfect choices here
+    -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
+    -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
+    -- right now choose UInt128 as that's the type of events.$session_id_uuid, but in the future we will probably want to switch everything to the new CH UUID type (when it's released)
+    session_id_v7 UInt128,
+    -- Ideally we would not need to store this separately, as the ID *is* the timestamp
+    -- Unfortunately for now, chaining clickhouse functions to extract the timestamp will break indexes / partition pruning, so do this workaround
+    -- again, when the new CH UUID type is released, we should try to switch to that and remove the separate timestamp column
+    session_timestamp DateTime64 MATERIALIZED fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))),
 
     -- ClickHouse will pick the latest value of distinct_id for the session
     -- this is fine since even if the distinct_id changes during a session
     distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
     person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
+    distinct_ids AggregateFunction(groupUniqArray, String),
 
     min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
     max_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
@@ -150,15 +159,10 @@ def RAW_SESSIONS_TABLE_SQL_V3():
     return (
         RAW_SESSIONS_TABLE_BASE_SQL_V3
         + """
-PARTITION BY toYYYYMM(UUIDv7ToDateTime(session_id_v7))
+PARTITION BY toYYYYMM(session_timestamp)
 ORDER BY (
     team_id,
-
-    -- sadly we need to include this as clickhouse UUIDs have insane ordering
-    -- see https://michcioperz.com/wiki/clickhouse-uuid-ordering/
-    -- but also see https://github.com/ClickHouse/ClickHouse/issues/77226 and hope
-    UUIDv7ToDateTime(session_id_v7),
-
+    session_timestamp,
     session_id_v7
 )
 """
@@ -254,8 +258,8 @@ def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where="TRUE"):
 WITH parsed_events AS (
     SELECT
         team_id,
-        `$session_id`,
-        distinct_id,
+        `$session_id_uuid` AS session_id_v7,
+        distinct_id AS _distinct_id,
         person_id,
         timestamp,
         inserted_at,
@@ -272,11 +276,12 @@ WITH parsed_events AS (
 )
 
 SELECT
-   team_id,
-    toUUID(`$session_id`) as session_id_v7,
+    team_id,
+    session_id_v7,
 
-    initializeAggregation('argMaxState', distinct_id, timestamp) as distinct_id,
+    initializeAggregation('argMaxState', _distinct_id, timestamp) as distinct_id,
     initializeAggregation('argMaxState', person_id, timestamp) as person_id,
+    initializeAggregation('groupUniqArrayState', _distinct_id) as distinct_ids,
 
     timestamp AS min_timestamp,
     timestamp AS max_timestamp,
@@ -345,8 +350,8 @@ FROM parsed_events
     )
 
 
-RAW_SESSIONS_TABLE_MV_SQL_V3 = (
-    lambda: """
+def RAW_SESSIONS_TABLE_MV_SQL_V3(where=True):
+    return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}
 TO {database}.{target_table}
 AS
@@ -355,9 +360,9 @@ AS
         table_name=f"{TABLE_BASE_NAME_V3}_mv",
         target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         database=settings.CLICKHOUSE_DATABASE,
-        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where),
     )
-)
+
 
 RAW_SESSION_TABLE_UPDATE_SQL_V3 = (
     lambda: """
@@ -419,18 +424,19 @@ RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3 = (
 CREATE OR REPLACE VIEW {TABLE_BASE_NAME_V3}_v AS
 SELECT
     session_id_v7,
-    UUIDv7ToDateTime(session_id_v7) as session_timestamp,
+    session_timestamp,
     team_id,
 
     argMaxMerge(distinct_id) as distinct_id,
     argMaxMerge(person_id) as person_id,
+    groupUniqArrayMerge(distinct_ids) AS distinct_ids,
 
     min(min_timestamp) as min_timestamp,
     max(max_timestamp) as max_timestamp,
     max(max_inserted_at) as max_inserted_at,
 
     -- urls
-    arrayDistinct(arrayFlatten(groupArray(urls)) )AS urls,
+    arrayDistinct(arrayFlatten(groupArray(urls))) AS urls,
     argMinMerge(entry_url) as entry_url,
     argMaxMerge(end_url) as end_url,
     argMaxMerge(last_external_click_url) as last_external_click_url,
@@ -481,7 +487,7 @@ SELECT
     -- flags
     groupUniqArrayMapMerge(flag_values) as flag_values
 FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}
-GROUP BY session_id_v7, team_id
+GROUP BY session_id_v7, session_timestamp, team_id
 """
 )
 

@@ -46,8 +46,7 @@ pub fn setup_metrics_routes(router: Router) -> Router {
 
 pub fn setup_metrics_recorder() -> PrometheusHandle {
     const BUCKETS: &[f64] = &[
-        0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0,
-        1000.0, 2000.0, 5000.0, 10000.0,
+        1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
     ];
 
     PrometheusBuilder::new()
@@ -114,6 +113,11 @@ fn apply_label_filter(labels: &[(String, String)]) -> Vec<(String, String)> {
 
 pub fn gauge(name: &'static str, lables: &[(String, String)], value: f64) {
     metrics::gauge!(name, lables).set(value);
+}
+
+pub fn histogram(name: &'static str, labels: &[(String, String)], value: f64) {
+    let filtered_labels = apply_label_filter(labels);
+    metrics::histogram!(name, &filtered_labels).record(value);
 }
 
 // A guard to record the time between creation and drop as a histogram entry

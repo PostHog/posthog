@@ -129,7 +129,6 @@ async def test_snowflake_export_workflow_exports_events(
     snowflake_batch_export,
     interval,
     table_name,
-    truncate_events,
     mock_snowflake_connection,
 ):
     """Test that the whole workflow not just the activity works.
@@ -190,9 +189,7 @@ async def test_snowflake_export_workflow_exports_events(
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
-async def test_snowflake_export_workflow_without_events(
-    use_internal_stage, ateam, snowflake_batch_export, interval, truncate_events
-):
+async def test_snowflake_export_workflow_without_events(use_internal_stage, ateam, snowflake_batch_export, interval):
     data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
     run = await _run_workflow(

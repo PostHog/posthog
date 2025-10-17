@@ -69,7 +69,7 @@ export function FloatingSuggestionsDisplay({
             {!activeSuggestionGroup && (
                 <>
                     <Tooltip title={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}>
-                        <ul className="flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5">
+                        <ul className="flex items-center justify-center flex-wrap gap-1.5">
                             {QUESTION_SUGGESTIONS_DATA.map((group) => (
                                 <li key={group.label}>
                                     <LemonButton

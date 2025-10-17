@@ -36,7 +36,7 @@
      WHERE equals(raw_sessions.team_id, 99999)
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
-  WHERE and(ifNull(equals(sessions.`$entry_utm_source`, 'source1'), 0), 1)
+  WHERE ifNull(equals(sessions.`$entry_utm_source`, 'source1'), 0)
   GROUP BY `context.columns.channel_type`,
            `context.columns.utm_source`,
            `context.columns.utm_medium`
@@ -91,7 +91,7 @@
      WHERE equals(raw_sessions.team_id, 99999)
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
-  WHERE and(1, 1)
+  WHERE 1
   GROUP BY `context.columns.example_entry_urls`
   ORDER BY `context.columns.count` DESC
   LIMIT 101
@@ -144,7 +144,7 @@
      WHERE equals(raw_sessions.team_id, 99999)
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
-  WHERE and(1, 1)
+  WHERE 1
   ORDER BY `context.columns.count` DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -196,7 +196,7 @@
      WHERE equals(raw_sessions.team_id, 99999)
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
-  WHERE and(1, 1)
+  WHERE 1
   GROUP BY `context.columns.channel_type`,
            `context.columns.utm_source`,
            `context.columns.utm_medium`
@@ -251,7 +251,7 @@
      WHERE equals(raw_sessions.team_id, 99999)
      GROUP BY raw_sessions.session_id_v7,
               raw_sessions.session_id_v7) AS sessions
-  WHERE and(1, 1)
+  WHERE 1
   ORDER BY `context.columns.count` DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,

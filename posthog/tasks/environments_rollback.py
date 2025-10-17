@@ -12,13 +12,11 @@ from posthog.models import (
     Annotation,
     Cohort,
     Dashboard,
-    EarlyAccessFeature,
     EventDefinition,
     Experiment,
     FeatureFlag,
     GroupTypeMapping,
     Insight,
-    Notebook,
     Organization,
     Project,
     PropertyDefinition,
@@ -28,6 +26,9 @@ from posthog.models import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.ph_client import get_client
+
+from products.early_access_features.backend.models import EarlyAccessFeature
+from products.notebooks.backend.models import Notebook
 
 
 @dataclass

@@ -30,6 +30,7 @@
 !plugin-server/package.json
 !plugin-server/pnpm-lock.yaml
 !plugin-server/src
+!plugin-server/assets
 !plugin-server/tsconfig.eslint.json
 !plugin-server/tsconfig.json
 !pnpm-lock.yaml

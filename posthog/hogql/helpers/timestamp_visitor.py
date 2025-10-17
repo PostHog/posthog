@@ -105,6 +105,7 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
         from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
         from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
         from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
+        from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
 
         if node.type and isinstance(node.type, ast.FieldAliasType):
             try:
@@ -131,6 +132,12 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
                 or (
                     isinstance(table_type, ast.LazyTableType)
                     and isinstance(table_type.table, SessionsTableV2)
+                    # we guarantee that a session is < 24 hours, so with bufferDays being 3 above, we can use $end_timestamp too
+                    and resolved_field.name in ("$start_timestamp", "$end_timestamp")
+                )
+                or (
+                    isinstance(table_type, ast.LazyTableType)
+                    and isinstance(table_type.table, SessionsTableV3)
                     # we guarantee that a session is < 24 hours, so with bufferDays being 3 above, we can use $end_timestamp too
                     and resolved_field.name in ("$start_timestamp", "$end_timestamp")
                 )

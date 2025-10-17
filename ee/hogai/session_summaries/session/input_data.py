@@ -22,7 +22,7 @@ def get_team(team_id: int) -> Team:
 def get_session_metadata(session_id: str, team_id: int, local_reads_prod: bool = False) -> RecordingMetadata:
     events_obj = SessionReplayEvents()
     if not local_reads_prod:
-        session_metadata = events_obj.get_metadata(session_id=str(session_id), team_id=team_id)
+        session_metadata = events_obj.get_metadata(session_id=str(session_id), team=get_team(team_id))
     else:
         session_metadata = _get_production_session_metadata_locally(events_obj, session_id, team_id)
     if not session_metadata:

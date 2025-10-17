@@ -38,7 +38,7 @@ regex.workspace = true
 base64.workspace = true
 sqlx = { workspace = true, features = ["rust_decimal"] }
 uuid = { workspace = true }
-common-compression = { path = "../common-compression" }
+common-compression = { path = "../common/compression" }
 common-alloc = { path = "../common/alloc" }
 strum = { version = "0.26", features = ["derive"] }
 health = { path = "../common/health" }
@@ -57,6 +57,7 @@ opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 tracing-opentelemetry = { workspace = true }
+tokio-retry = "0.3"
 
 [lints]
 workspace = true

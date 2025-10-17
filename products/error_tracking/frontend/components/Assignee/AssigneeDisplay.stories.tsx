@@ -67,7 +67,6 @@ export const GroupDisplays = ({ sizes }: SizedComponentProps): JSX.Element => {
                         role: {
                             id: '123',
                             name: 'Role Name',
-                            feature_flags_access_level: 37,
                             members: [],
                             created_at: '2021-08-02 12:34:56',
                             created_by: null,

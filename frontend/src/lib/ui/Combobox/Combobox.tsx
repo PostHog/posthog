@@ -225,7 +225,7 @@ const Content = ({ className, children }: ContentProps): JSX.Element => {
             direction="vertical"
             styledScrollbars
             className={cn(
-                'max-h-[calc(var(--radix-popover-content-available-height)-var(--combobox-search-height)-var(--radix-popper-anchor-height))] h-full max-w-none border-transparent overflow-y-auto',
+                'max-h-[calc(var(--radix-popover-content-available-height)-var(--combobox-search-height)-var(--radix-popper-anchor-height))] max-w-none border-transparent overflow-y-auto',
                 className
             )}
             innerClassName={cn('flex flex-col gap-px p-1', context.insideMenu && 'px-0 pb-0')}

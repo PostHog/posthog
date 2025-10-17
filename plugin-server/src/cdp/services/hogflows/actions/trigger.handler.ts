@@ -1,18 +1,17 @@
-import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { findContinueAction } from '../hogflow-utils'
-import { ActionHandler, ActionHandlerResult } from './action.interface'
+import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 // NOTE: This is not an actively used action as the triggering is done by the scheduler
 // but useful for testing the hogflow executor
 export class TriggerHandler implements ActionHandler {
-    async execute(
-        invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'trigger' }>
-    ): Promise<ActionHandlerResult> {
-        if (action.config.type === 'webhook') {
+    async execute({
+        invocation,
+        action,
+    }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'trigger' }>>): Promise<ActionHandlerResult> {
+        if (action.config.type !== 'event') {
             return { nextAction: findContinueAction(invocation) }
         }
 

@@ -5,6 +5,7 @@ import { processResultsForSurveyQuestions, surveyLogic } from 'scenes/surveys/su
 
 import { initKeaTests } from '~/test/init'
 import {
+    AccessControlLevel,
     AnyPropertyFilter,
     ChoiceQuestionProcessedResponses,
     EventPropertyFilter,
@@ -72,6 +73,7 @@ const MULTIPLE_CHOICE_SURVEY: Survey = {
     iteration_count: null,
     iteration_frequency_days: null,
     schedule: SurveySchedule.Once,
+    user_access_level: AccessControlLevel.Editor,
 }
 
 describe('set response-based survey branching', () => {
@@ -121,6 +123,7 @@ describe('set response-based survey branching', () => {
         targeting_flag_filters: undefined,
         responses_limit: null,
         schedule: SurveySchedule.Once,
+        user_access_level: AccessControlLevel.Editor,
     }
 
     describe('main', () => {
@@ -1318,6 +1321,72 @@ describe('survey filters', () => {
     })
 })
 
+describe('URL parameter synchronization', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = surveyLogic({ id: MULTIPLE_CHOICE_SURVEY.id })
+        logic.mount()
+    })
+
+    it('only includes non-empty filters in URL', async () => {
+        const propertyFilters: AnyPropertyFilter[] = [
+            {
+                key: 'email',
+                value: 'test@posthog.com',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Person,
+            },
+        ]
+
+        const emptyAnswerFilters: EventPropertyFilter[] = [
+            {
+                key: SurveyEventProperties.SURVEY_RESPONSE,
+                value: [],
+                operator: PropertyOperator.IContains,
+                type: PropertyFilterType.Event,
+            },
+        ]
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setPropertyFilters(propertyFilters)
+            logic.actions.setAnswerFilters(emptyAnswerFilters)
+        }).toMatchValues({
+            urlSearchParams: expect.objectContaining({
+                propertyFilters: JSON.stringify(propertyFilters),
+            }),
+        })
+
+        expect(logic.values.urlSearchParams).not.toHaveProperty('answerFilters')
+    })
+
+    it('excludes default date range from URL', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+        })
+
+        const defaultDateFrom = logic.values.dateRange?.date_from
+        const defaultDateTo = logic.values.dateRange?.date_to
+
+        await expectLogic(logic, () => {
+            logic.actions.setDateRange(
+                {
+                    date_from: defaultDateFrom || null,
+                    date_to: defaultDateTo || null,
+                },
+                false
+            )
+        }).toMatchValues({
+            urlSearchParams: expect.not.objectContaining({
+                date_from: expect.anything(),
+                date_to: expect.anything(),
+            }),
+        })
+    })
+})
+
 describe('surveyLogic filters for surveys responses', () => {
     let logic: ReturnType<typeof surveyLogic.build>
 
@@ -1772,10 +1841,10 @@ describe('processResultsForSurveyQuestions', () => {
                 },
             ]
             const results = [
-                ['Yes', null, null, null, null, null, null, null, 'user1', '2024-01-15T10:00:00Z'], // User 1: picked Yes for question 0
-                ['No', null, null, null, null, null, null, null, 'user2', '2024-01-15T10:15:00Z'], // User 2: picked No for question 0
-                ['Yes', null, null, null, null, null, null, null, 'user3', '2024-01-15T10:30:00Z'], // User 3: picked Yes for question 0
-                ['Custom answer', null, null, null, null, null, null, null, 'user4', '2024-01-15T10:45:00Z'], // User 4: picked custom answer for question 0
+                ['Yes', null, null, null, null, null, null, null, null, 'user1', '2024-01-15T10:00:00Z'], // User 1: picked Yes for question 0
+                ['No', null, null, null, null, null, null, null, null, 'user2', '2024-01-15T10:15:00Z'], // User 2: picked No for question 0
+                ['Yes', null, null, null, null, null, null, null, null, 'user3', '2024-01-15T10:30:00Z'], // User 3: picked Yes for question 0
+                ['Custom answer', null, null, null, null, null, null, null, null, 'user4', '2024-01-15T10:45:00Z'], // User 4: picked custom answer for question 0
             ]
 
             const processed = processResultsForSurveyQuestions(questions, results)
@@ -1826,9 +1895,9 @@ describe('processResultsForSurveyQuestions', () => {
             ]
             // For multiple choice questions, the response at questionIndex is an array of selected choices
             const results: SurveyRawResults = [
-                [['A', 'B'], null, null, null, null, null, null, null, 'user1', '2024-01-15T10:00:00Z'], // User 1: picked A and B for question 0
-                [['A'], null, null, null, null, null, null, null, 'user2', '2024-01-15T10:15:00Z'], // User 2: picked A only for question 0
-                [['C', 'Custom'], null, null, null, null, null, null, null, 'user3', '2024-01-15T10:30:00Z'], // User 3: picked C and a custom answer for question 0
+                [['A', 'B'], null, null, null, null, null, null, null, null, 'user1', '2024-01-15T10:00:00Z'], // User 1: picked A and B for question 0
+                [['A'], null, null, null, null, null, null, null, null, 'user2', '2024-01-15T10:15:00Z'], // User 2: picked A only for question 0
+                [['C', 'Custom'], null, null, null, null, null, null, null, null, 'user3', '2024-01-15T10:30:00Z'], // User 3: picked C and a custom answer for question 0
             ]
 
             const processed = processResultsForSurveyQuestions(questions, results)
@@ -1884,9 +1953,9 @@ describe('processResultsForSurveyQuestions', () => {
                 },
             ]
             const results = [
-                ['Great product!', null, null, null, null, 'John', null, null, 'user123', '2024-01-15T10:30:00Z'], // User 1: response, person props (name: John), distinct_id, timestamp
-                ['Could be better', null, null, null, null, null, null, null, 'user456', '2024-01-15T11:45:00Z'], // User 2: response, no person props, distinct_id, timestamp
-                ['', null, null, null, null, null, null, null, 'user789', '2024-01-15T12:00:00Z'], // User 3: empty response (should be ignored)
+                ['Great product!', null, null, null, null, 'John', null, null, null, 'user123', '2024-01-15T10:30:00Z'], // User 1: response, person props (name: John), distinct_id, timestamp
+                ['Could be better', null, null, null, null, null, null, null, null, 'user456', '2024-01-15T11:45:00Z'], // User 2: response, no person props, distinct_id, timestamp
+                ['', null, null, null, null, null, null, null, null, 'user789', '2024-01-15T12:00:00Z'], // User 3: empty response (should be ignored)
             ] as Array<Array<string | string[]>>
 
             const processed = processResultsForSurveyQuestions(questions, results)
@@ -1925,10 +1994,10 @@ describe('processResultsForSurveyQuestions', () => {
             ]
             // Multiple people picking the same choice - should store the LATEST person's data
             const results = [
-                ['Yes', null, null, null, null, 'Alice', null, null, 'user1', '2024-01-15T10:00:00Z'], // Alice picks Yes at 10:00
-                ['Yes', null, null, null, null, 'Bob', null, null, 'user2', '2024-01-15T11:00:00Z'], // Bob picks Yes at 11:00 (later)
-                ['Yes', null, null, null, null, 'Carol', null, null, 'user3', '2024-01-15T12:00:00Z'], // Carol picks Yes at 12:00 (latest)
-                ['No', null, null, null, null, 'Dave', null, null, 'user4', '2024-01-15T13:00:00Z'], // Dave picks No
+                ['Yes', null, null, null, null, 'Alice', null, null, null, 'user1', '2024-01-15T10:00:00Z'], // Alice picks Yes at 10:00
+                ['Yes', null, null, null, null, 'Bob', null, null, null, 'user2', '2024-01-15T11:00:00Z'], // Bob picks Yes at 11:00 (later)
+                ['Yes', null, null, null, null, 'Carol', null, null, null, 'user3', '2024-01-15T12:00:00Z'], // Carol picks Yes at 12:00 (latest)
+                ['No', null, null, null, null, 'Dave', null, null, null, 'user4', '2024-01-15T13:00:00Z'], // Dave picks No
             ]
 
             const processed = processResultsForSurveyQuestions(questions, results)
@@ -1974,9 +2043,9 @@ describe('processResultsForSurveyQuestions', () => {
             ]
             // Multiple people picking the same choices - should store the LATEST person's data for each choice
             const results: SurveyRawResults = [
-                [['A', 'B'], null, null, null, null, 'Alice', null, null, 'user1', '2024-01-15T10:00:00Z'], // Alice picks A,B at 10:00
-                [['A'], null, null, null, null, 'Bob', null, null, 'user2', '2024-01-15T11:00:00Z'], // Bob picks A at 11:00 (later for A)
-                [['B', 'C'], null, null, null, null, 'Carol', null, null, 'user3', '2024-01-15T12:00:00Z'], // Carol picks B,C at 12:00 (later for B)
+                [['A', 'B'], null, null, null, null, 'Alice', null, null, null, 'user1', '2024-01-15T10:00:00Z'], // Alice picks A,B at 10:00
+                [['A'], null, null, null, null, 'Bob', null, null, null, 'user2', '2024-01-15T11:00:00Z'], // Bob picks A at 11:00 (later for A)
+                [['B', 'C'], null, null, null, null, 'Carol', null, null, null, 'user3', '2024-01-15T12:00:00Z'], // Carol picks B,C at 12:00 (later for B)
             ]
 
             const processed = processResultsForSurveyQuestions(questions, results)
@@ -2033,9 +2102,9 @@ describe('processResultsForSurveyQuestions', () => {
                 },
             ]
             const results = [
-                ['Option', 'invalid', null, null, null, null, null, null, 'user1', '2024-01-15T10:00:00Z'], // Invalid data
-                ['Option', null, null, null, null, 'Bob', null, null, 'user2', '2024-01-15T11:00:00Z'], // Valid name "Bob"
-                ['Option', null, null, null, null, null, null, null, 'user3', '2024-01-15T12:00:00Z'], // Empty props (most recent)
+                ['Option', 'invalid', null, null, null, null, null, null, null, 'user1', '2024-01-15T10:00:00Z'], // Invalid data
+                ['Option', null, null, null, null, 'Bob', null, null, null, 'user2', '2024-01-15T11:00:00Z'], // Valid name "Bob"
+                ['Option', null, null, null, null, null, null, null, null, 'user3', '2024-01-15T12:00:00Z'], // Empty props (most recent)
             ]
 
             const processed = processResultsForSurveyQuestions(questions, results)

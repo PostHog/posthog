@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconComment, IconPerson } from '@posthog/icons'
+import { IconPerson } from '@posthog/icons'
 import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { colonDelimitedDuration } from 'lib/utils'
 import { parseTimestampToMs } from 'lib/utils/timestamps'
@@ -15,10 +14,9 @@ import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     SessionRecordingPlayerMode,
-    getCurrentPlayerTime,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import {
@@ -48,19 +46,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     }
 
     const { expanded } = useValues(notebookNodeLogic)
-    const {
-        setActions,
-        insertAfter,
-        insertReplayCommentByTimestamp,
-        setMessageListeners,
-        setExpanded,
-        scrollIntoView,
-    } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners, setExpanded, scrollIntoView } = useActions(notebookNodeLogic)
 
     const { sessionPlayerMetaData, sessionPlayerMetaDataLoading, sessionPlayerData } = useValues(
-        sessionRecordingDataLogic(recordingLogicProps)
+        sessionRecordingDataCoordinatorLogic(recordingLogicProps)
     )
-    const { loadRecordingMeta, loadSnapshots } = useActions(sessionRecordingDataLogic(recordingLogicProps))
+    const { loadRecordingMeta, loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(recordingLogicProps))
     const { seekToTimestamp, seekToTime, setPlay, setPause } = useActions(
         sessionRecordingPlayerLogic(recordingLogicProps)
     )
@@ -71,15 +62,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     useEffect(() => {
         const person = sessionPlayerMetaData?.person
         setActions([
-            {
-                text: 'Comment',
-                icon: <IconComment />,
-                onClick: () => {
-                    const time = getCurrentPlayerTime(recordingLogicProps) * 1000
-
-                    insertReplayCommentByTimestamp(time, id)
-                },
-            },
             person
                 ? {
                       text: `View ${asDisplay(person)}`,
@@ -210,14 +192,5 @@ export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionReco
     return {
         sessionRecordingId: id,
         playerKey: `notebook-${id}`,
-    }
-}
-
-export function buildRecordingContent(sessionRecordingId: string): JSONContent {
-    return {
-        type: 'ph-recording',
-        attrs: {
-            id: sessionRecordingId,
-        },
     }
 }

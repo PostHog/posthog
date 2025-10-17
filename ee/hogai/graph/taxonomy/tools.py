@@ -85,6 +85,7 @@ def get_dynamic_entity_tools(team_group_types: list[str]):
     """Create dynamic Pydantic models with correct entity types for this team."""
     # Create Literal type with actual entity names
     DynamicEntityLiteral = Literal["person", "session", *team_group_types]  # type: ignore
+
     # Create dynamic retrieve_entity_properties model
     retrieve_entity_properties_dynamic = create_model(
         "retrieve_entity_properties",

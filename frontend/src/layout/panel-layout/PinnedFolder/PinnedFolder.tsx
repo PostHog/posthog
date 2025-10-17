@@ -8,6 +8,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuLabel,
     DropdownMenuSeparator,
@@ -38,34 +39,36 @@ export function PinnedFolder(): JSX.Element {
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
-                <DropdownMenuLabel>Choose pinned folder</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                    asChild
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        setPinnedFolder('products://')
-                    }}
-                    data-attr="tree-item-menu-open-link-button"
-                >
-                    <ButtonPrimitive menuItem>
-                        {!pinnedFolder || pinnedFolder === 'products://' ? <IconCheck /> : <IconBlank />}
-                        Apps
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    asChild
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        setPinnedFolder('shortcuts://')
-                    }}
-                    data-attr="tree-item-menu-open-link-button"
-                >
-                    <ButtonPrimitive menuItem>
-                        {pinnedFolder === 'shortcuts://' ? <IconCheck /> : <IconBlank />}
-                        Shortcuts
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
+                <DropdownMenuGroup>
+                    <DropdownMenuLabel>Choose pinned folder</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setPinnedFolder('products://')
+                        }}
+                        data-attr="tree-item-menu-open-link-button"
+                    >
+                        <ButtonPrimitive menuItem>
+                            {!pinnedFolder || pinnedFolder === 'products://' ? <IconCheck /> : <IconBlank />}
+                            Apps
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setPinnedFolder('shortcuts://')
+                        }}
+                        data-attr="tree-item-menu-open-link-button"
+                    >
+                        <ButtonPrimitive menuItem>
+                            {pinnedFolder === 'shortcuts://' ? <IconCheck /> : <IconBlank />}
+                            Shortcuts
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                </DropdownMenuGroup>
             </DropdownMenuContent>
         </DropdownMenu>
     )

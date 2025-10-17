@@ -46,5 +46,6 @@
             "exposure": 339,
             "key": "test"
         }
-    ]
+    ],
+    "user_access_level": "editor"
 }

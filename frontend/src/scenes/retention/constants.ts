@@ -4,7 +4,9 @@ import {
     RETENTION_RECURRING,
 } from 'lib/constants'
 import { OpUnitType } from 'lib/dayjs'
+import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
+import { RetentionFilter } from '~/queries/schema/schema-general'
 import { RetentionPeriod } from '~/types'
 
 export const dateOptions: RetentionPeriod[] = [RetentionPeriod.Day, RetentionPeriod.Week, RetentionPeriod.Month]
@@ -38,3 +40,17 @@ export const retentionOptionDescriptions = {
     [`${RETENTION_FIRST_EVER_OCCURRENCE}`]:
         "Users are only counted if their very first occurrence of this event ever matches your filters. If their first-ever event doesn't match, they're excluded entirely.",
 }
+
+export const RETENTION_TIME_WINDOW_MODE_OPTIONS: LemonSelectOptions<NonNullable<RetentionFilter['timeWindowMode']>> = [
+    {
+        value: 'strict_calendar_dates',
+        label: 'strict calendar intervals',
+        tooltip: 'Intervals are based on calendar boundaries (e.g., midnight for daily retention)',
+    },
+    {
+        value: '24_hour_windows',
+        label: 'rolling 24-hour windows',
+        tooltip:
+            "Intervals are calculated from each user's first event timestamp (e.g., if a user starts at 11 PM, their 'next day' is 24 hours later at 11 PM)",
+    },
+]

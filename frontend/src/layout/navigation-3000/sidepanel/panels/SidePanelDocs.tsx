@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { IconExternal, IconHome } from '@posthog/icons'
+import { IconHome } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -86,7 +86,6 @@ export const SidePanelDocs = (): JSX.Element => {
                 <div className="flex-1" />
                 <LemonButton
                     size="small"
-                    sideIcon={<IconExternal />}
                     targetBlank
                     // We can't use the normal `to` property as that is intercepted to open this panel :D
                     onClick={() => {

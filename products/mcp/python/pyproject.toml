@@ -1,0 +1,73 @@
+[project]
+name = "posthog-agent-toolkit"
+version = "0.1.2"
+description = "PostHog Agent Toolkit for LangChain and other AI frameworks"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "PostHog", email = "hey@posthog.com" },
+]
+dependencies = [
+    "pydantic>=2.5.0",
+    "httpx>=0.25.0",
+    "typing-extensions>=4.8.0",
+    "python-dateutil>=2.8.2",
+    "python-dotenv>=1.0.0",
+    "langchain-mcp-adapters>=0.1.0",
+    "langchain-core>=0.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "datamodel-code-generator[http]>=0.25.0",
+    "ruff>=0.1.0",
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "build>=1.3.0",
+    "twine>=6.2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["posthog_agent_toolkit"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    ".venv/",
+    "dist/",
+    "*.egg-info/",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 160
+indent-width = 4
+exclude = [
+    "schema/tool_inputs.py",  # Auto-generated file
+]
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings  
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501", # line too long
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.uv]
+dev-dependencies = []

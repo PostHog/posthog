@@ -14,6 +14,8 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -128,10 +130,10 @@ export function Comments(): JSX.Element {
     return (
         <SceneContent data-attr="comments-management-scene">
             <SceneTitleSection
-                name="Comments"
-                description="Comments allow you to provide context and discussions on various elements in PostHog."
+                name={sceneConfigurations[Scene.Comments].name}
+                description={sceneConfigurations[Scene.Comments].description}
                 resourceType={{
-                    type: 'comment',
+                    type: sceneConfigurations[Scene.Comments].iconType || 'default_icon_type',
                 }}
             />
             <SceneDivider />

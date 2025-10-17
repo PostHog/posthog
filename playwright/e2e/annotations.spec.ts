@@ -12,7 +12,7 @@ test.describe('Annotations', () => {
     })
 
     test('Create annotation', async ({ page }) => {
-        await page.click('.scene-title-section [data-attr=create-annotation]')
+        await page.click('[data-attr=create-annotation]')
         await page.fill('[data-attr=create-annotation-input]', 'Test Annotation')
         await page.click('[data-attr=create-annotation-submit]')
         await expect(page.locator('[data-attr=annotations-table]')).toContainText('Test Annotation')

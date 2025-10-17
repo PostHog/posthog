@@ -164,3 +164,6 @@ services:
         depends_on:
             - redis
             - db
+
+volumes:
+    redpanda-data:

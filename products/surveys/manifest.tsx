@@ -37,6 +37,7 @@ export const manifest: ProductManifest = {
             href: urls.surveys(),
             iconType: 'survey',
             iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+            sceneKey: 'Surveys',
         },
     ],
 }

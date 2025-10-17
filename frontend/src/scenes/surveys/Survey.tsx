@@ -1,13 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonDivider, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
 
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -62,17 +60,7 @@ export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
 }
 
 export function SurveyForm({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, targetingFlagFilters } = useValues(surveyLogic)
-    const { loadSurvey, editingSurvey } = useActions(surveyLogic)
-
-    const handleCancelClick = (): void => {
-        editingSurvey(false)
-        if (id === 'new') {
-            router.actions.push(urls.surveys())
-        } else {
-            loadSurvey()
-        }
-    }
+    const { survey, targetingFlagFilters } = useValues(surveyLogic)
 
     return (
         <Form
@@ -83,30 +71,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             className="deprecated-space-y-4"
             enableFormOnSubmit
         >
-            <PageHeader
-                buttons={
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            data-attr="cancel-survey"
-                            type="secondary"
-                            loading={surveyLoading}
-                            onClick={handleCancelClick}
-                        >
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            data-attr="save-survey"
-                            htmlType="submit"
-                            loading={surveyLoading}
-                            form="survey"
-                        >
-                            {id === 'new' ? 'Save as draft' : 'Save'}
-                        </LemonButton>
-                    </div>
-                }
-            />
-            <SurveyEdit />
+            <SurveyEdit id={id} />
             <LemonDivider />
             <SurveyDisplaySummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             <LemonDivider />

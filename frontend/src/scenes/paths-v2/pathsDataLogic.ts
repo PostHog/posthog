@@ -136,6 +136,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 const name = currentItemCard.name.includes('http')
                     ? '$pageview'
                     : currentItemCard.name.replace(/(^[0-9]+_)/, '')
+                const url = new URL(currentItemCard.name.replace(/(^[0-9]+_)/, ''))
                 events.push({
                     id: name,
                     name: name,
@@ -147,7 +148,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                                 key: '$current_url',
                                 operator: PropertyOperator.Exact,
                                 type: PropertyFilterType.Event,
-                                value: currentItemCard.name.replace(/(^[0-9]+_)/, ''),
+                                value: url.href,
                             },
                         ],
                     }),

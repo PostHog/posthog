@@ -328,7 +328,7 @@ class FeatureFlagMatcher:
                 }
             except Exception as err:
                 faced_error_computing_flags = True
-                handle_feature_flag_exception(err, "[Feature Flags] Error computing flags")
+                handle_feature_flag_exception(err, f"[Feature Flags] Error computing flags: {feature_flag.key}")
 
         return (
             flag_values,
@@ -1221,7 +1221,7 @@ def check_pure_is_not_operator_condition(condition: dict) -> bool:
     return False
 
 
-def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int) -> bool:
+def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int, project_id: int) -> bool:
     # TRICKY: There are some cases where the regex is valid re2 syntax, but postgresql doesn't like it.
     # This function tries to validate such cases. See `test_cant_create_flag_with_data_that_fails_to_query` for an example.
     # It however doesn't catch all cases, like when the property doesn't exist on any person, which shortcircuits regex evaluation
@@ -1237,10 +1237,10 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int
     group_type_index = feature_flag.aggregation_group_type_index
 
     base_query: QuerySet = (
-        Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(team__project_id=project_id)
+        Person.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(team_id=team_id)
         if group_type_index is None
         else Group.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(
-            team__project_id=project_id, group_type_index=group_type_index
+            team_id=team_id, group_type_index=group_type_index
         )
     )
     query_fields = []

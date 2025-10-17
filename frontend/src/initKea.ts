@@ -14,6 +14,8 @@ import { hashCodeForString, identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { disposablesPlugin } from '~/kea-disposables'
+
 /*
 Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
@@ -57,6 +59,7 @@ export function initKea({
 }: InitKeaProps = {}): void {
     const plugins = [
         ...(beforePlugins || []),
+        disposablesPlugin,
         localStoragePlugin(),
         windowValuesPlugin({ window: window }),
         routerPlugin({
@@ -142,15 +145,12 @@ export function initKea({
         }
     }
     // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
-    if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('ph-kea-debug'))) {
-        plugins.push(
-            posthogKeaLogger({
-                logger: (title, stateEvent) => {
-                    const ph: PostHog | undefined = window.posthog
-                    ph?.sessionRecording?.tryAddCustomEvent('app-state', { title, stateEvent })
-                },
-            })
-        )
+    // to explicitly disable the logging, run localStorage.setItem("ph-kea-debug", false)
+    const localStorageLoggingFlag = 'localStorage' in window && window.localStorage.getItem('ph-kea-debug')
+    const localStorageDisablesLogging = localStorageLoggingFlag === 'false'
+    const localStorageEnablesLogging = localStorageLoggingFlag === 'true'
+    if (!localStorageDisablesLogging && (localStorageEnablesLogging || window.JS_KEA_VERBOSE_LOGGING)) {
+        plugins.push(posthogKeaLogger())
     }
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {

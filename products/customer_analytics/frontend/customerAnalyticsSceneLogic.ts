@@ -1,14 +1,16 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DashboardType } from '~/types'
+import { Breadcrumb, DashboardType } from '~/types'
 
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
 
@@ -21,7 +23,7 @@ export interface CustomerDashboard {
 export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>([
     path(['scenes', 'customerAnalytics', 'customerAnalyticsScene']),
     tabAwareScene(),
-    connect({
+    connect(() => ({
         actions: [
             newDashboardLogic({ initialTags: ['customer-analytics'] }),
             ['showNewDashboardModal', 'hideNewDashboardModal', 'submitNewDashboardSuccessWithResult'],
@@ -32,12 +34,25 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             teamLogic,
             ['currentTeamId'],
         ],
-    }),
+    })),
     actions({
         createNewDashboard: true,
         handleEditDashboard: () => {},
         onChangeDashboard: (dashboardId: number | string | null) => ({ dashboardId }),
         selectDashboard: (dashboardId: number | null) => ({ dashboardId }),
+    }),
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: Scene.CustomerAnalytics,
+                    name: sceneConfigurations[Scene.CustomerAnalytics].name,
+                    path: urls.customerAnalytics(),
+                    iconType: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
+                },
+            ],
+        ],
     }),
     loaders(({ values }) => ({
         availableDashboards: [

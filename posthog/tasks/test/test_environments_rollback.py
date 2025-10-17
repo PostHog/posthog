@@ -5,7 +5,6 @@ from django.test import TransactionTestCase
 from posthog.models import (
     Annotation,
     Dashboard,
-    EarlyAccessFeature,
     EventDefinition,
     FeatureFlag,
     Insight,
@@ -17,6 +16,8 @@ from posthog.models import (
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.environments_rollback import environments_rollback_migration
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 
 class TestEnvironmentsRollbackTask(TransactionTestCase):
@@ -297,10 +298,15 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         mock_posthog_client = MagicMock()
         mock_get_client.return_value = mock_posthog_client
 
-        project = Project.objects.create(id=1001, organization=self.organization, name="Main Project")
+        # Get a unique ID from the sequence to avoid conflicts
+        unique_id = Team.objects.increment_id_sequence()
+
+        # Create project and team with the same ID to simulate main environment
+        project = Project.objects.create(id=unique_id, organization=self.organization, name="Main Project")
         production_env = Team.objects.create(
-            id=project.id, organization=self.organization, name="Production", project_id=project.id
+            id=unique_id, organization=self.organization, name="Production", project_id=project.id
         )
+
         staging_env = Team.objects.create(organization=self.organization, name="Staging", project_id=project.id)
 
         production_insight = Insight.objects.create(team=production_env, name="Production Insight")

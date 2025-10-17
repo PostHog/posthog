@@ -3,7 +3,7 @@ import './LemonButton.scss'
 import clsx from 'clsx'
 import React, { useContext } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconExternal } from '@posthog/icons'
 
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 
@@ -116,11 +116,13 @@ export interface LemonButtonWithoutSideActionProps extends LemonButtonPropsBase 
     sideIcon?: React.ReactElement | null
     sideAction?: null
 }
+
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
     sideAction?: SideAction
     sideIcon?: null
 }
+
 export type LemonButtonProps = LemonButtonWithoutSideActionProps | LemonButtonWithSideActionProps
 
 /** Styled button. */
@@ -262,7 +264,11 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     <span className="LemonButton__chrome">
                         {icon ? <span className="LemonButton__icon">{icon}</span> : null}
                         {children ? <span className="LemonButton__content">{children}</span> : null}
-                        {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
+                        {sideIcon ? (
+                            <span className="LemonButton__icon">{sideIcon}</span>
+                        ) : targetBlank ? (
+                            <IconExternal />
+                        ) : null}
                     </span>
                 </ButtonComponent>
             )

@@ -189,6 +189,7 @@ mod tests {
                 data_type: DataType::AnalyticsMain,
                 session_id: None,
                 computed_timestamp: None,
+                event_name: "test_event".to_string(),
             },
         };
 
@@ -227,6 +228,7 @@ mod tests {
                 data_type: DataType::AnalyticsMain,
                 session_id: None,
                 computed_timestamp: None,
+                event_name: "test_event".to_string(),
             },
         };
 

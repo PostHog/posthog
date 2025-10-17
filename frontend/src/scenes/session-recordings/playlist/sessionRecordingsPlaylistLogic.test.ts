@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
 import { playlistLogic } from './playlistLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
@@ -182,7 +182,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             it('mounts and loads the recording when a recording is opened', () => {
                 expectLogic(logic, async () => logic.asyncActions.setSelectedRecordingId('abcd'))
-                    .toMount(sessionRecordingDataLogic({ sessionRecordingId: 'abcd' }))
+                    .toMount(sessionRecordingDataCoordinatorLogic({ sessionRecordingId: 'abcd' }))
                     .toDispatchActions(['loadEntireRecording'])
             })
 
@@ -546,68 +546,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         order: 'start_time',
                         order_direction: 'DESC',
                     },
-                })
-        })
-
-        it('reads advanced filters from the URL', async () => {
-            router.actions.push('/replay', {
-                advancedFilters: {
-                    events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
-                },
-            })
-
-            await expectLogic(logic)
-                .toDispatchActions(['setFilters'])
-                .toMatchValues({
-                    filters: expect.objectContaining({
-                        filter_group: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: FilterLogicalOperator.And,
-                                    values: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
-                                },
-                            ],
-                        },
-                    }),
-                })
-        })
-
-        it('reads simple filters from the URL', async () => {
-            router.actions.push('/replay', {
-                simpleFilters: {
-                    properties: [
-                        {
-                            key: '$geoip_country_name',
-                            value: ['Australia'],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.Person,
-                        },
-                    ],
-                },
-            })
-
-            await expectLogic(logic)
-                .toDispatchActions(['setFilters'])
-                .toMatchValues({
-                    filters: expect.objectContaining({
-                        filter_group: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: FilterLogicalOperator.And,
-                                    values: [
-                                        {
-                                            key: '$geoip_country_name',
-                                            value: ['Australia'],
-                                            operator: PropertyOperator.Exact,
-                                            type: PropertyFilterType.Person,
-                                        },
-                                    ],
-                                },
-                            ],
-                        },
-                    }),
                 })
         })
     })

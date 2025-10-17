@@ -27,12 +27,25 @@ from products.batch_exports.backend.temporal.monitoring import (
     reconcile_event_counts,
     update_batch_export_runs,
 )
+from products.batch_exports.backend.tests.temporal.utils import create_clickhouse_tables_and_views, truncate_events
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 NOW = dt.datetime.now(tz=dt.UTC)
 GENERATE_TEST_DATA_END = NOW.replace(minute=0, second=0, microsecond=0, tzinfo=dt.UTC) - dt.timedelta(hours=1)
 GENERATE_TEST_DATA_START = GENERATE_TEST_DATA_END - dt.timedelta(hours=1)
+
+
+@pytest.fixture(scope="module", autouse=True)
+async def clickhouse_db_setup(clickhouse_client):
+    await create_clickhouse_tables_and_views(clickhouse_client)
+
+
+@pytest.fixture(autouse=True)
+async def truncate(clickhouse_client):
+    """Fixture to automatically truncate sharded_events after a test."""
+    yield
+    await truncate_events(clickhouse_client)
 
 
 @pytest.fixture

@@ -6,6 +6,7 @@ import { Link } from 'lib/lemon-ui/Link/Link'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuLabel,
     DropdownMenuSeparator,
@@ -107,45 +108,47 @@ export function Default(): JSX.Element {
                 </DropdownMenuTrigger>
 
                 <DropdownMenuContent loop align="start">
-                    <DropdownMenuLabel>Section 1</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive size="base" menuItem>
-                            Item 1
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive size="base" menuItem>
-                            Item 2
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-                    <DropdownMenuLabel>Links</DropdownMenuLabel>
-                    <ButtonGroupPrimitive menuItem fullWidth>
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel>Section 1</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem asChild>
+                            <ButtonPrimitive size="base" menuItem>
+                                Item 1
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive size="base" menuItem>
+                                Item 2
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                        <DropdownMenuLabel>Links</DropdownMenuLabel>
+                        <ButtonGroupPrimitive menuItem fullWidth>
+                            <DropdownMenuItem asChild>
+                                <Link
+                                    buttonProps={{
+                                        menuItem: true,
+                                        hasSideActionRight: true,
+                                    }}
+                                    tooltip="go to google"
+                                    tooltipPlacement="right"
+                                    to="https://google.com"
+                                >
+                                    Name
+                                </Link>
+                            </DropdownMenuItem>
                             <Link
                                 buttonProps={{
-                                    menuItem: true,
-                                    hasSideActionRight: true,
+                                    iconOnly: true,
+                                    isSideActionRight: true,
                                 }}
-                                tooltip="go to google"
+                                tooltip="go to bing"
                                 tooltipPlacement="right"
-                                to="https://google.com"
+                                to="https://bing.com"
                             >
-                                Name
+                                <IconGear />
                             </Link>
-                        </DropdownMenuItem>
-                        <Link
-                            buttonProps={{
-                                iconOnly: true,
-                                isSideActionRight: true,
-                            }}
-                            tooltip="go to bing"
-                            tooltipPlacement="right"
-                            to="https://bing.com"
-                        >
-                            <IconGear />
-                        </Link>
-                    </ButtonGroupPrimitive>
+                        </ButtonGroupPrimitive>
+                    </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
 
@@ -168,18 +171,20 @@ export function Default(): JSX.Element {
                 </ButtonGroupPrimitive>
 
                 <DropdownMenuContent loop align="start">
-                    <DropdownMenuLabel>Section 1</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive size="base" menuItem>
-                            Item 1
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive size="base" menuItem>
-                            Item 2
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel>Section 1</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive size="base" menuItem>
+                                Item 1
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive size="base" menuItem>
+                                Item 2
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
 
@@ -202,18 +207,20 @@ export function Default(): JSX.Element {
                 </ButtonGroupPrimitive>
 
                 <DropdownMenuContent loop align="start">
-                    <DropdownMenuLabel>Section 1</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive size="base" menuItem>
-                            Item 1
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive size="base" menuItem>
-                            Item 2
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel>Section 1</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive size="base" menuItem>
+                                Item 1
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive size="base" menuItem>
+                                Item 2
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
         </div>

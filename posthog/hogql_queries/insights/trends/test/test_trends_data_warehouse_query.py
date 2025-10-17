@@ -415,6 +415,48 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert len(response.results) == 4
 
     @snapshot_clickhouse_queries
+    def test_trends_breakdown_on_view_with_date_timestamp(self):
+        from posthog.warehouse.models import DataWarehouseSavedQuery
+
+        table_name = self.setup_data_warehouse()
+
+        # Define a `timestamp` field as a `date`
+        query = f"""\
+          select
+            id as id,
+            toDate(created) as timestamp,
+            prop_1 as prop_2,
+            true as boolfield
+          from {table_name}
+        """
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="saved_view",
+            query={"query": query, "kind": "HogQLQuery"},
+        )
+        saved_query.columns = saved_query.get_columns()
+        saved_query.save()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id="saved_view",
+                    table_name="saved_view",
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="timestamp",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_2"),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+        assert len(response.results) == 4
+
+    @snapshot_clickhouse_queries
     def test_trends_breakdown_with_property(self):
         table_name = self.setup_data_warehouse()
 

@@ -1,5 +1,5 @@
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import serializers, viewsets
+from rest_framework import pagination, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -18,9 +18,9 @@ class InsightVariableSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
 
-        # Strips non alphanumeric values from name (other than spaces)
+        # Strips non alphanumeric values from name (other than spaces and underscores)
         validated_data["code_name"] = (
-            "".join(n for n in validated_data["name"] if n.isalnum() or n == " ").replace(" ", "_").lower()
+            "".join(n for n in validated_data["name"] if n.isalnum() or n == " " or n == "_").replace(" ", "_").lower()
         )
 
         count = InsightVariable.objects.filter(
@@ -33,9 +33,14 @@ class InsightVariableSerializer(serializers.ModelSerializer):
         return InsightVariable.objects.create(**validated_data)
 
 
+class InsightVariablePagination(pagination.PageNumberPagination):
+    page_size = 500
+
+
 class InsightVariableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = InsightVariable.objects.all()
+    pagination_class = InsightVariablePagination
     serializer_class = InsightVariableSerializer
     filter_backends = [DjangoFilterBackend]
 

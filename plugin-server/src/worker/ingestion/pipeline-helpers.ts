@@ -168,7 +168,7 @@ function copyAndExtendHeaders(
  * Extract event metadata from a Kafka message for logging purposes
  * Only extracts from headers as strings, never parses the payload
  */
-function getEventMetadata(message: Message): { teamId?: string; distinctId?: string; event?: string } {
+function getEventMetadata(message: Message): { teamId?: string; distinctId?: string; event?: string; uuid?: string } {
     const originalHeaders = message.headers || []
     const headers: Record<string, any> = {}
 
@@ -179,14 +179,16 @@ function getEventMetadata(message: Message): { teamId?: string; distinctId?: str
         }
     }
 
-    const teamId = headers['team-id'] ? String(headers['team-id']) : undefined
-    const distinctId = headers['distinct-id'] ? String(headers['distinct-id']) : undefined
+    const teamId = headers['team_id'] ? String(headers['team_id']) : undefined
+    const distinctId = headers['distinct_id'] ? String(headers['distinct_id']) : undefined
     const event = headers['event'] ? String(headers['event']) : undefined
+    const uuid = headers['uuid'] ? String(headers['uuid']) : undefined
 
     return {
         teamId,
         distinctId,
         event,
+        uuid,
     }
 }
 
@@ -208,6 +210,7 @@ export async function sendMessageToDLQ(
         team_id: messageInfo.teamId,
         distinct_id: messageInfo.distinctId,
         event: messageInfo.event,
+        uuid: messageInfo.uuid,
         error: error instanceof Error ? error.message : String(error),
     })
 
@@ -221,7 +224,7 @@ export async function sendMessageToDLQ(
                 'pipeline_step_dlq',
                 {
                     distinctId: messageInfo.distinctId || 'unknown',
-                    eventUuid: 'unknown', // We don't parse the full event
+                    eventUuid: messageInfo.uuid || 'unknown',
                     error: error instanceof Error ? error.message : String(error),
                     event: messageInfo.event || 'unknown',
                     step,
@@ -245,6 +248,8 @@ export async function sendMessageToDLQ(
             step,
             team_id: messageInfo.teamId,
             distinct_id: messageInfo.distinctId,
+            event: messageInfo.event,
+            uuid: messageInfo.uuid,
             error: dlqError,
         })
         captureException(dlqError, {
@@ -325,5 +330,5 @@ export function logDroppedMessage(originalMessage: Message, reason: string, step
         reason,
     })
 
-    droppedEventCounter.inc()
+    droppedEventCounter.labels({ reason }).inc()
 }

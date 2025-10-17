@@ -121,7 +121,9 @@ export async function instrumentFn<T>(
         if (logExecutionTime) {
             logTime(startTime, key, error)
         }
-        captureException(error)
+        if (sendException) {
+            captureException(error)
+        }
         throw error
     } finally {
         clearTimeout(t)

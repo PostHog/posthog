@@ -1,12 +1,10 @@
 import json
 from typing import Optional
 
-from posthog.api.advanced_activity_logs.queries import SMALL_ORG_THRESHOLD
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 
-CACHE_TTL_SECONDS = 12 * 60 * 60  # 12 hours
-CACHE_KEY_PREFIX = "activity_log:details_fields"
+from .constants import CACHE_KEY_PREFIX, CACHE_TTL_SECONDS, SMALL_ORG_THRESHOLD
 
 
 def _get_cache_key(organization_id: str) -> str:
@@ -42,3 +40,14 @@ def cache_fields(organization_id: str, fields_data: dict, record_count: int) -> 
             client.setex(key, CACHE_TTL_SECONDS, json_data)
     except Exception as e:
         capture_exception(e)
+
+
+def delete_cached_fields(organization_id: str) -> bool:
+    """Delete cached fields for an organization"""
+    try:
+        client = get_client()
+        key = _get_cache_key(organization_id)
+        return bool(client.delete(key))
+    except Exception as e:
+        capture_exception(e)
+        return False

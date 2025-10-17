@@ -36,37 +36,39 @@ pub async fn get_suppression_rules(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::test_utils::{
-        insert_new_team_in_pg, insert_suppression_rule_in_pg, setup_pg_reader_client,
-    };
+    use crate::utils::test_utils::{insert_suppression_rule_in_pg, TestContext};
     use serde_json::json;
 
     #[tokio::test]
     async fn test_get_suppression_rules_empty() {
-        let client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
 
-        let result = get_suppression_rules(client, &team).await.unwrap();
+        let result = get_suppression_rules(context.non_persons_reader, &team)
+            .await
+            .unwrap();
 
         assert!(result.is_empty());
     }
 
     #[tokio::test]
     async fn test_get_suppression_rules_with_data() {
-        let client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
 
         let filter1 = json!({"errorType": "TypeError", "message": "Cannot read property"});
         let filter2 = json!({"stackTrace": {"contains": "node_modules"}});
 
-        insert_suppression_rule_in_pg(client.clone(), team.id, filter1.clone())
+        insert_suppression_rule_in_pg(context.non_persons_writer.clone(), team.id, filter1.clone())
             .await
             .unwrap();
-        insert_suppression_rule_in_pg(client.clone(), team.id, filter2.clone())
+        insert_suppression_rule_in_pg(context.non_persons_writer.clone(), team.id, filter2.clone())
             .await
             .unwrap();
 
-        let result = get_suppression_rules(client, &team).await.unwrap();
+        let result = get_suppression_rules(context.non_persons_reader, &team)
+            .await
+            .unwrap();
 
         assert_eq!(result.len(), 2);
         assert!(result.contains(&filter1));
@@ -75,21 +77,31 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_suppression_rules_filters_by_team() {
-        let client = setup_pg_reader_client(None).await;
-        let team1 = insert_new_team_in_pg(client.clone(), None).await.unwrap();
-        let team2 = insert_new_team_in_pg(client.clone(), None).await.unwrap();
+        let context = TestContext::new(None).await;
+        let team1 = context.insert_new_team(None).await.unwrap();
+        let team2 = context.insert_new_team(None).await.unwrap();
 
         let filter1 = json!({"errorType": "TypeError"});
         let filter2 = json!({"errorType": "ReferenceError"});
 
-        insert_suppression_rule_in_pg(client.clone(), team1.id, filter1.clone())
-            .await
-            .unwrap();
-        insert_suppression_rule_in_pg(client.clone(), team2.id, filter2.clone())
-            .await
-            .unwrap();
+        insert_suppression_rule_in_pg(
+            context.non_persons_writer.clone(),
+            team1.id,
+            filter1.clone(),
+        )
+        .await
+        .unwrap();
+        insert_suppression_rule_in_pg(
+            context.non_persons_writer.clone(),
+            team2.id,
+            filter2.clone(),
+        )
+        .await
+        .unwrap();
 
-        let result = get_suppression_rules(client, &team1).await.unwrap();
+        let result = get_suppression_rules(context.non_persons_reader, &team1)
+            .await
+            .unwrap();
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], filter1);

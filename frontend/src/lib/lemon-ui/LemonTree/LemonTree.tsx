@@ -485,11 +485,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 </Link>
                             </ContextMenuTrigger>
 
-                            {isContextMenuOpenForItem === item.id && itemContextMenu?.(item) ? (
+                            {itemContextMenu?.(item) && (
                                 <ContextMenuContent loop className="max-w-[250px]">
                                     {itemContextMenu(item)}
                                 </ContextMenuContent>
-                            ) : null}
+                            )}
                         </ContextMenu>
                     )
 

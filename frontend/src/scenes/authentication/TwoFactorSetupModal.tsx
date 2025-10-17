@@ -3,11 +3,10 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
 
+import { OrganizationMenu } from 'lib/components/Account/OrganizationMenu'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
-
-import { OrganizationDropdownMenu } from '~/layout/panel-layout/OrganizationDropdownMenu'
 
 import { TwoFactorSetup } from './TwoFactorSetup'
 import { twoFactorLogic } from './twoFactorLogic'
@@ -64,7 +63,7 @@ export function TwoFactorSetupModal(): JSX.Element {
                                 change your organization
                             </button>
                         </div>
-                        {showOrgDropdown && <OrganizationDropdownMenu allowCreate={false} />}
+                        {showOrgDropdown && <OrganizationMenu allowCreate={false} />}
                     </div>
                 )}
             </div>

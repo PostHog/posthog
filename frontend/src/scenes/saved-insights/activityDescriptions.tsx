@@ -232,13 +232,12 @@ const insightActionsMapping: Record<
     saved: () => null,
     is_sample: () => null,
     timezone: () => null,
-    effective_restriction_level: () => null,
-    effective_privilege_level: () => null,
     disable_baseline: () => null,
     dashboard_tiles: () => null,
     query_status: () => null,
     user_access_level: () => null,
     _create_in_folder: () => null,
+    last_viewed_at: () => null,
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {

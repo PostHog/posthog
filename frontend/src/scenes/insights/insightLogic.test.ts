@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
+import 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -98,8 +98,6 @@ function insightModelWith(properties: Record<string, any>): QueryBasedInsightMod
         visibility: null,
         last_modified_at: '2021-03-31T15:00:00.000Z',
         last_modified_by: null,
-        effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
-        effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         layouts: {},
         color: null,
         user_access_level: AccessControlLevel.Editor,
@@ -222,7 +220,7 @@ describe('insightLogic', () => {
             },
             post: {
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
-                '/api/environments/:team_id/insights/:id/viewed': [201],
+                '/api/environments/:team_id/insights/viewed': [201],
                 '/api/environments/:team_id/insights/': (req) => [
                     200,
                     { id: 12, short_id: Insight12, ...(req.body as any) },
@@ -244,7 +242,9 @@ describe('insightLogic', () => {
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
         teamLogic.mount()
         sceneLogic.mount()
-        sceneLogic.actions.setTabs([{ id: '1', title: '...', pathname: '/', search: '', hash: '', active: true }])
+        sceneLogic.actions.setTabs([
+            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
+        ])
         await expectLogic(teamLogic)
             .toFinishAllListeners()
             .toMatchValues({ currentTeam: partial({ test_account_filters_default_checked: true }) })
