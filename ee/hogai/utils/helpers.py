@@ -1,6 +1,8 @@
+import json
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from typing import Any, Optional, TypeVar, Union, cast
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from jsonref import replace_refs
@@ -264,8 +266,57 @@ def extract_thinking_from_ai_message(response: BaseMessage) -> list[dict[str, An
     return thinking
 
 
-def normalize_ai_message(message: AIMessage | AIMessageChunk) -> AssistantMessage:
-    message_id = None
+def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantMessage]:
+    _create_blank_assistant_message = lambda: AssistantMessage(
+        content="",
+        id=None if isinstance(message, AIMessageChunk) else str(uuid4()),
+        tool_calls=[],
+        server_tool_calls=[],
+        meta=AssistantMessageMetadata(thinking=[]),
+    )
+    if isinstance(message.content, list):
+        messages: list[AssistantMessage] = [_create_blank_assistant_message()]
+        for content_item in message.content:
+            if messages[-1].server_tool_calls:
+                # Server tool use necessisates starting a new AssistantMessage for correct presentation
+                messages.append(_create_blank_assistant_message())
+            if isinstance(content_item, dict) and "type" in content_item:
+                if content_item["type"] == "text":
+                    if "text" in content_item:
+                        messages[-1].content += content_item["text"]
+                    if "citations" in content_item:
+                        messages[-1].content += "".join(
+                            f" [({urlparse(citation['url']).netloc})]({citation['url']})"  # Must have space in front
+                            for citation in content_item["citations"]
+                        )
+                if content_item["type"] in ("thinking", "redacted_thinking"):
+                    messages[-1].meta.thinking.append(content_item)
+                if content_item["type"] == "server_tool_use":
+                    try:
+                        args_parsed = json.loads(content_item["partial_json"])  # Not provided by LangChain
+                    except (KeyError, json.JSONDecodeError):
+                        args_parsed = {}
+                    messages[-1].server_tool_calls.append(
+                        AssistantToolCall(
+                            id=content_item["id"],
+                            name=content_item["name"],
+                            args=args_parsed,
+                        )
+                    )
+            elif isinstance(content_item, str):
+                messages[-1].content += content_item
+    else:
+        content = extract_content_from_ai_message(message)
+        thinking = extract_thinking_from_ai_message(message)
+        messages = [
+            AssistantMessage(
+                id=None if isinstance(message, AIMessageChunk) else str(uuid4()),
+                content=content,
+                meta=AssistantMessageMetadata(thinking=thinking) if thinking else None,
+            )
+        ]
+
+    # Regular tool calls are added separately to the last message, as their args must be fully complete to be JSON-valid
     if isinstance(message, AIMessageChunk):
         tool_calls = [
             AssistantToolCall(
@@ -277,19 +328,13 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> AssistantMessag
             if tool_call["id"] is not None and tool_call["name"] is not None
         ]
     else:
-        message_id = str(uuid4())
         tool_calls = [
             AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"] or {})
             for tool_call in message.tool_calls
         ]
-    content = extract_content_from_ai_message(message)
-    thinking = extract_thinking_from_ai_message(message)
-    return AssistantMessage(
-        content=content,
-        id=message_id,
-        tool_calls=tool_calls,
-        meta=AssistantMessageMetadata(thinking=thinking) if thinking else None,
-    )
+    messages[-1].tool_calls = tool_calls
+
+    return messages
 
 
 def cast_assistant_query(

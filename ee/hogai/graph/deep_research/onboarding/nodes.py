@@ -59,11 +59,11 @@ class DeepResearchOnboardingNode(DeepResearchNode):
             {},
             config,
         )
-        message = normalize_ai_message(cast(LangchainAIMessage, response))
+        messages = normalize_ai_message(cast(LangchainAIMessage, response))
         response_id = response.response_metadata["id"]
 
         return PartialDeepResearchState(
-            messages=[message],
+            messages=messages,
             previous_response_id=response_id,
             current_run_notebooks=[],  # Reset current run notebooks on new run
         )

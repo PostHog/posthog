@@ -302,6 +302,58 @@ class TestNormalizeAIMessage(BaseTest):
         assert result.meta.thinking is not None
         self.assertEqual(len(result.meta.thinking), 1)
 
+    def test_normalize_ai_message_with_web_search_tool(self):
+        """Test normalizing AIMessage with web_search tool use in content blocks"""
+        message = AIMessage(
+            content=[
+                {"type": "text", "text": "Let me search for that information."},
+                {
+                    "type": "tool_use",
+                    "id": "toolu_01A1B2C3D4E5F6G7H8I9J0K1",
+                    "name": "web_search",
+                    "input": {"query": "PostHog documentation"},
+                },
+                {"type": "text", "text": "Based on the search results..."},
+            ],
+            tool_calls=[],
+        )
+
+        result = normalize_ai_message(message)
+
+        self.assertEqual(result.content, "Let me search for that information.Based on the search results...")
+        assert isinstance(result.tool_calls, list)
+        self.assertEqual(len(result.tool_calls), 1)
+        self.assertEqual(result.tool_calls[0].id, "toolu_01A1B2C3D4E5F6G7H8I9J0K1")
+        self.assertEqual(result.tool_calls[0].name, "web_search")
+        self.assertEqual(result.tool_calls[0].args, {"query": "PostHog documentation"})
+
+    def test_normalize_ai_message_with_mixed_tool_calls_and_web_search(self):
+        """Test normalizing AIMessage with both regular tool_calls and web_search in content"""
+        message = AIMessage(
+            content=[
+                {"type": "text", "text": "I'll use multiple tools."},
+                {
+                    "type": "tool_use",
+                    "id": "web_search_123",
+                    "name": "web_search",
+                    "input": {"query": "latest PostHog features"},
+                },
+            ],
+            tool_calls=[{"id": "regular_tool_456", "name": "read_taxonomy", "args": {}}],
+        )
+
+        result = normalize_ai_message(message)
+
+        self.assertEqual(result.content, "I'll use multiple tools.")
+        assert isinstance(result.tool_calls, list)
+        self.assertEqual(len(result.tool_calls), 2)
+        # Regular tool call should come first (from tool_calls property)
+        self.assertEqual(result.tool_calls[0].id, "regular_tool_456")
+        self.assertEqual(result.tool_calls[0].name, "read_taxonomy")
+        # Web search should be appended (from content blocks)
+        self.assertEqual(result.tool_calls[1].id, "web_search_123")
+        self.assertEqual(result.tool_calls[1].name, "web_search")
+
 
 class TestExtractThinkingFromAIMessage(BaseTest):
     """Test extract_thinking_from_ai_message with various formats."""

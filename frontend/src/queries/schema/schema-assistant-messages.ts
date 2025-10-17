@@ -95,6 +95,8 @@ export interface AssistantMessage extends BaseAssistantMessage {
     content: string
     meta?: AssistantMessageMetadata
     tool_calls?: AssistantToolCall[]
+    /** Tools fully handled within the LLM provider API, like web search. */
+    server_tool_calls?: AssistantToolCall[]
 }
 
 export interface ReasoningMessage extends BaseAssistantMessage {

@@ -1501,6 +1501,13 @@
                 "parent_tool_call_id": {
                     "type": "string"
                 },
+                "server_tool_calls": {
+                    "description": "Tools like web_search, fully handled by the LLM provider API.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantToolCall"
+                    },
+                    "type": "array"
+                },
                 "tool_calls": {
                     "items": {
                         "$ref": "#/definitions/AssistantToolCall"
