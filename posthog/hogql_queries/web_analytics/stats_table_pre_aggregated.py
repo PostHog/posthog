@@ -49,7 +49,8 @@ def _nullif_empty_decorator(func):
 
 class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
     # Toggle this to switch between hybrid (False) and bounce-style (True) conversion query implementations
-    USE_BOUNCE_STYLE_CONVERSION_QUERY = False
+    # We could've made this a setting, but I think this way will work, but wanted to have them both around for comparing snapshots for a bit
+    USE_BOUNCE_STYLE_CONVERSION_QUERY = True
 
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
         super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS)
@@ -299,12 +300,14 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             ),
             ast.Alias(
                 alias="visitors_previous",
-                expr=ast.Call(
-                    name="uniqMergeIf",
-                    args=[ast.Field(chain=["persons_uniq_state"]), previous_period_filter],
-                )
-                if self.runner.query_compare_to_date_range
-                else ast.Constant(value=0),
+                expr=(
+                    ast.Call(
+                        name="uniqMergeIf",
+                        args=[ast.Field(chain=["persons_uniq_state"]), previous_period_filter],
+                    )
+                    if self.runner.query_compare_to_date_range
+                    else ast.Constant(value=0)
+                ),
             ),
         ]
 
@@ -372,15 +375,17 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             ),
             ast.Alias(
                 alias="total_conversions_previous",
-                expr=ast.Call(
-                    name="sumIf",
-                    args=[
-                        ast.Field(chain=["conversion_count"]),
-                        self.runner._previous_period_expression("start_timestamp"),
-                    ],
-                )
-                if self.runner.query_compare_to_date_range
-                else ast.Constant(value=0),
+                expr=(
+                    ast.Call(
+                        name="sumIf",
+                        args=[
+                            ast.Field(chain=["conversion_count"]),
+                            self.runner._previous_period_expression("start_timestamp"),
+                        ],
+                    )
+                    if self.runner.query_compare_to_date_range
+                    else ast.Constant(value=0)
+                ),
             ),
             ast.Alias(
                 alias="unique_conversions_current",
@@ -394,15 +399,17 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             ),
             ast.Alias(
                 alias="unique_conversions_previous",
-                expr=ast.Call(
-                    name="uniqIf",
-                    args=[
-                        ast.Field(chain=["conversion_person_id"]),
-                        self.runner._previous_period_expression("start_timestamp"),
-                    ],
-                )
-                if self.runner.query_compare_to_date_range
-                else ast.Constant(value=0),
+                expr=(
+                    ast.Call(
+                        name="uniqIf",
+                        args=[
+                            ast.Field(chain=["conversion_person_id"]),
+                            self.runner._previous_period_expression("start_timestamp"),
+                        ],
+                    )
+                    if self.runner.query_compare_to_date_range
+                    else ast.Constant(value=0)
+                ),
             ),
         ]
 
