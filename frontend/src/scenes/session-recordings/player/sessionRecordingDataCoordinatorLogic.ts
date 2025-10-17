@@ -339,6 +339,24 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             },
         ],
 
+        hasMinimumPlayableData: [
+            (s) => [s.snapshotsByWindowId, s.sessionPlayerMetaDataLoading],
+            (snapshotsByWindowId: Record<string, eventWithTime[]>, sessionPlayerMetaDataLoading: boolean): boolean => {
+                // We can start playback if we have:
+                // 1. Metadata loaded
+                // 2. At least one window with a full snapshot
+                if (sessionPlayerMetaDataLoading) {
+                    return false
+                }
+
+                const hasFullSnapshot = Object.values(snapshotsByWindowId).some((events) =>
+                    events.some((event) => event.type === EventType.FullSnapshot)
+                )
+
+                return hasFullSnapshot
+            },
+        ],
+
         windowIds: [
             (s) => [s.snapshotsByWindowId],
             (snapshotsByWindowId: Record<string, eventWithTime[]>): string[] => {

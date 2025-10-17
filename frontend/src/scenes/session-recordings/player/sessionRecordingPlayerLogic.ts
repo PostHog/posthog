@@ -24,6 +24,7 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
@@ -347,6 +348,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'customRRWebEvents',
                 'fullyLoaded',
                 'trackedWindow',
+                'hasMinimumPlayableData',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting'],
@@ -359,7 +361,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
         actions: [
             snapshotDataLogic(props),
-            ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure'],
+            [
+                'loadSnapshots',
+                'loadSnapshotsForSourceFailure',
+                'loadSnapshotSourcesFailure',
+                'setCurrentPlayerTime',
+                'setPlayingState',
+                'loadNextSnapshotSource',
+            ],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
             playerSettingsLogic,
@@ -1334,9 +1343,26 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         setPlay: () => {
-            if (!values.snapshotsLoaded) {
-                actions.loadSnapshots()
+            // For v2 recordings, only require minimum playable data (meta + full snapshot)
+            // For v1 recordings (legacy), wait for all snapshots to be loaded
+            const isV2Recording = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]
+
+            if (isV2Recording) {
+                if (!values.hasMinimumPlayableData) {
+                    // Don't have enough data yet to start playback
+                    return
+                }
+                // Ensure loading continues in background if not already started
+                if (!values.snapshotsLoaded) {
+                    actions.loadSnapshots()
+                }
+            } else {
+                // V1 behavior: wait for all snapshots
+                if (!values.snapshotsLoaded) {
+                    actions.loadSnapshots()
+                }
             }
+
             actions.stopAnimation()
             actions.restartIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
@@ -1770,11 +1796,35 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 })
             }
         },
-        currentPlayerState: (value) => {
+        currentPlayerState: (value, oldValue) => {
             if (value === SessionPlayerState.PLAY && !values.wasMarkedViewed) {
                 actions.markViewed(0)
             }
+
+            // Update snapshot loading logic with playing state
+            const isPlaying = value === SessionPlayerState.PLAY
+            const wasPlaying = oldValue === SessionPlayerState.PLAY
+            if (isPlaying !== wasPlaying) {
+                actions.setPlayingState(isPlaying)
+                // When state changes, check if we should resume loading
+                if (!isPlaying || (isPlaying && !wasPlaying)) {
+                    actions.loadNextSnapshotSource()
+                }
+            }
         },
+        currentPlayerTime: (() => {
+            let lastPlayerTimeUpdate = 0
+            return (value: number) => {
+                // Update snapshot loading logic with current time
+                // Throttle updates to every second to avoid excessive updates
+                if (value && Math.floor(value / 1000) !== Math.floor(lastPlayerTimeUpdate / 1000)) {
+                    lastPlayerTimeUpdate = value
+                    actions.setCurrentPlayerTime(value)
+                    // Check if we should resume loading based on new position
+                    actions.loadNextSnapshotSource()
+                }
+            }
+        })(),
     })),
 
     beforeUnmount(({ values, actions, cache, props }) => {
