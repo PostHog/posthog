@@ -14,7 +14,7 @@ function parseArgs() {
     return parsed
 }
 
-export async function runAgent(taskId, workflowId, repositoryPath, posthogApiUrl, posthogApiKey, prompt, maxTurns) {
+export async function runAgent(taskId, repositoryPath, posthogApiUrl, posthogApiKey, prompt, maxTurns) {
     const agent = new Agent({
         workingDirectory: repositoryPath,
         posthogApiUrl,
@@ -40,7 +40,7 @@ export async function runAgent(taskId, workflowId, repositoryPath, posthogApiUrl
 
         await agent.run(prompt, options)
     } else {
-        await agent.runWorkflow(taskId, workflowId, {
+        await agent.runTask(taskId, {
             repositoryPath,
             permissionMode: PermissionMode.BYPASS,
             autoProgress: true,
@@ -49,15 +49,15 @@ export async function runAgent(taskId, workflowId, repositoryPath, posthogApiUrl
 }
 
 async function main() {
-    const { taskId, workflowId, repositoryPath, prompt, 'max-turns': maxTurns } = parseArgs()
+    const { taskId, repositoryPath, prompt, 'max-turns': maxTurns } = parseArgs()
 
     if (!prompt && !taskId) {
         console.error('Missing required argument: either --prompt or --taskId must be provided')
         process.exit(1)
     }
 
-    if (!prompt && !workflowId) {
-        console.error('Missing required argument: workflowId (required when using taskId)')
+    if (!prompt && !taskId) {
+        console.error('Missing required argument: taskId (required when using taskId)')
         process.exit(1)
     }
 
@@ -80,7 +80,7 @@ async function main() {
     }
 
     try {
-        await runAgent(taskId, workflowId, repositoryPath, posthogApiUrl, posthogApiKey, prompt, maxTurns)
+        await runAgent(taskId, repositoryPath, posthogApiUrl, posthogApiKey, prompt, maxTurns)
         process.exit(0)
     } catch (error) {
         console.error(
