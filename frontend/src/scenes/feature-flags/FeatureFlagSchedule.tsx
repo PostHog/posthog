@@ -227,13 +227,13 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         value: ScheduledChangeOperationType.AddReleaseCondition,
                                     },
                                     ...(featureFlags[FEATURE_FLAGS.SCHEDULE_FEATURE_FLAG_VARIANTS_UPDATE] &&
-                                        featureFlag.filters.multivariate
+                                    featureFlag.filters.multivariate
                                         ? [
-                                            {
-                                                label: 'Update variants',
-                                                value: ScheduledChangeOperationType.UpdateVariants,
-                                            },
-                                        ]
+                                              {
+                                                  label: 'Update variants',
+                                                  value: ScheduledChangeOperationType.UpdateVariants,
+                                              },
+                                          ]
                                         : []),
                                 ]}
                             />
@@ -270,7 +270,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 <FeatureFlagReleaseConditions
                                     id={createScheduleReleaseConditionsLogicKey(featureFlag.id)}
                                     filters={scheduleFilters}
-                                    onChange={(value, errors) => setSchedulePayload(value, null, errors)}
+                                    onChange={(value, errors) => setSchedulePayload(value, null, errors, null, null)}
                                     hideMatchOptions
                                 />
                             )}
@@ -347,11 +347,11 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                     !scheduleDateMarker
                                         ? 'Select the scheduled date and time'
                                         : hasFormErrors(schedulePayloadErrors)
-                                            ? 'Fix release condition errors'
-                                            : scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
-                                                variantErrors.some((error) => error.key != null)
-                                                ? 'Fix schedule variant changes errors'
-                                                : undefined
+                                          ? 'Fix release condition errors'
+                                          : scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
+                                              variantErrors.some((error) => error.key != null)
+                                            ? 'Fix schedule variant changes errors'
+                                            : undefined
                                 }
                             >
                                 Schedule
