@@ -18,8 +18,411 @@ from products.tasks.backend.agents import get_agent_by_id
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowTemplate
 
 
+class Task(models.Model):
+    class OriginProduct(models.TextChoices):
+        ERROR_TRACKING = "error_tracking", "Error Tracking"
+        EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
+        USER_CREATED = "user_created", "User Created"
+        SUPPORT_QUEUE = "support_queue", "Support Queue"
+        SESSION_SUMMARIES = "session_summaries", "Session Summaries"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
+    task_number = models.IntegerField(null=True, blank=True)
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+    origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
+    position = models.IntegerField(default=0)
+
+    # DEPRECATED: Workflow concept has been removed
+    workflow = models.ForeignKey(
+        "TaskWorkflow",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        editable=False,
+        related_name="tasks",
+        help_text="DEPRECATED: The workflow concept has been removed. This field is kept for backwards compatibility only.",
+    )
+
+    # Repository configuration
+    github_integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        limit_choices_to={"kind": "github"},
+        help_text="GitHub integration for this task",
+    )
+
+    repository_config = models.JSONField(
+        default=dict, help_text="Repository configuration with organization and repository fields"
+    )
+
+    # DEPRECATED FIELDS - these have been moved to TaskRun
+    # These fields are kept for backwards compatibility but should not be used
+    # editable=False prevents them from appearing in forms/admin
+    current_stage = models.ForeignKey(
+        "WorkflowStage",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="DEPRECATED: Moved to TaskRun.stage. Use task.latest_run.stage instead.",
+    )
+    github_branch = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        editable=False,
+        help_text="DEPRECATED: Moved to TaskRun.branch. Use task.latest_run.branch instead.",
+    )
+    github_pr_url = models.URLField(
+        blank=True,
+        null=True,
+        editable=False,
+        help_text="DEPRECATED: Moved to TaskRun.output['pr_url']. Use task.latest_run.output.get('pr_url') instead.",
+    )
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task"
+        managed = True
+        ordering = ["position"]
+
+    def __str__(self):
+        return self.title
+
+    def save(self, *args, **kwargs):
+        if self.task_number is None:
+            self._assign_task_number()
+
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def generate_team_prefix(team_name: str) -> str:
+        clean_name = "".join(c for c in team_name if c.isalnum())
+        uppercase_letters = [c for c in clean_name if c.isupper()]
+        if len(uppercase_letters) >= 3:
+            return "".join(uppercase_letters[:3])
+        return clean_name[:3].upper() if clean_name else "TSK"
+
+    @property
+    def slug(self) -> str:
+        if self.task_number is None:
+            return ""
+        prefix = self.generate_team_prefix(self.team.name)
+        return f"{prefix}-{self.task_number}"
+
+    # TODO: Support only one repository, 1 Task = 1 PR probably makes the most sense for scoping
+    @property
+    def repository_list(self) -> list[dict]:
+        """
+        Returns list of repositories this task can work with
+        Format: [{"org": "PostHog", "repo": "repo-name", "integration_id": 123, "full_name": "PostHog/repo-name"}]
+        """
+        config = self.repository_config
+        if config.get("organization") and config.get("repository"):
+            full_name = f"{config.get('organization')}/{config.get('repository')}".lower()
+            return [
+                {
+                    "org": config.get("organization"),
+                    "repo": config.get("repository"),
+                    "integration_id": self.github_integration_id,
+                    "full_name": full_name,
+                }
+            ]
+        return []
+
+    def can_access_repository(self, org: str, repo: str) -> bool:
+        """Check if task can work with a specific repository"""
+        repo_list = self.repository_list
+        return any(r["org"] == org and r["repo"] == repo for r in repo_list)
+
+    @property
+    def primary_repository(self) -> dict | None:
+        """Get the primary repository for this task"""
+        repositories = self.repository_list
+        if not repositories:
+            return None
+
+        # Since we only support single repository, return the first (and only) one
+        return repositories[0]
+
+    @property
+    def legacy_github_integration(self):
+        """Get the team's main GitHub integration if available (legacy compatibility)"""
+        if self.github_integration:
+            return self.github_integration
+
+        try:
+            return Integration.objects.filter(team_id=self.team_id, kind="github").first()
+        except Exception:
+            return None
+
+    @property
+    def latest_run(self) -> Optional["TaskRun"]:
+        return self.runs.order_by("-created_at").first()
+
+    def _assign_task_number(self) -> None:
+        max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
+        self.task_number = (max_task_number if max_task_number is not None else -1) + 1
+
+    @staticmethod
+    def create_and_run(
+        *,
+        team: Team,
+        title: str,
+        description: str,
+        origin_product: "Task.OriginProduct",
+        user_id: int,  # Will be used to validate the feature flag and create a personal api key for interacting with PostHog.
+        repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+    ) -> "Task":
+        from products.tasks.backend.temporal.client import execute_task_processing_workflow
+
+        created_by = User.objects.get(id=user_id)
+
+        if not created_by:
+            raise ValueError(f"User {user_id} does not exist")
+
+        github_integration = Integration.objects.filter(team=team, kind="github").first()
+
+        if not github_integration:
+            raise ValueError(f"Team {team.id} does not have a GitHub integration")
+
+        repository_config = {}
+
+        if "/" in repository:
+            org, repo = repository.split("/", 1)
+            repository_config = {"organization": org, "repository": repo}
+        else:
+            raise ValueError(f"Repository must be in format 'organization/repository', got: {repository}")
+
+        task = Task.objects.create(
+            team=team,
+            title=title,
+            description=description,
+            origin_product=origin_product,
+            created_by=created_by,
+            github_integration=github_integration,
+            repository_config=repository_config,
+        )
+
+        execute_task_processing_workflow(
+            task_id=str(task.id),
+            team_id=task.team.id,
+            user_id=user_id,
+        )
+
+        return task
+
+
+class TaskRun(models.Model):
+    class Status(models.TextChoices):
+        STARTED = "started", "Started"
+        IN_PROGRESS = "in_progress", "In Progress"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+
+    branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
+
+    # Stage tracking
+    stage = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Current stage for this run (e.g., 'backlog', 'in_progress', 'done')",
+    )
+
+    # DEPRECATED: Use stage CharField instead
+    current_stage = models.ForeignKey(
+        "WorkflowStage",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="DEPRECATED: Use stage CharField instead. This field is kept for backwards compatibility only.",
+    )
+
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
+
+    # Claude Code output
+    log = models.JSONField(blank=True, default=list, help_text="Live output from Claude Code execution")
+    error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
+
+    # This is a structured output of the run. This is used to store the PR URL, commit SHA, etc.
+    output = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Run output data (e.g., PR URL, commit SHA, etc.)",
+    )
+
+    # Store intermediate run state in this field. This is used to resume the run if it fails, or to provide context throughout the run.
+    state = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Run state data for resuming or tracking execution state",
+    )
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_run"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Run for {self.task.title} - {self.get_status_display()}"
+
+    def append_log(self, entries: list[dict]):
+        """Append log entries to the log array and save."""
+        if not self.log:
+            self.log = []
+        self.log.extend(entries)
+        self.save(update_fields=["log"])
+
+    def mark_completed(self):
+        """Mark the progress as completed."""
+        self.status = self.Status.COMPLETED
+        self.completed_at = timezone.now()
+        self.save(update_fields=["status", "completed_at"])
+
+    def mark_failed(self, error: str):
+        """Mark the progress as failed with an error message."""
+        self.status = self.Status.FAILED
+        self.error_message = error
+        self.completed_at = timezone.now()
+        self.save(update_fields=["status", "error_message", "completed_at"])
+
+    def get_next_stage(self):
+        """
+        DEPRECATED: This method relied on the workflow/stage concept which has been removed.
+        Stage transitions should now be managed by setting the 'stage' CharField directly.
+        """
+        return None
+
+
+class SandboxSnapshot(UUIDModel):
+    """Tracks sandbox snapshots used for sandbox environments in tasks."""
+
+    class Status(models.TextChoices):
+        IN_PROGRESS = "in_progress", "In Progress"
+        COMPLETE = "complete", "Complete"
+        ERROR = "error", "Error"
+
+    integration = models.ForeignKey(
+        Integration,
+        on_delete=models.SET_NULL,
+        related_name="snapshots",
+        null=True,
+        blank=True,
+    )
+
+    external_id = models.CharField(
+        max_length=255, blank=True, help_text="Snapshot ID from external provider.", unique=True
+    )
+
+    repos = ArrayField(
+        models.CharField(max_length=255),
+        default=list,
+        help_text="List of repositories in format 'org/repo'",
+    )
+
+    metadata = models.JSONField(default=dict, blank=True, help_text="Additional metadata for the snapshot.")
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.IN_PROGRESS,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_sandbox_snapshot"
+        indexes = [
+            models.Index(fields=["integration", "status", "-created_at"]),
+        ]
+
+    def __str__(self):
+        repo_count = len(self.repos)
+        return f"Snapshot {self.external_id} ({self.get_status_display()}, {repo_count} repos)"
+
+    def is_complete(self) -> bool:
+        return self.status == self.Status.COMPLETE
+
+    def has_repo(self, repo: str) -> bool:
+        repo_lower = repo.lower()
+        return any(r.lower() == repo_lower for r in self.repos)
+
+    def has_repos(self, repos: list[str]) -> bool:
+        return all(self.has_repo(repo) for repo in repos)
+
+    def update_status(self, status: Status):
+        self.status = status
+        self.save(update_fields=["status"])
+
+    @classmethod
+    def get_latest_snapshot_for_integration(cls, integration_id: int) -> Optional["SandboxSnapshot"]:
+        return (
+            cls.objects.filter(
+                integration_id=integration_id,
+                status=cls.Status.COMPLETE,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+    @classmethod
+    def get_latest_snapshot_with_repos(
+        cls, integration_id: int, required_repos: list[str]
+    ) -> Optional["SandboxSnapshot"]:
+        snapshots = cls.objects.filter(
+            integration_id=integration_id,
+            status=cls.Status.COMPLETE,
+        ).order_by("-created_at")
+
+        for snapshot in snapshots:
+            if snapshot.has_repos(required_repos):
+                return snapshot
+        return None
+
+    def delete(self, *args, **kwargs):
+        if self.external_id:
+            from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
+
+            if os.environ.get("RUNLOOP_API_KEY") and not settings.TEST:
+                try:
+                    async_to_sync(SandboxEnvironment.delete_snapshot)(self.external_id)
+                except Exception as e:
+                    raise Exception(
+                        f"Failed to delete external snapshot {self.external_id}: {str(e)}. "
+                        f"The database record has not been deleted."
+                    ) from e
+
+        super().delete(*args, **kwargs)
+
+
+#
+# DEPRECATED MODELS - these have been replaced with new models
+#
+
+
 class TaskWorkflow(models.Model):
-    """Defines a configurable workflow with stages and transition rules."""
+    """
+    DEPRECATED: The workflow/stages concept has been replaced with a simple stage CharField on TaskRun.
+    This model is kept for backwards compatibility only and should not be used for new code.
+    The table still exists in the database but should not be used.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -172,7 +575,11 @@ class TaskWorkflow(models.Model):
 
 
 class WorkflowStage(models.Model):
-    """Individual stages within a workflow."""
+    """
+    DEPRECATED: The workflow/stages concept has been replaced with a simple stage CharField on TaskRun.
+    This model is kept for backwards compatibility only and should not be used for new code.
+    The table still exists in the database but should not be used.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workflow = models.ForeignKey(TaskWorkflow, on_delete=models.CASCADE, related_name="stages")
@@ -237,228 +644,6 @@ class WorkflowStage(models.Model):
         if hasattr(self, "agent_name") and self.agent_name:
             return get_agent_by_id(self.agent_name)
         return None
-
-
-class Task(models.Model):
-    class OriginProduct(models.TextChoices):
-        ERROR_TRACKING = "error_tracking", "Error Tracking"
-        EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
-        USER_CREATED = "user_created", "User Created"
-        SUPPORT_QUEUE = "support_queue", "Support Queue"
-        SESSION_SUMMARIES = "session_summaries", "Session Summaries"
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
-    task_number = models.IntegerField(null=True, blank=True)
-    title = models.CharField(max_length=255)
-    description = models.TextField()
-    origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
-    position = models.IntegerField(default=0)
-
-    # Workflow configuration
-    workflow = models.ForeignKey(
-        TaskWorkflow,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="tasks",
-        help_text="Custom workflow for this task (if not using default)",
-    )
-
-    # Repository configuration
-    github_integration = models.ForeignKey(
-        "posthog.Integration",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        limit_choices_to={"kind": "github"},
-        help_text="GitHub integration for this task",
-    )
-
-    repository_config = models.JSONField(
-        default=dict, help_text="Repository configuration with organization and repository fields"
-    )
-
-    # DEPRECATED FIELDS - these have been moved to TaskRun
-    # These fields are kept for backwards compatibility but should not be used
-    # editable=False prevents them from appearing in forms/admin
-    current_stage = models.ForeignKey(
-        WorkflowStage,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        editable=False,
-        help_text="DEPRECATED: Moved to TaskRun.current_stage. Use task.latest_run.current_stage instead.",
-    )
-    github_branch = models.CharField(
-        max_length=255,
-        blank=True,
-        null=True,
-        editable=False,
-        help_text="DEPRECATED: Moved to TaskRun.branch. Use task.latest_run.branch instead.",
-    )
-    github_pr_url = models.URLField(
-        blank=True,
-        null=True,
-        editable=False,
-        help_text="DEPRECATED: Moved to TaskRun.output['pr_url']. Use task.latest_run.output.get('pr_url') instead.",
-    )
-
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_task"
-        managed = True
-        ordering = ["position"]
-
-    def __str__(self):
-        return self.title
-
-    def save(self, *args, **kwargs):
-        if self.task_number is None:
-            self._assign_task_number()
-
-        # Auto-assign default workflow if no workflow is set
-        if not self.workflow:
-            default_workflow = TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
-            if default_workflow:
-                self.workflow = default_workflow
-
-        super().save(*args, **kwargs)
-
-    @staticmethod
-    def generate_team_prefix(team_name: str) -> str:
-        clean_name = "".join(c for c in team_name if c.isalnum())
-        uppercase_letters = [c for c in clean_name if c.isupper()]
-        if len(uppercase_letters) >= 3:
-            return "".join(uppercase_letters[:3])
-        return clean_name[:3].upper() if clean_name else "TSK"
-
-    @property
-    def slug(self) -> str:
-        if self.task_number is None:
-            return ""
-        prefix = self.generate_team_prefix(self.team.name)
-        return f"{prefix}-{self.task_number}"
-
-    # TODO: Support only one repository, 1 Task = 1 PR probably makes the most sense for scoping
-    @property
-    def repository_list(self) -> list[dict]:
-        """
-        Returns list of repositories this task can work with
-        Format: [{"org": "PostHog", "repo": "repo-name", "integration_id": 123, "full_name": "PostHog/repo-name"}]
-        """
-        config = self.repository_config
-        if config.get("organization") and config.get("repository"):
-            full_name = f"{config.get('organization')}/{config.get('repository')}".lower()
-            return [
-                {
-                    "org": config.get("organization"),
-                    "repo": config.get("repository"),
-                    "integration_id": self.github_integration_id,
-                    "full_name": full_name,
-                }
-            ]
-        return []
-
-    def can_access_repository(self, org: str, repo: str) -> bool:
-        """Check if task can work with a specific repository"""
-        repo_list = self.repository_list
-        return any(r["org"] == org and r["repo"] == repo for r in repo_list)
-
-    @property
-    def primary_repository(self) -> dict | None:
-        """Get the primary repository for this task"""
-        repositories = self.repository_list
-        if not repositories:
-            return None
-
-        # Since we only support single repository, return the first (and only) one
-        return repositories[0]
-
-    @property
-    def legacy_github_integration(self):
-        """Get the team's main GitHub integration if available (legacy compatibility)"""
-        if self.github_integration:
-            return self.github_integration
-
-        try:
-            return Integration.objects.filter(team_id=self.team_id, kind="github").first()
-        except Exception:
-            return None
-
-    @property
-    def effective_workflow(self) -> Optional["TaskWorkflow"]:
-        """Get the workflow this task should use (custom or team default)"""
-        if self.workflow:
-            return self.workflow
-
-        # Fall back to team's default workflow
-        try:
-            return TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
-        except TaskWorkflow.DoesNotExist:
-            return None
-
-    @property
-    def latest_run(self) -> Optional["TaskRun"]:
-        return self.runs.order_by("-created_at").first()
-
-    def _assign_task_number(self) -> None:
-        max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
-        self.task_number = (max_task_number if max_task_number is not None else -1) + 1
-
-    @staticmethod
-    def create_and_run(
-        *,
-        team: Team,
-        title: str,
-        description: str,
-        origin_product: "Task.OriginProduct",
-        user_id: int,  # Will be used to validate the feature flag and create a personal api key for interacting with PostHog.
-        repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
-    ) -> "Task":
-        from products.tasks.backend.temporal.client import execute_task_processing_workflow
-
-        created_by = User.objects.get(id=user_id)
-
-        if not created_by:
-            raise ValueError(f"User {user_id} does not exist")
-
-        github_integration = Integration.objects.filter(team=team, kind="github").first()
-
-        if not github_integration:
-            raise ValueError(f"Team {team.id} does not have a GitHub integration")
-
-        repository_config = {}
-
-        if "/" in repository:
-            org, repo = repository.split("/", 1)
-            repository_config = {"organization": org, "repository": repo}
-        else:
-            raise ValueError(f"Repository must be in format 'organization/repository', got: {repository}")
-
-        task = Task.objects.create(
-            team=team,
-            title=title,
-            description=description,
-            origin_product=origin_product,
-            created_by=created_by,
-            github_integration=github_integration,
-            repository_config=repository_config,
-        )
-
-        if not task.effective_workflow:
-            raise ValueError(f"Task has no workflow configured. Team {team.id} needs a default workflow.")
-
-        execute_task_processing_workflow(
-            task_id=str(task.id),
-            team_id=task.team.id,
-            user_id=user_id,
-        )
-
-        return task
 
 
 class TaskProgress(models.Model):
@@ -528,190 +713,3 @@ class TaskProgress(models.Model):
             "TaskProgress has been renamed to TaskRun. Use TaskRun instead. "
             "This model is deprecated and should not be used."
         )
-
-
-class TaskRun(models.Model):
-    class Status(models.TextChoices):
-        STARTED = "started", "Started"
-        IN_PROGRESS = "in_progress", "In Progress"
-        COMPLETED = "completed", "Completed"
-        FAILED = "failed", "Failed"
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-
-    branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
-
-    current_stage = models.ForeignKey(
-        WorkflowStage,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Current stage in the workflow for this run",
-    )
-
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
-
-    # Claude Code output
-    log = models.JSONField(blank=True, default=list, help_text="Live output from Claude Code execution")
-    error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
-
-    # This is a structured output of the run. This is used to store the PR URL, commit SHA, etc.
-    output = models.JSONField(
-        blank=True,
-        null=True,
-        help_text="Run output data (e.g., PR URL, commit SHA, etc.)",
-    )
-
-    # Store intermediate run state in this field. This is used to resume the run if it fails, or to provide context throughout the run.
-    state = models.JSONField(
-        default=dict,
-        blank=True,
-        help_text="Run state data for resuming or tracking execution state",
-    )
-
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = "posthog_task_run"
-        ordering = ["-created_at"]
-
-    def __str__(self):
-        return f"Run for {self.task.title} - {self.get_status_display()}"
-
-    def append_log(self, entries: list[dict]):
-        """Append log entries to the log array and save."""
-        if not self.log:
-            self.log = []
-        self.log.extend(entries)
-        self.save(update_fields=["log"])
-
-    def mark_completed(self):
-        """Mark the progress as completed."""
-        self.status = self.Status.COMPLETED
-        self.completed_at = timezone.now()
-        self.save(update_fields=["status", "completed_at"])
-
-    def mark_failed(self, error: str):
-        """Mark the progress as failed with an error message."""
-        self.status = self.Status.FAILED
-        self.error_message = error
-        self.completed_at = timezone.now()
-        self.save(update_fields=["status", "error_message", "completed_at"])
-
-    def get_next_stage(self):
-        """Get the next stage in the workflow for this run"""
-        workflow = self.task.effective_workflow
-
-        if not workflow:
-            return None
-
-        if not self.current_stage:
-            return workflow.stages.filter(is_archived=False).order_by("position").first()
-
-        return self.current_stage.next_stage
-
-
-class SandboxSnapshot(UUIDModel):
-    """Tracks sandbox snapshots used for sandbox environments in tasks."""
-
-    class Status(models.TextChoices):
-        IN_PROGRESS = "in_progress", "In Progress"
-        COMPLETE = "complete", "Complete"
-        ERROR = "error", "Error"
-
-    integration = models.ForeignKey(
-        Integration,
-        on_delete=models.SET_NULL,
-        related_name="snapshots",
-        null=True,
-        blank=True,
-    )
-
-    external_id = models.CharField(
-        max_length=255, blank=True, help_text="Snapshot ID from external provider.", unique=True
-    )
-
-    repos = ArrayField(
-        models.CharField(max_length=255),
-        default=list,
-        help_text="List of repositories in format 'org/repo'",
-    )
-
-    metadata = models.JSONField(default=dict, blank=True, help_text="Additional metadata for the snapshot.")
-
-    status = models.CharField(
-        max_length=20,
-        choices=Status.choices,
-        default=Status.IN_PROGRESS,
-    )
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_sandbox_snapshot"
-        indexes = [
-            models.Index(fields=["integration", "status", "-created_at"]),
-        ]
-
-    def __str__(self):
-        repo_count = len(self.repos)
-        return f"Snapshot {self.external_id} ({self.get_status_display()}, {repo_count} repos)"
-
-    def is_complete(self) -> bool:
-        return self.status == self.Status.COMPLETE
-
-    def has_repo(self, repo: str) -> bool:
-        repo_lower = repo.lower()
-        return any(r.lower() == repo_lower for r in self.repos)
-
-    def has_repos(self, repos: list[str]) -> bool:
-        return all(self.has_repo(repo) for repo in repos)
-
-    def update_status(self, status: Status):
-        self.status = status
-        self.save(update_fields=["status"])
-
-    @classmethod
-    def get_latest_snapshot_for_integration(cls, integration_id: int) -> Optional["SandboxSnapshot"]:
-        return (
-            cls.objects.filter(
-                integration_id=integration_id,
-                status=cls.Status.COMPLETE,
-            )
-            .order_by("-created_at")
-            .first()
-        )
-
-    @classmethod
-    def get_latest_snapshot_with_repos(
-        cls, integration_id: int, required_repos: list[str]
-    ) -> Optional["SandboxSnapshot"]:
-        snapshots = cls.objects.filter(
-            integration_id=integration_id,
-            status=cls.Status.COMPLETE,
-        ).order_by("-created_at")
-
-        for snapshot in snapshots:
-            if snapshot.has_repos(required_repos):
-                return snapshot
-        return None
-
-    def delete(self, *args, **kwargs):
-        if self.external_id:
-            from products.tasks.backend.services.sandbox_environment import SandboxEnvironment
-
-            if os.environ.get("RUNLOOP_API_KEY") and not settings.TEST:
-                try:
-                    async_to_sync(SandboxEnvironment.delete_snapshot)(self.external_id)
-                except Exception as e:
-                    raise Exception(
-                        f"Failed to delete external snapshot {self.external_id}: {str(e)}. "
-                        f"The database record has not been deleted."
-                    ) from e
-
-        super().delete(*args, **kwargs)
