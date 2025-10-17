@@ -89,7 +89,9 @@ export const errorTrackingImpactListLogic = kea<errorTrackingImpactListLogicType
         },
         setEvents: () => {
             posthog.capture('error_tracking_impact_event_selected')
-            actions.loadIssues()
+            if (values.events && values.events.length > 0) {
+                actions.loadIssues()
+            }
         },
     })),
 
