@@ -82,7 +82,6 @@ RouteName = Literal[
     "search_documentation",
     "memory_onboarding",
     "insights_search",
-    "billing",
     "session_summarization",
     "create_dashboard",
 ]
@@ -494,16 +493,6 @@ class RootNodeTools(AssistantNode):
                         root_tool_calls_count=tool_call_count + 1,
                     )
 
-        if (
-            result.name == "read_data"
-            and isinstance(result.artifact, dict)
-            and result.artifact.get("kind") == "billing_info"
-        ):
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                root_tool_calls_count=tool_call_count + 1,
-            )
-
         # If this is a navigation tool call, pause the graph execution
         # so that the frontend can re-initialise Max with a new set of contextual tools.
         if tool_call.name == "navigate":
@@ -543,8 +532,6 @@ class RootNodeTools(AssistantNode):
             if tool_calls and len(tool_calls) > 0:
                 tool_call = tool_calls[0]
                 tool_call_name = tool_call.name
-                if tool_call_name == "read_data" and tool_call.args.get("kind") == "billing_info":
-                    return "billing"
                 if tool_call_name == "create_dashboard":
                     return "create_dashboard"
             if state.root_tool_insight_plan:

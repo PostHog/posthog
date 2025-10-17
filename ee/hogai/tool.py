@@ -1,6 +1,7 @@
 import json
 import pkgutil
 import importlib
+from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Any, Literal, Self
 
@@ -161,3 +162,14 @@ class MaxTool(AssistantContextMixin, BaseTool):
         Override this factory to dynamically modify the tool name, description, args schema, etc.
         """
         return cls(team=team, user=user, state=state, config=config)
+
+
+class MaxSubtool(ABC):
+    def __init__(self, team: Team, user: User, context_manager: AssistantContextManager):
+        self._team = team
+        self._user = user
+        self._context_manager = context_manager
+
+    @abstractmethod
+    async def execute(self, state: AssistantState) -> Any:
+        pass
