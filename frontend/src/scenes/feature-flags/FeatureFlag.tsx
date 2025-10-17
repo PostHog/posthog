@@ -97,6 +97,7 @@ import {
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
@@ -502,8 +503,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             />
                                             <div className="text-secondary text-sm pl-7">
                                                 When enabled, this flag evaluates according to your release conditions.
-                                                When disabled, all evaluations return <code>false</code> regardless of
-                                                conditions.
+                                                When disabled, this flag will not be evaluated and PostHog SDKs default
+                                                to returning <code>false</code>.
                                             </div>
                                         </div>
                                     )}
@@ -566,6 +567,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         id={`${featureFlag.id}`}
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
+                                        evaluationRuntime={featureFlag.evaluation_runtime}
                                     />
                                     <SceneDivider />
                                 </>
@@ -921,6 +923,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         hasEncryptedPayloadBeenSaved,
         hasExperiment,
         isDraftExperiment,
+        properties,
+        variantErrors,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -998,6 +1002,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         <SceneContent>
             {readOnly ? (
                 <>
+                    <FeatureFlagConditionWarning
+                        properties={properties}
+                        evaluationRuntime={featureFlag.evaluation_runtime}
+                    />
                     <div className="flex flex-col">
                         <div className="grid grid-cols-8">
                             <div className="col-span-2 card-secondary">Status</div>
@@ -1150,6 +1158,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             intent_context: ProductIntentContext.FEATURE_FLAG_VIEW_RECORDINGS,
                                         })
                                     }}
+                                    variantErrors={variantErrors}
                                 />
                             </SceneSection>
                         </>
@@ -1468,6 +1477,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             },
                                         })
                                     }}
+                                    variantErrors={variantErrors}
                                 />
                             </SceneSection>
                         </>

@@ -81,6 +81,7 @@ export interface LemonSelectPropsBase<T>
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
     visible?: LemonDropdownProps['visible']
     startVisible?: LemonDropdownProps['startVisible']
+    truncateText?: { maxWidthClass: string }
 }
 
 export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
@@ -119,6 +120,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
     renderButtonContent,
     visible,
     startVisible,
+    truncateText,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [items, allLeafOptions] = useMemo(
@@ -173,7 +175,13 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 tooltip={activeLeaf?.tooltip}
                 {...buttonProps}
             >
-                <span className="flex flex-1">
+                <span
+                    className={
+                        truncateText
+                            ? `block w-full overflow-hidden text-ellipsis whitespace-nowrap ${truncateText.maxWidthClass}`
+                            : 'flex flex-1'
+                    }
+                >
                     {renderButtonContent
                         ? renderButtonContent(activeLeaf)
                         : activeLeaf

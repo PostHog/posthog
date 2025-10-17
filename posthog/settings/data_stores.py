@@ -118,21 +118,24 @@ if read_host:
     DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
 
 # Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
-# For local development, default to the persons_db container if no URL is provided
+# For local development, default to the persons database in the main container if no URL is provided
 persons_db_writer_url = os.getenv("PERSONS_DB_WRITER_URL")
 if not persons_db_writer_url and DEBUG and not TEST:
-    # Default to local persons_db container in development mode (but not test mode)
+    # Default to local persons database in main container in development mode (but not test mode)
     # This matches the docker-compose.dev.yml configuration
     # A default is needed for generate_demo_data to properly populate the correct databases
     # with the demo data
-    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5434/posthog_persons"
+    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/posthog_persons"
 
 if persons_db_writer_url:
-    DATABASES["persons_db_writer"] = dj_database_url.config(default=persons_db_writer_url, conn_max_age=0)
+    DATABASES["persons_db_writer"] = dj_database_url.config(
+        env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0
+    )
 
     # Fall back to the writer URL if no reader URL is set
-    persons_reader_url = os.getenv("PERSONS_DB_READER_URL") or persons_db_writer_url
-    DATABASES["persons_db_reader"] = dj_database_url.config(default=persons_reader_url, conn_max_age=0)
+    DATABASES["persons_db_reader"] = dj_database_url.config(
+        env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0
+    )
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -308,6 +311,8 @@ KAFKA_PRODUCER_SETTINGS = {
         "max_in_flight_requests_per_connection": get_from_env(
             "KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION", optional=True, type_cast=int
         ),
+        "buffer_memory": get_from_env("KAFKA_PRODUCER_BUFFER_MEMORY", optional=True, type_cast=int),
+        "max_block_ms": get_from_env("KAFKA_PRODUCER_MAX_BLOCK_MS", optional=True, type_cast=int),
     }.items()
     if value is not None
 }
@@ -385,6 +390,14 @@ CDP_API_URL = get_from_env("CDP_API_URL", "")
 
 if not CDP_API_URL:
     CDP_API_URL = "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
+
+
+EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
+
+# Used to generate embeddings on the fly, for use with the document embeddings table
+if not EMBEDDING_API_URL:
+    EMBEDDING_API_URL = "http://localhost:3305" if DEBUG else "http://embedding-api.posthog.svc.cluster.local"
+
 
 CACHES = {
     "default": {

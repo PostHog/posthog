@@ -14,6 +14,7 @@ export const themeLogic = kea<themeLogicType>([
         logic: [sceneLogic],
         values: [userLogic, ['themeMode'], featureFlagLogic, ['featureFlags']],
     })),
+
     actions({
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
         setTheme: (theme: string | null) => ({ theme }),
@@ -101,12 +102,13 @@ export const themeLogic = kea<themeLogicType>([
     })),
     events(({ cache, actions }) => ({
         afterMount() {
-            cache.prefersColorSchemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
-            cache.onPrefersColorSchemeChange = (e: MediaQueryListEvent) => actions.syncDarkModePreference(e.matches)
-            cache.prefersColorSchemeMedia.addEventListener('change', cache.onPrefersColorSchemeChange)
-        },
-        beforeUnmount() {
-            cache.prefersColorSchemeMedia.removeEventListener('change', cache.onPrefersColorSchemeChange)
+            cache.disposables.add(() => {
+                const prefersColorSchemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
+                const onPrefersColorSchemeChange = (e: MediaQueryListEvent): void =>
+                    actions.syncDarkModePreference(e.matches)
+                prefersColorSchemeMedia.addEventListener('change', onPrefersColorSchemeChange)
+                return () => prefersColorSchemeMedia.removeEventListener('change', onPrefersColorSchemeChange)
+            }, 'prefersColorSchemeListener')
         },
     })),
 ])

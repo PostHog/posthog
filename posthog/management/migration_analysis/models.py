@@ -48,6 +48,7 @@ class MigrationRisk:
     operations: list[OperationRisk]
     combination_risks: list[str] = field(default_factory=list)
     policy_violations: list[str] = field(default_factory=list)  # PostHog-specific coding policies
+    info_messages: list[str] = field(default_factory=list)  # Informational messages (not warnings)
 
     @property
     def max_score(self) -> int:

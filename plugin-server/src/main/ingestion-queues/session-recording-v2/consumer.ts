@@ -148,6 +148,7 @@ export class SessionRecordingIngester {
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.config.SESSION_RECORDING_MAX_BATCH_AGE_MS,
+            maxEventsPerSessionPerBatch: this.config.SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH,
             offsetManager,
             fileStorage: this.fileStorage,
             metadataStore,

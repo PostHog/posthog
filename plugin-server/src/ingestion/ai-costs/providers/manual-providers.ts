@@ -74,6 +74,30 @@ export const manualCosts: ModelRow[] = [
             completion_token: 0.000002,
         },
     },
+    {
+        model: 'mistral-large-latest',
+        provider: 'mistral',
+        cost: {
+            prompt_token: 0.000002,
+            completion_token: 0.000006,
+        },
+    },
+    {
+        model: 'mistral-large',
+        provider: 'mistral',
+        cost: {
+            prompt_token: 0.000002,
+            completion_token: 0.000006,
+        },
+    },
+    {
+        model: 'mistral-small-3.2',
+        provider: 'mistral',
+        cost: {
+            prompt_token: 0.0000001,
+            completion_token: 0.0000003,
+        },
+    },
     // We can't know the model, so we set the cost to 0
     {
         model: 'openrouter/auto',

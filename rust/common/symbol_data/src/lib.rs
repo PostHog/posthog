@@ -15,3 +15,6 @@ pub use data_types::sourcemap::SourceAndMap;
 
 // Hermes
 pub use data_types::hermesmap::HermesMap;
+
+// Proguard
+pub use data_types::proguard::ProguardMapping;

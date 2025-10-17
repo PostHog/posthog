@@ -10,6 +10,7 @@ import {
 
 export function createEditor(editor: TTEditor): RichContentEditorType {
     return {
+        isEmpty: () => editor.isEmpty,
         getJSON: () => editor.getJSON(),
         getEndPosition: () => editor.state.doc.content.size,
         getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
