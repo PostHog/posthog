@@ -13,6 +13,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
@@ -445,14 +446,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
-    @extend_schema(
+    @validated_request(
+        request_serializer=TaskRunProgressRequestSerializer,
         summary="Progress run to next stage",
         description=(
             "Advance a task run to the next workflow stage, or to a specified stage. "
             "If 'next_stage_id' is provided, the run will move to that stage. "
             "Otherwise, the run will be moved to the next stage in its workflow."
         ),
-        request=TaskRunProgressRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run progressed to next stage"),
             400: OpenApiResponse(
@@ -465,9 +466,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def progress_run(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
 
-        payload = TaskRunProgressRequestSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-        provided_stage_id = payload.validated_data.get("next_stage_id")
+        provided_stage_id = request.validated_data.get("next_stage_id")
 
         new_stage = None
         if provided_stage_id:
