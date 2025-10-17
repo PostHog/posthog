@@ -17,7 +17,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
-import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
+import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
 import {
     ClickHouseTimestamp,
     ISOTimestamp,
@@ -51,7 +51,9 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         step: Step,
         [runner, ...args]: Parameters<Step>,
         teamId: number,
-        sendtoDLQ: boolean = true
+        sendtoDLQ: boolean = true,
+        kafkaAcks: Promise<void>[] = [],
+        warnings: any[] = []
     ) {
         this.steps.push(step.name)
 
@@ -61,14 +63,23 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         // in practice, for better or worse).
         this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(args))])
 
-        return super.runStep<T, Step>(step, [runner, ...args] as Parameters<Step>, teamId, sendtoDLQ)
+        return super.runStep<T, Step>(
+            step,
+            [runner, ...args] as Parameters<Step>,
+            teamId,
+            sendtoDLQ,
+            kafkaAcks,
+            warnings
+        )
     }
 
     protected async runPipelineStep<T, Step extends (...args: any[]) => Promise<PipelineResult<T>>>(
         step: Step,
         [runner, ...args]: Parameters<Step>,
         teamId: number,
-        sendtoDLQ: boolean = true
+        sendtoDLQ: boolean = true,
+        kafkaAcks: Promise<void>[] = [],
+        warnings: any[] = []
     ) {
         this.steps.push(step.name)
 
@@ -78,7 +89,14 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         // in practice, for better or worse).
         this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(args))])
 
-        return super.runPipelineStep<T, Step>(step, [runner, ...args] as Parameters<Step>, teamId, sendtoDLQ)
+        return super.runPipelineStep<T, Step>(
+            step,
+            [runner, ...args] as Parameters<Step>,
+            teamId,
+            sendtoDLQ,
+            kafkaAcks,
+            warnings
+        )
     }
 }
 
@@ -322,20 +340,18 @@ describe('EventPipelineRunner', () => {
                     id: 9,
                 }
 
-                await runner.runEventPipeline(event, team9)
+                const result = await runner.runEventPipeline(event, team9)
                 expect(runner.steps).toEqual([])
-                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-                expect(
-                    parseJSON((mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string)
-                ).toMatchObject({
-                    team_id: 9,
+                expect(result.type).toBe(PipelineResultType.DROP)
+                expect(result.warnings).toHaveLength(1)
+                expect(result.warnings[0]).toMatchObject({
                     type: 'client_ingestion_warning',
-                    details: JSON.stringify({
+                    details: {
                         eventUuid: 'uuid1',
                         event: '$$client_ingestion_warning',
                         distinctId: 'my_id',
                         message: 'My warning message!',
-                    }),
+                    },
                 })
             })
         })
@@ -409,15 +425,13 @@ describe('EventPipelineRunner', () => {
                     id: 9,
                 }
 
-                await runner.runEventPipeline(event, team9)
+                const result = await runner.runEventPipeline(event, team9)
                 expect(runner.steps).toEqual([])
-                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-                expect(
-                    parseJSON((mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string)
-                ).toMatchObject({
-                    team_id: 9,
+                expect(result.type).toBe(PipelineResultType.DROP)
+                expect(result.warnings).toHaveLength(1)
+                expect(result.warnings[0]).toMatchObject({
                     type: 'invalid_event_when_process_person_profile_is_false',
-                    details: JSON.stringify({ eventUuid: 'uuid1', event: eventName, distinctId: 'my_id' }),
+                    details: { eventUuid: 'uuid1', event: eventName, distinctId: 'my_id' },
                 })
             }
         )
