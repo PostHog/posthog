@@ -215,6 +215,51 @@ export function ConversationMessagesDisplay({
     )
 }
 
+const SearchableText = ({
+    text,
+    searchQuery,
+    className = 'whitespace-pre-wrap',
+}: {
+    text: string
+    searchQuery?: string
+    className?: string
+}): JSX.Element =>
+    searchQuery?.trim() ? (
+        <SearchHighlight string={text} substring={searchQuery} className={className} />
+    ) : (
+        <span className={className}>{text}</span>
+    )
+
+const LabeledTextContent = ({
+    label,
+    text,
+    searchQuery,
+}: {
+    label: string
+    text: string
+    searchQuery?: string
+}): JSX.Element => (
+    <div className="bg-[var(--bg-tertiary)] rounded p-2">
+        <div className="text-xs font-semibold mb-1 text-muted">{label}:</div>
+        <SearchableText text={text} searchQuery={searchQuery} />
+    </div>
+)
+
+const LabeledJSONContent = ({
+    label,
+    data,
+    searchQuery,
+}: {
+    label: string
+    data: object
+    searchQuery?: string
+}): JSX.Element => (
+    <div className="bg-[var(--bg-tertiary)] rounded p-2">
+        <div className="text-xs font-semibold mb-1 text-muted">{label}:</div>
+        <HighlightedJSONViewer src={data} name={null} collapsed={3} searchQuery={searchQuery} />
+    </div>
+)
+
 export const ImageMessageDisplay = ({
     message,
 }: {
@@ -291,124 +336,67 @@ export const LLMMessageDisplay = React.memo(
             }
 
             // Handle array-based content
+            // Content items can be plain strings, or structured objects with 'type' fields.
+            // We handle various content types including text, images, tool calls/results, and reasoning.
+            // Note: Some types (reasoning, tool-call) are Vercel AI SDK transformations of native Anthropic types.
             if (Array.isArray(content)) {
                 return (
                     <>
                         {content.map((item, index) => (
                             <React.Fragment key={index}>
                                 {typeof item === 'string' ? (
-                                    searchQuery?.trim() ? (
-                                        <SearchHighlight
-                                            string={item}
-                                            substring={searchQuery}
-                                            className="whitespace-pre-wrap"
-                                        />
-                                    ) : (
-                                        <span className="whitespace-pre-wrap">{item}</span>
-                                    )
+                                    <SearchableText text={item} searchQuery={searchQuery} />
                                 ) : item &&
                                   typeof item === 'object' &&
                                   'type' in item &&
                                   item.type === 'text' &&
-                                  'text' in item ? (
-                                    searchQuery?.trim() && typeof item.text === 'string' ? (
-                                        <SearchHighlight
-                                            string={item.text}
-                                            substring={searchQuery}
-                                            className="whitespace-pre-wrap"
-                                        />
-                                    ) : (
-                                        <span className="whitespace-pre-wrap">{item.text}</span>
-                                    )
+                                  'text' in item &&
+                                  typeof item.text === 'string' ? (
+                                    <SearchableText text={item.text} searchQuery={searchQuery} />
                                 ) : item &&
                                   typeof item === 'object' &&
                                   'type' in item &&
                                   item.type === 'output_text' &&
                                   'text' in item &&
                                   typeof item.text === 'string' ? (
-                                    searchQuery?.trim() ? (
-                                        <SearchHighlight
-                                            string={item.text}
-                                            substring={searchQuery}
-                                            className="whitespace-pre-wrap"
-                                        />
-                                    ) : (
-                                        <span className="whitespace-pre-wrap">{item.text}</span>
-                                    )
+                                    <SearchableText text={item.text} searchQuery={searchQuery} />
                                 ) : item &&
                                   typeof item === 'object' &&
                                   'type' in item &&
                                   item.type === 'reasoning' &&
                                   'text' in item &&
                                   typeof item.text === 'string' ? (
-                                    <div className="bg-[var(--bg-tertiary)] rounded p-2">
-                                        <div className="text-xs font-semibold mb-1 text-muted">Reasoning:</div>
-                                        {searchQuery?.trim() ? (
-                                            <SearchHighlight
-                                                string={item.text}
-                                                substring={searchQuery}
-                                                className="whitespace-pre-wrap"
-                                            />
-                                        ) : (
-                                            <span className="whitespace-pre-wrap">{item.text}</span>
-                                        )}
-                                    </div>
+                                    // Vercel AI SDK reasoning content
+                                    <LabeledTextContent label="Reasoning" text={item.text} searchQuery={searchQuery} />
                                 ) : item &&
                                   typeof item === 'object' &&
                                   'type' in item &&
                                   item.type === 'thinking' &&
                                   'thinking' in item &&
                                   typeof item.thinking === 'string' ? (
-                                    <div className="bg-[var(--bg-tertiary)] rounded p-2">
-                                        <div className="text-xs font-semibold mb-1 text-muted">Thinking:</div>
-                                        {searchQuery?.trim() ? (
-                                            <SearchHighlight
-                                                string={item.thinking}
-                                                substring={searchQuery}
-                                                className="whitespace-pre-wrap"
-                                            />
-                                        ) : (
-                                            <span className="whitespace-pre-wrap">{item.thinking}</span>
-                                        )}
-                                    </div>
+                                    // Provider-native thinking content (extended thinking format)
+                                    <LabeledTextContent
+                                        label="Thinking"
+                                        text={item.thinking}
+                                        searchQuery={searchQuery}
+                                    />
                                 ) : item &&
                                   typeof item === 'object' &&
                                   'type' in item &&
                                   item.type === 'tool-call' &&
                                   'function' in item &&
                                   typeof item.function === 'object' ? (
-                                    <div className="bg-[var(--bg-tertiary)] rounded p-2">
-                                        <div className="text-xs font-semibold mb-1 text-muted">Tool Call:</div>
-                                        <HighlightedJSONViewer
-                                            src={item}
-                                            name={null}
-                                            collapsed={3}
-                                            searchQuery={searchQuery}
-                                        />
-                                    </div>
+                                    // Vercel AI SDK tool call
+                                    <LabeledJSONContent label="Tool Call" data={item} searchQuery={searchQuery} />
                                 ) : item && typeof item === 'object' && 'type' in item && item.type === 'tool_use' ? (
-                                    <div className="bg-[var(--bg-tertiary)] rounded p-2">
-                                        <div className="text-xs font-semibold mb-1 text-muted">Tool Use:</div>
-                                        <HighlightedJSONViewer
-                                            src={item}
-                                            name={null}
-                                            collapsed={3}
-                                            searchQuery={searchQuery}
-                                        />
-                                    </div>
+                                    // Provider-native tool use (function call request)
+                                    <LabeledJSONContent label="Tool Use" data={item} searchQuery={searchQuery} />
                                 ) : item &&
                                   typeof item === 'object' &&
                                   'type' in item &&
                                   item.type === 'tool_result' ? (
-                                    <div className="bg-[var(--bg-tertiary)] rounded p-2">
-                                        <div className="text-xs font-semibold mb-1 text-muted">Tool Result:</div>
-                                        <HighlightedJSONViewer
-                                            src={item}
-                                            name={null}
-                                            collapsed={3}
-                                            searchQuery={searchQuery}
-                                        />
-                                    </div>
+                                    // Provider-native tool result (function execution response)
+                                    <LabeledJSONContent label="Tool Result" data={item} searchQuery={searchQuery} />
                                 ) : item &&
                                   typeof item === 'object' &&
                                   'type' in item &&
