@@ -2172,6 +2172,7 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
+    INTERNAL_EVENT = "internal_event"
     EVENT_METADATA = "event_metadata"
     PERSON = "person"
     ELEMENT = "element"
@@ -2804,6 +2805,7 @@ class TaxonomicFilterGroupType(StrEnum):
     DATA_WAREHOUSE_PERSON_PROPERTIES = "data_warehouse_person_properties"
     ELEMENTS = "elements"
     EVENTS = "events"
+    INTERNAL_EVENTS = "internal_events"
     EVENT_PROPERTIES = "event_properties"
     EVENT_FEATURE_FLAGS = "event_feature_flags"
     EVENT_METADATA = "event_metadata"
