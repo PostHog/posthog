@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { posthog } from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -46,13 +47,18 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             },
         ],
         summaries: [
-            {} as Record<string, SessionSummary>,
+            {} as Record<string, SessionSummary | 'error'>,
             {
                 summarizeSession: async ({ sessionId }) => {
-                    const response = await api.sessionSummaries.createIndividual({
-                        session_ids: [sessionId],
-                    })
-                    return { ...values.summaries, ...response }
+                    try {
+                        const response = await api.sessionSummaries.createIndividual({
+                            session_ids: [sessionId],
+                        })
+                        return { ...values.summaries, ...response }
+                    } catch (error) {
+                        posthog.captureException(error)
+                        return { ...values.summaries, [sessionId]: 'error' }
+                    }
                 },
             },
         ],
@@ -93,6 +99,10 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             (s) => [s.summaries, s.sessionIdsWithRecording],
             (summaries, sessionIdsWithRecording) =>
                 sessionIdsWithRecording.every((sessionId) => sessionId in summaries),
+        ],
+        hasErrors: [
+            (s) => [s.summaries],
+            (summaries) => Object.values(summaries).some((summary) => summary === 'error'),
         ],
     }),
 

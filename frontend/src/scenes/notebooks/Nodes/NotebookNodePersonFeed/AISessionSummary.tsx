@@ -13,7 +13,7 @@ import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 
 export function AISessionSummary({ personId }: { personId: string }): JSX.Element | null {
     const logic = notebookNodePersonFeedLogic({ personId })
-    const { canSummarize, sessionIdsWithRecording, summarizingState, summaries } = useValues(logic)
+    const { canSummarize, hasErrors, sessionIdsWithRecording, summarizingState, summaries } = useValues(logic)
     const { summarizeSessions } = useActions(logic)
 
     if (!canSummarize) {
@@ -73,10 +73,13 @@ export function AISessionSummary({ personId }: { personId: string }): JSX.Elemen
                     />
                 )}
 
-                {(summarizingState === 'loading' || numSummaries > 0) && (
+                {(summarizingState === 'loading' || numSummaries > 0 || hasErrors) && (
                     <div className="space-y-2">
                         {sessionIdsWithRecording.map((sessionId) => {
                             const summary = summaries[sessionId]
+                            if (summary === 'error') {
+                                return <SessionSummaryErrorCard key={sessionId} sessionId={sessionId} />
+                            }
                             return summary ? (
                                 <SessionSummaryCard key={sessionId} sessionId={sessionId} summary={summary} />
                             ) : (
@@ -124,6 +127,22 @@ const SessionSummaryCardSkeleton = ({ sessionId }: { sessionId: string }): JSX.E
                         <LemonSkeleton className="h-3 w-20" />
                         <LemonSkeleton className="h-3 w-16" />
                     </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+export const SessionSummaryErrorCard = ({ sessionId }: { sessionId: string }): JSX.Element => {
+    return (
+        <div className="border border-danger rounded bg-bg-light mb-2">
+            <div className="py-3 px-3 flex gap-2">
+                <div className="w-3" />
+                <div className="flex items-center gap-2 mb-2">
+                    <span className="text-base font-bold text-danger">✗</span>
+                    <div className="font-mono text-xs text-muted">{sessionId}</div>
+                    <span className="text-xs text-muted">•</span>
+                    <span className="text-xs text-danger">Failed</span>
                 </div>
             </div>
         </div>
