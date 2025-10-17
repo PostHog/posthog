@@ -153,7 +153,7 @@ export function LemonRichContentEditor({
                     editor={editor}
                     className="RichContentEditor p-2"
                     autoFocus
-                    style={minRows ? { minHeight: `${minRows * 1.5}em` } : undefined}
+                    className={cn("RichContentEditor p-2", minRows && `min-h-[${minRows * 1.5}em]`)}
                 />
             )}
             <div className="flex justify-between p-0.5">
