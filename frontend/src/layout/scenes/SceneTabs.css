@@ -11,7 +11,7 @@
 
 .scene-tab-active-indicator::before {
     position: absolute;
-    right: calc(100% - 9.5px);
+    right: calc(100% - 9px);
     bottom: 0.5px;
     width: 12px;
     height: 12px;
