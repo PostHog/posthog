@@ -25822,6 +25822,7 @@
                 "elements",
                 "events",
                 "internal_events",
+                "internal_event_properties",
                 "event_properties",
                 "event_feature_flags",
                 "event_metadata",

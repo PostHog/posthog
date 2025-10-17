@@ -2814,6 +2814,7 @@ class TaxonomicFilterGroupType(StrEnum):
     ELEMENTS = "elements"
     EVENTS = "events"
     INTERNAL_EVENTS = "internal_events"
+    INTERNAL_EVENT_PROPERTIES = "internal_event_properties"
     EVENT_PROPERTIES = "event_properties"
     EVENT_FEATURE_FLAGS = "event_feature_flags"
     EVENT_METADATA = "event_metadata"
