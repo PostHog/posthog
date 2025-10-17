@@ -12,8 +12,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
             defaultDocsPath: '/docs/revenue-analytics',
             iconType: 'revenue_analytics',
-            description:
-                'Revenue events are used to track revenue in revenue analytics. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event. You can also import revenue data from your PostHog data warehouse tables.',
+            description: 'Track and analyze your revenue metrics to understand your business performance and growth.',
         },
     },
     routes: {
