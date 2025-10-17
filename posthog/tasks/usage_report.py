@@ -83,8 +83,9 @@ USAGE_REPORT_TASK_KWARGS = {
     "acks_late": True,
     "reject_on_worker_lost": True,
     "autoretry_for": (Exception,),
-    "retry_backoff": 300,
-    "retry_backoff_max": 1800,
+    "retry_backoff": 300,  # 5min
+    "retry_backoff_max": 1800,  # 30min
+    "expires": 14400,  # 4h
 }
 
 
