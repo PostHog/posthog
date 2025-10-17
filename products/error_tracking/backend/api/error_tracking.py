@@ -1053,12 +1053,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         if content_hashes is None:
             return Response({"detail": "content_hashes are required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        posthoganalytics.capture(
-            "error_tracking_symbol_set_upload_finished",
-            distinct_id=request.user.pk,
-            properties={"team_id": self.team.id, "endpoint": "bulk_finish_upload"},
-        )
-
         if len(content_hashes) == 0:
             # This can happen if someone re-runs an upload against a directory that's already been
             # uploaded - we'll return no new upload keys, they'll upload nothing, and then
