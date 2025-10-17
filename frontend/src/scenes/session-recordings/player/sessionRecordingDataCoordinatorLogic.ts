@@ -199,10 +199,14 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         end: [
             (s) => [s.snapshots, s.sessionPlayerMetaData],
             (snapshots, meta): Dayjs | null => {
-                // Prioritize metadata end_time - this is the true end of the recording
-                // Only fall back to snapshot timestamp if metadata is unavailable
-                const end = meta?.end_time || snapshots[snapshots.length - 1]?.timestamp || null
-                return end ? dayjs(end) : null
+                const lastSnapshot = snapshots[snapshots.length - 1] || null
+                const eventEnd = meta?.end_time ? dayjs(meta.end_time) : null
+                const snapshotEnd = lastSnapshot ? dayjs(lastSnapshot.timestamp) : null
+
+                if (eventEnd && snapshotEnd) {
+                    return eventEnd.isAfter(snapshotEnd) ? eventEnd : snapshotEnd
+                }
+                return eventEnd || snapshotEnd
             },
         ],
 
