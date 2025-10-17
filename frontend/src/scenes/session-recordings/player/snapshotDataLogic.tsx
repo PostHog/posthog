@@ -47,8 +47,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
             sources,
         }),
-        setCurrentPlayerTime: (timeMs: number) => ({ timeMs }),
-        setPlayingState: (isPlaying: boolean) => ({ isPlaying }),
+        pauseLoading: true,
+        resumeLoading: true,
     }),
     reducers(() => ({
         snapshotsBySourceSuccessCount: [
@@ -57,16 +57,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 loadSnapshotsForSourceSuccess: (state) => state + 1,
             },
         ],
-        currentPlayerTime: [
-            0 as number,
-            {
-                setCurrentPlayerTime: (_, { timeMs }) => timeMs,
-            },
-        ],
-        isPlaying: [
+        loadingPaused: [
             false as boolean,
             {
-                setPlayingState: (_, { isPlaying }) => isPlaying,
+                pauseLoading: () => true,
+                resumeLoading: () => false,
             },
         ],
     })),
@@ -224,10 +219,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadNextSnapshotSource: () => {
             // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
             if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
-                // For v2 recordings, check if we should pause loading based on buffer window
-                if (values.shouldPauseLoading) {
-                    // Buffered enough data for now, pause loading
-                    // Loading will resume when player gets closer to buffer edge or when paused
+                // For v2 recordings, check if loading is paused
+                if (values.loadingPaused) {
                     return
                 }
 
@@ -260,40 +253,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
     })),
     selectors(({ cache }) => ({
-        // Buffer window: load up to 2 minutes (120000ms) ahead of current player position
-        targetBufferTimestamp: [
-            (s) => [s.currentPlayerTime, s.snapshotSources],
-            (currentPlayerTime, snapshotSources): number | null => {
+        latestLoadedTimestamp: [
+            (s) => [s.snapshotSources],
+            (snapshotSources): number => {
                 if (!snapshotSources || snapshotSources.length === 0) {
-                    return null
-                }
-                // Get the start time of the first source as the recording start
-                const firstSource = snapshotSources[0]
-                const recordingStart = firstSource.start_timestamp ? new Date(firstSource.start_timestamp).getTime() : 0
-                // Buffer window is 2 minutes (120000ms) ahead of current position
-                return recordingStart + currentPlayerTime + 120000
-            },
-        ],
-
-        // Check if we should pause loading based on buffer window
-        // Resume loading when within 60 seconds (60000ms) of buffer edge
-        shouldPauseLoading: [
-            (s) => [s.targetBufferTimestamp, s.snapshotSources, s.isPlaying],
-            (
-                targetBufferTimestamp: number | null,
-                snapshotSources: SessionRecordingSnapshotSource[] | null,
-                isPlaying: boolean
-            ): boolean => {
-                // Never pause loading when paused - let it prefetch
-                if (!isPlaying) {
-                    return false
+                    return 0
                 }
 
-                if (!targetBufferTimestamp || !snapshotSources || snapshotSources.length === 0) {
-                    return false
-                }
-
-                // Find the latest timestamp we've loaded
                 let latestLoadedTimestamp = 0
                 snapshotSources.forEach((source) => {
                     const sourceKey = keyForSource(source)
@@ -303,9 +269,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     }
                 })
 
-                // Resume loading when we're within 60 seconds (60000ms) of the buffer edge
-                const bufferEdge = latestLoadedTimestamp - targetBufferTimestamp
-                return bufferEdge > 60000
+                return latestLoadedTimestamp
             },
         ],
 

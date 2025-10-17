@@ -336,7 +336,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             snapshotDataLogic(props),
-            ['snapshotsLoaded', 'snapshotsLoading'],
+            ['snapshotsLoaded', 'snapshotsLoading', 'snapshotSources', 'latestLoadedTimestamp'],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'urls',
@@ -364,8 +364,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'loadSnapshots',
                 'loadSnapshotsForSourceFailure',
                 'loadSnapshotSourcesFailure',
-                'setCurrentPlayerTime',
-                'setPlayingState',
+                'pauseLoading',
+                'resumeLoading',
                 'loadNextSnapshotSource',
             ],
             sessionRecordingDataCoordinatorLogic(props),
@@ -1012,6 +1012,33 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return true
                 }
                 return isHovering
+            },
+        ],
+
+        targetBufferTimestamp: [
+            (s) => [s.currentPlayerTime, s.snapshotSources, s.sessionPlayerData],
+            (currentPlayerTime, snapshotSources, sessionPlayerData): number | null => {
+                if (!snapshotSources || snapshotSources.length === 0 || !sessionPlayerData.start) {
+                    return null
+                }
+                const recordingStart = sessionPlayerData.start.valueOf()
+                return recordingStart + currentPlayerTime + 120000
+            },
+        ],
+
+        shouldPauseLoading: [
+            (s) => [s.targetBufferTimestamp, s.latestLoadedTimestamp, s.currentPlayerState],
+            (targetBufferTimestamp, latestLoadedTimestamp, currentPlayerState): boolean => {
+                if (currentPlayerState === SessionPlayerState.PAUSE) {
+                    return false
+                }
+
+                if (!targetBufferTimestamp || !latestLoadedTimestamp) {
+                    return false
+                }
+
+                const bufferEdge = latestLoadedTimestamp - targetBufferTimestamp
+                return bufferEdge > 60000
             },
         ],
     }),
@@ -1789,24 +1816,31 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.markViewed(0)
             }
 
-            // When paused, trigger loading to prefetch more data
             if (value === SessionPlayerState.PAUSE && !values.fullyLoaded) {
+                actions.resumeLoading()
                 actions.loadNextSnapshotSource()
-            }
-        },
-        currentPlayerTime: (() => {
-            let lastPlayerTimeUpdate = 0
-            return (value: number) => {
-                // Update snapshot loading logic with current time
-                // Throttle updates to every second to avoid excessive updates
-                if (value && Math.floor(value / 1000) !== Math.floor(lastPlayerTimeUpdate / 1000)) {
-                    lastPlayerTimeUpdate = value
-                    actions.setCurrentPlayerTime(value)
-                    // Check if we should resume loading based on new position
+            } else if (value === SessionPlayerState.PLAY) {
+                if (values.shouldPauseLoading) {
+                    actions.pauseLoading()
+                } else {
+                    actions.resumeLoading()
                     actions.loadNextSnapshotSource()
                 }
             }
-        })(),
+        },
+
+        shouldPauseLoading: (value) => {
+            if (values.currentPlayerState !== SessionPlayerState.PLAY) {
+                return
+            }
+
+            if (value) {
+                actions.pauseLoading()
+            } else {
+                actions.resumeLoading()
+                actions.loadNextSnapshotSource()
+            }
+        },
     })),
 
     beforeUnmount(({ values, actions, cache, props }) => {
