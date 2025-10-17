@@ -312,4 +312,98 @@ describe('StepPipeline', () => {
             ])
         })
     })
+
+    describe('warning accumulation', () => {
+        it('should accumulate warnings from step results', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const stepWarning = { type: 'test_warning', details: { message: 'from step' } }
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning]))
+
+            const previous = new StartPipeline<{ data: string }>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createContext(ok({ data: 'test' }), { message })
+            const result = await pipeline.process(input)
+
+            expect(result.context.warnings).toEqual([stepWarning])
+        })
+
+        it('should merge context warnings with step warnings', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const contextWarning = { type: 'context_warning', details: { message: 'from context' } }
+            const stepWarning = { type: 'step_warning', details: { message: 'from step' } }
+
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning]))
+
+            const previous = new StartPipeline<{ data: string }>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createContext(ok({ data: 'test' }), {
+                message,
+                warnings: [contextWarning],
+            })
+            const result = await pipeline.process(input)
+
+            expect(result.context.warnings).toEqual([contextWarning, stepWarning])
+        })
+
+        it('should handle empty warnings arrays', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }))
+
+            const previous = new StartPipeline<{ data: string }>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createContext(ok({ data: 'test' }), { message })
+            const result = await pipeline.process(input)
+
+            expect(result.context.warnings).toEqual([])
+        })
+
+        it('should preserve order of warnings', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const contextWarning1 = { type: 'context_warning_1', details: { idx: 1 } }
+            const contextWarning2 = { type: 'context_warning_2', details: { idx: 2 } }
+            const stepWarning1 = { type: 'step_warning_1', details: { idx: 3 } }
+            const stepWarning2 = { type: 'step_warning_2', details: { idx: 4 } }
+
+            const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning1, stepWarning2]))
+
+            const previous = new StartPipeline<{ data: string }>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createContext(ok({ data: 'test' }), {
+                message,
+                warnings: [contextWarning1, contextWarning2],
+            })
+            const result = await pipeline.process(input)
+
+            // Should preserve order: context warnings first, then step warnings
+            expect(result.context.warnings).toEqual([contextWarning1, contextWarning2, stepWarning1, stepWarning2])
+        })
+
+        it('should not accumulate warnings when step is skipped (non-OK result)', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const contextWarning = { type: 'context_warning', details: { message: 'from context' } }
+            const step = jest.fn()
+
+            const previous = new StartPipeline<{ data: string }>()
+            const pipeline = new StepPipeline(step, previous)
+
+            const input = createContext<{ data: string }, { message: Message }>(drop('dropped'), {
+                message,
+                warnings: [contextWarning],
+            })
+            const result = await pipeline.process(input)
+
+            // Should preserve context warnings but not call step
+            expect(step).not.toHaveBeenCalled()
+            expect(result.context.warnings).toEqual([contextWarning])
+        })
+    })
 })
