@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Sequence
-from typing import TYPE_CHECKING, Literal, Optional, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar, Union, cast
 from uuid import uuid4
 
 import posthoganalytics
@@ -91,7 +91,7 @@ RouteName = Literal[
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
-RootTool = Union[type[BaseModel], "MaxTool"]
+RootTool = Union[type[BaseModel], "MaxTool", dict[str, Any]]
 
 
 class RootNode(AssistantNode):
@@ -236,7 +236,9 @@ class RootNode(AssistantNode):
         if self._is_hard_limit_reached(state.root_tool_calls_count):
             return base_model
 
-        return base_model.bind_tools(tools, parallel_tool_calls=False)
+        return base_model.bind_tools(
+            [*tools, {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}], parallel_tool_calls=False
+        )
 
     async def _get_tools(self, state: AssistantState, config: RunnableConfig) -> list[RootTool]:
         from ee.hogai.tool import get_contextual_tool_class
