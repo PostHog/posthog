@@ -88,7 +88,7 @@ class SessionSummarizationNode(AssistantNode):
         # Stream the notebook update
         await self._write_message(notebook_message)
 
-    def _has_video_validation_feature_flag(self) -> bool:
+    def _has_video_validation_feature_flag(self) -> bool | None:
         """
         Check if the user has the video validation for session summaries feature flag enabled.
         """

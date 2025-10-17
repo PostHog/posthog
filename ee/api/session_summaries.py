@@ -83,16 +83,15 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
         return session_ids, min_timestamp, max_timestamp, extra_summary_context
 
-    def _if_video_validation_enabled(self, user: User) -> bool:
+    def _if_video_validation_enabled(self, user: User) -> bool | None:
         # Check if the summaries should be validated with videos
-        feature_enabled = posthoganalytics.feature_enabled(
+        return posthoganalytics.feature_enabled(
             "max-session-summarization-video-validation",
             str(user.distinct_id),
             groups={"organization": str(self.team.organization_id)},
             group_properties={"organization": {"id": str(self.team.organization_id)}},
             send_feature_flag_events=False,
         )
-        return bool(feature_enabled)  # To avoid `None`
 
     @staticmethod
     async def _get_summary_from_progress_stream(
