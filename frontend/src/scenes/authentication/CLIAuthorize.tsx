@@ -18,28 +18,26 @@ export const scene: SceneExport = {
 }
 
 export function CLIAuthorize(): JSX.Element {
-    const { authorize, isSuccess, projects, projectsLoading } = useValues(cliAuthorizeLogic)
+    const { authorize, isSuccess, projects, projectsLoading, isAuthorizeSubmitting } = useValues(cliAuthorizeLogic)
     const { setAuthorizeValue } = useActions(cliAuthorizeLogic)
 
+    const message = isSuccess ? (
+        <div className="text-center">
+            <IconCheckCircle className="text-success text-6xl mb-4" />
+            <div className="text-2xl font-bold">Success!</div>
+        </div>
+    ) : (
+        <>
+            Authorize
+            <br />
+            PostHog CLI
+        </>
+    )
+
+    const bridgePageProps = !isSuccess ? ({ hedgehog: true, message } as const) : ({ message } as const)
+
     return (
-        <BridgePage
-            view="login"
-            hedgehog={!isSuccess}
-            message={
-                isSuccess ? (
-                    <div className="text-center">
-                        <IconCheckCircle className="text-success text-6xl mb-4" />
-                        <div className="text-2xl font-bold">Success!</div>
-                    </div>
-                ) : (
-                    <>
-                        Authorize
-                        <br />
-                        PostHog CLI
-                    </>
-                )
-            }
-        >
+        <BridgePage view="login" {...(bridgePageProps as any)}>
             {isSuccess ? (
                 <div className="text-center space-y-4">
                     <h2>CLI Authorization Complete</h2>
@@ -108,7 +106,7 @@ export function CLIAuthorize(): JSX.Element {
                             data-attr="cli-authorize-submit"
                             fullWidth
                             center
-                            loading={authorize.isSubmitting}
+                            loading={isAuthorizeSubmitting}
                             size="large"
                             icon={<IconCode />}
                         >

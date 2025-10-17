@@ -1,5 +1,6 @@
 pub mod login;
 pub mod query;
+pub mod schema;
 pub mod sourcemap;
 pub mod tasks;
 
@@ -22,8 +23,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
-    /// environment variables `POSTHOG_CLI_TOKEN` and `POSTHOG_CLI_ENV_ID`
+    /// Interactively authenticate with PostHog, storing a personal API token locally
     Login,
 
     /// Experimental commands, not quite ready for prime time
@@ -42,6 +42,12 @@ pub enum Commands {
     Sourcemap {
         #[command(subcommand)]
         cmd: SourcemapCommand,
+    },
+
+    /// Download event definitions and generate TypeScript types
+    Schema {
+        #[command(subcommand)]
+        cmd: SchemaCommand,
     },
 }
 
@@ -102,6 +108,18 @@ pub enum SourcemapCommand {
 }
 
 #[derive(Subcommand)]
+pub enum SchemaCommand {
+    /// Download event definitions and generate TypeScript types
+    Pull {
+        /// Output path for TypeScript definitions (stored in posthog.json for future runs)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Show current schema sync status
+    Status,
+}
+
+#[derive(Subcommand)]
 pub enum ExpCommand {
     /// Manage tasks - list, create, update, delete etc
     Task {
@@ -136,6 +154,14 @@ impl Cli {
                 }
             },
             Commands::Query { cmd } => query::query_command(command.host, cmd)?,
+            Commands::Schema { cmd } => match cmd {
+                SchemaCommand::Pull { output } => {
+                    schema::pull(command.host, output.clone())?;
+                }
+                SchemaCommand::Status => {
+                    schema::status()?;
+                }
+            },
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
                     cmd,

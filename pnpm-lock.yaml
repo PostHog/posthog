@@ -826,8 +826,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.275.1
-        version: 1.275.1(@rrweb/types@2.0.0-alpha.17)
+        specifier: file:/tmp/posthog-js-1.275.1.tgz
+        version: file:../../../../tmp/posthog-js-1.275.1.tgz(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -16282,6 +16282,18 @@ packages:
       rrweb-snapshot:
         optional: true
 
+  posthog-js@file:../../../../tmp/posthog-js-1.275.1.tgz:
+    resolution: {integrity: sha512-o52MQpHCpnLOUzI5YZVTQtSV+uWgaWNEQpizbAXl15LRzgVC5pN5uoGwh4RB9ktv56INCaILmjMdE6kAMRaHmQ==, tarball: file:../../../../tmp/posthog-js-1.275.1.tgz}
+    version: 1.275.1
+    peerDependencies:
+      '@rrweb/types': 2.0.0-alpha.17
+      rrweb-snapshot: 2.0.0-alpha.17
+    peerDependenciesMeta:
+      '@rrweb/types':
+        optional: true
+      rrweb-snapshot:
+        optional: true
+
   posthog-node@4.14.0:
     resolution: {integrity: sha512-PitSiuxGiVFl0ItuhIfi3Sq1tcaMU4vlbPu1wv0qufTJGDjWthOOr4vYfFIs1xkbJFOQcfGczMXkr44kX5TDDg==}
     engines: {node: '>=15.0.0'}
@@ -18779,8 +18791,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.309.0:
-    resolution: {integrity: sha512-V+4Xx56GJmpY0Lx8RHIXtxJmCiyF2Qs7qneCD8sE030VfpW/irxu6Hx+CLPzYhT9k3Ho/vs8hqBCRqDgAU1K3w==}
+  unlayer-types@1.313.0:
+    resolution: {integrity: sha512-4r0Bp3LYcCqCqkq5xodO1d2Z+VSiXwWMj4w29xanwVryRY3OwTrCJXgID+7mGRlY1uPL+A7f2s7BLh6Pg+w9qw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -28135,7 +28147,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -34750,7 +34762,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -35030,7 +35042,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.4.1
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -38018,6 +38030,16 @@ snapshots:
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
+  posthog-js@file:../../../../tmp/posthog-js-1.275.1.tgz(@rrweb/types@2.0.0-alpha.17):
+    dependencies:
+      '@posthog/core': 1.2.4
+      core-js: 3.46.0
+      fflate: 0.4.8
+      preact: 10.27.2
+      web-vitals: 4.2.4
+    optionalDependencies:
+      '@rrweb/types': 2.0.0-alpha.17
+
   posthog-node@4.14.0:
     dependencies:
       axios: 1.9.0
@@ -38834,7 +38856,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.309.0
+      unlayer-types: 1.313.0
 
   react-error-overlay@6.0.9: {}
 
@@ -41008,7 +41030,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.309.0: {}
+  unlayer-types@1.313.0: {}
 
   unpipe@1.0.0: {}
 
