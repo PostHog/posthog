@@ -25,13 +25,6 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
     segment: RecordingSegment
     durationMs: number
 }): JSX.Element {
-    const getTitle = (): 'Active period' | 'Inactive period' | undefined => {
-        if (segment.kind === 'buffer') {
-            return undefined
-        }
-        return segment.isActive ? 'Active period' : 'Inactive period'
-    }
-
     return (
         <div
             className={clsx(
@@ -39,7 +32,7 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
                 segment.isActive && 'PlayerSeekbar__segments__item--active',
                 segment.kind === 'buffer' && 'PlayerSeekbar__segments__item--buffer-loading'
             )}
-            title={getTitle()}
+            title={segment.kind === 'buffer' ? undefined : segment.isActive ? 'Active period' : 'Inactive period'}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: `${(100 * segment.durationMs) / durationMs}%`,
@@ -65,7 +58,7 @@ function SeekbarSegments(): JSX.Element {
 }
 
 export function Seekbar(): JSX.Element {
-    const { sessionRecordingId, logicProps, hasSnapshots, fullyLoaded } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, logicProps, hasSnapshots } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
     const { endTimeMs, thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(logicProps))
@@ -113,12 +106,7 @@ export function Seekbar(): JSX.Element {
                         style={{ width: `${Math.max(thumbLeftPos, 0)}px` }}
                     />
                     {/* eslint-disable-next-line react/forbid-dom-props */}
-                    <div
-                        className={clsx('PlayerSeekbar__bufferbar', {
-                            'PlayerSeekbar__bufferbar--loading': !fullyLoaded,
-                        })}
-                        style={{ width: `${bufferPercent}%` }}
-                    />
+                    <div className="PlayerSeekbar__bufferbar" style={{ width: `${bufferPercent}%` }} />
                     <div
                         className="PlayerSeekbar__thumb"
                         ref={thumbRef}
