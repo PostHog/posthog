@@ -52,7 +52,7 @@ def _get_retryable_error(payload: Any) -> ShopifyRetryableError | None:
         # too often might be worth it to check against the requestedCost instead
         if currently_available <= 0:
             return ShopifyRetryableError("Shopify: rate limit exceeded...")
-    return
+    return None
 
 
 def _make_paginated_shopify_request(
