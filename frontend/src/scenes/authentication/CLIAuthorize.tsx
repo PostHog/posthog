@@ -41,7 +41,7 @@ export function CLIAuthorize(): JSX.Element {
             }
         >
             {isSuccess ? (
-                <div className="text-center deprecated-space-y-4">
+                <div className="text-center space-y-4">
                     <h2>CLI Authorization Complete</h2>
                     <LemonBanner type="success">
                         <div className="space-y-2">
@@ -54,6 +54,8 @@ export function CLIAuthorize(): JSX.Element {
                         <ul className="list-disc list-inside mt-2">
                             <li>event_definition:read</li>
                             <li>property_definition:read</li>
+                            <li>error_tracking:read</li>
+                            <li>error_tracking:write</li>
                         </ul>
                         <p className="mt-2">
                             You can manage your API keys in{' '}
@@ -64,7 +66,7 @@ export function CLIAuthorize(): JSX.Element {
                     </div>
                 </div>
             ) : (
-                <div className="deprecated-space-y-4">
+                <div className="space-y-4">
                     <h2>Authorize CLI Access</h2>
                     <LemonBanner type="info">
                         <div className="flex items-start gap-2">
@@ -78,12 +80,7 @@ export function CLIAuthorize(): JSX.Element {
                             </div>
                         </div>
                     </LemonBanner>
-                    <Form
-                        logic={cliAuthorizeLogic}
-                        formKey="authorize"
-                        enableFormOnSubmit
-                        className="deprecated-space-y-4"
-                    >
+                    <Form logic={cliAuthorizeLogic} formKey="authorize" enableFormOnSubmit className="space-y-4">
                         <LemonField name="userCode" label="Authorization Code">
                             <LemonInput
                                 className="ph-ignore-input font-mono text-lg tracking-wider"

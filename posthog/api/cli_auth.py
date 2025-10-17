@@ -55,6 +55,8 @@ CLI_POLL_INTERVAL_SECONDS = 5
 CLI_SCOPES = [
     "event_definition:read",
     "property_definition:read",
+    "error_tracking:read",
+    "error_tracking:write",
 ]
 
 
@@ -68,6 +70,16 @@ def generate_user_code() -> str:
 def generate_device_code() -> str:
     """Generate a secure random device code"""
     return secrets.token_urlsafe(32)
+
+
+def get_device_cache_key(device_code: str) -> str:
+    """Get cache key for device code"""
+    return f"cli_device:{device_code}"
+
+
+def get_user_code_cache_key(user_code: str) -> str:
+    """Get cache key for user code"""
+    return f"cli_user_code:{user_code}"
 
 
 class DeviceCodeRequestSerializer(serializers.Serializer):
@@ -146,9 +158,9 @@ class CLIAuthViewSet(viewsets.ViewSet):
         user_code = generate_user_code()
 
         # Store in cache with expiry
-        cache_key = f"cli_device:{device_code}"
+        device_cache_key = get_device_cache_key(device_code)
         cache.set(
-            cache_key,
+            device_cache_key,
             {
                 "user_code": user_code,
                 "status": "pending",
@@ -158,7 +170,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
         )
 
         # Also create reverse lookup (user_code -> device_code) for authorization
-        cache.set(f"cli_user_code:{user_code}", device_code, timeout=DEVICE_CODE_EXPIRY_SECONDS)
+        user_code_cache_key = get_user_code_cache_key(user_code)
+        cache.set(user_code_cache_key, device_code, timeout=DEVICE_CODE_EXPIRY_SECONDS)
 
         # Get the base URL for verification
         # In production this would be the actual domain
@@ -194,7 +207,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
         project_id = serializer.validated_data["project_id"]
 
         # Look up device code from user code
-        device_code = cache.get(f"cli_user_code:{user_code}")
+        user_code_cache_key = get_user_code_cache_key(user_code)
+        device_code = cache.get(user_code_cache_key)
         if not device_code:
             return Response(
                 {"error": "invalid_code", "error_description": "User code not found or expired"},
@@ -202,8 +216,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
             )
 
         # Get device code data
-        cache_key = f"cli_device:{device_code}"
-        device_data = cache.get(cache_key)
+        device_cache_key = get_device_cache_key(device_code)
+        device_data = cache.get(device_cache_key)
         if not device_data:
             return Response(
                 {"error": "expired", "error_description": "Device code expired"}, status=status.HTTP_400_BAD_REQUEST
@@ -255,7 +269,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
         device_data["user_id"] = user.id
 
         # Update cache with longer TTL to ensure CLI can poll
-        cache.set(cache_key, device_data, timeout=60)  # 1 minute to retrieve
+        cache.set(device_cache_key, device_data, timeout=60)  # 1 minute to retrieve
 
         return Response(
             {
@@ -282,8 +296,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
         device_code = serializer.validated_data["device_code"]
 
         # Look up device code
-        cache_key = f"cli_device:{device_code}"
-        device_data = cache.get(cache_key)
+        device_cache_key = get_device_cache_key(device_code)
+        device_data = cache.get(device_cache_key)
 
         if not device_data:
             return Response(
@@ -308,8 +322,9 @@ class CLIAuthViewSet(viewsets.ViewSet):
             }
 
             # Clean up - key has been retrieved
-            cache.delete(cache_key)
-            cache.delete(f'cli_user_code:{device_data["user_code"]}')
+            cache.delete(device_cache_key)
+            user_code_cache_key = get_user_code_cache_key(device_data["user_code"])
+            cache.delete(user_code_cache_key)
 
             response_serializer = DevicePollResponseSerializer(response_data)
             return Response(response_serializer.data, status=status.HTTP_200_OK)
