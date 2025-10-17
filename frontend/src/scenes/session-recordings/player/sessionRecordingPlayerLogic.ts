@@ -1588,11 +1588,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 actions.setMaskWindow(false)
             }
 
-            // Check once per second if we should pause/resume loading based on buffer window
-            cache.lastLoadingCheck = cache.lastLoadingCheck || 0
-            const now = performance.now()
-            if (now - cache.lastLoadingCheck > 1000) {
-                cache.lastLoadingCheck = now
+            // Check roughly once per second if we should pause/resume loading based on buffer window
+            const lastCheckedSecond = cache.lastLoadingCheckSecond || 0
+            if (values.currentPlayerTimeSeconds !== lastCheckedSecond) {
+                cache.lastLoadingCheckSecond = values.currentPlayerTimeSeconds
                 if (values.shouldPauseLoading) {
                     actions.pauseLoading()
                 } else {
