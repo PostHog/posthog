@@ -15,6 +15,7 @@ const pathsWithoutProjectId = [
     'oauth',
     'shared',
     'embedded',
+    'cli',
 ]
 
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
