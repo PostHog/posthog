@@ -1,10 +1,12 @@
 from typing import Optional
 
 from django.contrib.auth.hashers import check_password, make_password
+
 from rest_framework import exceptions
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization_domain import OrganizationDomain
 
 
@@ -54,6 +56,9 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
 
         if not domain.has_scim:
             raise exceptions.AuthenticationFailed("SCIM not configured for this domain")
+
+        if not domain.organization.is_feature_available(AvailableFeature.SCIM):
+            raise exceptions.AuthenticationFailed("Your organization does not have the required license to use SCIM")
 
         # Verify the bearer token matches the stored hashed token
         if not check_password(token, domain.scim_bearer_token):

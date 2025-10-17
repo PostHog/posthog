@@ -1,11 +1,12 @@
-from rest_framework import serializers, status
+from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.api.scim.utils import disable_scim_for_domain, enable_scim_for_domain, get_scim_base_url, regenerate_scim_token
-from posthog.api.organization_domain import OrganizationDomainViewset
+from posthog.constants import AvailableFeature
 from posthog.models.organization_domain import OrganizationDomain
+
+from ee.api.scim.utils import disable_scim_for_domain, enable_scim_for_domain, get_scim_base_url, regenerate_scim_token
 
 
 class SCIMConfigSerializer(serializers.Serializer):
@@ -26,6 +27,9 @@ class OrganizationDomainSCIMMixin:
         POST: Enable SCIM and generate a new bearer token
         """
         domain: OrganizationDomain = self.get_object()
+
+        if not domain.organization.is_feature_available(AvailableFeature.SCIM):
+            raise exceptions.PermissionDenied("SCIM is not available for this organization")
 
         if request.method == "GET":
             return Response(
@@ -55,6 +59,9 @@ class OrganizationDomainSCIMMixin:
         """
         domain: OrganizationDomain = self.get_object()
 
+        if not domain.organization.is_feature_available(AvailableFeature.SCIM):
+            raise exceptions.PermissionDenied("SCIM is not available for this organization")
+
         if not domain.scim_enabled:
             return Response({"detail": "SCIM is not enabled for this domain"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -75,10 +82,9 @@ class OrganizationDomainSCIMMixin:
         """
         domain: OrganizationDomain = self.get_object()
 
+        if not domain.organization.is_feature_available(AvailableFeature.SCIM):
+            raise exceptions.PermissionDenied("SCIM is not available for this organization")
+
         disable_scim_for_domain(domain)
 
         return Response({"scim_enabled": False}, status=status.HTTP_200_OK)
-
-
-# Note: To use this mixin, update OrganizationDomainViewset to inherit from it:
-# class OrganizationDomainViewset(OrganizationDomainSCIMMixin, ...):

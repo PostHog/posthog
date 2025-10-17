@@ -5,6 +5,7 @@ import posthoganalytics
 from rest_framework import exceptions, request, response, serializers
 from rest_framework.viewsets import ModelViewSet
 
+from posthog.api.organization_domain_scim import OrganizationDomainSCIMMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.cloud_utils import is_cloud
@@ -99,7 +100,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
+class OrganizationDomainViewset(OrganizationDomainSCIMMixin, TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationDomainSerializer
     permission_classes = [OrganizationAdminWritePermissions]
