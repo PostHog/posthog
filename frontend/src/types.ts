@@ -863,6 +863,7 @@ export enum PropertyFilterType {
     Meta = 'meta',
     /** Event properties */
     Event = 'event',
+    InternalEvent = 'internal_event',
     EventMetadata = 'event_metadata',
     /** Person properties */
     Person = 'person',
@@ -4330,6 +4331,7 @@ export type Duration = {
 
 export enum EventDefinitionType {
     Event = 'event',
+    EventInternal = 'event_internal',
     EventCustom = 'event_custom',
     EventPostHog = 'event_posthog',
 }
@@ -4990,9 +4992,25 @@ export type BatchExportServiceRedshift = {
         schema: string
         table_name: string
         properties_data_type: boolean
+        mode: 'COPY' | 'INSERT'
+        authorization_mode: 'IAMRole' | 'Credentials'
+        copy_inputs: BatchExportServiceRedshiftCopyInputs | null
         exclude_events: string[]
         include_events: string[]
     }
+}
+
+export type BatchExportServiceRedshiftCopyInputs = {
+    s3_bucket: string
+    s3_key_prefix: string
+    region_name: string
+    bucket_credentials: AWSCredentials
+    authorization: string | AWSCredentials
+}
+
+export type AWSCredentials = {
+    aws_access_key_id: string
+    aws_secret_access_key: string
 }
 
 export type BatchExportServiceDatabricks = {

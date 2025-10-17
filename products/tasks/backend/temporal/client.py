@@ -97,4 +97,3 @@ def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Option
     except Exception as e:
         # Don't let workflow execution failures break the main operation
         logger.exception(f"Failed to execute task processing workflow: {e}")
-        # Don't re-raise to avoid breaking the API call

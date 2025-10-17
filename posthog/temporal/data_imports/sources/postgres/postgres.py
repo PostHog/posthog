@@ -325,9 +325,7 @@ def _has_duplicate_primary_keys(
         return False
 
 
-def _get_table_chunk_size(
-    cursor: psycopg.Cursor, inner_query: sql.Composed, is_read_replica: bool, logger: FilteringBoundLogger
-) -> int:
+def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
             SELECT SUM(pg_column_size(t)) / COUNT(*) FROM ({}) as t
@@ -348,11 +346,6 @@ def _get_table_chunk_size(
 
         # If we get a result back from postgres, then increase the max chunk cap to the increased value
         min_chunk_size = min(chunk_size, INCREASED_DEFAULT_CHUNK_SIZE)
-
-        if is_read_replica:
-            sb_chunk = min(min_chunk_size, 5000)
-            logger.debug(f"_get_table_chunk_size: Using supabase read replica, capping chunk size to {sb_chunk}")
-            return sb_chunk
 
         logger.debug(
             f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
@@ -693,7 +686,7 @@ def postgres_source(
                     logger.debug("Getting primary keys...")
                     primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                     logger.debug("Getting table chunk size...")
-                    chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, using_read_replica, logger)
+                    chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                     logger.debug("Getting rows to sync...")
                     rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
                     logger.debug("Getting partition settings...")
@@ -809,6 +802,10 @@ def postgres_source(
                             raise Exception(
                                 f"Hit {successive_errors} successive SerializationFailure errors. Aborting."
                             ) from e
+                        elif successive_errors >= 5:
+                            chunk_size = max(int(chunk_size / 1.5), 100)
+                            logger.debug(f"Reducing chunk size to {chunk_size} to reduce load on read replica")
+                            time.sleep(2 * successive_errors)
                         else:
                             # Linear backoff on successive errors to make sure we give the read replica time to catch up
                             time.sleep(2 * successive_errors)

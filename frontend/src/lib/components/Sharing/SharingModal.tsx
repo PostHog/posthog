@@ -11,11 +11,7 @@ import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, Lemo
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
-import {
-    TEMPLATE_LINK_HEADING,
-    TEMPLATE_LINK_PII_WARNING,
-    TEMPLATE_LINK_TOOLTIP,
-} from 'lib/components/Sharing/templateLinkMessages'
+import { TEMPLATE_LINK_HEADING, TEMPLATE_LINK_PII_WARNING } from 'lib/components/Sharing/templateLinkMessages'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -29,10 +25,12 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
-import { isInsightVizNode } from '~/queries/utils'
+import { AnyResponseType, Node } from '~/queries/schema/schema-general'
+import { isDataTableNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -69,6 +67,7 @@ export interface SharingModalBaseProps {
     dashboardId?: number
     insightShortId?: InsightShortId
     insight?: Partial<QueryBasedInsightModel>
+    cachedResults?: AnyResponseType
     recordingId?: string
 
     title?: string
@@ -91,6 +90,7 @@ export function SharingModalContent({
     dashboardId,
     insightShortId,
     insight,
+    cachedResults,
     recordingId,
     additionalParams,
     previewIframe = false,
@@ -122,10 +122,38 @@ export function SharingModalContent({
     const siteUrl = preflight?.site_url || window.location.origin
     const { featureFlags } = useValues(featureFlagLogic)
     const passwordProtectedSharesEnabled = !!featureFlags[FEATURE_FLAGS.PASSWORD_PROTECTED_SHARES]
+    const { currentProjectId } = useValues(projectLogic)
 
     const { push } = useActions(router)
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
+
+    const renderQueryUrl = insight?.query ? new URL('render_query', siteUrl).toString() : null
+    const renderQuerySnippet = renderQueryUrl
+        ? createRenderQuerySnippet({
+              renderQueryUrl,
+              iframeId: getRenderQueryIframeId(insightShortId),
+              cachedResults,
+              query: insight?.query,
+          })
+        : null
+
+    const apiQueryUrl =
+        insight?.query && currentProjectId
+            ? new URL(`api/projects/${currentProjectId}/query/`, siteUrl).toString()
+            : null
+    const apiQuerySnippet = apiQueryUrl
+        ? createApiQuerySnippet({
+              apiQueryUrl,
+              query: insight?.query
+                  ? isInsightVizNode(insight.query) ||
+                    isDataVisualizationNode(insight.query) ||
+                    isDataTableNode(insight.query)
+                      ? insight.query.source
+                      : insight.query
+                  : null,
+          })
+        : null
 
     const resource = dashboardId ? 'dashboard' : insightShortId ? 'insight' : recordingId ? 'recording' : 'this'
     const hasEditAccess = userAccessLevel
@@ -386,15 +414,167 @@ export function SharingModalContent({
                 <>
                     <LemonDivider />
                     <TemplateLinkSection
+                        collapsible
+                        defaultExpanded={false}
                         templateLink={getInsightDefinitionUrl({ query: insight.query }, siteUrl)}
                         heading={TEMPLATE_LINK_HEADING}
-                        tooltip={TEMPLATE_LINK_TOOLTIP}
                         piiWarning={TEMPLATE_LINK_PII_WARNING}
+                        copyButtonLabel="Copy link"
                     />
+                    {renderQuerySnippet && (
+                        <>
+                            <TemplateLinkSection
+                                collapsible
+                                defaultExpanded={false}
+                                templateLink={renderQuerySnippet}
+                                heading="Static iframe embed with pre-computed data"
+                                piiWarning="Add this iframe to any site to embed a static PostHog chart. It will look identical to the chart you see here, but nothing will be editable. If any data is sensitive, consider that before sharing."
+                            />
+                            {apiQuerySnippet && (
+                                <TemplateLinkSection
+                                    templateLink={apiQuerySnippet}
+                                    heading="Fetch latest results for this insight"
+                                    piiWarning='Use this snippet to retrieve the freshest results for the insight. Replace the "cachedResults" section in the iframe&apos;s payload with the results of this call to update it.'
+                                    collapsible
+                                    defaultExpanded={false}
+                                />
+                            )}
+                        </>
+                    )}
                 </>
             )}
         </div>
     )
+}
+
+function getRenderQueryIframeId(insightShortId?: InsightShortId): string {
+    const suffix = (insightShortId || 'insight').replace(/[^a-zA-Z0-9_-]/g, '')
+    return `posthog-render-query-${suffix || 'embed'}`
+}
+
+function createRenderQuerySnippet({
+    renderQueryUrl,
+    iframeId,
+    cachedResults,
+    query,
+}: {
+    renderQueryUrl: string
+    iframeId: string
+    cachedResults: AnyResponseType | Partial<QueryBasedInsightModel> | null | undefined
+    query: Node | null | undefined
+}): string {
+    const preparedResults = prepareCachedResultsForSnippet(cachedResults)
+    const serializedResults = indentMultiline(JSON.stringify(preparedResults, null, 2), 8)
+    const serializedQuery = indentMultiline(JSON.stringify(query ?? null, null, 2), 8)
+    const escapedResults = escapeScriptJson(serializedResults)
+    const escapedQuery = escapeScriptJson(serializedQuery)
+
+    return `<iframe id="${iframeId}" src="${renderQueryUrl}" style="width: 100%; height: 600px; border: 0;" loading="lazy"></iframe>
+<script>
+  (function () {
+    const iframe = document.getElementById('${iframeId}')
+    if (!iframe) {
+      return
+    }
+    const payload = {
+        query: ${escapedQuery},
+        cachedResults: ${escapedResults},
+    }
+    const targetOrigin = new URL(${JSON.stringify(renderQueryUrl)}).origin
+    function send() {
+      if (!iframe.contentWindow) {
+        return
+      }
+      iframe.contentWindow.postMessage(payload, targetOrigin)
+    }
+    iframe.addEventListener('load', send)
+    send()
+  })()
+</script>`
+}
+
+function createApiQuerySnippet({
+    apiQueryUrl,
+    query,
+}: {
+    apiQueryUrl: string
+    query: Node | null | undefined
+}): string {
+    const serializedQuery = indentMultiline(JSON.stringify(query ?? null, null, 2), 8)
+    const escapedQuery = escapeScriptJson(serializedQuery)
+
+    return `fetch(${JSON.stringify(apiQueryUrl)}, {
+    method: 'POST',
+    headers: {
+        Authorization: 'Bearer <PERSONAL_API_KEY>',
+        'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+        query: ${escapedQuery},
+    }),
+})
+    .then((response) => response.json())
+    .then((data) => {
+        console.log('Latest results', data)
+    })`
+}
+
+function escapeScriptJson(value: string): string {
+    return value.replace(/</g, '\\u003C').replace(/>/g, '\\u003E').replace(/&/g, '\\u0026')
+}
+
+function indentMultiline(value: string, indent: number): string {
+    const indentation = ' '.repeat(indent)
+    return value
+        .split('\n')
+        .map((line, index) => (index === 0 ? line : `${indentation}${line}`))
+        .join('\n')
+}
+
+function prepareCachedResultsForSnippet(
+    cachedResults: AnyResponseType | Partial<QueryBasedInsightModel> | null | undefined
+): AnyResponseType | Partial<QueryBasedInsightModel> | null {
+    if (!cachedResults) {
+        return null
+    }
+
+    if (Array.isArray(cachedResults)) {
+        return cachedResults
+    }
+
+    if (typeof cachedResults !== 'object') {
+        return cachedResults
+    }
+
+    const source = cachedResults as Record<string, any>
+    const allowedKeys = [
+        'cache_key',
+        'error',
+        'results',
+        'last_refresh',
+        'next_allowed_client_refresh',
+        'timezone',
+        'query_metadata',
+    ]
+    const trimmed: Record<string, any> = {}
+
+    for (const key of allowedKeys) {
+        if (Object.prototype.hasOwnProperty.call(source, key)) {
+            const value = source[key]
+            if (value !== undefined) {
+                trimmed[key] = value
+            }
+        }
+    }
+
+    if (trimmed.results === undefined && Object.prototype.hasOwnProperty.call(source, 'result')) {
+        const value = source.result
+        if (value !== undefined) {
+            trimmed.results = value
+        }
+    }
+
+    return Object.keys(trimmed).length > 0 ? trimmed : null
 }
 
 function DetailedResultsCheckbox({ insightShortId }: { insightShortId: InsightShortId }): JSX.Element | null {

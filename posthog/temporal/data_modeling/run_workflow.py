@@ -577,7 +577,8 @@ async def materialize_model(
         table_name=saved_query.normalized_name,
         file_uris=file_uris,
         preserve_table_name_casing=True,
-        use_timestamped_folders=True,
+        existing_queryable_folder=saved_query.table.queryable_folder if saved_query.table else None,
+        logger=logger,
     )
 
     saved_query.is_materialized = True
