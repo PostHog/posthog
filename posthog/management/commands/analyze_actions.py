@@ -20,6 +20,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            "--days",
+            type=int,
+            default=30,
+            help="Number of days to look back (default: 30)",
+        )
+        parser.add_argument(
             "--parallelism",
             type=int,
             default=10,
@@ -27,14 +33,17 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        days = options.get("days", 30)
         parallelism = options.get("parallelism", 10)
 
         logger.info(
             "Starting actions processing coordinator",
+            days=days,
             parallelism=parallelism,
         )
 
         self.run_temporal_workflow(
+            days=days,
             parallelism=parallelism,
         )
 
@@ -48,6 +57,7 @@ class Command(BaseCommand):
 
     def run_temporal_workflow(
         self,
+        days: int,
         parallelism: int,
     ) -> None:
         """Run the Temporal workflow for parallel processing."""
@@ -58,6 +68,7 @@ class Command(BaseCommand):
 
             # Create coordinator workflow inputs
             inputs = ActionsCoordinatorWorkflowInputs(
+                days=days,
                 parallelism=parallelism,
             )
 

@@ -19,12 +19,14 @@ LOGGER = get_logger(__name__)
 class ActionsWorkflowInputs:
     """Inputs for the actions processing workflow."""
 
+    days: int = 30
     limit: Optional[int] = None
     offset: int = 0
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
+            "days": self.days,
             "limit": self.limit,
             "offset": self.offset,
         }
@@ -70,7 +72,7 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
         if not event_name:
             continue
 
-        # Query ClickHouse for events matching this event name in the last 30 days
+        # Query ClickHouse for events matching this event name in the last N days
         # Group by person_id and date, count occurrences
         query = """
             SELECT
@@ -81,7 +83,7 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
             WHERE
                 team_id = %(team_id)s
                 AND event = %(event_name)s
-                AND timestamp >= now() - toIntervalDay(30)
+                AND timestamp >= now() - toIntervalDay(%(days)s)
                 AND timestamp <= now()
             GROUP BY
                 person_id,
@@ -103,6 +105,7 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
                     {
                         "team_id": action.team_id,
                         "event_name": event_name,
+                        "days": inputs.days,
                     },
                     ch_user=ClickHouseUser.DEFAULT,
                     workload=Workload.OFFLINE,

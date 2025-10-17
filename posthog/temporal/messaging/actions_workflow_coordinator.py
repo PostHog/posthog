@@ -19,11 +19,13 @@ LOGGER = get_logger(__name__)
 class ActionsCoordinatorWorkflowInputs:
     """Inputs for the coordinator workflow that spawns child workflows."""
 
+    days: int = 30  # Number of days to look back
     parallelism: int = 10  # Number of child workflows to spawn
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
+            "days": self.days,
             "parallelism": self.parallelism,
         }
 
@@ -95,6 +97,7 @@ class ActionsCoordinatorWorkflow(PostHogWorkflow):
 
             child_id = f"{temporalio.workflow.info().workflow_id}-child-{i}"
             child_inputs = ActionsWorkflowInputs(
+                days=inputs.days,
                 limit=limit,
                 offset=offset,
             )
