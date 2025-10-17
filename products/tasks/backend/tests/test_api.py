@@ -323,6 +323,8 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertIsNotNone(task1_data)
         self.assertIsNotNone(task2_data)
+        assert task1_data is not None  # Type narrowing
+        assert task2_data is not None  # Type narrowing
 
         # task1 should have latest_run populated
         self.assertIn("latest_run", task1_data)
