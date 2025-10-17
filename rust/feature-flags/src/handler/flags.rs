@@ -12,7 +12,7 @@ use crate::{
 use axum::extract::State;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 
 use super::{evaluation, types::FeatureFlagEvaluationContext};
@@ -282,6 +282,7 @@ pub async fn evaluate_for_request(
         groups,
         hash_key_override,
         flag_keys,
+        config: Arc::new(state.config.clone()),
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await

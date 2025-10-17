@@ -189,6 +189,7 @@ async fn test_evaluate_feature_flags() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        config: Arc::new(Config::default_test_config()),
     };
 
     let request_id = Uuid::new_v4();
@@ -278,6 +279,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        config: Arc::new(Config::default_test_config()),
     };
 
     let request_id = Uuid::new_v4();
@@ -679,6 +681,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        config: Arc::new(Config::default_test_config()),
     };
 
     let request_id = Uuid::new_v4();
@@ -780,6 +783,7 @@ async fn test_evaluate_feature_flags_details() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        config: Arc::new(Config::default_test_config()),
     };
 
     let request_id = Uuid::new_v4();
@@ -932,6 +936,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         groups: Some(groups),
         hash_key_override: None,
         flag_keys: None,
+        config: Arc::new(Config::default_test_config()),
     };
 
     let request_id = Uuid::new_v4();
@@ -1021,6 +1026,7 @@ async fn test_long_distinct_id() {
         groups: None,
         hash_key_override: None,
         flag_keys: None,
+        config: Arc::new(Config::default_test_config()),
     };
 
     let request_id = Uuid::new_v4();

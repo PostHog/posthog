@@ -81,14 +81,11 @@ mod tests {
 
         // Matcher for a matching distinct_id
         let router = context.create_postgres_router();
-        let mut matcher = FeatureFlagMatcher::new(
+        let mut matcher = FeatureFlagMatcher::test_new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
             router,
             cohort_cache.clone(),
-            None,
-            None,
         );
 
         matcher
@@ -110,6 +107,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -131,6 +129,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -194,6 +193,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -249,11 +249,6 @@ mod tests {
         );
 
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
-        group_type_mapping_cache
-            .init(context.persons_reader.clone())
-            .await
-            .unwrap();
-
         let group_types_to_indexes = [("organization".to_string(), 1)].into_iter().collect();
         let indexes_to_types = [(1, "organization".to_string())].into_iter().collect();
         group_type_mapping_cache.set_test_mappings(group_types_to_indexes, indexes_to_types);
@@ -276,6 +271,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
+            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -359,6 +355,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -517,6 +514,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
         let flags = FeatureFlagList {
             flags: vec![leaf_flag.clone(), parent_flag.clone()],
@@ -673,6 +671,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -797,6 +796,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -950,6 +950,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
         let flags = FeatureFlagList {
             flags: vec![leaf_flag.clone(), parent_flag.clone()],
@@ -1042,6 +1043,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
+            Arc::new(context.config.clone()),
         );
         let variant = matcher.get_matching_variant(&flag, None).unwrap();
         assert!(variant.is_some(), "No variant was selected");
@@ -1078,6 +1080,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
+            Arc::new(context.config.clone()),
         );
 
         let variant = matcher.get_matching_variant(&flag, None).unwrap();
@@ -1129,6 +1132,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, None, None)
@@ -1188,6 +1192,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
         matcher
             .flag_evaluation_state
@@ -1295,6 +1300,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         reset_fetch_calls_count();
@@ -1364,6 +1370,7 @@ mod tests {
             let flag_clone = flag.clone();
             let router = context.create_postgres_router();
             let cohort_cache_clone = cohort_cache.clone();
+            let config_clone = Arc::new(context.config.clone());
             handles.push(tokio::spawn(async move {
                 let matcher = FeatureFlagMatcher::new(
                     format!("test_user_{i}"),
@@ -1373,6 +1380,7 @@ mod tests {
                     cohort_cache_clone,
                     None,
                     None,
+                    config_clone,
                 );
                 matcher.get_match(&flag_clone, None, None).unwrap()
             }));
@@ -1455,6 +1463,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -1505,6 +1514,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -1552,6 +1562,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -1606,6 +1617,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let mut control_count = 0;
@@ -1684,6 +1696,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -1748,6 +1761,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -1794,6 +1808,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let (is_match, reason) = matcher
@@ -1874,6 +1889,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -2107,6 +2123,7 @@ mod tests {
                 cohort_cache.clone(),
                 None,
                 None,
+                Arc::new(context.config.clone()),
             );
 
             matcher
@@ -2222,6 +2239,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -2232,6 +2250,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
@@ -2242,6 +2261,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher_test_id
@@ -2358,6 +2378,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -2469,6 +2490,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -2479,6 +2501,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
@@ -2489,6 +2512,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher_test_id
@@ -2616,6 +2640,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -2712,6 +2737,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -2808,6 +2834,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -2925,6 +2952,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -3021,6 +3049,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -3117,6 +3146,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -3205,6 +3235,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -3288,6 +3319,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -3386,6 +3418,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -3461,6 +3494,7 @@ mod tests {
             vec![distinct_id.clone()],
             team.project_id,
             "hash_key_continuity".to_string(),
+            &context.config,
         )
         .await
         .unwrap();
@@ -3478,6 +3512,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
+            Arc::new(context.config.clone()),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -3570,6 +3605,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
+            Arc::new(context.config.clone()),
         )
         .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None)
         .await;
@@ -3682,6 +3718,7 @@ mod tests {
             vec![distinct_id.clone()],
             team.project_id,
             "hash_key_mixed".to_string(),
+            &context.config,
         )
         .await
         .unwrap();
@@ -3699,6 +3736,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
+            Arc::new(context.config.clone()),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -3805,6 +3843,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -4036,6 +4075,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -4058,6 +4098,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher2
@@ -4171,6 +4212,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
         let result = matcher.get_match(&flag, None, None).unwrap();
         assert_eq!(
@@ -4194,6 +4236,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
         let result = matcher.get_match(&flag, None, None).unwrap();
         assert_eq!(
@@ -4217,6 +4260,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
         let result = matcher.get_match(&flag, None, None).unwrap();
         assert_eq!(
@@ -4312,6 +4356,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -4378,6 +4423,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let result = matcher
@@ -4449,6 +4495,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_numeric),
+            Arc::new(context.config.clone()),
         );
 
         matcher_numeric
@@ -4469,6 +4516,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_string),
+            Arc::new(context.config.clone()),
         );
 
         matcher_string
@@ -4501,6 +4549,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_float),
+            Arc::new(context.config.clone()),
         );
 
         matcher_float
@@ -4522,6 +4571,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_bool),
+            Arc::new(context.config.clone()),
         );
 
         matcher_bool
@@ -4666,6 +4716,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -4691,6 +4742,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -4716,6 +4768,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         matcher
@@ -4780,14 +4833,11 @@ mod tests {
 
         // Matcher for a matching distinct_id
         let router = context.create_postgres_router();
-        let mut matcher = FeatureFlagMatcher::new(
+        let mut matcher = FeatureFlagMatcher::test_new(
             distinct_id.clone(),
             team.id,
-            team.project_id,
             router,
             cohort_cache.clone(),
-            None,
-            None,
         );
 
         matcher
@@ -4908,6 +4958,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -4953,6 +5004,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let result2 = matcher2
@@ -4987,6 +5039,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let result3 = matcher3
@@ -5023,6 +5076,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let result4 = matcher4
@@ -5176,6 +5230,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
+            Arc::new(context.config.clone()),
         );
 
         let flags = FeatureFlagList {
@@ -5220,6 +5275,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
+            Arc::new(context.config.clone()),
         );
 
         let result2 = matcher2
@@ -5260,6 +5316,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
+            Arc::new(context.config.clone()),
         );
 
         let result3 = matcher3
@@ -5296,6 +5353,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
+            Arc::new(context.config.clone()),
         );
 
         let result4 = matcher4
@@ -5336,6 +5394,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             Some(groups),
+            Arc::new(context.config.clone()),
         );
 
         let result5 = matcher5
@@ -5439,6 +5498,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         // Pass email as a property override to avoid database lookup
@@ -5469,6 +5529,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         let mut other_properties = HashMap::new();
@@ -5514,6 +5575,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            Arc::new(context.config.clone()),
         );
 
         // Create flags: one with experience continuity enabled, one without
