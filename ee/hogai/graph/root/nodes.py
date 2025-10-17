@@ -17,7 +17,6 @@ from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
 from posthog.schema import (
-    AssistantContextualTool,
     AssistantMessage,
     AssistantToolCallMessage,
     ContextMessage,
@@ -60,11 +59,11 @@ from .prompts import (
     ROOT_TOOL_DOES_NOT_EXIST,
 )
 from .tools import (
+    CreateAndQueryInsightTool,
     ReadDataTool,
     ReadTaxonomyTool,
     SearchTool,
     TodoWriteTool,
-    create_and_query_insight,
     create_dashboard,
     session_summarization,
 )
@@ -76,7 +75,6 @@ SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
 
 RouteName = Literal[
-    "insights",
     "root",
     "end",
     "search_documentation",
@@ -250,16 +248,10 @@ class RootNode(AssistantNode):
                 ReadDataTool,
                 SearchTool,
                 TodoWriteTool,
+                CreateAndQueryInsightTool,
             )
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))
-
-        # Insights tool
-        tool_names = self.context_manager.get_contextual_tools().keys()
-        is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
-        if not is_editing_insight:
-            # This is the default tool, which can be overriden by the MaxTool based tool with the same name
-            available_tools.append(create_and_query_insight)
 
         # Check if session summarization is enabled for the user
         if self._has_session_summarization_feature_flag():
@@ -269,6 +261,7 @@ class RootNode(AssistantNode):
         available_tools.append(create_dashboard)
 
         # Inject contextual tools
+        tool_names = self.context_manager.get_contextual_tools().keys()
         awaited_contextual_tools: list[Awaitable[RootTool]] = []
         for tool_name in tool_names:
             ContextualMaxToolClass = get_contextual_tool_class(tool_name)
@@ -399,19 +392,10 @@ class RootNodeTools(AssistantNode):
         tools_calls = last_message.tool_calls
         if len(tools_calls) != 1:
             raise ValueError("Expected exactly one tool call.")
-
-        tool_names = self.context_manager.get_contextual_tools().keys()
-        is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         tool_call = tools_calls[0]
 
         from ee.hogai.tool import get_contextual_tool_class
 
-        if tool_call.name == "create_and_query_insight" and not is_editing_insight:
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                root_tool_insight_plan=tool_call.args["query_description"],
-                root_tool_calls_count=tool_call_count + 1,
-            )
         if tool_call.name == "session_summarization":
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
@@ -534,8 +518,6 @@ class RootNodeTools(AssistantNode):
                 tool_call_name = tool_call.name
                 if tool_call_name == "create_dashboard":
                     return "create_dashboard"
-            if state.root_tool_insight_plan:
-                return "insights"
             elif state.search_insights_query:
                 return "insights_search"
             elif state.session_summarization_query:
