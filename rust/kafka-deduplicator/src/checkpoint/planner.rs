@@ -1,12 +1,15 @@
-use anyhow::{Context, Result};
 use std::collections::HashMap;
-use std::path::Path;
+use std::fs::File;
+use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
-use tracing::{debug, info};
-
-use super::{CheckpointInfo, CheckpointMetadata};
+use super::{CheckpointFile, CheckpointInfo, CheckpointMetadata};
 use crate::kafka::types::Partition;
+use crate::metrics_const::CHECKPOINT_PLAN_FILE_TRACKED_COUNTER;
+
+use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
+use sha2::{Digest, Sha256};
+use tracing::{debug, info};
 
 /// Result of checkpoint planning
 #[derive(Debug)]
@@ -14,7 +17,7 @@ pub struct CheckpointPlan {
     /// The new checkpoint metadata with files field populated
     pub info: CheckpointInfo,
     /// Files that need to be uploaded to S3 (filename, local_full_path)
-    pub files_to_upload: Vec<(String, String)>,
+    pub files_to_upload: Vec<LocalCheckpointFile>,
 }
 
 /// Create a checkpoint plan with new metadata and list of files to upload
@@ -38,12 +41,10 @@ pub fn plan_checkpoint(
         producer_offset,
     );
     let mut info = CheckpointInfo::new(metadata, remote_bucket_namespace);
-
-    let mut files_to_upload = Vec::new();
+    let mut files_to_upload: Vec<LocalCheckpointFile> = Vec::new();
 
     // Collect all files in local checkpoint directory
     let local_files = collect_local_files(local_checkpoint_attempt_dir)?;
-
     info!(
         "Found {} files in local checkpoint directory",
         local_files.len()
@@ -52,10 +53,11 @@ pub fn plan_checkpoint(
     // If no previous metadata, upload everything
     let Some(prev_meta) = previous_metadata else {
         info!("No previous checkpoint metadata - tracking all files for upload");
-        for (filename, local_path) in local_files {
-            let remote_filename = info.get_file_key(&filename);
-            info.metadata.files.push(remote_filename);
-            files_to_upload.push((filename, local_path));
+        for candidate in local_files {
+            let remote_filepath = info.get_file_key(&candidate.filename);
+            info.metadata
+                .track_file(remote_filepath, candidate.checksum.clone(), candidate.size);
+            files_to_upload.push(candidate);
         }
         return Ok(CheckpointPlan {
             info,
@@ -64,15 +66,15 @@ pub fn plan_checkpoint(
     };
 
     // Build maps of filename -> file_path by type from previous checkpoint
-    let mut prev_file_map: HashMap<String, String> = HashMap::new();
-    for file_path in &prev_meta.files {
-        // Extract just the filename from the path
-        let filename = file_path
+    let mut prev_file_map: HashMap<String, CheckpointFile> = HashMap::new();
+    for prev_cp_file in &prev_meta.files {
+        let filename = prev_cp_file
+            .remote_filepath
             .rsplit('/')
             .next()
-            .unwrap_or(file_path)
+            .unwrap_or(&prev_cp_file.remote_filepath)
             .to_string();
-        prev_file_map.insert(filename.clone(), file_path.clone());
+        prev_file_map.insert(filename, prev_cp_file.clone());
     }
 
     info!(
@@ -92,27 +94,41 @@ pub fn plan_checkpoint(
     // - CURRENT    file:  upload the new file, drop the old one
     // - OPTIONS-*  files: upload new files. drop old if missing from new checkpoint.
     //                     if same-named, keep newer or disambiguate w/checksum
-    for (filename, local_path) in local_files {
-        if let Some(prev_file_path) = prev_file_map.get(&filename) {
-            if filename.ends_with(".sst") {
-                info.metadata.files.push(prev_file_path.clone());
-                debug!("Reusing file {} from previous checkpoint", filename);
+    for candidate in local_files {
+        let filename = &candidate.filename;
+        if let Some(prev_file) = prev_file_map.get(filename) {
+            if decide_with_duplicate(&candidate, prev_file) {
+                debug!("Duplicate file {} - new file will be uploaded", filename);
+                metrics::counter!(CHECKPOINT_PLAN_FILE_TRACKED_COUNTER, "file" => "modified")
+                    .increment(1);
+                let remote_filepath = info.get_file_key(filename);
+                info.metadata.track_file(
+                    remote_filepath,
+                    candidate.checksum.clone(),
+                    candidate.size,
+                );
+                files_to_upload.push(candidate);
             } else {
-                // TODO(eli): for non-CURRENT files, use checksum to determine if we should keep old or new file
-                let remote_filename = info.get_file_key(&filename);
-                info.metadata.files.push(remote_filename.clone());
-                files_to_upload.push((filename.clone(), local_path));
                 debug!(
-                    "Non-SST file {} found in both checkpoints; newest will be tracked for upload",
+                    "Duplicate file {} - retaining original, skipping upload",
                     filename
+                );
+                metrics::counter!(CHECKPOINT_PLAN_FILE_TRACKED_COUNTER, "file" => "retained")
+                    .increment(1);
+                info.metadata.track_file(
+                    prev_file.remote_filepath.clone(),
+                    prev_file.checksum.clone(),
+                    prev_file.file_size,
                 );
             }
         } else {
             // File is new - needs to be uploaded
-            let remote_filename = info.get_file_key(&filename);
-            info.metadata.files.push(remote_filename.clone());
-            files_to_upload.push((filename.clone(), local_path));
-            debug!("New file {} will be tracked for upload", filename);
+            debug!("New file {} will be uploaded", filename);
+            metrics::counter!(CHECKPOINT_PLAN_FILE_TRACKED_COUNTER, "file" => "added").increment(1);
+            let remote_filepath = info.get_file_key(filename);
+            info.metadata
+                .track_file(remote_filepath, candidate.checksum.clone(), candidate.size);
+            files_to_upload.push(candidate);
         }
     }
 
@@ -128,9 +144,32 @@ pub fn plan_checkpoint(
     })
 }
 
+// if true, keep the new LocalCheckpointFile and add it to the metadata
+// if false, drop the new file and add the old CandidateFile to the metadata
+fn decide_with_duplicate(candidate: &LocalCheckpointFile, prev_file: &CheckpointFile) -> bool {
+    match &candidate.filename {
+        // simple cases - CURRENT should always be latest; SST files should be retained
+        f if f == "CURRENT" => true,
+        f if f.ends_with(".sst") => false,
+
+        // for other files that can be appended or mutated
+        // w/o name change, use checksum to decide
+        f if f.starts_with("OPTIONS-") || f.starts_with("MANIFEST-") || f.ends_with(".log") => {
+            if candidate.checksum == prev_file.checksum {
+                // retain old file, no change in content
+                false
+            } else {
+                // same-named file content changed, upload new one
+                true
+            }
+        }
+        _ => true, // bias to keeping latest files for safety
+    }
+}
+
 /// Collect all files in local checkpoint attempt directory of form:
 /// <local_base_path>/<topic_name>/<partition_number>/<checkpoint_id>
-fn collect_local_files(base_attempt_path: &Path) -> Result<Vec<(String, String)>> {
+fn collect_local_files(base_attempt_path: &Path) -> Result<Vec<LocalCheckpointFile>> {
     let mut files = Vec::new();
     let mut stack = vec![base_attempt_path.to_path_buf()];
 
@@ -147,14 +186,8 @@ fn collect_local_files(base_attempt_path: &Path) -> Result<Vec<(String, String)>
             if path.is_dir() {
                 stack.push(path);
             } else {
-                let relative_path = path
-                    .strip_prefix(base_attempt_path)
-                    .with_context(|| format!("Failed to get relative path for: {path:?}"))?;
-
-                let filename = relative_path.to_string_lossy().replace('\\', "/");
-                let local_path = path.to_string_lossy().to_string();
-
-                files.push((filename, local_path));
+                let candidate = build_candidate_file(&path).context("In build_candidate_file")?;
+                files.push(candidate);
             }
         }
     }
@@ -162,13 +195,52 @@ fn collect_local_files(base_attempt_path: &Path) -> Result<Vec<(String, String)>
     Ok(files)
 }
 
-#[cfg(test)]
+fn build_candidate_file(file_path: &Path) -> Result<LocalCheckpointFile> {
+    let local_file_path = file_path.to_path_buf();
+    let filename = file_path
+        .file_name()
+        .context(format!("Failed to get filename for: {file_path:?}"))?
+        .to_string_lossy()
+        .to_string();
+
+    let mut file =
+        File::open(file_path).with_context(|| format!("Failed to open file: {file_path:?}"))?;
+    let mut hasher = Sha256::new();
+    let file_size = std::io::copy(&mut file, &mut hasher)
+        .with_context(|| format!("Failed to read and hash file: {file_path:?}"))?;
+
+    let hash = hasher.finalize();
+    let checksum = format!("{hash:x}");
+
+    Ok(LocalCheckpointFile::new(
+        filename,
+        checksum,
+        file_size,
+        local_file_path,
+    ))
+}
+
+#[derive(Debug, Clone)]
+pub struct LocalCheckpointFile {
+    pub filename: String,
+    pub checksum: String,
+    pub size: u64,
+    pub local_path: PathBuf,
+}
+
+impl LocalCheckpointFile {
+    pub fn new(filename: String, checksum: String, size: u64, local_path: PathBuf) -> Self {
+        Self {
+            filename,
+            checksum,
+            size,
+            local_path,
+        }
+    }
+}
+
 mod tests {
     use super::*;
-
-    use std::collections::HashSet;
-
-    use chrono::{Duration, Utc};
     use tempfile::TempDir;
 
     #[test]
