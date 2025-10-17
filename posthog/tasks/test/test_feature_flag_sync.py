@@ -344,3 +344,34 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         call_args = mock_sync_execute.call_args
         params = call_args[0][1]
         assert params["limit"] == 2
+
+    @freeze_time("2024-06-15 12:00:00")
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_handles_naive_datetimes_from_clickhouse(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        """ClickHouse returns naive datetimes - verify they're converted to timezone-aware"""
+        redis_mock = mock_redis_client()
+        mock_get_client.return_value = redis_mock
+
+        # ClickHouse returns naive datetimes (no timezone info) - this is what really happens
+        naive_timestamp = datetime(2024, 6, 15, 11, 0, 0)  # No tz.make_aware!
+
+        # flag3 has a timezone-aware last_called_at from Django
+        assert self.flag3.last_called_at is not None
+        assert self.flag3.last_called_at.tzinfo is not None
+
+        mock_sync_execute.return_value = [
+            (self.team.pk, self.flag3.key, naive_timestamp, 100),
+        ]
+
+        # Should succeed - naive datetimes are converted to timezone-aware before comparison
+        sync_feature_flag_last_called()
+
+        # Flag should be updated with the timezone-aware version of the naive timestamp
+        self.flag3.refresh_from_db()
+        assert self.flag3.last_called_at is not None
+        assert self.flag3.last_called_at.tzinfo is not None  # Must be timezone-aware
+        # The stored timestamp should match the naive timestamp when interpreted in default timezone
+        assert self.flag3.last_called_at == tz.make_aware(naive_timestamp)
