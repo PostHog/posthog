@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree
@@ -14,9 +15,22 @@ from posthog.kafka_client.topics import (
 #
 
 ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE = "error_tracking_issue_fingerprint_overrides"
+ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WRITABLE_TABLE = (
+    f"writable_{ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE}"
+)
+ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_SHARDED_TABLE = f"sharded_{ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE}"
+ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_KAFKA_TABLE = f"kafka_{ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE}"
+ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV = f"{ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE}_mv"
+
+DROP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL = (
+    f"DROP TABLE IF EXISTS {ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV}"
+)
+DROP_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_KAFKA_TABLE_SQL = (
+    f"DROP TABLE IF EXISTS {ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_KAFKA_TABLE}"
+)
 
 ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     team_id Int64,
     fingerprint VARCHAR,
@@ -31,7 +45,7 @@ ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_ENGINE = lambda: ReplacingMerge
     ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE, ver="version"
 )
 
-ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = lambda: (
+ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = lambda on_cluster=True: (
     ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_BASE_SQL
     + """
     ORDER BY (team_id, fingerprint)
@@ -39,7 +53,7 @@ ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = lambda: (
     """
 ).format(
     table_name=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE,
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     engine=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_ENGINE(),
     extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -48,9 +62,9 @@ ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = lambda: (
 )
 
 KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = (
-    lambda: ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_BASE_SQL.format(
-        table_name="kafka_" + ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE,
-        cluster=settings.CLICKHOUSE_CLUSTER,
+    lambda on_cluster=True: ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_BASE_SQL.format(
+        table_name=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_KAFKA_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(
             KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT, group="clickhouse-error-tracking-issue-fingerprint-overrides"
         ),
@@ -59,10 +73,12 @@ KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = (
 )
 
 
-def ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL():
+def ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV_SQL(
+    on_cluster=True, target_table=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WRITABLE_TABLE
+):
     return """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER '{cluster}'
-TO {database}.{table_name}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
+TO {target_table}
 AS SELECT
 team_id,
 fingerprint,
@@ -72,13 +88,28 @@ version,
 _timestamp,
 _offset,
 _partition
-FROM {database}.kafka_{table_name}
+FROM {database}.{kafka_table}
 WHERE version > 0 -- only store updated rows, not newly inserted ones
 """.format(
-        table_name=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE,
-        cluster=settings.CLICKHOUSE_CLUSTER,
+        mv_name=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_MV,
+        target_table=target_table,
+        kafka_table=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_KAFKA_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         database=settings.CLICKHOUSE_DATABASE,
     )
+
+
+WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = (
+    lambda: ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_BASE_SQL.format(
+        table_name=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WRITABLE_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=Distributed(
+            data_table=ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE,
+            cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
+        ),
+        extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    )
+)
 
 
 def TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL():

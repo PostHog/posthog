@@ -348,6 +348,10 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's queries to search for insights.
     """
+    dashboard_id: Optional[int] = Field(default=None)
+    """
+    The ID of the dashboard to be edited.
+    """
 
 
 class AssistantState(_SharedAssistantState):

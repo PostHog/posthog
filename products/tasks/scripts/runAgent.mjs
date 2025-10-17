@@ -14,7 +14,7 @@ function parseArgs() {
     return parsed
 }
 
-export async function runAgent(taskId, workflowId, repositoryPath, posthogApiUrl, posthogApiKey) {
+export async function runAgent(taskId, workflowId, repositoryPath, posthogApiUrl, posthogApiKey, prompt, maxTurns) {
     const agent = new Agent({
         workingDirectory: repositoryPath,
         posthogApiUrl,
@@ -26,23 +26,38 @@ export async function runAgent(taskId, workflowId, repositoryPath, posthogApiUrl
         },
     })
 
-    await agent.runWorkflow(taskId, workflowId, {
-        repositoryPath,
-        permissionMode: PermissionMode.ACCEPT_EDITS,
-        autoProgress: true,
-    })
+    if (prompt) {
+        const options = {
+            repositoryPath,
+            permissionMode: PermissionMode.BYPASS,
+        }
+
+        if (maxTurns) {
+            options.queryOverrides = {
+                maxTurns: parseInt(maxTurns, 10),
+            }
+        }
+
+        await agent.run(prompt, options)
+    } else {
+        await agent.runWorkflow(taskId, workflowId, {
+            repositoryPath,
+            permissionMode: PermissionMode.BYPASS,
+            autoProgress: true,
+        })
+    }
 }
 
 async function main() {
-    const { taskId, workflowId, repositoryPath } = parseArgs()
+    const { taskId, workflowId, repositoryPath, prompt, 'max-turns': maxTurns } = parseArgs()
 
-    if (!taskId) {
-        console.error('Missing required argument: taskId')
+    if (!prompt && !taskId) {
+        console.error('Missing required argument: either --prompt or --taskId must be provided')
         process.exit(1)
     }
 
-    if (!workflowId) {
-        console.error('Missing required argument: workflowId')
+    if (!prompt && !workflowId) {
+        console.error('Missing required argument: workflowId (required when using taskId)')
         process.exit(1)
     }
 
@@ -65,7 +80,7 @@ async function main() {
     }
 
     try {
-        await runAgent(taskId, workflowId, repositoryPath, posthogApiUrl, posthogApiKey)
+        await runAgent(taskId, workflowId, repositoryPath, posthogApiUrl, posthogApiKey, prompt, maxTurns)
         process.exit(0)
     } catch (error) {
         console.error(
