@@ -66,7 +66,7 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
         else queryset[inputs.offset :]
     )
 
-    # Convert queryset to list in async-safe way
+    actions = await database_sync_to_async(list)(queryset)
     actions: list[Action] = await sync_to_async(lambda: list(queryset))()
 
     actions_count = 0
