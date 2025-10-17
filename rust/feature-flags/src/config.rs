@@ -399,8 +399,8 @@ impl Config {
             flag_query_slow_error_threshold_ms: 1000,
             flag_total_execution_warn_threshold_ms: 1000,
             flag_total_execution_error_threshold_ms: 2000,
-            min_pg_connections: 0, // Set to 0 for tests to avoid connection pool exhaustion
-            min_pg_connections_write: 0, // Set to 0 for tests to avoid connection pool exhaustion
+            min_pg_connections: 1,  // Small minimum to keep pools warm  
+            min_pg_connections_write: 1,  // Small minimum to keep pools warm
         }
     }
 
