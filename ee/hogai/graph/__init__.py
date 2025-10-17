@@ -1,8 +1,9 @@
 from .deep_research.graph import DeepResearchAssistantGraph
 from .funnels.nodes import FunnelGeneratorNode
-from .graph import AssistantGraph, InsightsAssistantGraph
+from .graph import AssistantGraph
 from .inkeep_docs.nodes import InkeepDocsNode
 from .insights.nodes import InsightSearchNode
+from .insights_graph.graph import InsightsGraph
 from .memory.nodes import MemoryInitializerNode
 from .query_executor.nodes import QueryExecutorNode
 from .query_planner.nodes import QueryPlannerNode
@@ -27,7 +28,7 @@ __all__ = [
     "QueryPlannerNode",
     "TrendsGeneratorNode",
     "AssistantGraph",
-    "InsightsAssistantGraph",
+    "InsightsGraph",
     "InsightSearchNode",
     "DeepResearchAssistantGraph",
 ]

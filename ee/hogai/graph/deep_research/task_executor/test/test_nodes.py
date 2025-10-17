@@ -184,7 +184,7 @@ class TestTaskExecutorNodeArun(TestTaskExecutorNode):
 
 class TestTaskExecutorInsightsExecution(TestTaskExecutorNode):
     @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode._write_message")
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsAssistantGraph")
+    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
     async def test_execute_task_with_insights_successful(self, mock_insights_graph_class, mock_write_message):
         """Test successful task execution through insights pipeline."""
         task = self._create_task_execution_item(task_id="task_1")
@@ -230,7 +230,7 @@ class TestTaskExecutorInsightsExecution(TestTaskExecutorNode):
         self.assertEqual(len(result.artifacts), 1)
 
     @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode._write_message")
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsAssistantGraph")
+    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
     async def test_execute_task_with_insights_no_artifacts(self, mock_insights_graph_class, mock_write_message):
         """Test task execution that produces no artifacts."""
         task = self._create_task_execution_item(task_id="task_1")
@@ -268,7 +268,7 @@ class TestTaskExecutorInsightsExecution(TestTaskExecutorNode):
 
     @patch("ee.hogai.graph.deep_research.task_executor.nodes.capture_exception")
     @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode._write_message")
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsAssistantGraph")
+    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
     async def test_execute_task_with_exception(self, mock_insights_graph_class, mock_write_message, mock_capture):
         """Test task execution that encounters an exception."""
         task = self._create_task_execution_item(task_id="task_1")
@@ -343,7 +343,7 @@ class TestParallelTaskExecution(TestTaskExecutorNode):
 
 class TestReasoningCallback(TestTaskExecutorNode):
     @patch("ee.hogai.graph.deep_research.task_executor.nodes.DeepResearchTaskExecutorNode._write_message")
-    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsAssistantGraph")
+    @patch("ee.hogai.graph.deep_research.task_executor.nodes.InsightsGraph")
     async def test_reasoning_messages_sent_during_execution(self, mock_insights_graph_class, mock_write_message):
         """Test that reasoning messages are properly sent during task execution."""
         task = self._create_task_execution_item(task_id="task_1")
