@@ -2,9 +2,9 @@ import { URL } from 'url'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
-import { isDistinctIdIllegal } from '../person-state'
+import { isDistinctIdIllegal } from '../persons/person-merge-service'
 import { captureIngestionWarning } from '../utils'
 import { EventPipelineRunner } from './runner'
 
@@ -29,10 +29,10 @@ export async function extractHeatmapDataStep(
     const acks: Promise<void>[] = []
 
     try {
-        const team = await runner.hub.teamManager.fetchTeam(teamId)
+        const team = await runner.hub.teamManager.getTeam(teamId)
 
         if (team?.heatmaps_opt_in !== false) {
-            const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
+            const heatmapEvents = (await extractScrollDepthHeatmapData(event, runner)) ?? []
 
             if (heatmapEvents.length > 0) {
                 acks.push(
@@ -74,7 +74,14 @@ function isValidNumber(n: unknown): n is number {
     return typeof n === 'number' && !isNaN(n)
 }
 
-function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseHeatmapEvent[] {
+function isValidBoolean(b: unknown): b is boolean {
+    return typeof b === 'boolean'
+}
+
+async function extractScrollDepthHeatmapData(
+    event: PreIngestionEvent,
+    runner: EventPipelineRunner
+): Promise<RawClickhouseHeatmapEvent[]> {
     function drop(cause: string): RawClickhouseHeatmapEvent[] {
         eventDroppedCounter
             .labels({
@@ -125,7 +132,7 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
     }
 
     if (!isValidNumber($viewport_height) || !isValidNumber($viewport_width)) {
-        status.warn('👀', '[extract-heatmap-data] dropping because invalid viewport dimensions', {
+        logger.warn('👀', '[extract-heatmap-data] dropping because invalid viewport dimensions', {
             parent: event.event,
             teamId: teamId,
             eventTimestamp: timestamp,
@@ -135,8 +142,18 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
         return drop('invalid_viewport_dimensions')
     }
 
-    Object.entries(heatmapData).forEach(([url, items]) => {
+    const promises = Object.entries(heatmapData).map(async ([url, items]) => {
         if (!isValidString(url)) {
+            await captureIngestionWarning(
+                runner.hub.kafkaProducer,
+                teamId,
+                'rejecting_heatmap_data_with_invalid_url',
+                {
+                    heatmapUrl: url,
+                    session_id: $session_id,
+                },
+                { key: $session_id }
+            )
             return
         }
 
@@ -150,7 +167,13 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
                             target_fixed: boolean
                             type: string
                         }): RawClickhouseHeatmapEvent | null => {
-                            if (!isValidNumber(hme.x) || !isValidNumber(hme.y) || !isValidString(hme.type)) {
+                            if (
+                                !isValidNumber(hme.x) ||
+                                !isValidNumber(hme.y) ||
+                                !isValidString(hme.type) ||
+                                !isValidBoolean(hme.target_fixed)
+                            ) {
+                                // TODO really we should add an ingestion warning here, but no urgency
                                 return null
                             }
 
@@ -172,8 +195,21 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
                     )
                     .filter((x): x is RawClickhouseHeatmapEvent => x !== null)
             )
+        } else {
+            await captureIngestionWarning(
+                runner.hub.kafkaProducer,
+                teamId,
+                'rejecting_heatmap_data_with_invalid_items',
+                {
+                    heatmapUrl: url,
+                    session_id: $session_id,
+                },
+                { key: $session_id }
+            )
         }
     })
+
+    await Promise.all(promises)
 
     return heatmapEvents
 }

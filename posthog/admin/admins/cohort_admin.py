@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.models import Cohort
@@ -21,7 +22,7 @@ class CohortAdmin(admin.ModelAdmin):
     @admin.display(description="Team")
     def team_link(self, cohort: Cohort):
         return format_html(
-            '<a href="/admin/posthog/team/{}/change/">{}</a>',
-            cohort.team.pk,
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[cohort.team.pk]),
             cohort.team.name,
         )

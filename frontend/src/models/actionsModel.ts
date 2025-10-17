@@ -1,5 +1,6 @@
 import { connect, events, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -19,9 +20,9 @@ export function findActionName(id: number): string | null {
 export const actionsModel = kea<actionsModelType>([
     props({} as ActionsModelProps),
     path(['models', 'actionsModel']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     loaders(({ props, values, actions }) => ({
         actions: {
             __default: [] as ActionType[],

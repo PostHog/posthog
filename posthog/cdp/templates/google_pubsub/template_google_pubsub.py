@@ -1,12 +1,13 @@
-import dataclasses
 import json
+import dataclasses
 from copy import deepcopy
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
 from posthog.hogql.escape_sql import escape_hogql_string
+
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 from posthog.models.integration import GoogleCloudIntegration
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -15,7 +16,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send data to a Google Pub/Sub topic",
     icon_url="/static/services/google-cloud.png",
     category=["Custom"],
-    hog="""
+    code_language="hog",
+    code="""
 let headers := () -> {
   'Authorization': f'Bearer {inputs.auth.access_token}',
   'Content-Type': 'application/json'
@@ -34,7 +36,7 @@ let res := fetch(f'https://pubsub.googleapis.com/v1/{inputs.topicId}:publish', {
 if (res.status >= 200 and res.status < 300) {
   print('Event sent successfully!')
 } else {
-  throw Error('Error sending event', res)
+  throw Error(f'Error from pubsub.googleapis.com (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[
@@ -79,6 +81,8 @@ class TemplateGooglePubSubMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         exportEventsToIgnore = [x.strip() for x in obj.config.get("exportEventsToIgnore", "").split(",") if x]
         topicId = obj.config.get("topicId", "")

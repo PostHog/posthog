@@ -8,7 +8,8 @@ describe('geoip.template', () => {
 
     beforeEach(async () => {
         await tester.beforeEach()
-        jest.useFakeTimers().setSystemTime(new Date('2025-01-01'))
+        const fixedTime = new Date('2025-01-01')
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
 
     it('should enrich event with IP location', async () => {

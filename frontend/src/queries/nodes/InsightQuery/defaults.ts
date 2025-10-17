@@ -10,7 +10,7 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
 
 export const trendsQueryDefault: TrendsQuery = {
     kind: NodeKind.TrendsQuery,
@@ -23,6 +23,21 @@ export const trendsQueryDefault: TrendsQuery = {
         },
     ],
     trendsFilter: {},
+}
+
+export const calendarHeatmapQueryDefault: TrendsQuery = {
+    kind: NodeKind.TrendsQuery,
+    series: [
+        {
+            kind: NodeKind.EventsNode,
+            name: '$pageview',
+            event: '$pageview',
+            math: BaseMathType.TotalCount,
+        },
+    ],
+    trendsFilter: {
+        display: ChartDisplayType.CalendarHeatmap,
+    },
 }
 
 export const funnelsQueryDefault: FunnelsQuery = {

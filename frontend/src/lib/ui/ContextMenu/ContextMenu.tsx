@@ -1,15 +1,24 @@
 'use client'
 
-import { IconCheckCircle, IconChevronRight } from '@posthog/icons'
 import * as ContextMenuPrimitive from '@radix-ui/react-context-menu'
-import { cn } from 'lib/utils/css-classes'
 import * as React from 'react'
+
+import { IconCheckCircle } from '@posthog/icons'
+
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { cn } from 'lib/utils/css-classes'
 
 const ContextMenu = ContextMenuPrimitive.Root
 
 const ContextMenuTrigger = ContextMenuPrimitive.Trigger
 
-const ContextMenuGroup = ContextMenuPrimitive.Group
+const ContextMenuGroup = React.forwardRef<
+    React.ElementRef<typeof ContextMenuPrimitive.Group>,
+    React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Group>
+>(({ className, ...props }, ref): JSX.Element => {
+    return <ContextMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px', className)} {...props} />
+})
+ContextMenuGroup.displayName = ContextMenuPrimitive.Group.displayName
 
 const ContextMenuPortal = ContextMenuPrimitive.Portal
 
@@ -23,19 +32,8 @@ const ContextMenuSubTrigger = React.forwardRef<
         inset?: boolean
     }
 >(
-    ({ className, inset, children, ...props }, ref): JSX.Element => (
-        <ContextMenuPrimitive.SubTrigger
-            ref={ref}
-            className={cn(
-                'flex cursor-default select-none items-center rounded-xs px-2 py-1.5 text-sm outline-hidden focus:bg-accent-highlight focus:text-accent-foreground data-[state=open]:bg-accent-highlight data-[state=open]:text-accent-foreground',
-                inset && 'pl-8',
-                className
-            )}
-            {...props}
-        >
-            {children}
-            <IconChevronRight className="ml-auto h-4 w-4" />
-        </ContextMenuPrimitive.SubTrigger>
+    ({ className, inset, ...props }, ref): JSX.Element => (
+        <ContextMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
     )
 )
 ContextMenuSubTrigger.displayName = ContextMenuPrimitive.SubTrigger.displayName
@@ -44,15 +42,20 @@ const ContextMenuSubContent = React.forwardRef<
     React.ElementRef<typeof ContextMenuPrimitive.SubContent>,
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubContent>
 >(
-    ({ className, ...props }, ref): JSX.Element => (
+    ({ className, collisionPadding = { top: 50, bottom: 50 }, children, ...props }, ref): JSX.Element => (
         <ContextMenuPrimitive.SubContent
             ref={ref}
+            collisionPadding={collisionPadding}
             className={cn(
-                'z-top relative min-w-[8rem] overflow-hidden rounded-md border bg-surface-tooltip p-1 text-primary-inverse shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+                'primitive-menu-content max-h-[var(--radix-context-menu-content-available-height)]',
                 className
             )}
             {...props}
-        />
+        >
+            <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
+                {children}
+            </ScrollableShadows>
+        </ContextMenuPrimitive.SubContent>
     )
 )
 ContextMenuSubContent.displayName = ContextMenuPrimitive.SubContent.displayName
@@ -61,16 +64,21 @@ const ContextMenuContent = React.forwardRef<
     React.ElementRef<typeof ContextMenuPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
 >(
-    ({ className, ...props }, ref): JSX.Element => (
+    ({ className, children, collisionPadding = { top: 50, bottom: 50 }, ...props }, ref): JSX.Element => (
         <ContextMenuPrimitive.Portal>
             <ContextMenuPrimitive.Content
                 ref={ref}
+                collisionPadding={collisionPadding}
                 className={cn(
-                    `z-top relative min-w-[8rem] max-w-50 overflow-hidden rounded-md border bg-surface-tooltip p-1 text-primary-inverse shadow-md`,
+                    `primitive-menu-content max-h-[var(--radix-context-menu-content-available-height)]`,
                     className
                 )}
                 {...props}
-            />
+            >
+                <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
+                    {children}
+                </ScrollableShadows>
+            </ContextMenuPrimitive.Content>
         </ContextMenuPrimitive.Portal>
     )
 )
@@ -83,15 +91,7 @@ const ContextMenuItem = React.forwardRef<
     }
 >(
     ({ className, inset, ...props }, ref): JSX.Element => (
-        <ContextMenuPrimitive.Item
-            ref={ref}
-            className={cn(
-                `relative flex cursor-pointer select-none items-center rounded-xs px-2 py-1.5 text-sm outline-hidden data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-fill-highlight-inverse-100`,
-                inset && 'pl-8',
-                className
-            )}
-            {...props}
-        />
+        <ContextMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
     )
 )
 ContextMenuItem.displayName = ContextMenuPrimitive.Item.displayName
@@ -154,7 +154,7 @@ const ContextMenuLabel = React.forwardRef<
     ({ className, inset, ...props }, ref): JSX.Element => (
         <ContextMenuPrimitive.Label
             ref={ref}
-            className={cn('px-2 py-1.5 text-sm font-semibold text-foreground', inset && 'pl-8', className)}
+            className={cn('px-2 py-1.5 text-sm font-semibold text-foreground', inset && 'pl-7', className)}
             {...props}
         />
     )
@@ -166,7 +166,11 @@ const ContextMenuSeparator = React.forwardRef<
     React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Separator>
 >(
     ({ className, ...props }, ref): JSX.Element => (
-        <ContextMenuPrimitive.Separator ref={ref} className={cn('-mx-1 my-1 h-px bg-border', className)} {...props} />
+        <ContextMenuPrimitive.Separator
+            ref={ref}
+            className={cn('-mx-1 my-1 h-px bg-border-primary', className)}
+            {...props}
+        />
     )
 )
 ContextMenuSeparator.displayName = ContextMenuPrimitive.Separator.displayName

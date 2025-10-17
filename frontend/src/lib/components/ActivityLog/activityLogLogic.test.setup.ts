@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityChange, ActivityLogItem, PersonMerge, Trigger } from 'lib/components/ActivityLog/humanizeActivity'
 
@@ -36,12 +37,12 @@ const makeAPIItem = ({
     created_at: '2022-02-05T16:28:39.594Z',
 })
 
+// oxlint-disable-next-line react-hooks/rules-of-hooks
 async function testSetup(
     activityLogItem: ActivityLogItem,
     scope: ActivityScope,
     url: string
 ): Promise<ReturnType<typeof activityLogLogic.build>> {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
     useMocks({
         get: {
             [url]: {

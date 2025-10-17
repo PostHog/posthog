@@ -5,9 +5,7 @@ __pycache__/
 staticfiles
 .env
 *.code-workspace
-frontend/.cache/
 .mypy_cache
-frontend/dist/
 *Type.ts
 .idea
 .yalc
@@ -18,6 +16,13 @@ dist/
 node_modules/
 pnpm-lock.yaml
 posthog/templates/email/*
+posthog/templates/**/*.html
 common/hogvm/typescript/src/stl/bytecode.ts
+common/hogvm/__tests__/__snapshots__/*
 rust/
 livestream/
+cli/target/
+cli/tests/_cases/**/*
+frontend/src/products.tsx
+frontend/src/layout.html
+**/fixtures/**

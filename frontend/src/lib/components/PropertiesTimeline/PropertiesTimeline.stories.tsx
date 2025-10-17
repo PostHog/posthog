@@ -1,10 +1,11 @@
-import { Meta } from '@storybook/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import { PropertiesTimeline } from '.'
+import { Meta } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { ChartDisplayType, PersonActorType } from '~/types'
 
-import { PropertiesTimeline } from '.'
 import { RawPropertiesTimelineResult } from './propertiesTimelineLogic'
 
 const meta: Meta<typeof PropertiesTimeline> = {
@@ -24,10 +25,10 @@ const EXAMPLE_PERSON: Omit<PersonActorType, 'id' | 'uuid'> = {
 }
 
 export function MultiplePointsForOnePersonProperty(): JSX.Element {
-    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: 1, uuid: '012e89b5-4239-4319-8ae4-d3cae2f5deb1' }
+    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: '012e89b5-4239-4319-8ae4-d3cae2f5deb1' }
     useStorybookMocks({
         get: {
-            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.uuid}/properties_timeline/`]: {
+            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.id}/properties_timeline/`]: {
                 points: [
                     {
                         timestamp: '2021-01-01T00:00:00.000Z',
@@ -85,10 +86,10 @@ export function MultiplePointsForOnePersonProperty(): JSX.Element {
 }
 
 export function OnePointForOnePersonProperty(): JSX.Element {
-    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: 2, uuid: '012e89b5-4239-4319-8ae4-d3cae2f5deb2' }
+    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: '012e89b5-4239-4319-8ae4-d3cae2f5deb2' }
     useStorybookMocks({
         get: {
-            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.uuid}/properties_timeline/`]: {
+            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.id}/properties_timeline/`]: {
                 points: [
                     {
                         timestamp: '2021-05-01T00:00:00.000Z',
@@ -122,10 +123,10 @@ export function OnePointForOnePersonProperty(): JSX.Element {
 }
 
 export function NoPointsForNoPersonProperties(): JSX.Element {
-    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: 3, uuid: '012e89b5-4239-4319-8ae4-d3cae2f5deb3' }
+    const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: '012e89b5-4239-4319-8ae4-d3cae2f5deb3' }
     useStorybookMocks({
         get: {
-            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.uuid}/properties_timeline/`]: {
+            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.id}/properties_timeline/`]: {
                 points: [
                     {
                         timestamp: '2021-01-01T00:00:00.000Z',

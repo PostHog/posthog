@@ -1,4 +1,5 @@
 import { IconRewindPlay } from '@posthog/icons'
+
 import { Command, GLOBAL_COMMAND_SCOPE } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { isURL } from 'lib/utils'
 import { urls } from 'scenes/urls'

@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
-import { IconRefresh } from 'lib/lemon-ui/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { shouldQueryBeAsync } from '~/queries/utils'
 
 export function Reload(): JSX.Element {
-    const { responseLoading } = useValues(dataNodeLogic)
+    const { responseLoading, query } = useValues(dataNodeLogic)
     const { loadData, cancelQuery } = useActions(dataNodeLogic)
 
     return (
@@ -17,7 +19,7 @@ export function Reload(): JSX.Element {
                 if (responseLoading) {
                     cancelQuery()
                 } else {
-                    loadData(true)
+                    loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                 }
             }}
             // Setting the loading icon manually to capture clicks while spinning.

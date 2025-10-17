@@ -1,17 +1,19 @@
+import { MOCK_TEAM_ID, api } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import { api, MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import {
+    AuthorizedUrlListType,
+    SuggestedDomain,
     appEditorUrl,
     authorizedUrlListLogic,
-    AuthorizedUrlListType,
     filterNotAuthorizedUrls,
-    SuggestedDomain,
     validateProposedUrl,
 } from './authorizedUrlListLogic'
 

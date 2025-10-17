@@ -2,8 +2,9 @@
 
 from django.db import migrations
 
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.schema import InsightVizNode
+
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
 
 def update_filters_to_queries(apps, schema_editor):

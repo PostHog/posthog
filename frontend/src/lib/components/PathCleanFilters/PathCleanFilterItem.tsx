@@ -1,10 +1,12 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import clsx from 'clsx'
+import { useState } from 'react'
+
 import { IconArrowCircleRight } from '@posthog/icons'
 import { LemonSnack, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+
 import { isValidRegexp } from 'lib/utils/regexp'
-import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
 
@@ -12,8 +14,8 @@ import { PathRegexModal } from './PathRegexModal'
 
 interface PathCleanFilterItem {
     filter: PathCleaningFilter
-    onChange: (filter: PathCleaningFilter) => void
-    onRemove: () => void
+    onChange?: (filter: PathCleaningFilter) => void
+    onRemove?: () => void
 }
 
 export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFilterItem): JSX.Element {
@@ -25,7 +27,7 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
 
     return (
         <>
-            {visible && (
+            {visible && onChange && (
                 <PathRegexModal
                     filter={filter}
                     isOpen={visible}
@@ -47,13 +49,13 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
                 <Tooltip title={isInvalidRegex ? 'NOTE: Invalid Regex, will be skipped' : null}>
                     <LemonSnack
                         type="pill"
-                        onClick={() => setVisible(!visible)}
+                        onClick={onChange ? () => setVisible(!visible) : undefined}
                         onClose={onRemove}
                         title={`${filter.regex} is mapped to ${filter.alias}`}
-                        className={clsx({ 'border border-accent-primary': isInvalidRegex })}
+                        className={clsx({ 'border border-accent': isInvalidRegex })}
                     >
                         <span className="inline-flex items-center">
-                            <span className="font-mono text-accent-primary text-xs">{filter.regex ?? '(Empty)'}</span>
+                            <span className="font-mono text-accent text-xs">{filter.regex ?? '(Empty)'}</span>
                             <IconArrowCircleRight className="mx-2" />
                             <span className="font-mono text-xs">{parseAliasToReadable(filter.alias ?? '(Empty)')}</span>
                         </span>
@@ -77,7 +79,7 @@ export const parseAliasToReadable = (alias: string): JSX.Element[] => {
         if ((part.startsWith('<') && part.endsWith('>')) || part.startsWith(':')) {
             return (
                 <span key={index}>
-                    <span className="rounded bg-accent-primary-highlight px-1">{part}</span>
+                    <span className="rounded bg-accent-highlight-secondary px-1">{part}</span>
                     <span>{includeSlash ? '/' : ''}</span>
                 </span>
             )

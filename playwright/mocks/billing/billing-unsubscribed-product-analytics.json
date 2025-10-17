@@ -270,8 +270,16 @@
         {
             "key": "organizations_projects",
             "name": "Projects",
-            "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
             "unit": "project",
+            "limit": 1,
+            "note": null
+        },
+        {
+            "key": "environments",
+            "name": "Environments",
+            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
+            "unit": "environment",
             "limit": 1,
             "note": null
         },
@@ -551,6 +559,7 @@
             "percentage_usage": 3.5e-5,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": "event",
             "addons": [
                 {
@@ -881,6 +890,7 @@
             "percentage_usage": 0.0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": "recording",
             "addons": [],
             "contact_support": false,
@@ -1164,6 +1174,7 @@
             "percentage_usage": 0.0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": "request",
             "addons": [],
             "contact_support": false,
@@ -1416,6 +1427,7 @@
             "percentage_usage": 0.0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": "survey response",
             "addons": [],
             "contact_support": false,
@@ -1543,6 +1555,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": "row",
             "addons": [],
             "contact_support": false,
@@ -1692,6 +1705,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": null,
             "addons": [],
             "contact_support": false,
@@ -1745,8 +1759,16 @@
                         {
                             "key": "organizations_projects",
                             "name": "Projects",
-                            "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+                            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
                             "unit": "project",
+                            "limit": 1,
+                            "note": null
+                        },
+                        {
+                            "key": "environments",
+                            "name": "Environments",
+                            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
+                            "unit": "environment",
                             "limit": 1,
                             "note": null
                         },
@@ -1825,7 +1847,15 @@
                         {
                             "key": "organizations_projects",
                             "name": "Projects",
-                            "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+                            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "environments",
+                            "name": "Environments",
+                            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
                             "unit": null,
                             "limit": null,
                             "note": "Unlimited"
@@ -1921,6 +1951,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": null,
             "addons": [],
             "contact_support": true,

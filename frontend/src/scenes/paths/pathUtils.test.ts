@@ -1,6 +1,6 @@
 import { RGBColor } from 'd3'
 
-import { pageUrl, PathNodeData } from './pathUtils'
+import { PathNodeData, pageUrl } from './pathUtils'
 
 describe('pageUrl', () => {
     it('should correctly process PathNodeData with hash based URL', () => {

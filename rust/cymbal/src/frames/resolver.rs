@@ -6,14 +6,18 @@ use sqlx::PgPool;
 use crate::{
     config::Config,
     error::UnhandledError,
-    metric_consts::{FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES},
+    frames::FrameId,
+    metric_consts::{
+        FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
+        SUSPICIOUS_FRAMES_DETECTED,
+    },
     symbol_store::{saving::SymbolSetRecord, Catalog},
 };
 
-use super::{records::ErrorTrackingStackFrame, Frame, RawFrame};
+use super::{records::ErrorTrackingStackFrame, releases::ReleaseRecord, Frame, RawFrame};
 
 pub struct Resolver {
-    cache: Cache<String, ErrorTrackingStackFrame>,
+    cache: Cache<FrameId, ErrorTrackingStackFrame>,
     result_ttl: chrono::Duration,
 }
 
@@ -35,16 +39,19 @@ impl Resolver {
         pool: &PgPool,
         catalog: &Catalog,
     ) -> Result<Frame, UnhandledError> {
-        if let Some(result) = self.cache.get(&frame.frame_id()) {
+        if let Some(result) = self.cache.get(&frame.frame_id(team_id)) {
             metrics::counter!(FRAME_CACHE_HITS).increment(1);
             return Ok(result.contents);
         }
         metrics::counter!(FRAME_CACHE_MISSES).increment(1);
 
-        if let Some(result) =
-            ErrorTrackingStackFrame::load(pool, team_id, &frame.frame_id(), self.result_ttl).await?
+        if let Some(mut result) =
+            ErrorTrackingStackFrame::load(pool, &frame.frame_id(team_id), self.result_ttl).await?
         {
-            self.cache.insert(frame.frame_id(), result.clone());
+            // We don't serialise release information on the frame, so we have to reload it if we fetched
+            // the saved result from the DB
+            result.contents = add_release_info(pool, result.contents, frame, team_id).await?;
+            self.cache.insert(frame.frame_id(team_id), result.clone());
             metrics::counter!(FRAME_DB_HITS).increment(1);
             return Ok(result.contents);
         }
@@ -52,6 +59,7 @@ impl Resolver {
         metrics::counter!(FRAME_DB_MISSES).increment(1);
 
         let resolved = frame.resolve(team_id, catalog).await?;
+        let resolved = add_release_info(pool, resolved, frame, team_id).await?;
 
         let set = if let Some(set_ref) = frame.symbol_set_ref() {
             SymbolSetRecord::load(pool, team_id, &set_ref).await?
@@ -60,8 +68,7 @@ impl Resolver {
         };
 
         let record = ErrorTrackingStackFrame::new(
-            frame.frame_id(),
-            team_id,
+            frame.frame_id(team_id),
             set.map(|s| s.id),
             resolved.clone(),
             resolved.resolved,
@@ -70,9 +77,29 @@ impl Resolver {
 
         record.save(pool).await?;
 
-        self.cache.insert(frame.frame_id(), record);
+        if frame.is_suspicious() {
+            metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "raw").increment(1);
+        }
+
+        if resolved.suspicious {
+            metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "resolved").increment(1);
+        }
+
+        self.cache.insert(frame.frame_id(team_id), record);
         Ok(resolved)
     }
+}
+
+async fn add_release_info(
+    pool: &PgPool,
+    mut resolved: Frame,
+    raw: &RawFrame,
+    team_id: i32,
+) -> Result<Frame, UnhandledError> {
+    if let Some(set_ref) = raw.symbol_set_ref() {
+        resolved.release = ReleaseRecord::for_symbol_set(pool, set_ref, team_id).await?;
+    }
+    Ok(resolved)
 }
 
 #[cfg(test)]
@@ -91,6 +118,7 @@ mod test {
         frames::{records::ErrorTrackingStackFrame, resolver::Resolver, RawFrame},
         symbol_store::{
             chunk_id::ChunkIdFetcher,
+            hermesmap::HermesMapProvider,
             saving::{Saving, SymbolSetRecord},
             sourcemap::SourcemapProvider,
             Catalog, S3Client,
@@ -120,7 +148,7 @@ mod test {
 
         server.mock(|when, then| {
             // Our minified example source uses a relative URL, formatted like this
-            when.method("GET").path(format!("{}.map", CHUNK_PATH));
+            when.method("GET").path(format!("{CHUNK_PATH}.map"));
             then.status(200).body(MAP);
         });
 
@@ -130,24 +158,29 @@ mod test {
 
         let client = Arc::new(client);
 
-        let smp = SourcemapProvider::new(&config);
+        let chunk_id_smp = ChunkIdFetcher::new(
+            SourcemapProvider::new(&config),
+            client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
         let saving_smp = Saving::new(
-            smp,
+            chunk_id_smp,
             pool.clone(),
             client.clone(),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
 
-        let chunk_id_smp = SourcemapProvider::new(&config);
-        let chunk_id_smp = ChunkIdFetcher::new(
-            chunk_id_smp,
-            client,
-            pool,
+        let hmp = ChunkIdFetcher::new(
+            HermesMapProvider {},
+            client.clone(),
+            pool.clone(),
             config.object_storage_bucket.clone(),
         );
 
-        let catalog = Catalog::new(saving_smp, chunk_id_smp);
+        let catalog = Catalog::new(saving_smp, hmp);
 
         (config, catalog, server)
     }
@@ -258,12 +291,11 @@ mod test {
             .unwrap();
 
         // get the frame
-        let frame_id = frame.frame_id();
-        let frame =
-            ErrorTrackingStackFrame::load(&pool, 0, &frame_id, chrono::Duration::minutes(30))
-                .await
-                .unwrap()
-                .unwrap();
+        let frame_id = frame.frame_id(0);
+        let frame = ErrorTrackingStackFrame::load(&pool, &frame_id, chrono::Duration::minutes(30))
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(frame.symbol_set_id.unwrap(), set.id);
 

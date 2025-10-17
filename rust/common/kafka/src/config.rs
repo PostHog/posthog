@@ -37,6 +37,11 @@ pub struct ConsumerConfig {
     // as their offsets should be committed via the transactional producer. All consumers
     // disable auto offset /storing/.
     pub kafka_consumer_auto_commit: bool,
+
+    // expose override config for interval (in milliseconds) between
+    // Kafka offset commit attempts
+    #[envconfig(default = "5000")]
+    pub kafka_consumer_auto_commit_interval_ms: i32,
 }
 
 impl ConsumerConfig {

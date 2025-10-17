@@ -1,10 +1,12 @@
 import { expectLogic, partial } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { performQuery } from '~/queries/query'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
 jest.mock('~/queries/query')
@@ -17,7 +19,7 @@ function getDataTableQuery(extras?: {
     allowSorting?: boolean
     showOpenEditorButton?: boolean
 }): DataTableNode {
-    return {
+    return setLatestVersionsOnQuery({
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.EventsQuery,
@@ -26,7 +28,7 @@ function getDataTableQuery(extras?: {
         },
         ...(extras?.allowSorting !== undefined ? { allowSorting: extras.allowSorting } : {}),
         ...(extras?.showOpenEditorButton !== undefined ? { showOpenEditorButton: extras.showOpenEditorButton } : {}),
-    }
+    })
 }
 
 describe('dataTableLogic', () => {
@@ -61,9 +63,9 @@ describe('dataTableLogic', () => {
         })
 
         expect(performQuery).toHaveBeenCalledWith(
-            dataTableQuery.source,
-            expect.anything(),
-            false,
+            setLatestVersionsOnQuery({ kind: 'EventsQuery', select: ['*', 'event', 'timestamp'] }),
+            { signal: expect.any(Object) },
+            'blocking',
             expect.any(String),
             expect.any(Function),
             undefined,

@@ -1,20 +1,22 @@
 import './NotebookPanel.scss'
 
+import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
 import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
-import { NotebookTarget } from '~/types'
 
 import { Notebook } from '../Notebook/Notebook'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
-import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
+import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookMenu } from '../NotebookMenu'
+import { NotebookTarget } from '../types'
 import { NotebookPanelDropzone } from './NotebookPanelDropzone'
 import { notebookPanelLogic } from './notebookPanelLogic'
 
@@ -53,12 +55,13 @@ export function NotebookPanel(): JSX.Element | null {
                             to={urls.notebook(selectedNotebook)}
                             onClick={() => closeSidePanel()}
                             icon={<IconExternal />}
+                            targetBlank
                             tooltip="Open as main focus"
-                            tooltipPlacement="bottom"
+                            tooltipPlacement="bottom-end"
                         />
                     </SidePanelPaneHeader>
 
-                    <div className="flex flex-col flex-1 overflow-y-auto px-4 py-2">
+                    <div className="flex flex-col flex-1 overflow-y-auto p-3 bg-[var(--color-bg-surface-primary)]">
                         <Notebook
                             key={selectedNotebook}
                             shortId={selectedNotebook}

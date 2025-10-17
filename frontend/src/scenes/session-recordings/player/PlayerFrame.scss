@@ -8,7 +8,7 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
-    background-color: var(--bg-3000-dark);
+    background-color: var(--color-bg-3000-dark);
 
     .PlayerFrame__content--masking-window .replayer-wrapper::before {
         position: absolute;
@@ -43,7 +43,9 @@
             background-position: center center;
             background-size: contain;
             border-color: transparent; /* otherwise we transition from black when .touch-device class is added */
-            transition: left 0.05s linear, top 0.05s linear;
+            transition:
+                left 0.05s linear,
+                top 0.05s linear;
         }
 
         .replayer-mouse::after {
@@ -71,12 +73,18 @@
             border-style: solid;
             border-width: 4px;
             border-radius: 100%;
-            transition: left 0s linear, top 0s linear, border-color 0.2s ease-in-out;
+            transition:
+                left 0s linear,
+                top 0s linear,
+                border-color 0.2s ease-in-out;
         }
 
         .replayer-mouse.touch-device.touch-active {
             border-color: rgb(73 80 246 / 100%);
-            transition: left 0.25s linear, top 0.25s linear, border-color 0.2s ease-in-out;
+            transition:
+                left 0.25s linear,
+                top 0.25s linear,
+                border-color 0.2s ease-in-out;
         }
 
         .replayer-mouse.touch-device::after {

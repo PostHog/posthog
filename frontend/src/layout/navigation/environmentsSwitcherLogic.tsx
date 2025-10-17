@@ -1,5 +1,6 @@
 import FuseClass from 'fuse.js'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -22,9 +23,9 @@ export interface TeamBasicTypeWithProjectName extends TeamBasicType {
 
 export const environmentSwitcherLogic = kea<environmentSwitcherLogicType>([
     path(['layout', 'navigation', 'environmentsSwitcherLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user'], teamLogic, ['currentTeam'], organizationLogic, ['currentOrganization']],
-    }),
+    })),
     actions({
         setEnvironmentSwitcherSearch: (input: string) => ({ input }),
     }),

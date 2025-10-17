@@ -1,11 +1,12 @@
 import random
 import string
 
+from posthog.test.base import BaseTest
+
 from dateutil import parser
 
 from posthog.models import Dashboard, DashboardTile, Insight, Tag
 from posthog.models.activity_logging.activity_log import Change, changes_between
-from posthog.test.base import BaseTest
 
 
 class TestChangesBetweenInsights(BaseTest):
@@ -28,7 +29,7 @@ class TestChangesBetweenInsights(BaseTest):
                         "insight": {"id": insight_after.id},
                     }
                 ],
-            )
+            ),
         ]
 
         assert actual == expected
@@ -46,7 +47,7 @@ class TestChangesBetweenInsights(BaseTest):
                 action="changed",
                 before="name",
                 after="new name",
-            )
+            ),
         ]
 
         self.assertCountEqual(actual, expected)
@@ -64,7 +65,7 @@ class TestChangesBetweenInsights(BaseTest):
                 action="changed",
                 before=["before", "tags"],
                 after=["after", "tags"],
-            )
+            ),
         ]
 
         self.assertCountEqual(actual, expected)
@@ -82,7 +83,7 @@ class TestChangesBetweenInsights(BaseTest):
                 action="changed",
                 before="starting",
                 after="after",
-            )
+            ),
         ]
 
         self.assertCountEqual(actual, expected)
@@ -100,7 +101,7 @@ class TestChangesBetweenInsights(BaseTest):
                 action="changed",
                 before="starting",
                 after="after",
-            )
+            ),
         ]
 
         self.assertCountEqual(actual, expected)

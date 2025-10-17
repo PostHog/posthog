@@ -1,15 +1,17 @@
-import { LemonButton, LemonSelect, lemonToast, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useCallback } from 'react'
+
+import { LemonButton, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { useCallback } from 'react'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
-import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
@@ -33,12 +35,14 @@ type NonEditableSchemaTypes = Extract<DatabaseSerializedFieldType, (typeof nonEd
 const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>, string> = {
     integer: 'Integer',
     float: 'Float',
+    decimal: 'Decimal',
     string: 'String',
     datetime: 'DateTime',
     date: 'Date',
     boolean: 'Boolean',
     array: 'Array',
     json: 'JSON',
+    unknown: 'Unknown',
 }
 const editSchemaOptionsAsArray = Object.keys(editSchemaOptions).map((n) => ({ value: n, label: editSchemaOptions[n] }))
 
@@ -46,11 +50,11 @@ const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditable
     return typeof schemaType === 'string' && nonEditableSchemaTypes.includes(schemaType as NonEditableSchemaTypes)
 }
 const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName: string }): JSX.Element => {
-    const { currentProjectId } = useValues(projectLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const { toggleEditJoinModal } = useActions(viewLinkLogic)
     const { joins, joinsLoading } = useValues(dataWarehouseJoinsLogic)
     const { loadJoins } = useActions(dataWarehouseJoinsLogic)
-    const { loadDatabase } = useActions(dataWarehouseSceneLogic)
+    const { loadDatabase } = useActions(dataWarehouseSettingsSceneLogic)
 
     const join = joins.find((n) => n.source_table_name === tableName && n.field_name === fieldName)
 
@@ -68,7 +72,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
                         fullWidth
                         onClick={() => {
                             void deleteWithUndo({
-                                endpoint: `projects/${currentProjectId}/warehouse_view_link`,
+                                endpoint: `environments/${currentTeamId}/warehouse_view_link`,
                                 object: {
                                     id: join.id,
                                     name: `${join.field_name} on ${join.source_table_name}`,
@@ -86,7 +90,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
                     </LemonButton>
                 </>
             ),
-        [joinsLoading, join]
+        [joinsLoading, join] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
     return <More overlay={overlay()} />
@@ -94,7 +98,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
 
 export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange }: DatabaseTableProps): JSX.Element {
     const dataSource = Object.values(tables.find(({ name }) => name === table)?.fields ?? {})
-    const { dataWarehouseTables, databaseLoading } = useValues(dataWarehouseSceneLogic)
+    const { dataWarehouseTables, databaseLoading } = useValues(dataWarehouseSettingsSceneLogic)
 
     return (
         <LemonTable

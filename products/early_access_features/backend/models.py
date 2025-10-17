@@ -1,8 +1,17 @@
+from typing import TYPE_CHECKING
+
 from django.db import models
-from posthog.models.utils import UUIDModel, sane_repr
+from django.db.models import QuerySet
+
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.utils import RootTeamMixin, UUIDTModel, sane_repr
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 
-class EarlyAccessFeature(UUIDModel):
+class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Meta:
         db_table = "posthog_earlyaccessfeature"
         managed = True
@@ -41,3 +50,22 @@ class EarlyAccessFeature(UUIDModel):
         return self.name
 
     __repr__ = sane_repr("id", "name", "team_id", "stage")
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["EarlyAccessFeature"]:
+        base_qs = cls.objects.filter(team=team)
+        return cls._filter_unfiled_queryset(base_qs, team, type="early_access_feature", ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._get_assigned_folder("Unfiled/Early Access Features"),
+            type="early_access_feature",  # sync with APIScopeObject in scopes.py
+            ref=str(self.id),
+            name=self.name or "Untitled",
+            href=f"/early_access_features/{self.id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": None,
+            },
+            should_delete=False,
+        )

@@ -6,13 +6,18 @@ module.exports = {
         tsconfigRootDir: __dirname,
         project: ['./tsconfig.eslint.json'],
     },
-    plugins: ['@typescript-eslint', 'simple-import-sort', 'no-only-tests'],
+    plugins: ['@typescript-eslint', 'no-only-tests'],
     extends: ['plugin:@typescript-eslint/recommended', 'plugin:eslint-comments/recommended', 'prettier'],
     ignorePatterns: ['bin', 'dist', 'node_modules', 'src/config/idl'],
     rules: {
+        'no-restricted-syntax': [
+            'error',
+            {
+                selector: 'CallExpression[callee.object.name="JSON"][callee.property.name="parse"]',
+                message: 'Use parseJSON from src/utils/json-parse instead of JSON.parse for better performance',
+            },
+        ],
         'no-only-tests/no-only-tests': 'error',
-        'simple-import-sort/imports': 'error',
-        'simple-import-sort/exports': 'error',
         'no-constant-binary-expression': 'error',
         'no-unused-vars': 'off',
         '@typescript-eslint/no-unused-vars': [
@@ -36,6 +41,34 @@ module.exports = {
         '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
         curly: 'error',
         'no-fallthrough': 'warn',
+        'no-restricted-globals': [
+            'error',
+            {
+                name: 'fetch',
+                message: 'Use the request util from ~/utils/request instead of the global fetch',
+            },
+        ],
+        'no-restricted-imports': [
+            'error',
+            {
+                paths: [
+                    {
+                        name: 'node-fetch',
+                        message: 'Use the request util from ~/utils/request instead of node-fetch',
+                    },
+                    {
+                        name: 'undici',
+                        message: 'Use the request util from ~/utils/request instead of undici',
+                    },
+                ],
+                patterns: [
+                    {
+                        group: ['fetch'],
+                        message: 'Use the request util from ~/utils/request instead of importing fetch directly',
+                    },
+                ],
+            },
+        ],
     },
     overrides: [
         {

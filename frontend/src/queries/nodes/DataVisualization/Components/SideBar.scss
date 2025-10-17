@@ -1,6 +1,16 @@
 .DataVisualization {
     .LemonTabs .LemonTabs__bar {
-        margin-bottom: 0;
+        margin-bottom: 1px;
+
+        /* Prevent vertical scrolling behavior on the tabs */
+        overflow-y: hidden;
+
+        /* Hide the scrollbar */
+        scrollbar-width: none;
+
+        &::-webkit-scrollbar {
+            display: none;
+        }
     }
 
     .SideBar {

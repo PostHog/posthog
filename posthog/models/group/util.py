@@ -1,10 +1,11 @@
-import datetime
 import json
+import datetime
 from typing import Optional, Union
-
 from zoneinfo import ZoneInfo
-from dateutil.parser import isoparse
+
 from django.utils.timezone import now
+
+from dateutil.parser import isoparse
 
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_GROUPS

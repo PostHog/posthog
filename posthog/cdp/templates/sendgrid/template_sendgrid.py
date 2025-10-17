@@ -1,11 +1,11 @@
 import dataclasses
 from copy import deepcopy
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 
 # Based off of https://www.twilio.com/docs/sendgrid/api-reference/contacts/add-or-update-a-contact
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -14,7 +14,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Update marketing contacts in Sendgrid",
     icon_url="/static/services/sendgrid.png",
     category=["Email Marketing"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     print('`email` input is empty. Not updating contacts.')
     return
@@ -118,6 +119,8 @@ class TemplateSendGridMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         sendgridApiKey = obj.config.get("sendgridApiKey", "")
         customFields = obj.config.get("customFields", "")

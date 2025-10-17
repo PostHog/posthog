@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { LemonLabel } from '@posthog/lemon-ui'
 import { LemonInput } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
@@ -10,34 +12,39 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { getHogQLValue } from 'scenes/insights/filters/AggregationSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { Query } from '~/queries/Query/Query'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { Query } from '~/queries/Query/Query'
 import { ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { BreakdownAttributionType, FilterType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import {
-    commonActionFilterProps,
     FunnelAggregationSelect,
     FunnelAttributionSelect,
     FunnelConversionWindowFilter,
+    commonActionFilterProps,
 } from './Selectors'
+
 export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { experiment, isExperimentRunning, editingPrimaryMetricIndex, editingSecondaryMetricIndex } =
+    const { experiment, isExperimentRunning, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
         useValues(experimentLogic)
     const { setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
     const metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
-    const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
+    const metricUuid = isSecondary ? editingSecondaryMetricUuid : editingPrimaryMetricUuid
 
-    if (!metricIdx && metricIdx !== 0) {
+    if (!metricUuid) {
         return <></>
     }
 
-    const currentMetric = metrics[metricIdx] as ExperimentFunnelsQuery
+    const currentMetric = metrics.find((m) => m.uuid === metricUuid) as ExperimentFunnelsQuery
+
+    if (!currentMetric) {
+        return <></>
+    }
 
     const actionFilterProps = {
         ...commonActionFilterProps,
@@ -51,8 +58,11 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                 <LemonInput
                     value={currentMetric.name}
                     onChange={(newName) => {
+                        if (!currentMetric.uuid) {
+                            return
+                        }
                         setFunnelsMetric({
-                            metricIdx,
+                            uuid: currentMetric.uuid,
                             name: newName,
                             isSecondary,
                         })
@@ -69,8 +79,11 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                         MathAvailability.None
                     )
 
+                    if (!currentMetric.uuid) {
+                        return
+                    }
                     setFunnelsMetric({
-                        metricIdx,
+                        uuid: currentMetric.uuid,
                         series,
                         isSecondary,
                     })
@@ -91,8 +104,11 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                         currentMetric.funnels_query.funnelsFilter?.funnelAggregateByHogQL ?? undefined
                     )}
                     onChange={(value) => {
+                        if (!currentMetric.uuid) {
+                            return
+                        }
                         setFunnelsMetric({
-                            metricIdx,
+                            uuid: currentMetric.uuid,
                             funnelAggregateByHogQL: value,
                             isSecondary,
                         })
@@ -102,15 +118,21 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                     funnelWindowInterval={currentMetric.funnels_query?.funnelsFilter?.funnelWindowInterval}
                     funnelWindowIntervalUnit={currentMetric.funnels_query?.funnelsFilter?.funnelWindowIntervalUnit}
                     onFunnelWindowIntervalChange={(funnelWindowInterval) => {
+                        if (!currentMetric.uuid) {
+                            return
+                        }
                         setFunnelsMetric({
-                            metricIdx,
+                            uuid: currentMetric.uuid,
                             funnelWindowInterval: funnelWindowInterval,
                             isSecondary,
                         })
                     }}
                     onFunnelWindowIntervalUnitChange={(funnelWindowIntervalUnit) => {
+                        if (!currentMetric.uuid) {
+                            return
+                        }
                         setFunnelsMetric({
-                            metricIdx,
+                            uuid: currentMetric.uuid,
                             funnelWindowIntervalUnit: funnelWindowIntervalUnit || undefined,
                             isSecondary,
                         })
@@ -127,15 +149,18 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                             !breakdownAttributionType
                                 ? BreakdownAttributionType.FirstTouch
                                 : breakdownAttributionType === BreakdownAttributionType.Step
-                                ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
-                                : breakdownAttributionType
+                                  ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
+                                  : breakdownAttributionType
 
                         return currentValue
                     })()}
                     onChange={(value) => {
+                        if (!currentMetric.uuid) {
+                            return
+                        }
                         const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
                         setFunnelsMetric({
-                            metricIdx,
+                            uuid: currentMetric.uuid,
                             breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
                             breakdownAttributionValue: breakdownAttributionValue
                                 ? parseInt(breakdownAttributionValue)
@@ -151,8 +176,11 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                         return hasFilters ? !!val : false
                     })()}
                     onChange={(checked: boolean) => {
+                        if (!currentMetric.uuid) {
+                            return
+                        }
                         setFunnelsMetric({
-                            metricIdx,
+                            uuid: currentMetric.uuid,
                             filterTestAccounts: checked,
                             isSecondary,
                         })

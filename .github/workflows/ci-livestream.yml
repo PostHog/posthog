@@ -1,0 +1,23 @@
+name: Livestream
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/ci-livestream.yml'
+            - 'livestream/**'
+
+jobs:
+    test:
+        runs-on: ubuntu-24.04
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: 1.24
+
+            - name: Run tests
+              run: cd livestream && go test -v

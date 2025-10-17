@@ -1,5 +1,7 @@
-import { IconHome, IconPerson } from '@posthog/icons'
 import clsx from 'clsx'
+
+import { IconHome, IconPerson } from '@posthog/icons'
+
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -11,7 +13,6 @@ export function SceneIcon(props: { scene: DashboardCompatibleScenes; size: 'smal
         return <IconPerson className={className} />
     } else if (props.scene === Scene.Person) {
         return <IconPerson className={className} />
-    } else {
-        return null
     }
+    return null
 }

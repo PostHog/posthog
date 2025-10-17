@@ -3,27 +3,7 @@
     "short_id": "xEAIVJnK",
     "name": "",
     "derived_name": "Pageview count by event's Library Version",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0
-            }
-        ],
-        "actions": [],
-        "display": "ActionsBar",
-        "insight": "TRENDS",
-        "interval": "day",
-        "breakdown": "$lib_version",
-        "properties": {
-            "type": "AND",
-            "values": []
-        },
-        "breakdown_type": "event",
-        "filter_test_accounts": false
-    },
+    "filters": {},
     "filters_hash": "cache_466eac6a58dafab5e8f79f7f5f0aad7b",
     "order": null,
     "deleted": false,
@@ -527,6 +507,38 @@
         "email": "marius@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "breakdownFilter": {
+                "breakdown": "$lib_version",
+                "breakdown_type": "event"
+            },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview"
+                }
+            ],
+            "trendsFilter": {
+                "display": "ActionsBar",
+                "resultCustomizationBy": "value"
+            },
+            "version": 2
+        },
+        "full": true
+    }
 }

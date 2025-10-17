@@ -1,12 +1,7 @@
 import json
 from datetime import timedelta
 
-from django.test import override_settings
 from freezegun import freeze_time
-from parameterized import parameterized
-from rest_framework import status
-
-from posthog.models import Element, ElementGroup, Organization
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -15,6 +10,13 @@ from posthog.test.base import (
     _create_person,
     snapshot_postgres_queries,
 )
+
+from django.test import override_settings
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.models import Element, ElementGroup, Organization
 
 expected_autocapture_data_response_results: list[dict] = [
     {
@@ -176,14 +178,6 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
         self.assertEqual(len(response["results"]), 1)
-
-    def test_element_stats_without_pagination(self) -> None:
-        """Can be removed once we can default to returning paginated responses"""
-        self._setup_events()
-
-        response = self.client.get("/api/element/stats").json()
-        # not nested into a results property
-        assert response == expected_autocapture_data_response_results + expected_rage_click_data_response_results
 
     def test_element_stats_clamps_date_from_to_start_of_day(self) -> None:
         event_start = "2012-01-14T03:21:34.000Z"

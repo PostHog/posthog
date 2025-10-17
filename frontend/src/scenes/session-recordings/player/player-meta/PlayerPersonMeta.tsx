@@ -1,6 +1,7 @@
 import './PlayerMeta.scss'
 
 import { useActions, useValues } from 'kea'
+
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { PersonIcon } from 'scenes/persons/PersonDisplay'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
@@ -17,9 +18,10 @@ export function PlayerPersonMeta(): JSX.Element {
 
     const { setTab } = useActions(playerSidebarLogic)
     const { setSidebarOpen } = useActions(playerSettingsLogic)
+    const { sidebarOpen } = useValues(playerSettingsLogic)
 
     const onClick = (): void => {
-        setSidebarOpen(true)
+        setSidebarOpen(!sidebarOpen)
         setTab(SessionRecordingSidebarTab.OVERVIEW)
     }
 

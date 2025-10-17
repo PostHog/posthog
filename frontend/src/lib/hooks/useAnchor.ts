@@ -11,7 +11,7 @@ export function useAnchor(hash: string): void {
                 if (!element) {
                     return
                 }
-                element.classList.add('highlighted')
+                element.classList.add('animate-mark')
                 element.scrollIntoView()
             }, 1000 / 60)
         }

@@ -1,12 +1,3 @@
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { Link } from 'lib/lemon-ui/Link'
-import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
-import { urls } from 'scenes/urls'
-
-import { SDKInstructionsMap, SDKKey } from '~/types'
-
 import {
     AndroidInstructions,
     AngularInstructions,
@@ -15,17 +6,25 @@ import {
     FlutterInstructions,
     FramerInstructions,
     HTMLSnippetInstructions,
-    iOSInstructions,
     JSWebInstructions,
     NextJSInstructions,
     NuxtJSInstructions,
+    RNInstructions,
     ReactInstructions,
     RemixInstructions,
-    RNInstructions,
     SvelteInstructions,
     VueInstructions,
     WebflowInstructions,
+    iOSInstructions,
 } from '.'
+
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
+
+import { OnboardingStepKey, SDKInstructionsMap, SDKKey } from '~/types'
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
@@ -78,7 +77,7 @@ export function AdvertiseMobileReplay({
                     Session Replay for {platform} <LemonTag type="highlight">NEW</LemonTag>
                 </h3>
                 <div>
-                    Session replay is now in beta for {platform}.{' '}
+                    Session replay is now in general availability for {platform}.{' '}
                     <Link
                         to={urls.onboarding('session_replay', OnboardingStepKey.INSTALL, sdkKey)}
                         data-attr={`${context}-${platform.toLowerCase()}-replay-cta`}

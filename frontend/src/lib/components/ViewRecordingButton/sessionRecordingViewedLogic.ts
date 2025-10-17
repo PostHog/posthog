@@ -1,5 +1,6 @@
 import { connect, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -18,9 +19,9 @@ export const sessionRecordingViewedLogic = kea<sessionRecordingViewedLogicType>(
     path(['lib', 'components', 'ViewRecordingButton', 'sessionRecordingViewedLogic']),
     key((props: Record<string, unknown>) => props.sessionRecordingId as string),
     props({} as unknown as SessionRecordingViewedProps),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-    }),
+    })),
     loaders(({ props, values }) => ({
         recordingViewed: {
             loadRecordingViewed: async () => {

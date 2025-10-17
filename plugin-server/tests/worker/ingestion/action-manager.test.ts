@@ -11,7 +11,7 @@ describe('ActionManager', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        actionManager = new ActionManager(hub.postgres, hub)
+        actionManager = new ActionManager(hub.postgres, hub.pubSub)
         await actionManager.start()
     })
 
@@ -132,7 +132,7 @@ describe('ActionManager', () => {
         jest.spyOn(hub.db, 'fetchAllActionsGroupedByTeam')
         jest.spyOn(hub.db, 'fetchAction')
 
-        const manager = new ActionManager(hub.postgres, hub)
+        const manager = new ActionManager(hub.postgres, hub.pubSub)
 
         await manager.start()
         await manager.reloadAllActions()

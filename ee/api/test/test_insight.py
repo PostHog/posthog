@@ -1,23 +1,20 @@
-import json
 from datetime import timedelta
-from typing import cast, Optional
+from typing import Optional, cast
+
+from freezegun import freeze_time
+from posthog.test.base import FuzzyInt, snapshot_postgres_queries
+
 from django.test import override_settings
 from django.utils import timezone
-from freezegun import freeze_time
+
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
-from ee.models import ExplicitTeamMembership, DashboardPrivilege
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Insight,
-    OrganizationMembership,
-    User,
-)
-from posthog.test.base import FuzzyInt, snapshot_postgres_queries
+from posthog.models import Dashboard, DashboardTile, Insight, OrganizationMembership, User
 from posthog.test.db_context_capturing import capture_db_queries
+
+from ee.api.test.base import APILicensedTest
+from ee.models import DashboardPrivilege
 
 
 class TestInsightEnterpriseAPI(APILicensedTest):
@@ -25,44 +22,35 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
-    def test_insight_trends_forbidden_if_project_private_and_org_member(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-        )
-        self.assertDictEqual(
-            self.permission_denied_response("You don't have access to the project."),
-            response.json(),
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    @freeze_time("2012-01-14T03:21:34.000Z")
+    @override_settings(IN_UNIT_TESTING=True)
     def test_can_add_and_remove_tags(self) -> None:
-        insight_id, response_data = self.dashboard_api.create_insight(
-            {
-                "name": "a created dashboard",
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
-                },
-            }
-        )
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            insight_id, response_data = self.dashboard_api.create_insight(
+                {
+                    "name": "a created dashboard",
+                    "filters": {
+                        "events": [{"id": "$pageview"}],
+                        "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                        "date_from": "-90d",
+                    },
+                }
+            )
         insight_short_id = response_data["short_id"]
         self.assertEqual(response_data["tags"], [])
 
-        add_tags_response = self.client.patch(
-            # tags are displayed in order of insertion
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"tags": ["2", "1", "3"]},
-        )
+        with freeze_time("2012-01-14T03:21:35.000Z"):
+            add_tags_response = self.client.patch(
+                # tags are displayed in order of insertion
+                f"/api/projects/{self.team.id}/insights/{insight_id}",
+                {"tags": ["2", "1", "3"]},
+            )
 
         self.assertEqual(sorted(add_tags_response.json()["tags"]), ["1", "2", "3"])
 
-        remove_tags_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"tags": ["3"]})
+        with freeze_time("2012-01-14T03:21:36.000Z"):
+            remove_tags_response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}", {"tags": ["3"]}
+            )
 
         self.assertEqual(remove_tags_response.json()["tags"], ["3"])
 
@@ -70,62 +58,62 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             insight_id=insight_id,
             expected=[
                 {
-                    "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "created",
-                    "scope": "Insight",
+                    "activity": "updated",
+                    "created_at": "2012-01-14T03:21:36Z",
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "changed",
+                                "after": ["3"],
+                                "before": ["1", "2", "3"],
+                                "field": "tags",
+                                "type": "Insight",
+                            }
+                        ],
+                        "name": "a created dashboard",
+                        "short_id": insight_short_id,
+                        "trigger": None,
+                        "type": None,
+                    },
                     "item_id": str(insight_id),
+                    "scope": "Insight",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                },
+                {
+                    "activity": "updated",
+                    "created_at": "2012-01-14T03:21:35Z",
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "changed",
+                                "after": ["1", "2", "3"],
+                                "before": [],
+                                "field": "tags",
+                                "type": "Insight",
+                            }
+                        ],
+                        "name": "a created dashboard",
+                        "short_id": insight_short_id,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(insight_id),
+                    "scope": "Insight",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                },
+                {
+                    "activity": "created",
+                    "created_at": "2012-01-14T03:21:34Z",
                     "detail": {
                         "changes": None,
-                        "trigger": None,
-                        "type": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
+                        "trigger": None,
+                        "type": None,
                     },
-                    "created_at": "2012-01-14T03:21:34Z",
-                },
-                {
-                    "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "updated",
-                    "scope": "Insight",
                     "item_id": str(insight_id),
-                    "detail": {
-                        "changes": [
-                            {
-                                "type": "Insight",
-                                "action": "changed",
-                                "field": "tags",
-                                "before": [],
-                                "after": ["1", "2", "3"],
-                            }
-                        ],
-                        "trigger": None,
-                        "type": None,
-                        "name": "a created dashboard",
-                        "short_id": insight_short_id,
-                    },
-                    "created_at": "2012-01-14T03:21:34Z",
-                },
-                {
-                    "user": {"first_name": "", "email": "user1@posthog.com"},
-                    "activity": "updated",
                     "scope": "Insight",
-                    "item_id": str(insight_id),
-                    "detail": {
-                        "changes": [
-                            {
-                                "type": "Insight",
-                                "action": "changed",
-                                "field": "tags",
-                                "before": ["1", "2", "3"],
-                                "after": ["3"],
-                            }
-                        ],
-                        "trigger": None,
-                        "type": None,
-                        "name": "a created dashboard",
-                        "short_id": insight_short_id,
-                    },
-                    "created_at": "2012-01-14T03:21:34Z",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
                 },
             ],
         )
@@ -268,23 +256,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             response_data["effective_privilege_level"],
             Dashboard.PrivilegeLevel.CAN_EDIT,
         )
-
-    def test_insight_trends_allowed_if_project_private_and_org_member_and_project_member(
-        self,
-    ) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.team.access_control = True
-        self.team.save()
-        ExplicitTeamMembership.objects.create(
-            team=self.team,
-            parent_membership=self.organization_membership,
-            level=ExplicitTeamMembership.Level.MEMBER,
-        )
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_cannot_update_restricted_insight_as_other_user_who_is_project_member(self):
         creator = User.objects.create_and_join(self.organization, "y@x.com", None)

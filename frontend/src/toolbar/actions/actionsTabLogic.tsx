@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
@@ -11,10 +12,10 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionDraftType, ActionForm } from '~/toolbar/types'
 import { actionStepToActionStepFormItem, elementToActionStep, stepToDatabaseFormat } from '~/toolbar/utils'
-import { ActionType, ElementType } from '~/types'
+import { AccessControlLevel, ActionType, ElementType } from '~/types'
 
-import type { actionsTabLogicType } from './actionsTabLogicType'
 import { ActionStepPropertyKey } from './ActionStep'
+import type { actionsTabLogicType } from './actionsTabLogicType'
 
 function newAction(
     element: HTMLElement | null,
@@ -34,6 +35,7 @@ function newAction(
                 : {},
         ],
         pinned_at: null,
+        user_access_level: AccessControlLevel.Editor,
     }
 }
 
@@ -49,18 +51,23 @@ function toElementsChain(element: HTMLElement): ElementType[] {
             ({
                 attr_class: element.getAttribute('class')?.split(' '),
                 attr_id: element.getAttribute('id') || undefined,
-                attributes: Array.from(element.attributes).reduce((acc, attr) => {
-                    if (!acc[attr.name]) {
-                        acc[attr.name] = attr.value
-                    } else {
-                        acc[attr.name] += ` ${attr.value}`
-                    }
-                    return acc
-                }, {} as Record<string, string>),
+
+                attributes: Array.from(element.attributes).reduce(
+                    (acc, attr) => {
+                        if (!acc[attr.name]) {
+                            acc[attr.name] = attr.value
+                        } else {
+                            acc[attr.name] += ` ${attr.value}`
+                        }
+                        return acc
+                    },
+                    {} as Record<string, string>
+                ),
+
                 href: element.getAttribute('href') || undefined,
                 tag_name: element.tagName.toLowerCase(),
                 text: index === 0 ? element.innerText : undefined,
-            } as ElementType)
+            }) as ElementType
     )
 }
 
@@ -76,7 +83,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
         inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
         incrementCounter: true,
         saveAction: (formValues: ActionForm) => ({ formValues }),
-        deleteAction: true,
         showButtonActions: true,
         hideButtonActions: true,
         setShowActionsTooltip: (showActionsTooltip: boolean) => ({ showActionsTooltip }),
@@ -366,17 +372,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
 
                 actions.setActionFormValue('steps', newSteps)
                 actions.incrementCounter()
-            }
-        },
-        deleteAction: async () => {
-            const { selectedActionId, apiURL, temporaryToken } = values
-            if (selectedActionId && selectedActionId !== 'new') {
-                await api.delete(
-                    `${apiURL}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`
-                )
-                actionsLogic.actions.deleteAction({ id: selectedActionId })
-                actions.selectAction(null)
-                lemonToast.info('Action deleted')
             }
         },
         showButtonActions: () => {

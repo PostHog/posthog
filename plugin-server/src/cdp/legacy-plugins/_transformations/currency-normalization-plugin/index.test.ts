@@ -12,7 +12,7 @@ const createEvent = (event: Partial<PluginEvent>): PluginEvent =>
             ...event.properties,
         },
         ...event,
-    } as unknown as PluginEvent)
+    }) as unknown as PluginEvent
 
 describe('currency normalization plugin', () => {
     const meta: LegacyTransformationPluginMeta = {} as any

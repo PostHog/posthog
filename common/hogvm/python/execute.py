@@ -1,31 +1,32 @@
-from datetime import timedelta
 import re
 import time
-from copy import deepcopy
-from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
+from copy import deepcopy
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Optional
 
-from common.hogvm.python.debugger import debugger, color_bytecode
+from common.hogvm.python.debugger import color_bytecode, debugger
 from common.hogvm.python.objects import (
-    is_hog_error,
-    new_hog_closure,
     CallFrame,
     ThrowFrame,
-    new_hog_callable,
+    is_hog_error,
     is_hog_upvalue,
+    new_hog_callable,
+    new_hog_closure,
 )
-from common.hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0
+from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0, Operation
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
-from dataclasses import dataclass
-
 from common.hogvm.python.utils import (
-    UncaughtHogVMException,
     HogVMException,
+    HogVMMemoryExceededException,
+    HogVMRuntimeExceededException,
+    UncaughtHogVMException,
+    calculate_cost,
     get_nested_value,
     like,
     set_nested_value,
-    calculate_cost,
     unify_comparison_types,
 )
 
@@ -163,11 +164,11 @@ def execute_bytecode(
         nonlocal max_mem_used
         max_mem_used = max(mem_used, max_mem_used)
         if mem_used > MAX_MEMORY:
-            raise HogVMException(f"Memory limit of {MAX_MEMORY} bytes exceeded. Tried to allocate {mem_used} bytes.")
+            raise HogVMMemoryExceededException(memory_limit=MAX_MEMORY, attempted_memory=mem_used)
 
     def check_timeout():
         if time.time() - start_time > timeout.total_seconds() and not debug:
-            raise HogVMException(f"Execution timed out after {timeout.total_seconds()} seconds. Performed {ops} ops.")
+            raise HogVMRuntimeExceededException(timeout_seconds=timeout.total_seconds(), ops_performed=ops)
 
     def capture_upvalue(index) -> dict:
         nonlocal upvalues
@@ -674,3 +675,44 @@ def execute_bytecode(
         frame.ip += 1
 
     return BytecodeResult(result=pop_stack() if len(stack) > 0 else None, stdout=stdout, bytecodes=bytecodes)
+
+
+def validate_bytecode(bytecode: list[Any] | dict, inputs: Optional[dict] = None) -> tuple[bool, Optional[str]]:
+    try:
+        event = {
+            "uuid": "test-event-id",
+            "event": "test-event",
+            "distinct_id": "test-distinct-id",
+            "properties": {},
+            "timestamp": "2024-01-01T00:00:00Z",
+        }
+        test_globals = {
+            "event": event,
+            "person": {"properties": {}},
+            "inputs": inputs or {},
+        }
+
+        execute_bytecode(
+            bytecode,
+            globals=test_globals,
+            timeout=timedelta(milliseconds=100),  # Short timeout for validation
+            functions={
+                "print": lambda *args: None,  # No-op print function
+                "fetch": lambda *args: {"status": 200, "body": {}},  # Mock fetch
+            },
+        )
+        return True, None
+
+    except HogVMRuntimeExceededException as e:
+        return (
+            False,
+            f"Your function is taking too long to run (over {e.timeout_seconds} seconds). Please simplify your code.",
+        )
+    except HogVMMemoryExceededException as e:
+        memory_mb = e.memory_limit / (1024 * 1024)
+        attempted_mb = e.attempted_memory / (1024 * 1024)
+        return False, f"Your function needs too much memory ({attempted_mb:.1f}MB). The limit is {memory_mb:.1f}MB."
+    except HogVMException as e:
+        return False, f"Function execution error: {str(e)}"
+    except Exception as e:
+        return False, f"Unexpected error during function validation: {str(e)}"

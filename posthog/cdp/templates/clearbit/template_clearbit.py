@@ -1,9 +1,8 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
-
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 # See https://dashboard.clearbit.com/docs#enrichment-api-combined-api
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -12,7 +11,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Loads data from the Clearbit API and tracks an additional event with the enriched data if found. Once enriched, the person will not be enriched again.",
     icon_url="/static/services/clearbit.png",
     category=["Analytics"],
-    hog="""
+    code_language="hog",
+    code="""
 let api_key := inputs.api_key
 let email := inputs.email
 

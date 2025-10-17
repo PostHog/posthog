@@ -1,0 +1,215 @@
+{
+    "uuid": "01960350-1fe5-768a-a37c-0ee9ef768369",
+    "event": "$exception",
+    "properties": {
+        "$exception_list": [
+            {
+                "id": "01960fdf-60c7-7243-9b38-eaaa67ba7c2f",
+                "type": "Exception",
+                "value": "('Billing service returned bad status code: 500', 'body:', {'type': 'server_error', 'code': 'error', 'detail': 'Error fetching billing information', 'attr': None})",
+                "mechanism": {
+                    "handled": true,
+                    "type": "generic"
+                },
+                "stacktrace": {
+                    "type": "resolved",
+                    "frames": [
+                        {
+                            "raw_id": "7db9fd803145accca6d87c1c7bcb641c2631c49222793c3ff4631a5c221768085531cebb3f4c2015c67ea83c5e4c1af67b78b75199963847c3f1be3f405f4983",
+                            "mangled_name": "inner",
+                            "line": 42,
+                            "source": "django/core/handlers/exception.py",
+                            "in_app": false,
+                            "resolved_name": "inner",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "924ee8bdbe5ad13adf0a94c7da04592b26320a6f381c4370d320b6e23b0e09b638a35549a7e387e0e9b45e9288440f6a956dceb10513e3c1c218aeef0d85ed39",
+                            "mangled_name": "_get_response_async",
+                            "line": 253,
+                            "source": "django/core/handlers/base.py",
+                            "in_app": false,
+                            "resolved_name": "_get_response_async",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "ab2f2b30df794d6640b0a9a2a2ec1218ce1ea5ae7d6ee33fffc44b733fe703cf082f3cae127285eb689930c00d6b47781303f04d6c93dc772132075cbb1ff93b",
+                            "mangled_name": "wrapper_view",
+                            "line": 56,
+                            "source": "django/views/decorators/csrf.py",
+                            "in_app": false,
+                            "resolved_name": "wrapper_view",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "1b98fcd66965bea438ca342d499d73f88bf8639d8bad84941b2ceb206439a57efd174fae255bfdda411c3a37cc376362b0d04ed3f469e39aada9c4eae3a04c8f",
+                            "mangled_name": "view",
+                            "line": 124,
+                            "source": "rest_framework/viewsets.py",
+                            "in_app": false,
+                            "resolved_name": "view",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "16645e5fc28a5c45fcaeeb28145596d203e5d27aadc92a476c265a1624104d323ea7daf3be9684cbf4a5810ba89738941c25a31e28899a6442db6f9b34422883",
+                            "mangled_name": "dispatch",
+                            "line": 509,
+                            "source": "rest_framework/views.py",
+                            "in_app": false,
+                            "resolved_name": "dispatch",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "1f50d169f6a166f405b4abf227974363797b80a5c894c30a798fd04e3e77dc001726d2dbdc845a4af5ac90e22504748c1f49c6af83077c59c474adf43331e074",
+                            "mangled_name": "handle_exception",
+                            "line": 469,
+                            "source": "rest_framework/views.py",
+                            "in_app": false,
+                            "resolved_name": "handle_exception",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "9af4edb9e06a82b1a58cfe77963ff503384d0e71d39a38775828c37abe13ada22524263faa7fbb3ddb3b997a9839ae1fd342eb5d8860c928eb87e68d151d7c3b",
+                            "mangled_name": "raise_uncaught_exception",
+                            "line": 480,
+                            "source": "rest_framework/views.py",
+                            "in_app": false,
+                            "resolved_name": "raise_uncaught_exception",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "29a0a52666987b231bd0f4ce639dff1087931e1670c98a17add4e5e9467a69e77571a159c978e7437478fe2074c5c6405be0efedb0bda3ac879ae003315a9868",
+                            "mangled_name": "dispatch",
+                            "line": 506,
+                            "source": "rest_framework/views.py",
+                            "in_app": false,
+                            "resolved_name": "dispatch",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "ca202390523bfa9504fa093d1a4f155d3bf611363b86d2c27e9a52c8abb6f098516cabd2309dcff6460ddf92c950516ceffb6580356e01a019874a1b7d7688ee",
+                            "mangled_name": "list",
+                            "line": 67,
+                            "source": "ee/api/billing.py",
+                            "in_app": true,
+                            "resolved_name": "list",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "2644c1b555c7e275a4151b5323a614ce6e21f947ed4b6601a8c583bb42cbc0847152214a3a8f5d24dbf15e7ae33d4d31f47cd41c0fee429144fb3dd1cb422efe",
+                            "mangled_name": "get_billing",
+                            "line": 83,
+                            "source": "ee/billing/billing_manager.py",
+                            "in_app": true,
+                            "resolved_name": "get_billing",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "fc062c291c09f04c86dfa0884484e8d94889fdc949de9cce75f669a21c78238df3e89e14d755d5a35785439416ac53c38eb26e4d01bfd7856e6f24ff98bf9962",
+                            "mangled_name": "_get_billing",
+                            "line": 259,
+                            "source": "ee/billing/billing_manager.py",
+                            "in_app": true,
+                            "resolved_name": "_get_billing",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "65196657efee087fc7fca1e0a07d8f62f64604442285eb4b500140cd900b5a3f2ea5eb16b5a34c6d8590cd2e36a4abc6d2455c51233c632dc800da5e1d045686",
+                            "mangled_name": "handle_billing_service_error",
+                            "line": 64,
+                            "source": "ee/billing/billing_manager.py",
+                            "in_app": true,
+                            "resolved_name": "handle_billing_service_error",
+                            "lang": "python",
+                            "resolved": true
+                        }
+                    ]
+                }
+            }
+        ],
+        "$exception_fingerprint": "0ebf1e63ffd1ee2bf0e7839ba208627f17b1c6effaf7cb13e24168eb78d746062b4a71db6b893b4f82fbc32e61ff163cfde49e7b251d00da59aa6c540cf6f640",
+        "$exception_proposed_fingerprint": "0ebf1e63ffd1ee2bf0e7839ba208627f17b1c6effaf7cb13e24168eb78d746062b4a71db6b893b4f82fbc32e61ff163cfde49e7b251d00da59aa6c540cf6f640",
+        "$exception_fingerprint_record": [
+            {
+                "type": "exception",
+                "id": "01960fdf-60c7-7243-9b38-eaaa67ba7c2f",
+                "pieces": ["Exception Type"]
+            },
+            {
+                "type": "frame",
+                "raw_id": "ca202390523bfa9504fa093d1a4f155d3bf611363b86d2c27e9a52c8abb6f098516cabd2309dcff6460ddf92c950516ceffb6580356e01a019874a1b7d7688ee",
+                "pieces": ["Resolved function name", "Source file name"]
+            },
+            {
+                "type": "frame",
+                "raw_id": "2644c1b555c7e275a4151b5323a614ce6e21f947ed4b6601a8c583bb42cbc0847152214a3a8f5d24dbf15e7ae33d4d31f47cd41c0fee429144fb3dd1cb422efe",
+                "pieces": ["Resolved function name", "Source file name"]
+            },
+            {
+                "type": "frame",
+                "raw_id": "fc062c291c09f04c86dfa0884484e8d94889fdc949de9cce75f669a21c78238df3e89e14d755d5a35785439416ac53c38eb26e4d01bfd7856e6f24ff98bf9962",
+                "pieces": ["Resolved function name", "Source file name"]
+            },
+            {
+                "type": "frame",
+                "raw_id": "65196657efee087fc7fca1e0a07d8f62f64604442285eb4b500140cd900b5a3f2ea5eb16b5a34c6d8590cd2e36a4abc6d2455c51233c632dc800da5e1d045686",
+                "pieces": ["Resolved function name", "Source file name"]
+            }
+        ],
+        "$exception_issue_id": "2845fb04-dbc7-4945-bb58-48d6f77d2015",
+        "$exception_personURL": "http://localhost:8010/project/phc_ngf62dtzXeNsSZNWJ8eB5Je1l7FQoSybCZHEOggcXv7/person/b071a20d-361d-4378-af15-fddf17badd18",
+        "$geoip_disable": true,
+        "$python_version": "3.12.11",
+        "$os": "Mac OS X",
+        "$lib_version": "3.21.0",
+        "$exception_type": "Exception",
+        "$os_version": "15.3.2",
+        "$exception_message": "('Billing service returned bad status code: 500', 'body:', {'type': 'server_error', 'code': 'error', 'detail': 'Error fetching billing information', 'attr': None})",
+        "$process_person_profile": false,
+        "$python_runtime": "CPython",
+        "$transformations_succeeded": ["GeoIP (0195b934-6d98-0000-4d00-8163a218f25c)"],
+        "$lib": "posthog-python",
+        "$exception_types": ["Exception"],
+        "$exception_values": [
+            "('Billing service returned bad status code: 500', 'body:', {'type': 'server_error', 'code': 'error', 'detail': 'Error fetching billing information', 'attr': None})"
+        ],
+        "$exception_sources": [
+            "django/core/handlers/base.py",
+            "rest_framework/viewsets.py",
+            "rest_framework/views.py",
+            "django/views/decorators/csrf.py",
+            "django/core/handlers/exception.py",
+            "ee/billing/billing_manager.py",
+            "ee/api/billing.py"
+        ],
+        "$exception_functions": [
+            "dispatch",
+            "list",
+            "inner",
+            "view",
+            "get_billing",
+            "handle_exception",
+            "_get_billing",
+            "handle_billing_service_error",
+            "wrapper_view",
+            "raise_uncaught_exception",
+            "_get_response_async"
+        ]
+    },
+    "timestamp": "2021-04-05T00:18:24.544000Z",
+    "team_id": 1,
+    "distinct_id": "b071a20d-361d-4378-af15-fddf17badd18",
+    "elements_chain": "",
+    "created_at": "2021-04-07T10:50:17.876000Z"
+}

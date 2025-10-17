@@ -1,25 +1,11 @@
-# Within PostHog, it is possible that two Persons are merged together. The
-# impact of this is that all events that were associated with the Persons should
-# now appear to be associated with a single Person.
-#
-# In the ClickHouse `sharded_events` table we have a `person_id` column that
-# contains the UUID of the Person that the event is associated with. When a
-# merge happens, we do not immediately update the `person_id` column in the
-# `sharded_events` table. Instead, we create a new row in the `person_overrides`
-# table that contains the mapping from the `old_person_id` to the
-# `override_person_id`. This allows us to OUTER JOIN the `person_overrides`
-# table to the `sharded_events` table to find all events that were associated
-# and therefore reconcile the events to be associated with the same Person.
-
+# XXX: The tables defined in this module are not used and are only retained for migration consistency reasons. See
+# `person_distinct_id_overrides` in `posthog.models.person.sql` for its replacement tables, or
+# https://github.com/PostHog/posthog/pull/23616 for additional context.
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
-from posthog.settings.data_stores import (
-    CLICKHOUSE_DATABASE,
-    KAFKA_HOSTS,
-)
-
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE, KAFKA_HOSTS
 
 PERSON_OVERRIDES_CREATE_TABLE_SQL = (
     lambda on_cluster=True: f"""

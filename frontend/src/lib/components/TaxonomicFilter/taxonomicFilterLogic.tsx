@@ -1,35 +1,56 @@
-import { IconServer } from '@posthog/icons'
-import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import Fuse from 'fuse.js'
+import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { IconServer } from '@posthog/icons'
+
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
+import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     DataWarehousePopoverField,
+    ExcludedProperties,
     ListStorage,
+    SelectedProperties,
     SimpleOption,
+    TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { Link } from 'lib/lemon-ui/Link'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
-import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
-import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
+import {
+    getEventDefinitionIcon,
+    getEventMetadataDefinitionIcon,
+    getPropertyDefinitionIcon,
+    getRevenueAnalyticsDefinitionIcon,
+} from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
+import { getInternalEventFilterOptions } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
+import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import { NotebookType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
-import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
+import {
+    ReplayTaxonomicFilters,
+    replayTaxonomicFiltersProperties,
+} from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { groupsModel } from '~/models/groupsModel'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
     CohortType,
@@ -39,11 +60,12 @@ import {
     Experiment,
     FeatureFlagType,
     Group,
-    NotebookType,
     PersonProperty,
     PersonType,
     PropertyDefinition,
+    PropertyDefinitionType,
     QueryBasedInsightModel,
+    TeamType,
 } from '~/types'
 
 import { InlineHogQLEditor } from './InlineHogQLEditor'
@@ -92,44 +114,47 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     props({} as TaxonomicFilterLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}`),
     path(['lib', 'components', 'TaxonomicFilter', 'taxonomicFilterLogic']),
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeamId', 'currentTeam'],
             projectLogic,
             ['currentProjectId'],
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
-            groupPropertiesModel,
-            ['allGroupProperties'],
-            dataWarehouseSceneLogic, // This logic needs to be connected to stop the popover from erroring out
+            dataWarehouseSettingsSceneLogic, // This logic needs to be connected to stop the popover from erroring out
             ['dataWarehouseTables'],
             dataWarehouseJoinsLogic,
             ['columnsJoinedToPersons'],
+            propertyDefinitionsModel,
+            ['eventMetadataPropertyDefinitions'],
+            taxonomicFilterPreferencesLogic,
+            ['eventOrdering'],
         ],
-    }),
+    })),
     actions(() => ({
         moveUp: true,
         moveDown: true,
-        selectSelected: (onComplete?: () => void) => ({ onComplete }),
+        selectSelected: true,
         enableMouseInteractions: true,
         tabLeft: true,
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
-        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any) => ({
+        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any, originalQuery) => ({
             group,
             value,
             item,
+            originalQuery,
         }),
         infiniteListResultsReceived: (groupType: TaxonomicFilterGroupType, results: ListStorage) => ({
             groupType,
             results,
         }),
     })),
-    reducers(({ selectors }) => ({
+    reducers(({ props, selectors }) => ({
         searchQuery: [
-            '',
+            props.initialSearchQuery || '',
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
             },
@@ -156,12 +181,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     })),
     selectors({
         selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
+        showNumericalPropsOnly: [
+            () => [(_, props) => props.showNumericalPropsOnly],
+            (showNumericalPropsOnly) => showNumericalPropsOnly ?? false,
+        ],
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
         schemaColumns: [() => [(_, props) => props.schemaColumns], (schemaColumns) => schemaColumns ?? []],
+        maxContextOptions: [
+            () => [(_, props) => props.maxContextOptions],
+            (maxContextOptions) => maxContextOptions ?? [],
+        ],
         dataWarehousePopoverFields: [
             () => [(_, props) => props.dataWarehousePopoverFields],
             (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? {},
@@ -173,35 +206,59 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         excludedProperties: [
             () => [(_, props) => props.excludedProperties],
-            (excludedProperties) => excludedProperties ?? {},
+            (excludedProperties) => (excludedProperties ?? {}) as ExcludedProperties,
+        ],
+        selectedProperties: [
+            () => [(_, props) => props.selectedProperties],
+            (selectedProperties) => (selectedProperties ?? {}) as SelectedProperties,
         ],
         propertyAllowList: [
             () => [(_, props) => props.propertyAllowList],
             (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
         ],
+        propertyFilters: [
+            (s) => [s.excludedProperties, s.propertyAllowList],
+            (excludedProperties, propertyAllowList) => ({ excludedProperties, propertyAllowList }),
+        ],
+        allowNonCapturedEvents: [
+            () => [(_, props) => props.allowNonCapturedEvents],
+            (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
+        ],
+        hideBehavioralCohorts: [
+            () => [(_, props) => props.hideBehavioralCohorts],
+            (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
+        ],
         taxonomicGroups: [
             (s) => [
-                s.currentTeamId,
+                s.currentTeam,
                 s.currentProjectId,
                 s.groupAnalyticsTaxonomicGroups,
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
                 s.schemaColumns,
                 s.metadataSource,
-                s.excludedProperties,
-                s.propertyAllowList,
+                s.propertyFilters,
+                s.eventMetadataPropertyDefinitions,
+                s.eventOrdering,
+                s.maxContextOptions,
+                s.hideBehavioralCohorts,
             ],
             (
-                teamId,
-                projectId,
-                groupAnalyticsTaxonomicGroups,
-                groupAnalyticsTaxonomicGroupNames,
-                eventNames,
-                schemaColumns,
-                metadataSource,
-                excludedProperties,
-                propertyAllowList
+                currentTeam: TeamType,
+                projectId: number | null,
+                groupAnalyticsTaxonomicGroups: TaxonomicFilterGroup[],
+                groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[],
+                eventNames: string[],
+                schemaColumns: DatabaseSchemaField[],
+                metadataSource: AnyDataNode,
+                propertyFilters,
+                eventMetadataPropertyDefinitions: PropertyDefinition[],
+                eventOrdering: string | null,
+                maxContextOptions: MaxContextTaxonomicFilterOption[],
+                hideBehavioralCohorts: boolean
             ): TaxonomicFilterGroup[] => {
+                const { id: teamId } = currentTeam
+                const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',
@@ -213,10 +270,28 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                             exclude_hidden: true,
+                            ordering: eventOrdering ?? undefined,
                         }).url,
+                        excludedProperties:
+                            excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
                         getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
                         getValue: (eventDefinition: Record<string, any>) =>
-                            // Use the property's "name" when available, or "value" if a local option
+                            'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
+                        ...eventTaxonomicGroupProps,
+                    },
+                    {
+                        name: 'Internal Events',
+                        searchPlaceholder: 'internal events',
+                        type: TaxonomicFilterGroupType.InternalEvents,
+                        options: [
+                            { name: 'All internal events', value: null },
+                            ...getInternalEventFilterOptions('standard').map((item) => ({
+                                name: item.label,
+                                value: item.value,
+                            })),
+                        ],
+                        getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
+                        getValue: (eventDefinition: Record<string, any>) =>
                             'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
                         ...eventTaxonomicGroupProps,
                     },
@@ -235,7 +310,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Data warehouse tables',
                         searchPlaceholder: 'data warehouse tables',
                         type: TaxonomicFilterGroupType.DataWarehouse,
-                        logic: dataWarehouseSceneLogic,
+                        logic: dataWarehouseSettingsSceneLogic,
                         value: 'dataWarehouseTablesAndViews',
                         getName: (table: DatabaseSchemaTable) => table.name,
                         getValue: (table: DatabaseSchemaTable) => table.name,
@@ -309,16 +384,37 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
                             `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
-                                eventNames.length,
+                                expandedCount - count,
                                 'has',
                                 'have',
                                 false
                             )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.EventProperties],
-                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties],
+                        excludedProperties:
+                            excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
+                        propertyAllowList:
+                            propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(),
+                    },
+                    {
+                        name: 'Event metadata',
+                        searchPlaceholder: 'event metadata',
+                        type: TaxonomicFilterGroupType.EventMetadata,
+                        options: eventMetadataPropertyDefinitions,
+                        getIcon: (option: PropertyDefinition) => getEventMetadataDefinitionIcon(option),
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.EventMetadata
+                            )
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
+                        getValue: (option: PropertyDefinition) => option.id,
+                        valuesEndpoint: (key) => {
+                            return `api/event/values/?key=${encodeURIComponent(key)}&is_column=true`
+                        },
+                        getPopoverHeader: () => 'Event metadata',
                     },
                     {
                         name: 'Feature flags',
@@ -338,15 +434,113 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
                             `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
-                                eventNames.length,
+                                expandedCount - count,
                                 'has',
                                 'have',
                                 false
                             )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventFeatureFlags],
+                        excludedProperties:
+                            excludedProperties?.[TaxonomicFilterGroupType.EventFeatureFlags]?.filter(isString),
                         ...propertyTaxonomicGroupProps(),
+                    },
+                    {
+                        name: 'Issues',
+                        searchPlaceholder: 'issues',
+                        type: TaxonomicFilterGroupType.ErrorTrackingIssues,
+                        options: Object.entries(
+                            CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.ErrorTrackingIssues]
+                        )
+                            .map(([key, { label }]) => ({
+                                value: key,
+                                name: label,
+                            }))
+                            .filter(
+                                (o) =>
+                                    !excludedProperties[TaxonomicFilterGroupType.ErrorTrackingIssues]?.includes(o.value)
+                            ),
+                        getName: (option) => option.name,
+                        getValue: (option) => option.value,
+                        valuesEndpoint: (key) =>
+                            `api/environments/${projectId}/error_tracking/issues/values?key=` + key,
+                        getPopoverHeader: () => 'Issues',
+                    },
+                    {
+                        name: 'Exception properties',
+                        searchPlaceholder: 'exceptions',
+                        type: TaxonomicFilterGroupType.ErrorTrackingProperties,
+                        options: [
+                            ...[
+                                '$exception_types',
+                                '$exception_values',
+                                '$exception_sources',
+                                '$exception_functions',
+                            ].map((value) => ({ name: value, value, group: TaxonomicFilterGroupType.EventProperties })),
+                            ...(currentTeam?.person_display_name_properties
+                                ? currentTeam.person_display_name_properties.map((property) => ({
+                                      name: property,
+                                      value: property,
+                                      group: TaxonomicFilterGroupType.PersonProperties,
+                                  }))
+                                : []),
+                        ],
+                        getIcon: getPropertyDefinitionIcon,
+                        getPopoverHeader: () => 'Exception properties',
+                    },
+                    {
+                        name: 'Revenue analytics properties',
+                        searchPlaceholder: 'revenue analytics properties',
+                        type: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+                        options: Object.entries(
+                            CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.RevenueAnalyticsProperties]
+                        )
+                            .map(([key, { type: property_type }]) => ({
+                                id: key,
+                                name: key,
+                                value: key,
+                                property_type,
+                                type: PropertyDefinitionType.RevenueAnalytics,
+                            }))
+                            .filter(
+                                (o) =>
+                                    !excludedProperties[TaxonomicFilterGroupType.RevenueAnalyticsProperties]?.includes(
+                                        o.value
+                                    )
+                            ),
+                        getIcon: (option: PropertyDefinition): JSX.Element => getRevenueAnalyticsDefinitionIcon(option),
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.RevenueAnalyticsProperties
+                            )
+
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
+                        getValue: (option: PropertyDefinition) => option.id,
+                        valuesEndpoint: (key) => {
+                            return `api/environments/${projectId}/revenue_analytics/taxonomy/values?key=${encodeURIComponent(
+                                key
+                            )}`
+                        },
+                        getPopoverHeader: () => 'Revenue analytics properties',
+                    },
+                    {
+                        name: 'Log attributes',
+                        searchPlaceholder: 'logs',
+                        type: TaxonomicFilterGroupType.LogAttributes,
+                        endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
+                            is_feature_flag: false,
+                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
+                            properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
+                                ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
+                                : undefined,
+                            exclude_hidden: true,
+                        }).url,
+                        valuesEndpoint: (key) => `api/environments/${projectId}/logs/values?key=` + key,
+                        getName: (option: SimpleOption) => option.name,
+                        getValue: (option: SimpleOption) => option.name,
+                        getPopoverHeader: () => 'Log attributes',
                     },
                     {
                         name: 'Numerical event properties',
@@ -373,7 +567,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }).url,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
-                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties],
+                        propertyAllowList:
+                            propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(true),
                     },
                     {
@@ -388,6 +583,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
+                        footerMessage: hideBehavioralCohorts ? (
+                            <>
+                                <Link to={COHORT_BEHAVIORAL_LIMITATIONS_URL} target="_blank">
+                                    Some cohorts excluded due to containing behavioral filters.
+                                </Link>
+                            </>
+                        ) : undefined,
                     },
                     {
                         name: 'Cohorts',
@@ -466,11 +668,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Feature Flags',
                         searchPlaceholder: 'feature flags',
-                        type: TaxonomicFilterGroupType.FeatureFlags,
+                        type: TaxonomicFilterGroupType.FeatureFlags, // Feature flag dependencies
                         endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
                         getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
                         getPopoverHeader: () => `Feature Flags`,
+                        excludedProperties:
+                            excludedProperties?.[TaxonomicFilterGroupType.FeatureFlags]?.filter(isString),
                     },
                     {
                         name: 'Experiments',
@@ -506,16 +710,27 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Session properties',
                         searchPlaceholder: 'sessions',
                         type: TaxonomicFilterGroupType.SessionProperties,
-                        options: undefined,
+                        ...(propertyAllowList
+                            ? {
+                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]
+                                      ?.filter(isString)
+                                      ?.map((property: string) => ({
+                                          name: property,
+                                          value: property,
+                                      })),
+                              }
+                            : {
+                                  endpoint: `api/environments/${teamId}/sessions/property_definitions`,
+                              }),
                         getName: (option: any) => option.name,
                         getValue: (option) => option.name,
                         getPopoverHeader: () => 'Session',
-                        endpoint: `api/environments/${teamId}/sessions/property_definitions`,
                         getIcon: getPropertyDefinitionIcon,
                     },
                     {
                         name: 'SQL expression',
                         searchPlaceholder: null,
+                        categoryLabel: () => 'SQL expression',
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'SQL expression',
@@ -524,8 +739,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Replay',
                         searchPlaceholder: 'Replay',
+                        categoryLabel: (count: number) => 'Replay' + (count > 0 ? `: ${count}` : ''),
                         type: TaxonomicFilterGroupType.Replay,
                         render: ReplayTaxonomicFilters,
+                        localItemsSearch: (
+                            items: TaxonomicDefinitionTypes[],
+                            q: string
+                        ): TaxonomicDefinitionTypes[] => {
+                            if (q.trim() === '') {
+                                return items
+                            }
+                            const fuse = new Fuse(replayTaxonomicFiltersProperties, {
+                                keys: ['label', 'key'],
+                                threshold: 0.3,
+                            })
+                            return fuse.search(q).map((result) => result.item)
+                        },
                         valuesEndpoint: (key) => {
                             if (key === 'visited_page') {
                                 return (
@@ -538,6 +767,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             }
                         },
                         getPopoverHeader: () => 'Replay',
+                    },
+                    {
+                        name: 'On this page',
+                        searchPlaceholder: 'elements from this page',
+                        type: TaxonomicFilterGroupType.MaxAIContext,
+                        options: maxContextOptions,
+                        getName: (option: MaxContextTaxonomicFilterOption) => option.name,
+                        getValue: (option: MaxContextTaxonomicFilterOption) => option.value,
+                        getIcon: (option: MaxContextTaxonomicFilterOption) => {
+                            const Icon = option.icon as React.ComponentType
+                            if (Icon) {
+                                return <Icon />
+                            }
+                            return <></>
+                        },
+                        getPopoverHeader: () => 'On this page',
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
@@ -655,9 +900,31 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        selectItem: ({ group, value, item }) => {
-            if (item || group.type === TaxonomicFilterGroupType.HogQLExpression) {
-                props.onChange?.(group, value, item)
+        selectItem: ({ group, value, item, originalQuery }) => {
+            if (item) {
+                try {
+                    const hasOriginalQuery = originalQuery && originalQuery.trim().length > 0
+                    const hasName = item && item.name && item.name.trim().length > 0
+                    const hasSwappedIn = hasOriginalQuery && hasName && item.name !== originalQuery
+                    if (hasSwappedIn) {
+                        posthog.capture('selected swapped in query in taxonomic filter', {
+                            group: group.type,
+                            value: value,
+                            itemName: item.name,
+                            originalQuery,
+                            item,
+                        })
+                    }
+                } catch (e) {
+                    posthog.captureException(e, { posthog_feature: 'taxonomic_filter_swapped_in_query' })
+                }
+                props.onChange?.(group, value, item, originalQuery)
+            } else if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
+                props.onChange?.(group, value, item, originalQuery)
+            } else if (props.onEnter) {
+                // If the user pressed enter on a group with no item selected, we want to pass the original query
+                props.onEnter(values.searchQuery)
+                return
             }
             actions.setSearchQuery('')
         },
@@ -717,23 +984,38 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             }
         },
 
-        setSearchQuery: () => {
+        setSearchQuery: async ({ searchQuery }, breakpoint) => {
             const { activeTaxonomicGroup, infiniteListCounts } = values
 
-            // Taxonomic group with a local data source, zero results after searching.
-            // Open the next tab.
-            if (
+            // does replay have 0 results
+            // if you have a render function, and replay does, then infiniteListCounts will always be 1 or more 🤷
+            const shouldTabRightBecauseReplay =
+                activeTaxonomicGroup &&
+                activeTaxonomicGroup.type === TaxonomicFilterGroupType.Replay &&
+                infiniteListCounts[activeTaxonomicGroup.type] === 1
+            // or is this a Taxonomic group with a local data source, zero results after searching.
+            const shouldOtherwiseTabRight =
                 activeTaxonomicGroup &&
                 !activeTaxonomicGroup.endpoint &&
                 infiniteListCounts[activeTaxonomicGroup.type] === 0
-            ) {
+            if (shouldTabRightBecauseReplay || shouldOtherwiseTabRight) {
                 actions.tabRight()
+            }
+
+            await breakpoint(500)
+            if (searchQuery) {
+                posthog.capture('taxonomic_filter_search_query', {
+                    searchQuery,
+                    groupType: activeTaxonomicGroup?.type,
+                })
             }
         },
 
         infiniteListResultsReceived: ({ groupType, results }) => {
             // Open the next tab if no results on an active tab.
-            if (groupType === values.activeTab && !results.count && !results.expandedCount) {
+            const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
+
+            if (activeTabHasNoResults) {
                 actions.tabRight()
             }
 

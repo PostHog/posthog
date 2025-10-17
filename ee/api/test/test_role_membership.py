@@ -1,9 +1,10 @@
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role, RoleMembership
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
+
+from ee.api.test.base import APILicensedTest
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestRoleMembershipAPI(APILicensedTest):
@@ -104,3 +105,43 @@ class TestRoleMembershipAPI(APILicensedTest):
         assert get_res.json()["count"] == 1
         assert get_res.json()["results"][0]["user"]["distinct_id"] == user_a.distinct_id
         assert str(user_b.email) not in get_res.content.decode()
+
+    def test_cannot_add_user_to_role_in_different_organization_vulnerability(self):
+        """
+        Test case to reproduce RBAC vulnerability:
+        - user A is owner of org A and org B
+        - user B is member of org A but NOT org B
+        - user A should NOT be able to add user B to a role in org B
+        """
+        # Set up organizations
+        org_a = self.organization  # This is the default org from the test base
+        org_b = Organization.objects.create(name="Organization B")
+
+        # Create users
+        user_a = self.user  # This is the default user from the test base
+        user_b = User.objects.create_and_join(org_a, "userb@example.com", None)
+
+        # Make user A owner of both orgs
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        OrganizationMembership.objects.create(user=user_a, organization=org_b, level=OrganizationMembership.Level.OWNER)
+
+        # Create a role in org B
+        role_in_org_b = Role.objects.create(name="Engineering", organization=org_b)
+
+        # Verify user B is NOT a member of org B
+        assert not OrganizationMembership.objects.filter(user=user_b, organization=org_b).exists()
+
+        # Attempt to add user B to a role in org B by changing the org context
+        # This should fail but currently succeeds due to the vulnerability
+        self.client.force_login(user_a)
+
+        # The vulnerability: by manipulating the URL to use org_a's ID but role from org_b,
+        # the system checks user membership against org_a but assigns role from org_b
+        res = self.client.post(
+            f"/api/organizations/{org_a.id}/roles/{role_in_org_b.id}/role_memberships",
+            {"user_uuid": user_b.uuid},
+        )
+
+        assert res.status_code in [status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN]
+        assert not RoleMembership.objects.filter(role=role_in_org_b, user=user_b).exists()

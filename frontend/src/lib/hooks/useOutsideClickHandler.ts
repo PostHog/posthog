@@ -13,7 +13,7 @@ export function useOutsideClickHandler(
 ): void {
     useEffect(() => {
         function handleClick(event: Event): void {
-            if (exceptions.some((exception) => (event.target as Element)?.matches(exception))) {
+            if (exceptions.some((exception) => (event.target as Element)?.matches?.(exception))) {
                 return
             }
             if (
@@ -51,5 +51,5 @@ export function useOutsideClickHandler(
                 document.removeEventListener('touchend', handleClick)
             }
         }
-    }, [...refs, ...extraDeps])
+    }, [...refs, ...extraDeps]) // oxlint-disable-line react-hooks/exhaustive-deps
 }

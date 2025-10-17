@@ -1,8 +1,9 @@
+import { MOCK_TEAM_ID, api } from 'lib/api.mock'
+
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
-import { api, MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { PROPERTY_KEYS } from 'lib/taxonomy'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -220,7 +221,7 @@ describe('eventDefinitionsTableLogic', () => {
             combineUrl('', {
                 limit: PROPERTY_DEFINITIONS_PER_EVENT,
                 event_names: ['event1'],
-                excluded_properties: PROPERTY_KEYS,
+                exclude_core_properties: true,
                 filter_by_event_names: true,
                 is_feature_flag: false,
             }).search

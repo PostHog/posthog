@@ -3,9 +3,12 @@ from collections import Counter
 from typing import Any, Literal, Optional
 
 from django.conf import settings
+
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TREND_FILTER_TYPE_DATA_WAREHOUSE
+from posthog.schema import RevenueCurrencyPropertyConfig
+
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
 from posthog.models.action import Action
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
@@ -57,6 +60,7 @@ class Entity(PropertyMixin):
     custom_name: Optional[str]
     math: Optional[MathType]
     math_property: Optional[str]
+    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig]
     math_hogql: Optional[str]
     math_group_type_index: Optional[GroupTypeIndex]
     # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
@@ -93,6 +97,7 @@ class Entity(PropertyMixin):
         self.custom_name = custom_name
         self.math = data.get("math")
         self.math_property = data.get("math_property")
+        self.math_property_revenue_currency = data.get("math_property_revenue_currency")
         self.math_hogql = data.get("math_hogql")
         self.math_group_type_index = validate_group_type_index(
             "math_group_type_index", data.get("math_group_type_index")
@@ -117,6 +122,9 @@ class Entity(PropertyMixin):
             "custom_name": self.custom_name,
             "math": self.math,
             "math_property": self.math_property,
+            "math_property_revenue_currency": dict(self.math_property_revenue_currency)
+            if self.math_property_revenue_currency
+            else None,
             "math_hogql": self.math_hogql,
             "math_group_type_index": self.math_group_type_index,
             "properties": self.property_groups.to_dict(),
@@ -179,6 +187,7 @@ class Entity(PropertyMixin):
         "custom_name",
         "math",
         "math_property",
+        "math_property_revenue_currency",
         "math_hogql",
         "properties",
         "id_field",

@@ -30,6 +30,7 @@ from .mixins.funnel import (
     FunnelCorrelationActorsMixin,
     FunnelCorrelationMixin,
     FunnelFromToStepsMixin,
+    FunnelHogQLAggregationMixin,
     FunnelLayoutMixin,
     FunnelPersonsStepBreakdownMixin,
     FunnelPersonsStepMixin,
@@ -38,7 +39,6 @@ from .mixins.funnel import (
     FunnelWindowDaysMixin,
     FunnelWindowMixin,
     HistogramMixin,
-    FunnelHogQLAggregationMixin,
 )
 from .mixins.groups import GroupsAggregationMixin
 from .mixins.interval import IntervalMixin

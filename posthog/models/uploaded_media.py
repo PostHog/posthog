@@ -1,13 +1,14 @@
 from typing import Optional
 
-import structlog
 from django.conf import settings
 from django.db import models
-from posthog.exceptions_capture import capture_exception
 
+import structlog
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import absolute_uri
@@ -19,8 +20,9 @@ class ObjectStorageUnavailable(Exception):
     pass
 
 
-class UploadedMedia(UUIDModel):
+class UploadedMedia(UUIDTModel, RootTeamMixin):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 

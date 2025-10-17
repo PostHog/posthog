@@ -1,26 +1,40 @@
-from posthog.hogql.parser import parse_select
-from posthog.schema import (
-    PersonsOnEventsMode,
-    InsightActorsQuery,
-    TrendsQuery,
-    ActorsQuery,
-    EventsNode,
-    DateRange,
-)
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
+from datetime import datetime
+
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    _create_person,
     _create_event,
+    _create_person,
+    flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from posthog.models.person.util import create_person
-from datetime import datetime
+from unittest.mock import Mock, patch
 
-from unittest.mock import patch, Mock
+from parameterized import parameterized
+
+from posthog.schema import (
+    ActorsQuery,
+    CustomChannelCondition,
+    CustomChannelField,
+    CustomChannelOperator,
+    CustomChannelRule,
+    DateRange,
+    EventsNode,
+    FilterLogicalOperator,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    PersonsOnEventsMode,
+    TrendsQuery,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.models.person.util import create_person
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))  # for persons-inner-where-optimization
@@ -126,3 +140,154 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(query_runner.to_query(), self.team, modifiers=self.modifiers)
         assert response.clickhouse
         self.assertNotIn("where_optimization", response.clickhouse)
+
+    @snapshot_clickhouse_queries
+    def test_order_by_limit_transferred(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select id, properties from persons where properties.$some_prop = 'something' ORDER BY created_at DESC LIMIT 2"
+            ),
+            self.team,
+            modifiers=self.modifiers,
+        )
+        assert len(response.results) == 2
+        assert response.clickhouse
+        self.assertIn("where_optimization", response.clickhouse)
+        self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
+
+
+class TestPersons(ClickhouseTestMixin, APIBaseTest):
+    person_properties = {"$initial_referring_domain": "https://google.com"}
+    poe_properties = {"$initial_referring_domain": "https://facebook.com", "$initial_utm_medium": "cpc"}
+
+    channel_type_virt_person_result = "Organic Search"
+    channel_type_virt_poe_result = "Paid Social"
+
+    custom_channel_type_rules = [
+        CustomChannelRule(
+            channel_type="Custom Search",
+            id="0",
+            combiner=FilterLogicalOperator.OR_,
+            items=[
+                CustomChannelCondition(
+                    id="0",
+                    key=CustomChannelField.REFERRING_DOMAIN,
+                    op=CustomChannelOperator.EXACT,
+                    value="https://google.com",
+                )
+            ],
+        ),
+        CustomChannelRule(
+            channel_type="Custom Social",
+            id="0",
+            combiner=FilterLogicalOperator.OR_,
+            items=[
+                CustomChannelCondition(
+                    id="0",
+                    key=CustomChannelField.REFERRING_DOMAIN,
+                    op=CustomChannelOperator.EXACT,
+                    value="https://facebook.com",
+                )
+            ],
+        ),
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties=self.person_properties,
+            created_at=datetime(2025, 5, 28, 12),
+        )
+        _create_event(
+            distinct_id="1",
+            event="$pageview",
+            person_properties=self.poe_properties,
+            timestamp=datetime(2025, 5, 28, 12),
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+    def test_virtual_person_properties(self):
+        response = execute_hogql_query(
+            parse_select("select $virt_initial_channel_type from persons where id = {person_id}"),
+            self.team,
+            placeholders={"person_id": ast.Constant(value=self.person.uuid)},
+        )
+        assert len(response.results) == 1
+        assert response.results[0][0] == self.channel_type_virt_person_result
+
+    def test_virtual_event_person_properties(self):
+        response = execute_hogql_query(
+            parse_select("select person.$virt_initial_channel_type from events where person.id = {person_id}"),
+            self.team,
+            placeholders={"person_id": ast.Constant(value=self.person.uuid)},
+        )
+        assert len(response.results) == 1
+        assert response.results[0][0] == self.channel_type_virt_person_result
+
+    def test_virtual_event_poe_properties(self):
+        response = execute_hogql_query(
+            parse_select("select events.poe.$virt_initial_channel_type from events where person.id = {person_id}"),
+            self.team,
+            placeholders={"person_id": ast.Constant(value=self.person.uuid)},
+        )
+        assert len(response.results) == 1
+        assert response.results[0][0] == self.channel_type_virt_poe_result
+
+    def test_virtual_event_pdi_properties(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select events.pdi.person.$virt_initial_channel_type from events where person.id = {person_id}"
+            ),
+            self.team,
+            placeholders={"person_id": ast.Constant(value=self.person.uuid)},
+        )
+        assert len(response.results) == 1
+        assert response.results[0][0] == self.channel_type_virt_person_result
+
+    @parameterized.expand([e.value for e in PersonsOnEventsMode])
+    def test_channel_type_virt_property_in_trend(self, mode):
+        expected = (
+            self.channel_type_virt_person_result
+            if mode in [PersonsOnEventsMode.DISABLED, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED]
+            else self.channel_type_virt_poe_result
+        )
+        query = TrendsQuery(
+            **{
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview", "math": "total"}],
+                "trendsFilter": {},
+                "breakdownFilter": {"breakdowns": [{"property": "$virt_initial_channel_type", "type": "person"}]},
+            },
+            dateRange=DateRange(date_from="all", date_to=None),
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+        )
+        tqr = TrendsQueryRunner(team=self.team, query=query)
+        results = tqr.calculate().results
+        assert results[0]["breakdown_value"] == [expected]
+
+    @parameterized.expand([e.value for e in PersonsOnEventsMode])
+    def test_channel_type_virt_property_in_trend_with_custom_rules(self, mode):
+        expected = (
+            "Custom Search"
+            if mode in [PersonsOnEventsMode.DISABLED, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED]
+            else "Custom Social"
+        )
+        query = TrendsQuery(
+            **{
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview", "math": "total"}],
+                "trendsFilter": {},
+                "breakdownFilter": {"breakdowns": [{"property": "$virt_initial_channel_type", "type": "person"}]},
+            },
+            dateRange=DateRange(date_from="all", date_to=None),
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=mode, customChannelTypeRules=self.custom_channel_type_rules
+            ),
+        )
+        tqr = TrendsQueryRunner(team=self.team, query=query)
+        # test that it doesn't throw
+        results = tqr.calculate().results
+        assert results[0]["breakdown_value"] == [expected]

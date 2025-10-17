@@ -1,0 +1,46 @@
+{
+    "cache_key": "cache_a53c54c39c28d7b8ce3c27408c4f5edb",
+    "cache_target_age": "2025-04-18T00:07:50.354028Z",
+    "calculation_trigger": null,
+    "error": null,
+    "hogql": null,
+    "is_cached": true,
+    "last_refresh": "2025-04-17T22:07:50.354028Z",
+    "modifiers": {
+        "bounceRateDurationSeconds": null,
+        "bounceRatePageViewMode": "count_pageviews",
+        "customChannelTypeRules": null,
+        "dataWarehouseEventsModifiers": null,
+        "debug": null,
+        "inCohortVia": "auto",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_joined",
+        "propertyGroupsMode": "optimized",
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "sessionsV2JoinMode": "string",
+        "useMaterializedViews": true,
+        "usePresortedEventsTable": false
+    },
+    "next_allowed_client_refresh": "2025-04-17T22:08:50.354028Z",
+    "query_status": null,
+    "results": [
+        {
+            "key": "revenue",
+            "value": 702344.89
+        },
+        {
+            "key": "paying_customer_count",
+            "value": 615
+        },
+        {
+            "key": "avg_revenue_per_customer",
+            "value": 1142.02
+        }
+    ],
+    "timezone": "UTC",
+    "timings": null
+}

@@ -1,10 +1,13 @@
 import { useValues } from 'kea'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface iOSSetupProps {
     includeReplay?: boolean
+    includeSurveys?: boolean
+    includeExperimentalSpi?: boolean
 }
 
 function IOSInstallCocoaPodsSnippet(): JSX.Element {
@@ -21,25 +24,12 @@ function IOSInstallSPMSnippet(): JSX.Element {
     )
 }
 
-function IOSSetupSnippet({ includeReplay }: iOSSetupProps): JSX.Element {
+function IOSSetupSnippet(props: iOSSetupProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
-    return (
-        <CodeSnippet language={Language.Swift}>
-            {`import Foundation
-import PostHog
-import UIKit
-
-class AppDelegate: NSObject, UIApplicationDelegate {
-    func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        let POSTHOG_API_KEY = "${currentTeam?.api_token}"
-        let POSTHOG_HOST = "${apiHostOrigin()}"
-
-        let config = PostHogConfig(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
-        ${
-            includeReplay
-                ? `
-        // check https://posthog.com/docs/session-replay/installation?tab=iOS
+    const configOptions = [
+        props.includeReplay &&
+            `// check https://posthog.com/docs/session-replay/installation?tab=iOS
         // for more config and to learn about how we capture sessions on mobile
         // and what to expect
         config.sessionReplay = true
@@ -48,9 +38,27 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         config.sessionReplayConfig.maskAllTextInputs = true
         // screenshot is disabled by default
         // The screenshot may contain sensitive information, use with caution
-        config.sessionReplayConfig.screenshotMode = true`
-                : ''
-        }
+        config.sessionReplayConfig.screenshotMode = true`,
+        props.includeSurveys && `config.surveys = true`,
+    ]
+        .filter(Boolean)
+        .join('\n')
+
+    const configSection = configOptions ? configOptions : ''
+
+    return (
+        <CodeSnippet language={Language.Swift}>
+            {`import Foundation
+${props.includeExperimentalSpi ? '@_spi(Experimental) import PostHog' : 'import PostHog'}
+import UIKit
+
+class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        let POSTHOG_API_KEY = "${currentTeam?.api_token}"
+        let POSTHOG_HOST = "${apiHostOrigin()}"
+
+        let config = PostHogConfig(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
+        ${configSection}
         PostHogSDK.shared.setup(config)
 
         return true

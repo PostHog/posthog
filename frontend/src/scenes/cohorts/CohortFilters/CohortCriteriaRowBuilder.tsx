@@ -1,15 +1,17 @@
 import './CohortCriteriaRowBuilder.scss'
 
-import { IconCopy, IconTrash } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { Field as KeaField } from 'kea-forms'
+
+import { IconCopy, IconTrash } from '@posthog/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
-import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import { ROWS, renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
 
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
@@ -26,7 +28,6 @@ export interface CohortCriteriaRowBuilderProps {
 }
 
 export function CohortCriteriaRowBuilder({
-    id,
     type,
     groupIndex,
     index,
@@ -35,7 +36,7 @@ export function CohortCriteriaRowBuilder({
     hideDeleteIcon = false,
     onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
-    const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic({ id }))
+    const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic)
     const rowShape = ROWS[type]
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {

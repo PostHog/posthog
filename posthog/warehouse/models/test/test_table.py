@@ -1,8 +1,10 @@
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, StringDatabaseField
-from posthog.test.base import BaseTest
+
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
+from posthog.warehouse.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
 
 
 class TestTable(BaseTest):
@@ -27,6 +29,17 @@ class TestTable(BaseTest):
             sync_execute_results.return_value = [["id", "Nullable(Int64)"]]
             columns = table.get_columns()
             assert columns == {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True}}
+
+    def test_get_columns_with_unknown_field(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [["id", "Nothing"]]
+            columns = table.get_columns()
+            assert columns == {"id": {"clickhouse": "Nothing", "hogql": "UnknownDatabaseField", "valid": True}}
 
     def test_get_columns_with_type_args(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -197,6 +210,31 @@ class TestTable(BaseTest):
         assert list(table.hogql_definition().fields.keys()) == ["id", "timestamp-dash"]
         assert table.hogql_definition().structure == "`id` String, `timestamp-dash` DateTime64(3, 'UTC')"
 
+    def test_complex_type_with_array_nested_datetime_fields(self):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="bla",
+            url_pattern="https://databeach-hackathon.s3.amazonaws.com/peter_test/test_events6.pqt",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={
+                "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+                "nested": {
+                    "clickhouse": "Array(Tuple(url Nullable(String), date Tuple(member0 Nullable(DateTime64(6, 'UTC')), member1 Nullable(String)), text Nullable(String), type Nullable(String), email Nullable(String), field Tuple(id Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), choice Tuple(id Nullable(String), label Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), number Nullable(Float64), boolean Nullable(Bool), choices Tuple(ids Array(Nullable(String)), labels Array(Nullable(String)), _airbyte_additional_properties Map(String, Nullable(String))), payment Tuple(name Nullable(String), last4 Nullable(String), amount Nullable(String), success Nullable(Bool), _airbyte_additional_properties Map(String, Nullable(String))), file_url Nullable(String), phone_number Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))))",
+                    "hogql": "StringArrayDatabaseField",
+                    "valid": True,
+                },
+            },
+            credential=credential,
+        )
+
+        definition = table.hogql_definition()
+        assert len(definition.fields) == 2
+        assert (
+            definition.structure
+            == "`id` Nullable(String), `nested` Array(Tuple( Nullable(String),  Tuple( Nullable(DateTime64(6, 'UTC')),  Nullable(String)),  Nullable(String),  Nullable(String),  Nullable(String),  Tuple( Nullable(String),  Map(String, Nullable(String))),  Tuple( Nullable(String),  Nullable(String),  Map(String, Nullable(String))),  Nullable(Float64),  Nullable(Bool),  Tuple( Array(Nullable(String)),  Array(Nullable(String)),  Map(String, Nullable(String))),  Tuple( Nullable(String),  Nullable(String),  Nullable(String),  Nullable(Bool),  Map(String, Nullable(String))),  Nullable(String),  Nullable(String),  Map(String, Nullable(String))))"
+        )
+
     def test_hogql_definition_tuple_patch(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
@@ -253,3 +291,69 @@ class TestTable(BaseTest):
             table.hogql_definition().structure,
             "`id` String, `mrr` Nullable(Int64)",
         )
+
+    def test_comprehensive_table_definition(self):
+        base_columns = {
+            "int64": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"},
+            "float64": {"clickhouse": "Float64", "hogql": "FloatDatabaseField"},
+            "decimal": {"clickhouse": "Decimal(10, 2)", "hogql": "DecimalDatabaseField"},
+            "string": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+            "datetime": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+            "date": {"clickhouse": "Date", "hogql": "DateDatabaseField"},
+            "boolean": {"clickhouse": "Bool", "hogql": "BooleanDatabaseField"},
+            "array": {"clickhouse": "Array(String)", "hogql": "StringArrayDatabaseField"},
+            "map": {"clickhouse": "Map(String, String)", "hogql": "StringJSONDatabaseField"},
+        }
+
+        # Assert this is a comprehensive list of all possible ClickHouse types
+        assert len({val["clickhouse"] for key, val in base_columns.items()}) == len(
+            SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING
+        )
+
+        # Create a nullable copy for each of the above
+        nullable_columns = {
+            f"{key}_nullable": {"clickhouse": f"Nullable({val['clickhouse']})", "hogql": val["hogql"]}
+            for key, val in base_columns.items()
+        }
+
+        # Merge the two dictionaries
+        columns = {**base_columns, **nullable_columns}
+
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="bla",
+            url_pattern="https://databeach-hackathon.s3.amazonaws.com/tim_test/test_events6.pqt",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns=columns,
+            credential=credential,
+        )
+
+        definition = table.hogql_definition()
+        assert len(definition.fields) == len(columns)
+        assert (
+            definition.structure == "`int64` Int64, `float64` Float64, `decimal` Decimal(10, 2), "
+            "`string` String, `datetime` DateTime64(3, 'UTC'), `date` Date, "
+            "`boolean` Bool, `array` Array(String), `map` Map(String, String), "
+            "`int64_nullable` Nullable(Int64), `float64_nullable` Nullable(Float64), "
+            "`decimal_nullable` Nullable(Decimal(10, 2)), `string_nullable` Nullable(String), "
+            "`datetime_nullable` Nullable(DateTime64(3, 'UTC')), `date_nullable` Nullable(Date), "
+            "`boolean_nullable` Nullable(Bool), `array_nullable` Nullable(Array(String)), "
+            "`map_nullable` Nullable(Map(String, String))"
+        )
+
+    def assert_raises_with_invalid_hog_column_type(self, column_type):
+        credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="bla",
+            url_pattern="https://databeach-hackathon.s3.amazonaws.com/tim_test/test_events6.pqt",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            columns={
+                "id": {"clickhouse": column_type, "hogql": "RandomUnknownDatabaseField"},
+            },
+            credential=credential,
+        )
+
+        with self.assertRaises(Exception):
+            table.hogql_definition()

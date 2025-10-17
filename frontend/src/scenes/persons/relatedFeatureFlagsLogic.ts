@@ -1,10 +1,12 @@
-import Fuse from 'fuse.js'
-import { actions, connect, events, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { FeatureFlagsFilters, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 
 import { FeatureFlagReleaseType, FeatureFlagType } from '~/types'
 
@@ -29,14 +31,13 @@ export interface RelatedFeatureFlagResponse {
 }
 
 export interface RelatedFlagsFilters {
-    type: string
-    active: string
-    reason: string
+    type?: string
+    active?: string
+    reason?: string
 }
 
 export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     path(['scenes', 'persons', 'relatedFeatureFlagsLogic']),
-    connect({ values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags']] }),
     props(
         {} as {
             distinctId: string | null
@@ -45,8 +46,15 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
         }
     ),
     key((props) => `${props.distinctId}`),
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags', 'pagination']],
+        actions: [featureFlagsLogic, ['setFeatureFlagsFilters', 'loadFeatureFlagsSuccess']],
+    })),
     actions({
-        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setSearchTerm: (searchTerm: string) => {
+            featureFlagsLogic.actions.setFeatureFlagsFilters({ search: searchTerm })
+            return { searchTerm }
+        },
         setFilters: (filters: Partial<RelatedFlagsFilters>, replace?: boolean) => ({ filters, replace }),
         loadRelatedFeatureFlags: true,
     }),
@@ -116,44 +124,70 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             },
         ],
         filteredMappedFlags: [
-            (selectors) => [selectors.mappedRelatedFeatureFlags, selectors.searchTerm, selectors.filters],
-            (featureFlags, searchTerm, filters) => {
-                if (!searchTerm && Object.keys(filters).length === 0) {
+            (selectors) => [selectors.mappedRelatedFeatureFlags, selectors.filters],
+            (featureFlags, filters: Partial<RelatedFlagsFilters>) => {
+                if (Object.keys(filters).length === 0) {
                     return featureFlags
                 }
-                let searchedFlags: RelatedFeatureFlag[] = featureFlags
-                if (searchTerm) {
-                    searchedFlags = new Fuse(featureFlags, {
-                        keys: ['key', 'name'],
-                        threshold: 0.3,
-                    })
-                        .search(searchTerm)
-                        .map((result) => result.item)
-                }
 
-                const { type, active, reason } = filters
-                if (type) {
-                    searchedFlags = searchedFlags.filter((flag) =>
-                        type === FeatureFlagReleaseType.Variants
-                            ? flag.filters.multivariate
-                            : !flag.filters.multivariate
-                    )
-                }
-                if (active) {
-                    searchedFlags = searchedFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
-                }
+                const { reason } = filters
+                let filteredFlags = featureFlags
                 if (reason) {
-                    searchedFlags = searchedFlags.filter((flag) =>
+                    filteredFlags = filteredFlags.filter((flag) =>
                         reason === 'not matched'
                             ? flag.evaluation.reason !== FeatureFlagMatchReason.ConditionMatch
                             : flag.evaluation.reason === FeatureFlagMatchReason.ConditionMatch
                     )
                 }
-                return searchedFlags
+                return filteredFlags
             },
         ],
     })),
+    listeners(({ values, actions }) => ({
+        setFilters: ({ filters, replace }) => {
+            const apiFilters: FeatureFlagsFilters = {}
+
+            if (replace) {
+                const currentFilters = values.filters
+
+                if (!('type' in filters) && currentFilters.type) {
+                    apiFilters.type = undefined
+                }
+
+                if (!('active' in filters) && currentFilters.active) {
+                    apiFilters.active = undefined
+                }
+            }
+
+            if ('type' in filters && filters.type !== undefined) {
+                if (filters.type === FeatureFlagReleaseType.ReleaseToggle) {
+                    apiFilters.type = 'boolean'
+                } else if (filters.type === FeatureFlagReleaseType.Variants) {
+                    apiFilters.type = 'multivariant'
+                }
+            }
+
+            if ('active' in filters && filters.active !== undefined) {
+                apiFilters.active = filters.active
+            }
+
+            if (Object.keys(apiFilters).length > 0 || replace) {
+                actions.setFeatureFlagsFilters({ ...apiFilters, page: 1 }, replace)
+            }
+        },
+        loadFeatureFlagsSuccess: () => {
+            actions.loadRelatedFeatureFlags()
+        },
+    })),
     events(({ actions }) => ({
         afterMount: actions.loadRelatedFeatureFlags,
+    })),
+    urlToAction(({ actions }) => ({
+        [urls.personByUUID('*', false)]: async (_, searchParams) => {
+            const page = searchParams['page']
+            if (page !== undefined) {
+                actions.setFeatureFlagsFilters({ page: parseInt(page) })
+            }
+        },
     })),
 ])

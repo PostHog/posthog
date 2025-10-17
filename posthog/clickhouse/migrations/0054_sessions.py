@@ -3,8 +3,8 @@ from posthog.models.sessions.sql import (
     DISTRIBUTED_SESSIONS_TABLE_SQL,
     SESSIONS_TABLE_MV_SQL,
     SESSIONS_TABLE_SQL,
-    WRITABLE_SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
+    WRITABLE_SESSIONS_TABLE_SQL,
 )
 
 operations = [

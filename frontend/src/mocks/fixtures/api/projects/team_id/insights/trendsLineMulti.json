@@ -3,39 +3,44 @@
     "short_id": "ZzKvMiTK",
     "name": "",
     "derived_name": "Pageview count & Rageclick count & All events count",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "math": "total",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0
+    "filters": {},
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "dateRange": {
+                "date_from": "2023-07-03",
+                "date_to": "2023-07-10"
             },
-            {
-                "id": "$rageclick",
-                "math": "total",
-                "name": "$rageclick",
-                "type": "events",
-                "order": 1
+            "filterTestAccounts": true,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "math": "total",
+                    "name": "$pageview"
+                },
+                {
+                    "event": "$rageclick",
+                    "kind": "EventsNode",
+                    "math": "total",
+                    "name": "$rageclick"
+                },
+                {
+                    "kind": "EventsNode",
+                    "math": "total",
+                    "name": "All events"
+                }
+            ],
+            "trendsFilter": {
+                "display": "ActionsLineGraph",
+                "resultCustomizationBy": "value"
             },
-            {
-                "id": null,
-                "math": "total",
-                "name": "All events",
-                "type": "events",
-                "order": 2
-            }
-        ],
-        "date_to": "2023-07-10",
-        "display": "ActionsLineGraph",
-        "insight": "TRENDS",
-        "interval": "day",
-        "date_from": "2023-07-03",
-        "entity_type": "events",
-        "filter_test_accounts": true
+            "version": 2
+        },
+        "full": true
     },
-    "query": null,
     "order": null,
     "deleted": false,
     "dashboards": [],
@@ -628,8 +633,6 @@
         "is_email_verified": null
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37,
     "timezone": "UTC",
     "is_cached": true,
     "tags": [],

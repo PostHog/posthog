@@ -1,14 +1,16 @@
 import './CardMeta.scss'
 
-import { IconPieChart } from '@posthog/icons'
 import clsx from 'clsx'
+import React from 'react'
+import { Transition } from 'react-transition-group'
+
+import { IconPieChart } from '@posthog/icons'
+
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconRefresh, IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import React from 'react'
-import { Transition } from 'react-transition-group'
+import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 
 import { InsightColor } from '~/types'
 
@@ -25,29 +27,35 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     showEditingControls?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
-    refresh?: () => void
-    refreshDisabledReason?: string
     content?: JSX.Element | null
     metaDetails?: JSX.Element | null
-    moreButtons?: JSX.Element | null
+    /** Buttons to show in the editing controls dropdown. */
+    moreButtons?: JSX.Element
+    /** Tooltip for the editing controls dropdown. */
+    moreTooltip?: string
+    /** Tooltip for the details button. */
+    detailsTooltip?: string
     topHeading?: JSX.Element | null
     samplingFactor?: number | null
+    /** Additional controls to show in the top controls area */
+    extraControls?: JSX.Element | null
 }
 
 export function CardMeta({
     ribbonColor,
     showEditingControls,
     showDetailsControls,
-    refresh,
-    refreshDisabledReason,
     content: meta,
     metaDetails,
     moreButtons,
+    moreTooltip,
     topHeading,
     areDetailsShown,
     setAreDetailsShown,
+    detailsTooltip,
     className,
     samplingFactor,
+    extraControls,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -79,25 +87,27 @@ export function CardMeta({
                             )}
                         </h5>
                         <div className="CardMeta__controls">
+                            {extraControls}
                             {showDetailsControls && setAreDetailsShown && (
-                                <LemonButton
-                                    icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
-                                    onClick={() => setAreDetailsShown((state) => !state)}
-                                    size="small"
-                                    active={areDetailsShown}
-                                >
-                                    {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
-                                </LemonButton>
+                                <Tooltip title={detailsTooltip}>
+                                    <LemonButton
+                                        icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
+                                        onClick={() => setAreDetailsShown((state) => !state)}
+                                        size="small"
+                                        active={areDetailsShown}
+                                    >
+                                        {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
+                                    </LemonButton>
+                                </Tooltip>
                             )}
-                            {showEditingControls && refresh && (
-                                <LemonButton
-                                    icon={<IconRefresh />}
-                                    size="small"
-                                    onClick={() => refresh()}
-                                    disabledReason={refreshDisabledReason}
-                                />
-                            )}
-                            {showEditingControls && <More overlay={moreButtons} />}
+                            {showEditingControls &&
+                                (moreTooltip ? (
+                                    <Tooltip title={moreTooltip}>
+                                        <More overlay={moreButtons} />
+                                    </Tooltip>
+                                ) : (
+                                    <More overlay={moreButtons} />
+                                ))}
                         </div>
                     </div>
                     {meta}

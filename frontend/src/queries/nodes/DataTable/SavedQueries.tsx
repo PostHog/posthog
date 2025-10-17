@@ -1,5 +1,6 @@
 import equal from 'fast-deep-equal'
 import { useValues } from 'kea'
+
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { teamLogic } from 'scenes/teamLogic'
 

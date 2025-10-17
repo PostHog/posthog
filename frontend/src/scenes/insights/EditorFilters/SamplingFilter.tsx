@@ -1,6 +1,7 @@
-import { LemonLabel, LemonSegmentedButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+
+import { LemonLabel, LemonSegmentedButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { InsightLogicProps } from '~/types'
 
@@ -16,7 +17,7 @@ interface SamplingFilterProps {
 }
 
 export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFilterProps): JSX.Element {
-    const { isDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
+    const { hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
 
@@ -42,7 +43,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                     }}
                     checked={!!samplingPercentage}
                     disabledReason={
-                        isDataWarehouseSeries ? 'Sampling is not available for data warehouse series' : undefined
+                        hasDataWarehouseSeries ? 'Sampling is not available for data warehouse series' : undefined
                     }
                 />
             </div>

@@ -1,8 +1,9 @@
 import { finder } from '@medv/finder'
-import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
-import { cssEscape } from 'lib/utils/cssEscape'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
+
+import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/actionUtils'
+import { cssEscape } from 'lib/utils/cssEscape'
 
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
 import { ActionStepType } from '~/types'
@@ -41,14 +42,19 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
             continue
         }
 
-        const selector = `[${cssEscape(name)}="${cssEscape(value)}"]`
-        if (querySelectorAllDeep(selector).length == 1) {
-            return selector
+        const escapedSelector = `[${cssEscape(name)}="${cssEscape(value)}"]`
+        const unescapedSelector = `[${name}="${value}"]`
+
+        if (querySelectorAllDeep(escapedSelector).length == 1) {
+            // if we return the _valid_ escaped CSS,
+            // the action matching in PostHog might not match it
+            // because it's not really CSS matching
+            return unescapedSelector
         }
     }
 
     try {
-        return finder(element, {
+        const foundSelector = finder(element, {
             tagName: (name) => !TAGS_TO_IGNORE.includes(name),
             seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
             attr: (name) => {
@@ -57,6 +63,7 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
                 return name.startsWith('data-')
             },
         })
+        return slashDotDataAttrUnescape(foundSelector)
     } catch (error) {
         console.warn('Error while trying to find a selector for element', element, error)
         return undefined
@@ -147,6 +154,69 @@ export function inBounds(min: number, value: number, max: number): number {
     return Math.max(min, Math.min(max, value))
 }
 
+export function elementIsVisible(element: HTMLElement, cache: WeakMap<HTMLElement, boolean>): boolean {
+    try {
+        const alreadyCached = cache.get(element)
+        if (alreadyCached !== undefined) {
+            return alreadyCached
+        }
+
+        if (element.checkVisibility) {
+            const nativeIsVisible = element.checkVisibility({
+                checkOpacity: true,
+                checkVisibilityCSS: true,
+            })
+            cache.set(element, nativeIsVisible)
+            return nativeIsVisible
+        }
+
+        const style = window.getComputedStyle(element)
+        const isInvisible = style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0
+        if (isInvisible) {
+            cache.set(element, false)
+            return false
+        }
+
+        // Check parent chain for display/visibility
+        let parent = element.parentElement
+        while (parent) {
+            // Check cache first
+            const cached = cache.get(parent)
+            if (cached !== undefined) {
+                if (!cached) {
+                    return false
+                }
+                // If cached as visible, skip to next parent
+                parent = parent.parentElement
+                continue
+            }
+
+            const parentStyle = window.getComputedStyle(parent)
+            const parentVisible = parentStyle.display !== 'none' && parentStyle.visibility !== 'hidden'
+
+            cache.set(parent, parentVisible)
+
+            if (!parentVisible) {
+                return false
+            }
+            parent = parent.parentElement
+        }
+
+        // Check if element has actual rendered dimensions
+        const rect = element.getBoundingClientRect()
+        const elementHasActualRenderedDimensions =
+            rect.width > 0 ||
+            rect.height > 0 ||
+            // Some elements might be 0x0 but still visible (e.g., inline elements with content)
+            element.getClientRects().length > 0
+        cache.set(element, elementHasActualRenderedDimensions)
+        return elementHasActualRenderedDimensions
+    } catch {
+        // if we can't get the computed style, we'll assume the element is visible
+        return true
+    }
+}
+
 export function getAllClickTargets(
     startNode: Document | HTMLElement | ShadowRoot = document,
     selector?: string
@@ -168,16 +238,17 @@ export function getAllClickTargets(
     const shadowElements = allElements
         .filter((el) => el.shadowRoot && el.getAttribute('id') !== TOOLBAR_ID)
         .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot, targetSelector) : []))
-        .reduce((a, b) => [...a, ...b], [])
+        .reduce((a, b) => {
+            a.push(...b)
+            return a
+        }, [] as HTMLElement[])
     const selectedElements = [...elements, ...pointerElements, ...shadowElements]
         .map((e) => trimElement(e, targetSelector))
         .filter((e) => e)
     const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
 
-    return uniqueElements.filter((element) => {
-        const style = window.getComputedStyle(element)
-        return style.display !== 'none' && style.visibility !== 'hidden'
-    })
+    const visibilityCache = new WeakMap<HTMLElement, boolean>()
+    return uniqueElements.filter((el) => elementIsVisible(el, visibilityCache))
 }
 
 export function stepMatchesHref(step: ActionStepType, href: string): boolean {
@@ -409,4 +480,15 @@ export function getHeatMapHue(count: number, maxCount: number): number {
         return 60
     }
     return 60 - (count / maxCount) * 40
+}
+
+/*
+ * KLUDGE: e.g. [data-attr="session\.recording\.preview"] is valid CSS
+ * but our action matching doesn't support it
+ * in order to avoid trying to write a general purpose CSS unescaper
+ * we just remove the backslash in this specific pattern
+ * if it matches data-attr="bla\.blah\.blah"
+ */
+export function slashDotDataAttrUnescape(foundSelector: string): string | undefined {
+    return foundSelector.replace(/\\./g, '.')
 }

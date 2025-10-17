@@ -1,17 +1,21 @@
-import './NotebookScene.scss'
+import { useActions } from 'kea'
+import { useMemo } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
+import { LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
+
 import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
-import { useMemo } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { Notebook } from './Notebook/Notebook'
-import { notebookLogic, NotebookLogicProps } from './Notebook/notebookLogic'
+import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export const scene: SceneExport = {
     component: NotebookCanvas,
@@ -28,9 +32,18 @@ export function NotebookCanvas(): JSX.Element {
     const { duplicateNotebook, exportJSON, setLocalContent } = useActions(notebookLogic(logicProps))
 
     return (
-        <>
-            <PageHeader
-                buttons={
+        <SceneContent className="h-full">
+            <SceneTitleSection
+                name="Canvas"
+                resourceType={{
+                    type: 'notebook',
+                }}
+                forceBackTo={{
+                    path: urls.notebooks(),
+                    name: 'Notebooks',
+                    key: 'notebooks',
+                }}
+                actions={
                     <>
                         <LemonMenu
                             items={[
@@ -72,26 +85,20 @@ export function NotebookCanvas(): JSX.Element {
                             onClick={() => {
                                 void copyToClipboard(window.location.href, 'Canvas URL')
                             }}
+                            size="small"
                         >
                             Share
                         </LemonButton>
-                        <LemonButton type="primary" onClick={duplicateNotebook}>
+                        <LemonButton type="primary" onClick={duplicateNotebook} size="small">
                             Save as Notebook
                         </LemonButton>
                     </>
                 }
             />
-            <div className="flex flex-col flex-1">
-                <div className="relative flex-1">
-                    <div className="absolute inset-0 flex flex-col p-3 overflow-y-auto">
-                        <LemonBanner type="info" className="mb-4">
-                            <b>This is a canvas.</b> You can change anything you like and it is persisted to the URL for
-                            easy sharing.
-                        </LemonBanner>
-                        <Notebook {...logicProps} />
-                    </div>
-                </div>
+            <SceneDivider />
+            <div className="relative flex-1">
+                <Notebook {...logicProps} />
             </div>
-        </>
+        </SceneContent>
     )
 }

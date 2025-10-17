@@ -1,17 +1,18 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { liveEventsTableLogicType } from './liveWebAnalyticsLogicType'
+import type { liveWebAnalyticsLogicType } from './liveWebAnalyticsLogicType'
+
 export interface StatsResponse {
     users_on_product?: number
 }
-export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
-    path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
-    connect({
-        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
-    }),
+export const liveWebAnalyticsLogic = kea<liveWebAnalyticsLogicType>([
+    path(['scenes', 'webAnalytics', 'liveWebAnalyticsLogic']),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam']],
+    })),
     actions(() => ({
         pollStats: true,
         setLiveUserCount: ({ liveUserCount, now }: { liveUserCount: number; now: Date }) => ({
@@ -19,6 +20,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             now,
         }),
         setNow: ({ now }: { now: Date }) => ({ now }),
+        setIsHovering: (isHovering: boolean) => ({ isHovering }),
     })),
     reducers({
         liveUserCount: [
@@ -40,6 +42,12 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 setLiveUserCount: (_, { now }) => now,
             },
         ],
+        isHovering: [
+            false,
+            {
+                setIsHovering: (_, { isHovering }) => isHovering,
+            },
+        ],
     }),
     selectors({
         liveUserUpdatedSecondsAgo: [
@@ -57,7 +65,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         pollStats: async () => {
             try {
                 if (!values.currentTeam) {
@@ -76,25 +84,34 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 console.error('Failed to poll stats:', error)
             }
         },
+        setIsHovering: ({ isHovering }) => {
+            if (isHovering) {
+                actions.setNow({ now: new Date() })
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(() => {
+                        actions.setNow({ now: new Date() })
+                    }, 500)
+                    return () => clearInterval(intervalId)
+                }, 'nowInterval')
+            } else {
+                cache.disposables.dispose('nowInterval')
+            }
+        },
     })),
     events(({ actions, cache }) => ({
         afterMount: () => {
             actions.setNow({ now: new Date() })
             actions.pollStats()
 
-            cache.statsInterval = setInterval(() => {
-                actions.pollStats()
-            }, 30000)
-
-            cache.nowInterval = setInterval(() => {
-                actions.setNow({ now: new Date() })
-            }, 500)
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    actions.pollStats()
+                }, 30000)
+                return () => clearInterval(intervalId)
+            }, 'statsInterval')
         },
         beforeUnmount: () => {
-            if (cache.statsInterval) {
-                clearInterval(cache.statsInterval)
-                cache.statsInterval = null
-            }
+            // Disposables handle cleanup automatically
         },
     })),
 ])

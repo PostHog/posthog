@@ -1,20 +1,6 @@
 from typing import Union
 
 from freezegun import freeze_time
-
-from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import _sample_rate_from_count
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.schema import (
-    DateRange,
-    WebStatsTableQuery,
-    WebStatsBreakdown,
-    WebOverviewQuery,
-    EventPropertyFilter,
-    PersonPropertyFilter,
-    PropertyOperator,
-    SamplingRate,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -23,32 +9,46 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from posthog.schema import (
+    DateRange,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    PropertyOperator,
+    SamplingRate,
+    WebOverviewQuery,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
+)
+
+from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import _sample_rate_from_count
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+
 
 @snapshot_clickhouse_queries
 class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$pageview"):
-        person_result = []
         for id, timestamps in data:
             with freeze_time(timestamps[0][0]):
-                person_result.append(
-                    _create_person(
-                        team_id=self.team.pk,
-                        distinct_ids=[id],
-                        properties={
-                            "name": id,
-                            **({"email": "test@posthog.com"} if id == "test" else {}),
-                        },
-                    )
+                _create_person(
+                    team_id=self.team.pk,
+                    distinct_ids=[id],
+                    properties={
+                        "name": id,
+                        **({"email": "test@posthog.com"} if id == "test" else {}),
+                    },
                 )
-            for timestamp, session_id, pathname in timestamps:
+            for timestamp, *rest in timestamps:
+                properties = rest[0] if rest else {}
                 _create_event(
                     team=self.team,
                     event=event,
                     distinct_id=id,
                     timestamp=timestamp,
-                    properties={"$session_id": session_id, "$pathname": pathname},
+                    properties={
+                        **properties,
+                    },
                 )
-        return person_result
 
     def _create_web_stats_table_query(self, date_from, date_to, properties, breakdown_by=WebStatsBreakdown.PAGE):
         query = WebStatsTableQuery(

@@ -1,12 +1,13 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { PipelineEvent, TeamId, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { IngestionWarningLimiter } from '../../utils/token-bucket'
-import { castTimestampOrNow, castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
+import { UUIDT, castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE, KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
 
 function getClickhouseTimestampOrNull(isoTimestamp?: string): string | null {
@@ -95,7 +96,7 @@ export async function captureIngestionWarning(
                 ],
             })
             .catch((error) => {
-                status.warn('⚠️', 'Failed to produce ingestion warning', {
+                logger.warn('⚠️', 'Failed to produce ingestion warning', {
                     error,
                     team_id: teamId,
                     type,

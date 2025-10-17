@@ -1,5 +1,7 @@
 import pytest
+
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 
@@ -57,6 +59,18 @@ class TestTemplateMicrosoftTeams(BaseHogFunctionTemplateTest):
                 "https://prod-180.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?api-version=2016-06-01",
                 True,
             ],
+            [
+                "https://tenant.webhook.office.com/webhookb2/guid1/IncomingWebhook/guid2/guid3",
+                True,
+            ],
+            [
+                "https://region.powerautomate.com/workflows/guid1/triggers/manual/guid2",
+                True,
+            ],
+            [
+                "https://region.flow.microsoft.com/workflows/guid1/triggers/manual/guid2",
+                True,
+            ],
             ["https://webhook.site/def", False],
             [
                 "https://webhook.site/def#https://prod-180.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?api-version=2016-06-01",
@@ -66,10 +80,11 @@ class TestTemplateMicrosoftTeams(BaseHogFunctionTemplateTest):
             if allowed:
                 self.run_function(inputs=self._inputs(webhookUrl=url))
                 assert len(self.get_mock_fetch_calls()) == 1
+                self.mock_fetch.reset_mock()  # Reset mock between tests
             else:
                 with pytest.raises(Exception) as e:
                     self.run_function(inputs=self._inputs(webhookUrl=url))
                 assert (
                     e.value.message  # type: ignore[attr-defined]
-                    == "Invalid URL. The URL should match the format: https://<region>.logic.azure.com:443/workflows/<workflowId>/triggers/manual/paths/invoke?..."
+                    == "Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), or Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...)"
                 )

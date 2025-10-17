@@ -1,17 +1,17 @@
 import pytest
+from posthog.test.base import APIBaseTest
 
-
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from django.test import override_settings
 from django.urls import include, path
+
 from rest_framework import viewsets
+
 from posthog.api.annotation import AnnotationSerializer
-from posthog.api.routing import DefaultRouterPlusPlus
+from posthog.api.routing import DefaultRouterPlusPlus, TeamAndOrgViewSetMixin
 from posthog.models.annotation import Annotation
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.team.team import Team
-from posthog.test.base import APIBaseTest
 
 
 class FooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

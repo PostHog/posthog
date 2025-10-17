@@ -1,9 +1,11 @@
 import json
 from dataclasses import dataclass
 
-from posthog.clickhouse.client import sync_execute
-from posthog.hogql.context import HogQLContext
 from posthog.schema import QueryIndexUsage
+
+from posthog.hogql.context import HogQLContext
+
+from posthog.clickhouse.client import sync_execute
 
 
 def find_all_reads(explain: dict) -> list[dict]:
@@ -131,6 +133,7 @@ def execute_explain_get_index_use(clickhouse_sql: str, context: HogQLContext) ->
         with_column_types=True,
         team_id=context.team_id,
         readonly=True,
+        settings={"allow_experimental_join_condition": 1},
     )
     return extract_index_usage_from_plan(explain_results[0][0][0])
 

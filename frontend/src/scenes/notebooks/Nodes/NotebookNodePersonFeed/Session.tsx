@@ -1,12 +1,12 @@
-import { IconCollapse, IconExpand, IconRewindPlay } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
 import { useState } from 'react'
 
-// import { TimelineEntry } from '~/queries/schema/schema-general'
-import { NotebookNodeType } from '~/types'
+import { IconCollapse, IconExpand, IconRewindPlay } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 import { notebookNodeLogic } from '../notebookNodeLogic'
 import { SessionEvent } from './SessionEvent'

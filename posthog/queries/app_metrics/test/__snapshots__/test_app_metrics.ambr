@@ -127,7 +127,7 @@
                  category)
      GROUP BY date
      ORDER BY date WITH FILL
-     FROM dateTrunc('day', toDateTime('2021-11-28 00:00:00'), 'UTC') TO dateTrunc('day', toDateTime('2021-12-05 13:23:00') + toIntervalDay(1), 'UTC') STEP 86400)
+     FROM dateTrunc('day', toDateTime64('2021-11-28 00:00:00', 0, 'UTC'), 'UTC') TO dateTrunc('day', toDateTime64('2021-12-05 13:23:00', 0, 'UTC') + toIntervalDay(1), 'UTC') STEP toIntervalDay(1))
   '''
 # ---
 # name: TestAppMetricsQuery.test_composeWebhook_sums_all_failures_but_only_webhook_successes
@@ -159,7 +159,7 @@
                  category)
      GROUP BY date
      ORDER BY date WITH FILL
-     FROM dateTrunc('day', toDateTime('2021-11-28 00:00:00'), 'UTC') TO dateTrunc('day', toDateTime('2021-12-05 13:23:00') + toIntervalDay(1), 'UTC') STEP 86400)
+     FROM dateTrunc('day', toDateTime64('2021-11-28 00:00:00', 0, 'UTC'), 'UTC') TO dateTrunc('day', toDateTime64('2021-12-05 13:23:00', 0, 'UTC') + toIntervalDay(1), 'UTC') STEP toIntervalDay(1))
   '''
 # ---
 # name: TestAppMetricsQuery.test_filter_by_hourly_date_range
@@ -192,7 +192,7 @@
                  category)
      GROUP BY date
      ORDER BY date WITH FILL
-     FROM dateTrunc('hour', toDateTime('2021-12-05 00:00:00'), 'UTC') TO dateTrunc('hour', toDateTime('2021-12-05 08:00:00') + toIntervalHour(1), 'UTC') STEP 3600)
+     FROM dateTrunc('hour', toDateTime64('2021-12-05 00:00:00', 0, 'UTC'), 'UTC') TO dateTrunc('hour', toDateTime64('2021-12-05 08:00:00', 0, 'UTC') + toIntervalHour(1), 'UTC') STEP toIntervalHour(1))
   '''
 # ---
 # name: TestAppMetricsQuery.test_filter_by_job_id
@@ -226,7 +226,7 @@
                  category)
      GROUP BY date
      ORDER BY date WITH FILL
-     FROM dateTrunc('day', toDateTime('2021-11-28 00:00:00'), 'UTC') TO dateTrunc('day', toDateTime('2021-12-05 13:23:00') + toIntervalDay(1), 'UTC') STEP 86400)
+     FROM dateTrunc('day', toDateTime64('2021-11-28 00:00:00', 0, 'UTC'), 'UTC') TO dateTrunc('day', toDateTime64('2021-12-05 13:23:00', 0, 'UTC') + toIntervalDay(1), 'UTC') STEP toIntervalDay(1))
   '''
 # ---
 # name: TestAppMetricsQuery.test_ignores_unrelated_data
@@ -259,7 +259,7 @@
                  category)
      GROUP BY date
      ORDER BY date WITH FILL
-     FROM dateTrunc('day', toDateTime('2021-11-28 00:00:00'), 'UTC') TO dateTrunc('day', toDateTime('2021-12-05 13:23:00') + toIntervalDay(1), 'UTC') STEP 86400)
+     FROM dateTrunc('day', toDateTime64('2021-11-28 00:00:00', 0, 'UTC'), 'UTC') TO dateTrunc('day', toDateTime64('2021-12-05 13:23:00', 0, 'UTC') + toIntervalDay(1), 'UTC') STEP toIntervalDay(1))
   '''
 # ---
 # name: TestTeamPluginsDeliveryRateQuery.test_query_delivery_rate

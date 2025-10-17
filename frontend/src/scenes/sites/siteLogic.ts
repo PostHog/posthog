@@ -1,4 +1,5 @@
 import { kea, path, props, selectors } from 'kea'
+
 import { Scene } from 'scenes/sceneTypes'
 
 import { Breadcrumb } from '~/types'
@@ -19,10 +20,12 @@ export const siteLogic = kea<siteLogicType>([
                 {
                     key: Scene.Site,
                     name: `Site`,
+                    iconType: 'heatmap',
                 },
                 {
                     key: [Scene.Site, url],
                     name: url,
+                    iconType: 'heatmap',
                 },
             ],
         ],

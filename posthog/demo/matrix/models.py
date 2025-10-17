@@ -10,6 +10,7 @@ from itertools import chain
 from typing import TYPE_CHECKING, Any, Generic, Literal, Optional, TypeVar
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
     from posthog.demo.matrix.matrix import Cluster, Matrix
@@ -49,6 +50,11 @@ EVENT_IDENTIFY = "$identify"
 EVENT_GROUP_IDENTIFY = "$groupidentify"
 
 PROPERTY_GEOIP_COUNTRY_CODE = "$geoip_country_code"
+PROPERTY_GEOIP_REGION = "$geoip_subdivision_1_code"
+PROPERTY_GEOIP_CITY = "$geoip_city_name"
+PROPERTY_TIMEZONE = "$timezone"
+PROPERTY_TIMEZONE_OFFSET = "$timezone_offset"
+PROPERTY_BROWSER_LANGUAGE = "$browser_language"
 
 UTM_QUERY_PROPERTIES = {"utm_source", "utm_campaign", "utm_medium", "utm_term", "utm_content"}
 
@@ -314,9 +320,19 @@ class SimBrowserClient(SimClient):
                 combined_properties["$set"].update(referrer_properties)
                 combined_properties["$referring_domain"] = referring_domain
             combined_properties.update(properties)
-        # GeoIP
-        combined_properties[PROPERTY_GEOIP_COUNTRY_CODE] = self.person.country_code
-        combined_properties["$set"][PROPERTY_GEOIP_COUNTRY_CODE] = self.person.country_code
+        # GeoIP and other person properties on events
+        for key, value in {
+            PROPERTY_GEOIP_COUNTRY_CODE: self.person.country_code,
+            PROPERTY_GEOIP_CITY: self.person.city,
+            PROPERTY_GEOIP_REGION: self.person.region,
+            PROPERTY_TIMEZONE: self.person.timezone,
+            PROPERTY_BROWSER_LANGUAGE: self.person.language,
+        }.items():
+            combined_properties[key] = value
+            combined_properties["$set"][key] = value
+        utc_offset = ZoneInfo(self.person.timezone).utcoffset(self.person.cluster.simulation_time)
+        combined_properties[PROPERTY_TIMEZONE_OFFSET] = utc_offset.total_seconds() / 60 if utc_offset else 0
+
         # Saving
         super()._capture_raw(event, combined_properties, distinct_id=self.active_distinct_id)
 
@@ -397,7 +413,10 @@ class SimPerson(ABC):
     in_product_id: str  # User ID within the product being simulated (freeform string)
     in_posthog_id: Optional[UUID]  # PostHog person ID (must be a UUID)
     country_code: str
+    region: str
+    city: str
     timezone: str
+    language: str
 
     # Exposed state - present
     past_events: list[SimEvent]
@@ -430,6 +449,10 @@ class SimPerson(ABC):
         self.in_posthog_id = None
         self.active_client = SimBrowserClient(self)
         self.country_code = "US"
+        self.region = "California"
+        self.city = "San Francisco"
+        self.timezone = "America/Los_Angeles"
+        self.language = "en-US"
         self.all_time_pageview_counts = defaultdict(int)
         self.session_pageview_counts = defaultdict(int)
         self.active_session_intent = None
@@ -441,7 +464,8 @@ class SimPerson(ABC):
 
     def __str__(self) -> str:
         """Return person ID. Overriding this is recommended but optional."""
-        return " / ".join(self._distinct_ids) if self._distinct_ids else "???"
+        # Sort distinct_ids to ensure deterministic string representation
+        return " / ".join(sorted(self._distinct_ids)) if self._distinct_ids else "???"
 
     def __hash__(self) -> int:
         return hash(self.in_product_id)

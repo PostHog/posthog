@@ -1,15 +1,18 @@
 import './index.scss'
 
-import { IconGear, IconHome, IconLaptop } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import React, { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
+
+import { IconCopy, IconGear, IconHome, IconLaptop } from '@posthog/icons'
+import { LemonButton, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconWeb } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { forwardRef } from 'react'
 import { urls } from 'scenes/urls'
 
 import { teamLogic } from '../../../scenes/teamLogic'
@@ -26,40 +29,47 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     showPopover?: boolean
     noStyles?: boolean
     className?: string
+    title?: string
     children?: JSX.Element
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     showSeconds,
     time,
-}: Pick<TZLabelProps, 'showSeconds'> & { time: dayjs.Dayjs }): JSX.Element {
+    title,
+}: Pick<TZLabelProps, 'showSeconds' | 'title'> & { time: dayjs.Dayjs }): JSX.Element {
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
     const { currentTeam } = useValues(teamLogic)
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
 
-    useEffect(() => {
+    const copyDateTime = (dateTime: dayjs.Dayjs, label: string): void => {
+        void copyToClipboard(dateTime.toDate().toISOString(), label)
+    }
+
+    useOnMountEffect(() => {
         reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
-    }, [])
+    })
 
     return (
         <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
-            <div className="flex justify-between items-center">
-                <h3 className="mb-0">Timezone conversion</h3>
-                <span>
-                    <LemonButton icon={<IconGear />} size="small" to={urls.settings('project', 'date-and-time')} />
-                </span>
+            <div className="flex justify-between items-center border-b-1 p-1">
+                <h4 className="mb-0 px-1">{title || 'Timezone conversion'}</h4>
+                <LemonButton icon={<IconGear />} size="xsmall" to={urls.settings('project', 'date-and-time')} />
             </div>
-
-            <LemonDivider />
-
-            <div className="deprecated-space-y-2">
+            <div className="space-y-2 p-2">
                 <div className="TZLabelPopover__row">
                     <div>
                         <IconLaptop />
                     </div>
                     <div>Your device</div>
-                    <div>{shortTimeZone(undefined, time.toDate())}</div>
-                    <div>{time.format(DATE_OUTPUT_FORMAT)}</div>
+                    <div className="text-xs">{shortTimeZone(undefined, time.toDate())}</div>
+                    <div className="text-muted text-xs">{time.format(DATE_OUTPUT_FORMAT)}</div>
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconCopy />}
+                        onClick={() => copyDateTime(time, 'your device date')}
+                        tooltip="Copy your device date"
+                    />
                 </div>
                 {currentTeam && (
                     <div className="TZLabelPopover__row TZLabelPopover__row--muted">
@@ -67,8 +77,16 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                             <IconHome />
                         </div>
                         <div>Project</div>
-                        <div>{shortTimeZone(currentTeam.timezone, time.toDate())}</div>
-                        <div>{time.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}</div>
+                        <div className="text-xs">{shortTimeZone(currentTeam.timezone, time.toDate())}</div>
+                        <div className="text-muted text-xs">
+                            {time.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}
+                        </div>
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconCopy />}
+                            onClick={() => copyDateTime(time.tz(currentTeam.timezone), 'project timezone date')}
+                            tooltip="Copy project timezone date"
+                        />
                     </div>
                 )}
                 {currentTeam?.timezone !== 'UTC' && (
@@ -77,8 +95,14 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                             <IconWeb />
                         </div>
                         <div />
-                        <div>UTC</div>
-                        <div>{time.tz('UTC').format(DATE_OUTPUT_FORMAT)}</div>
+                        <div className="text-xs">UTC</div>
+                        <div className="text-muted text-xs">{time.tz('UTC').format(DATE_OUTPUT_FORMAT)}</div>
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconCopy />}
+                            onClick={() => copyDateTime(time.tz('UTC'), 'UTC date')}
+                            tooltip="Copy UTC date"
+                        />
                     </div>
                 )}
             </div>
@@ -96,6 +120,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         formatTime,
         showPopover = true,
         noStyles = false,
+        title,
         className,
         children,
         ...dropdownProps
@@ -114,13 +139,19 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
 
     useEffect(() => {
         // NOTE: This is an optimization to make sure we don't needlessly re-render the component every second.
-        const interval = setInterval(() => {
+        const run = (): void => {
             if (format() !== formattedContent) {
                 setFormattedContent(format())
             }
-        }, 1000)
+        }
+
+        const interval = setInterval(run, 1000)
+
+        // Run immediately and dont wait 1000ms
+        run()
+
         return () => clearInterval(interval)
-    }, [parsedTime, format])
+    }, [parsedTime, format, formattedContent])
 
     const innerContent = children ?? (
         <span
@@ -142,7 +173,8 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
                 showArrow
                 {...dropdownProps}
                 trigger="hover"
-                overlay={<TZLabelPopoverContent time={parsedTime} showSeconds={showSeconds} />}
+                closeOnClickInside={false}
+                overlay={<TZLabelPopoverContent time={parsedTime} showSeconds={showSeconds} title={title} />}
             >
                 {innerContent}
             </LemonDropdown>

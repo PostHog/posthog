@@ -1,15 +1,17 @@
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useEffect } from 'react'
 import { DashboardTemplateChooser } from 'scenes/dashboard/DashboardTemplateChooser'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
-import { TemplateAvailabilityContext } from '~/types'
+import { OnboardingStepKey, TemplateAvailabilityContext } from '~/types'
 
-import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
+import { onboardingLogic } from '../onboardingLogic'
 import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
 
 export const OnboardingDashboardTemplateSelectStep = ({
@@ -28,9 +30,7 @@ export const OnboardingDashboardTemplateSelectStep = ({
     const { isTemplateRequestModalOpen, isTemplateRequestFormSubmitting } = useValues(onboardingTemplateConfigLogic)
 
     // TODO: this is hacky, find a better way to clear the active template when coming back to this screen
-    useEffect(() => {
-        clearActiveDashboardTemplate()
-    }, [])
+    useOnMountEffect(clearActiveDashboardTemplate)
 
     return (
         <OnboardingStep

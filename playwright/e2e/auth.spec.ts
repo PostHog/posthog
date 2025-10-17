@@ -1,7 +1,7 @@
 import { PreflightStatus } from '~/types'
 
 import { LoginPage } from '../page-models/loginPage'
-import { expect, LOGIN_PASSWORD, LOGIN_USERNAME, test } from '../utils/playwright-test-base'
+import { LOGIN_PASSWORD, LOGIN_USERNAME, expect, test } from '../utils/playwright-test-base'
 
 test.describe('Auth', () => {
     let loginPage: LoginPage
@@ -109,7 +109,8 @@ test.describe('Auth', () => {
         await secondPage.goto('/logout')
 
         // Now interact with the original page
-        await page.locator('[data-attr=menu-item-me]').click()
+        // forces a click so that the visibility of other elements doesn't interfere
+        await page.locator('[data-attr=menu-item-settings]').click({ force: true })
         await expect(page).toHaveURL('/login') // Should be redirected
     })
 })

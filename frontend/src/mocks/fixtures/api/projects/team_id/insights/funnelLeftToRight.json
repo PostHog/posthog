@@ -3,39 +3,7 @@
     "short_id": "jEAIVJnB",
     "name": "",
     "derived_name": "Pageview → Pageview → Pageview user conversion rate",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0
-            },
-            {
-                "id": "$pageview",
-                "name": "$pageview",
-                "type": "events",
-                "order": 1
-            },
-            {
-                "id": "$pageview",
-                "name": "$pageview",
-                "type": "events",
-                "order": 2
-            }
-        ],
-        "actions": [],
-        "display": "FunnelViz",
-        "insight": "FUNNELS",
-        "interval": "day",
-        "exclusions": [],
-        "properties": {
-            "type": "AND",
-            "values": []
-        },
-        "funnel_viz_type": "steps",
-        "sampling_factor": 0.1
-    },
+    "filters": {},
     "filters_hash": "cache_85ca8909ab22e34f387fa4f17e919410",
     "order": null,
     "deleted": false,
@@ -107,6 +75,44 @@
         "email": "marius@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "funnelsFilter": {
+                "exclusions": [],
+                "funnelVizType": "steps"
+            },
+            "interval": "day",
+            "kind": "FunnelsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "samplingFactor": 0.1,
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview"
+                },
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview",
+                    "optionalInFunnel": true
+                },
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview"
+                }
+            ]
+        },
+        "full": true
+    }
 }

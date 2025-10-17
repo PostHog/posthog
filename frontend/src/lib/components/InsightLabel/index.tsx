@@ -1,8 +1,10 @@
 import './InsightLabel.scss'
 
-import { LemonTag } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -48,8 +50,8 @@ interface InsightsLabelProps {
 
 interface MathTagProps {
     math: string | undefined
-    mathProperty: string | undefined
-    mathHogQL: string | undefined
+    mathProperty: string | undefined | null
+    mathHogQL: string | undefined | null
     mathGroupTypeIndex: number | null | undefined
 }
 
@@ -69,7 +71,7 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
     if (math && ['sum', 'avg', 'min', 'max', 'median', 'p75', 'p90', 'p95', 'p99'].includes(math)) {
         return (
             <>
-                <LemonTag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
+                <LemonTag>{(mathDefinitions as any)[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
                 {mathProperty && (
                     <>
                         <span>of</span>
@@ -82,7 +84,8 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
     if (math === 'hogql') {
         return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{String(mathHogQL) || 'SQL'}</LemonTag>
     }
-    return <LemonTag>{capitalizeFirstLetter(math)}</LemonTag>
+    // Use mathDefinitions first, then fall back to capitalizing the math string
+    return <LemonTag>{(mathDefinitions as any)[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
 }
 
 export function InsightLabel({
@@ -165,12 +168,14 @@ export function InsightLabel({
                     )}
 
                     {((action?.math && action.math !== 'total') || showCountedByTag) && (
-                        <MathTag
-                            math={action?.math}
-                            mathProperty={action?.math_property}
-                            mathHogQL={action?.math_hogql}
-                            mathGroupTypeIndex={action?.math_group_type_index}
-                        />
+                        <div className="flex flex-nowrap items-center gap-x-1">
+                            <MathTag
+                                math={action?.math}
+                                mathProperty={action?.math_property}
+                                mathHogQL={action?.math_hogql}
+                                mathGroupTypeIndex={action?.math_group_type_index}
+                            />
+                        </div>
                     )}
 
                     {pillValues.length > 0 && (

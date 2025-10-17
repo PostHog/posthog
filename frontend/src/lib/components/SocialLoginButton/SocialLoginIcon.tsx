@@ -1,4 +1,5 @@
 import { IconGithub } from '@posthog/icons'
+
 import { IconGitlab, IconGoogle, IconKey } from 'lib/lemon-ui/icons'
 
 import { SSOProvider } from '~/types'
@@ -18,7 +19,6 @@ export const SocialLoginIcon = ({
         return <IconGitlab {...props} />
     } else if (provider === 'saml') {
         return <IconKey {...props} />
-    } else {
-        return null
     }
+    return null
 }

@@ -1,16 +1,11 @@
-import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-
-import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
 import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
 import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
 import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_metric_trend_custom_exposure.json'
 import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
+import EXPERIMENT_WITH_MEAN_METRIC from '~/mocks/fixtures/api/experiments/experiment_with_mean_metric.json'
 import {
-    ExperimentActionMetricConfig,
-    ExperimentDataWarehouseMetricConfig,
     ExperimentEventExposureConfig,
-    ExperimentEventMetricConfig,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentMetricType,
@@ -18,27 +13,26 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
-    ChartDisplayType,
-    EntityType,
+    AccessControlLevel,
+    Experiment,
     ExperimentMetricMathType,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagType,
-    InsightType,
     PropertyFilterType,
-    PropertyMathType,
     PropertyOperator,
 } from '~/types'
 
-import { getNiceTickValues } from './MetricsView/MetricsView'
+import { getNiceTickValues } from './MetricsView/shared/utils'
+import { filterToMetricConfig } from './metricQueryUtils'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
-    filterToMetricConfig,
-    getMinimumDetectableEffect,
     getViewRecordingFilters,
-    metricConfigToFilter,
-    metricToQuery,
+    getViewRecordingFiltersLegacy,
+    isLegacyExperiment,
+    isLegacyExperimentQuery,
     percentageDistribution,
     transformFiltersForWinningVariant,
 } from './utils'
@@ -67,96 +61,6 @@ describe('utils', () => {
             expect(percentageDistribution(19)).toEqual([6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
             expect(percentageDistribution(20)).toEqual([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
         })
-    })
-
-    it('Funnel experiment returns correct MDE', async () => {
-        const metricType = InsightType.FUNNELS
-        const trendResults = [
-            {
-                action: {
-                    id: '$pageview',
-                    type: 'events' as EntityType,
-                    order: 0,
-                    name: '$pageview',
-                    custom_name: null,
-                    math: 'total',
-                    math_group_type_index: null,
-                },
-                aggregated_value: 0,
-                label: '$pageview',
-                count: 0,
-                data: [],
-                labels: [],
-                days: [],
-            },
-        ]
-
-        let conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 1 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.01 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.99 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.1 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.9 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.3 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(3)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.7 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(3)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.2 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(4)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.8 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(4)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.5 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
-    })
-
-    it('Trend experiment returns correct MDE', async () => {
-        const metricType = InsightType.TRENDS
-        const conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0 }
-        const trendResults = [
-            {
-                action: {
-                    id: '$pageview',
-                    type: 'events' as EntityType,
-                    order: 0,
-                    name: '$pageview',
-                    custom_name: null,
-                    math: 'total',
-                    math_group_type_index: null,
-                },
-                aggregated_value: 0,
-                label: '$pageview',
-                count: 0,
-                data: [],
-                labels: [],
-                days: [],
-            },
-        ]
-
-        trendResults[0].count = 0
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(100)
-
-        trendResults[0].count = 200
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(100)
-
-        trendResults[0].count = 201
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(20)
-
-        trendResults[0].count = 1001
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
-
-        trendResults[0].count = 20000
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
     })
 
     it('transforms filters for a winning variant', async () => {
@@ -285,35 +189,273 @@ describe('utils', () => {
 describe('getNiceTickValues', () => {
     it('generates appropriate tick values for different ranges', () => {
         // Small values (< 0.1)
-        expect(getNiceTickValues(0.08)).toEqual([-0.1, -0.08, -0.06, -0.04, -0.02, 0, 0.02, 0.04, 0.06, 0.08, 0.1])
+        expect(getNiceTickValues(0.08)).toEqual([-0.08, -0.06, -0.04, -0.02, 0, 0.02, 0.04, 0.06, 0.08])
 
         // Medium small values (0.1 - 1)
-        expect(getNiceTickValues(0.45)).toEqual([-0.5, -0.4, -0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5])
+        expect(getNiceTickValues(0.45)).toEqual([-0.4, -0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4])
 
         // Values around 1
-        expect(getNiceTickValues(1.2)).toEqual([-1.5, -1.0, -0.5, 0, 0.5, 1.0, 1.5])
+        expect(getNiceTickValues(1.2)).toEqual([-1, -0.5, 0, 0.5, 1])
 
         // Values around 5
-        expect(getNiceTickValues(4.7)).toEqual([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5])
+        expect(getNiceTickValues(4.7)).toEqual([-4, -3, -2, -1, 0, 1, 2, 3, 4])
 
         // Larger values
-        expect(getNiceTickValues(8.5)).toEqual([-10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10])
+        expect(getNiceTickValues(8.5)).toEqual([-6, -4, -2, 0, 2, 4, 6])
     })
 })
 
 describe('getViewRecordingFilters', () => {
+    const experimentBase = {
+        id: 1,
+        name: 'test experiment',
+        feature_flag_key: 'my-flag',
+        exposure_criteria: undefined,
+        filters: {},
+        metrics: [],
+        metrics_secondary: [],
+        primary_metrics_ordered_uuids: null,
+        secondary_metrics_ordered_uuids: null,
+        saved_metrics_ids: [],
+        saved_metrics: [],
+        parameters: {
+            feature_flag_variants: [
+                { key: 'control', rollout_percentage: 50 },
+                { key: 'test', rollout_percentage: 50 },
+            ],
+        },
+        secondary_metrics: [],
+        created_at: null,
+        created_by: null,
+        updated_at: null,
+        user_access_level: AccessControlLevel.Editor,
+    }
+
+    it('adds exposure criteria if present', () => {
+        const experiment = {
+            ...experimentBase,
+            exposure_criteria: {
+                exposure_config: {
+                    kind: NodeKind.ExperimentEventExposureConfig,
+                    event: 'exposure_event',
+                    properties: [
+                        {
+                            key: 'foo',
+                            value: 'bar',
+                            operator: PropertyOperator.IsNot,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                },
+            },
+        } satisfies Experiment
+
+        const metric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: { kind: NodeKind.EventsNode, event: 'event1', name: 'event1' },
+        } satisfies ExperimentMetric
+
+        const filters = getViewRecordingFilters(experiment, metric, 'variantA')
+        expect(filters[0]).toEqual({
+            id: 'exposure_event',
+            name: 'exposure_event',
+            type: 'events',
+            properties: [
+                {
+                    key: 'foo',
+                    value: 'bar',
+                    operator: PropertyOperator.IsNot,
+                    type: PropertyFilterType.Event,
+                },
+                {
+                    key: '$feature/my-flag',
+                    type: PropertyFilterType.Event,
+                    value: ['variantA'],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+    })
+
+    it('adds default exposure event if no exposure criteria', () => {
+        const experiment = { ...experimentBase }
+        const metric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: { kind: NodeKind.EventsNode, event: 'event1', name: 'event1' },
+        } satisfies ExperimentMetric
+
+        const filters = getViewRecordingFilters(experiment, metric, 'variantA')
+        expect(filters[0]).toEqual({
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: [
+                {
+                    key: '$feature_flag_response',
+                    type: PropertyFilterType.Event,
+                    value: ['variantA'],
+                    operator: PropertyOperator.Exact,
+                },
+                {
+                    key: '$feature_flag',
+                    type: PropertyFilterType.Event,
+                    value: 'my-flag',
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+    })
+
+    it('falls back to default exposure event if exposure_criteria exists but exposure_config is undefined', () => {
+        const experiment = {
+            ...experimentBase,
+            exposure_criteria: {
+                exposure_config: undefined,
+            },
+        } satisfies Experiment
+
+        const metric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: { kind: NodeKind.EventsNode, event: 'event1', name: 'event1' },
+        } satisfies ExperimentMetric
+
+        const filters = getViewRecordingFilters(experiment, metric, 'variantA')
+        expect(filters[0]).toEqual({
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: [
+                {
+                    key: '$feature_flag_response',
+                    type: PropertyFilterType.Event,
+                    value: ['variantA'],
+                    operator: PropertyOperator.Exact,
+                },
+                {
+                    key: '$feature_flag',
+                    type: PropertyFilterType.Event,
+                    value: 'my-flag',
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+    })
+
+    it('adds mean metric event filter (no extra properties)', () => {
+        const experiment = { ...experimentBase }
+        const metric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: { kind: NodeKind.EventsNode, event: 'event1', name: 'event1' },
+        } satisfies ExperimentMetric
+
+        const filters = getViewRecordingFilters(experiment, metric, 'variantA')
+        expect(filters[1]).toEqual({
+            id: 'event1',
+            name: 'event1',
+            type: 'events',
+            properties: [],
+        })
+    })
+
+    it('adds mean metric event filter (with properties)', () => {
+        const experiment = { ...experimentBase }
+        const metric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: 'event1',
+                name: 'event1',
+                properties: [
+                    { key: 'foo', value: 'bar', operator: PropertyOperator.Exact, type: PropertyFilterType.Event },
+                ],
+            },
+        } satisfies ExperimentMetric
+
+        const filters = getViewRecordingFilters(experiment, metric, 'variantA')
+        expect(filters[1]).toEqual({
+            id: 'event1',
+            name: 'event1',
+            type: 'events',
+            properties: [
+                {
+                    key: 'foo',
+                    value: 'bar',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+            ],
+        })
+    })
+
+    it('adds mean metric action filter', () => {
+        const experiment = { ...experimentBase }
+        const metric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: { kind: NodeKind.ActionsNode, id: 123, name: 'action1' },
+        } satisfies ExperimentMetric
+
+        const filters = getViewRecordingFilters(experiment, metric, 'variantA')
+        expect(filters[1]).toEqual({
+            id: 123,
+            name: 'action1',
+            type: 'actions',
+        })
+    })
+
+    it('adds funnel metric filters for each series', () => {
+        const experiment = { ...experimentBase }
+        const metric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'event1',
+                    name: 'event1',
+                    properties: [
+                        { key: 'bar', value: 'baz', operator: PropertyOperator.Exact, type: PropertyFilterType.Event },
+                    ],
+                },
+                { kind: NodeKind.ActionsNode, id: 123, name: 'action1' },
+            ],
+        } satisfies ExperimentMetric
+
+        const filters = getViewRecordingFilters(experiment, metric, 'variantA')
+        expect(filters[1]).toEqual({
+            id: 'event1',
+            name: 'event1',
+            type: 'events',
+            properties: [
+                { key: 'bar', value: 'baz', operator: PropertyOperator.Exact, type: PropertyFilterType.Event },
+            ],
+        })
+        expect(filters[2]).toEqual({
+            id: 123,
+            name: 'action1',
+            type: 'actions',
+        })
+    })
+})
+
+describe('getViewRecordingFiltersLegacy', () => {
     const featureFlagKey = 'jan-16-running'
 
     it('returns the correct filters for an experiment query', () => {
-        const filters = getViewRecordingFilters(
-            EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY.metrics[0] as ExperimentMetric,
+        const filters = getViewRecordingFiltersLegacy(
+            EXPERIMENT_WITH_MEAN_METRIC.metrics[0] as ExperimentMetric,
             featureFlagKey,
             'control'
         )
         expect(filters).toEqual([
             {
-                id: 'storybook-click',
-                name: 'storybook-click',
+                id: '$pageview',
+                name: '$pageview',
                 type: 'events',
                 properties: [
                     {
@@ -328,7 +470,7 @@ describe('getViewRecordingFilters', () => {
     })
 
     it('returns the correct filters for a funnel metric', () => {
-        const filters = getViewRecordingFilters(
+        const filters = getViewRecordingFiltersLegacy(
             metricFunnelEventsJson as ExperimentFunnelsQuery,
             featureFlagKey,
             'control'
@@ -363,7 +505,7 @@ describe('getViewRecordingFilters', () => {
         ])
     })
     it('returns the correct filters for a trend metric', () => {
-        const filters = getViewRecordingFilters(
+        const filters = getViewRecordingFiltersLegacy(
             metricTrendFeatureFlagCalledJson as ExperimentTrendsQuery,
             featureFlagKey,
             'test'
@@ -404,7 +546,7 @@ describe('getViewRecordingFilters', () => {
         ])
     })
     it('returns the correct filters for a trend metric with custom exposure', () => {
-        const filters = getViewRecordingFilters(
+        const filters = getViewRecordingFiltersLegacy(
             metricTrendCustomExposureJson as ExperimentTrendsQuery,
             featureFlagKey,
             'test'
@@ -439,7 +581,11 @@ describe('getViewRecordingFilters', () => {
         ])
     })
     it('returns the correct filters for a trend metric with an action', () => {
-        const filters = getViewRecordingFilters(metricTrendActionJson as ExperimentTrendsQuery, featureFlagKey, 'test')
+        const filters = getViewRecordingFiltersLegacy(
+            metricTrendActionJson as ExperimentTrendsQuery,
+            featureFlagKey,
+            'test'
+        )
         expect(filters).toEqual([
             {
                 id: '$feature_flag_called',
@@ -475,6 +621,7 @@ describe('checkFeatureFlagEligibility', () => {
         key: 'test',
         name: 'Test',
         created_at: '2021-01-01',
+        updated_at: '2021-01-01',
         created_by: null,
         is_simple_flag: false,
         is_remote_configuration: false,
@@ -494,11 +641,13 @@ describe('checkFeatureFlagEligibility', () => {
         can_edit: true,
         tags: [],
         ensure_experience_continuity: null,
-        user_access_level: 'admin',
+        user_access_level: AccessControlLevel.Admin,
         status: 'ACTIVE',
         has_encrypted_payloads: false,
         version: 0,
         last_modified_by: null,
+        evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+        evaluation_tags: [],
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }
@@ -533,15 +682,6 @@ describe('checkFeatureFlagEligibility', () => {
         }
         expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
             'Feature flag must use multiple variants with control as the first variant.'
-        )
-    })
-    it('throws an error for a feature flag that already has an experiment set', () => {
-        const featureFlag = {
-            ...baseFeatureFlag,
-            experiment_set: [2],
-        }
-        expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
-            'Feature flag is already associated with an experiment.'
         )
     })
     it('returns true for a feature flag with control and test variants', () => {
@@ -631,97 +771,6 @@ describe('filterToExposureConfig', () => {
     })
 })
 
-describe('metricConfigToFilter', () => {
-    it('returns the correct filter for an event', () => {
-        const metricConfig = {
-            kind: NodeKind.ExperimentEventMetricConfig,
-            event: '$pageview',
-            name: '$pageview',
-            math: 'total',
-            math_property: undefined,
-            math_hogql: undefined,
-            properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
-        } as ExperimentEventMetricConfig
-        const filter = metricConfigToFilter(metricConfig)
-        expect(filter).toEqual({
-            events: [
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    math: 'total',
-                    math_property: undefined,
-                    math_hogql: undefined,
-                    properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
-                    kind: NodeKind.EventsNode,
-                },
-            ],
-            actions: [],
-            data_warehouse: [],
-        })
-    })
-    it('returns the correct filter for an action', () => {
-        const metricConfig = {
-            kind: NodeKind.ExperimentActionMetricConfig,
-            action: 8,
-            name: 'jan-16-running payment action',
-            math: 'total',
-            math_property: undefined,
-            math_hogql: undefined,
-            properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
-        } as ExperimentActionMetricConfig
-        const filter = metricConfigToFilter(metricConfig)
-        expect(filter).toEqual({
-            events: [],
-            actions: [
-                {
-                    id: 8,
-                    name: 'jan-16-running payment action',
-                    type: 'actions',
-                    math: 'total',
-                    math_property: undefined,
-                    math_hogql: undefined,
-                    properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
-                    kind: NodeKind.EventsNode,
-                },
-            ],
-            data_warehouse: [],
-        })
-    })
-    it('returns the correct filter for a data warehouse metric', () => {
-        const metricConfig = {
-            kind: NodeKind.ExperimentDataWarehouseMetricConfig,
-            table_name: 'mysql_payments',
-            name: 'mysql_payments',
-            timestamp_field: 'timestamp',
-            events_join_key: 'person.properties.email',
-            data_warehouse_join_key: 'customer.email',
-            math: ExperimentMetricMathType.TotalCount,
-            math_property: undefined,
-            math_hogql: undefined,
-        } as ExperimentDataWarehouseMetricConfig
-        const filter = metricConfigToFilter(metricConfig)
-        expect(filter).toEqual({
-            events: [],
-            actions: [],
-            data_warehouse: [
-                {
-                    kind: NodeKind.EventsNode,
-                    id: 'mysql_payments',
-                    name: 'mysql_payments',
-                    type: 'data_warehouse',
-                    timestamp_field: 'timestamp',
-                    events_join_key: 'person.properties.email',
-                    data_warehouse_join_key: 'customer.email',
-                    math: ExperimentMetricMathType.TotalCount,
-                    math_property: undefined,
-                    math_hogql: undefined,
-                },
-            ],
-        })
-    })
-})
-
 describe('filterToMetricConfig', () => {
     it('returns the correct metric config for an event', () => {
         const event = {
@@ -740,29 +789,32 @@ describe('filterToMetricConfig', () => {
                 },
             ],
         } as Record<string, any>
-        const metricConfig = filterToMetricConfig(event)
+        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, [event], undefined)
         expect(metricConfig).toEqual({
-            kind: NodeKind.ExperimentEventMetricConfig,
-            event: '$pageview',
-            name: '$pageview',
-            math: 'total',
-            math_property: undefined,
-            math_hogql: undefined,
-            properties: [
-                {
-                    key: '$browser',
-                    value: ['Chrome'],
-                    operator: 'exact',
-                    type: 'event',
-                },
-            ],
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: '$pageview',
+                math: 'total',
+                math_property: undefined,
+                math_hogql: undefined,
+                properties: [
+                    {
+                        key: '$browser',
+                        value: ['Chrome'],
+                        operator: 'exact',
+                        type: 'event',
+                    },
+                ],
+            },
         })
     })
     it('returns the correct metric config for an action', () => {
         const action = {
             id: '8',
             name: 'jan-16-running payment action',
-            kind: 'EventsNode',
+            kind: NodeKind.ActionsNode,
             type: 'actions',
             math: 'total',
             properties: [
@@ -776,15 +828,18 @@ describe('filterToMetricConfig', () => {
             order: 0,
             uuid: '29c01ac4-ebc3-4cb8-9d82-287c0487056e',
         } as Record<string, any>
-        const metricConfig = filterToMetricConfig(action)
+        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, [action], undefined, undefined)
         expect(metricConfig).toEqual({
-            kind: NodeKind.ExperimentActionMetricConfig,
-            action: '8',
-            name: 'jan-16-running payment action',
-            math: 'total',
-            math_property: undefined,
-            math_hogql: undefined,
-            properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.ActionsNode,
+                id: '8',
+                name: 'jan-16-running payment action',
+                math: 'total',
+                math_property: undefined,
+                math_hogql: undefined,
+                properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
+            },
         })
     })
     it('returns the correct metric config for a data warehouse metric', () => {
@@ -797,141 +852,220 @@ describe('filterToMetricConfig', () => {
             events_join_key: 'person.properties.email',
             data_warehouse_join_key: 'customer.email',
         } as Record<string, any>
-        const metricConfig = filterToMetricConfig(dataWarehouse)
+        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, [dataWarehouse])
         expect(metricConfig).toEqual({
-            kind: NodeKind.ExperimentDataWarehouseMetricConfig,
-            table_name: 'mysql_payments',
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                table_name: 'mysql_payments',
+                name: 'mysql_payments',
+                timestamp_field: 'timestamp',
+                events_join_key: 'person.properties.email',
+                data_warehouse_join_key: 'customer.email',
+                math: ExperimentMetricMathType.TotalCount,
+                math_property: undefined,
+                math_hogql: undefined,
+                properties: undefined,
+            },
+        })
+    })
+    it('returns the correct metric config for a data warehouse metric with properties', () => {
+        const dataWarehouse = {
+            kind: NodeKind.EventsNode,
+            id: 'mysql_payments',
             name: 'mysql_payments',
+            type: 'data_warehouse',
             timestamp_field: 'timestamp',
             events_join_key: 'person.properties.email',
             data_warehouse_join_key: 'customer.email',
-            math: 'total',
-            math_property: undefined,
-            math_hogql: undefined,
+            properties: [
+                {
+                    key: 'amount',
+                    value: 100,
+                    operator: PropertyOperator.GreaterThan,
+                    type: PropertyFilterType.Event,
+                },
+                {
+                    key: 'currency',
+                    value: 'USD',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+            ],
+        } as Record<string, any>
+        const metricConfig = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, [dataWarehouse])
+        expect(metricConfig).toEqual({
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.ExperimentDataWarehouseNode,
+                table_name: 'mysql_payments',
+                name: 'mysql_payments',
+                timestamp_field: 'timestamp',
+                events_join_key: 'person.properties.email',
+                data_warehouse_join_key: 'customer.email',
+                math: ExperimentMetricMathType.TotalCount,
+                math_property: undefined,
+                math_hogql: undefined,
+                properties: [
+                    {
+                        key: 'amount',
+                        value: 100,
+                        operator: PropertyOperator.GreaterThan,
+                        type: PropertyFilterType.Event,
+                    },
+                    {
+                        key: 'currency',
+                        value: 'USD',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
+            },
         })
     })
 })
 
-describe('metricToQuery', () => {
-    it('returns the correct query for a funnel metric', () => {
-        const metric: ExperimentMetric = {
-            kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.FUNNEL,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                event: 'purchase',
+describe('isLegacyExperimentQuery', () => {
+    it('returns true for ExperimentTrendsQuery', () => {
+        const query = {
+            kind: NodeKind.ExperimentTrendsQuery,
+            count_query: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
             },
         }
-
-        const query = metricToQuery(metric, false)
-        expect(query).toEqual({
-            kind: NodeKind.FunnelsQuery,
-            dateRange: {
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                explicitDate: true,
-            },
-            funnelsFilter: {
-                layout: FunnelLayout.horizontal,
-            },
-            filterTestAccounts: false,
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$feature_flag_called',
-                },
-                {
-                    kind: NodeKind.EventsNode,
-                    event: 'purchase',
-                },
-            ],
-        })
+        expect(isLegacyExperimentQuery(query)).toBe(true)
     })
 
-    it('returns the correct query for a count metric', () => {
-        const metric: ExperimentMetric = {
+    it('returns true for ExperimentFunnelsQuery', () => {
+        const query = {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+            },
+        }
+        expect(isLegacyExperimentQuery(query)).toBe(true)
+    })
+
+    it('returns false for ExperimentMetric', () => {
+        const query = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                event: '$pageview',
-                name: '$pageview',
+            source: {
+                kind: NodeKind.EventsNode,
+                event: 'test',
             },
         }
-
-        const query = metricToQuery(metric, false)
-        expect(query).toEqual({
-            kind: NodeKind.TrendsQuery,
-            interval: 'day',
-            dateRange: {
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                explicitDate: true,
-            },
-            trendsFilter: {
-                display: ChartDisplayType.ActionsLineGraph,
-            },
-            filterTestAccounts: false,
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    name: '$pageview',
-                    event: '$pageview',
-                },
-            ],
-        })
+        expect(isLegacyExperimentQuery(query)).toBe(false)
     })
 
-    it('returns the correct query for a mean metric with sum math type', () => {
-        const metric: ExperimentMetric = {
-            kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.MEAN,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                event: '$pageview',
-                name: '$pageview',
-                math: ExperimentMetricMathType.Sum,
-                math_property: 'property_value',
-            },
-        }
-
-        const query = metricToQuery(metric, true)
-        expect(query).toEqual({
-            kind: NodeKind.TrendsQuery,
-            interval: 'day',
-            dateRange: {
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                explicitDate: true,
-            },
-            trendsFilter: {
-                display: ChartDisplayType.ActionsLineGraph,
-            },
-            filterTestAccounts: true,
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$pageview',
-                    name: '$pageview',
-                    math: PropertyMathType.Sum,
-                    math_property: 'property_value',
-                },
-            ],
-        })
+    it('returns false for null/undefined', () => {
+        expect(isLegacyExperimentQuery(null)).toBe(false)
+        expect(isLegacyExperimentQuery(undefined)).toBe(false)
     })
 
-    it('returns undefined for unsupported metric types', () => {
-        const metric: ExperimentMetric = {
-            kind: NodeKind.ExperimentMetric,
-            metric_type: 'unsupported_type' as ExperimentMetricType,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                event: '$pageview',
-                name: '$pageview',
-            },
-        }
+    it('returns false for non-object values', () => {
+        expect(isLegacyExperimentQuery('string')).toBe(false)
+        expect(isLegacyExperimentQuery(123)).toBe(false)
+    })
+})
 
-        const query = metricToQuery(metric, false)
-        expect(query).toBeUndefined()
+describe('hasLegacyMetrics', () => {
+    it('returns true if experiment has legacy metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentTrendsQuery,
+                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                },
+            ],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(true)
+    })
+
+    it('returns true if experiment has legacy secondary metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [
+                {
+                    kind: NodeKind.ExperimentFunnelsQuery,
+                    funnels_query: { kind: NodeKind.FunnelsQuery, series: [] },
+                },
+            ],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(true)
+    })
+
+    it('returns true if experiment has legacy saved metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [],
+            saved_metrics: [
+                {
+                    query: {
+                        kind: NodeKind.ExperimentTrendsQuery,
+                        count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                    },
+                },
+            ],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(true)
+    })
+
+    it('returns false if experiment has no legacy metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: NodeKind.EventsNode, event: 'test' },
+                },
+            ],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(false)
+    })
+
+    it('returns false if experiment has no metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(false)
+    })
+
+    it('returns false if shared metrics contain no legacy queries', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [],
+            saved_metrics: [
+                {
+                    query: {
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'test' },
+                    },
+                },
+            ],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(false)
     })
 })

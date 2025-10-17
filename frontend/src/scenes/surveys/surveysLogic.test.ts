@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Survey, SurveySchedule, SurveyType } from '~/types'
+import { AccessControlLevel, Survey, SurveySchedule, SurveyType } from '~/types'
 
 import { surveysLogic } from './surveysLogic'
 
@@ -27,6 +27,7 @@ const createTestSurvey = (id: string, name: string): Survey => ({
     iteration_count: null,
     iteration_frequency_days: null,
     schedule: SurveySchedule.Once,
+    user_access_level: AccessControlLevel.Editor,
 })
 
 describe('surveysLogic', () => {

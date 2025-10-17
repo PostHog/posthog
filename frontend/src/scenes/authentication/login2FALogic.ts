@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
+
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -24,9 +25,9 @@ export enum LoginStep {
 
 export const login2FALogic = kea<login2FALogicType>([
     path(['scenes', 'authentication', 'login2FALogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         setLoginStep: (step: LoginStep) => ({ step }),

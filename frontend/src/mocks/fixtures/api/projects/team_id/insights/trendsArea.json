@@ -3,16 +3,7 @@
     "short_id": "Khitkwur",
     "name": "",
     "derived_name": "Pageview count",
-    "filters": {
-        "events": [{ "id": "$pageview", "name": "$pageview", "type": "events", "order": 0 }],
-        "actions": [],
-        "display": "ActionsAreaGraph",
-        "insight": "TRENDS",
-        "interval": "day",
-        "properties": [],
-        "filter_test_accounts": false,
-        "date_from": "-7d"
-    },
+    "filters": {},
     "filters_hash": "cache_b6d0b194beb8fdc574de3857c4d3de4e",
     "order": null,
     "deleted": false,
@@ -190,8 +181,30 @@
         "email": "test@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37,
     "timezone": null,
-    "tags": []
+    "tags": [],
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "dateRange": {
+                "date_from": "-7d"
+            },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview"
+                }
+            ],
+            "trendsFilter": {
+                "display": "ActionsAreaGraph",
+                "resultCustomizationBy": "value"
+            },
+            "version": 2
+        },
+        "full": true
+    }
 }

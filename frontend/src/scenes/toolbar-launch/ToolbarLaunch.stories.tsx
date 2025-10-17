@@ -1,7 +1,9 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,7 +19,7 @@ const meta: Meta = {
         testOptions: {
             includeNavigationInSnapshot: true,
         },
-        featureFlags: ['web-experiments', 'web-vitals', 'web-vitals-toolbar'],
+        featureFlags: [FEATURE_FLAGS.WEB_EXPERIMENTS],
         viewMode: 'story',
         mockDate: '2024-01-01',
     },
@@ -41,9 +43,7 @@ const meta: Meta = {
 export default meta
 
 const Template: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.dashboards())
-    }, [])
+    useOnMountEffect(() => router.actions.push(urls.dashboards()))
 
     return <ToolbarLaunch />
 }
@@ -54,10 +54,10 @@ export const NoUrlsTemplate: StoryFn = () => {
     const { currentTeam } = useValues(teamLogic)
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const team = { ...currentTeam, app_urls: [] }
         loadCurrentTeamSuccess(team as TeamPublicType)
-    }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    })
 
     return <Template />
 }
@@ -74,10 +74,10 @@ export const EmptyStateTemplate: StoryFn = () => {
     const { currentTeam } = useValues(teamLogic)
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const team = { ...currentTeam, app_urls: [] }
         loadCurrentTeamSuccess(team as TeamPublicType)
-    }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    })
 
     useStorybookMocks({
         post: { '/api/environments/:environment_id/query/': () => [200, { results: [] }] },

@@ -1,6 +1,6 @@
-// Signup.stories.tsx
 import { Meta } from '@storybook/react'
-import { useEffect } from 'react'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -22,6 +22,7 @@ const meta: Meta = {
     ],
 }
 export default meta
+
 export const SelfHosted = (): JSX.Element => {
     useStorybookMocks({
         get: {
@@ -33,9 +34,9 @@ export const SelfHosted = (): JSX.Element => {
             },
         },
     })
-    useEffect(() => {
-        userLogic.actions.loadUserSuccess(null)
-    }, [])
+
+    useDelayedOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
+
     return <SignupContainer />
 }
 
@@ -50,9 +51,9 @@ export const SelfHostedSSO = (): JSX.Element => {
             },
         },
     })
-    useEffect(() => {
-        userLogic.actions.loadUserSuccess(null)
-    }, [])
+
+    useDelayedOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
+
     return <SignupContainer />
 }
 
@@ -67,8 +68,8 @@ export const Cloud = (): JSX.Element => {
             },
         },
     })
-    useEffect(() => {
-        userLogic.actions.loadUserSuccess(null)
-    }, [])
+
+    useDelayedOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
+
     return <SignupContainer />
 }

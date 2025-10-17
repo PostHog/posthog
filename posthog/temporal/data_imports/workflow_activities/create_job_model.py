@@ -1,17 +1,20 @@
-import dataclasses
 import uuid
+import typing
+import dataclasses
 
 from django.db import close_old_connections
+
+from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-# TODO: remove dependency
-
+from posthog.temporal.common.logger import get_logger
 from posthog.warehouse.data_load.service import delete_external_data_schedule
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
-from posthog.warehouse.models.external_data_schema import (
-    ExternalDataSchema,
-)
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+
+LOGGER = get_logger(__name__)
+
+# TODO: remove dependency
 
 
 @dataclasses.dataclass
@@ -21,12 +24,22 @@ class CreateExternalDataJobModelActivityInputs:
     source_id: uuid.UUID
     billable: bool
 
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "schema_id": self.schema_id,
+            "source_id": self.source_id,
+            "billable": self.billable,
+        }
+
 
 @activity.defn
 def create_external_data_job_model_activity(
     inputs: CreateExternalDataJobModelActivityInputs,
 ) -> tuple[str, bool, str]:
-    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
 
     close_old_connections()
 

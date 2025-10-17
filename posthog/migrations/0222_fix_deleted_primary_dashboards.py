@@ -1,6 +1,7 @@
-import structlog
 from django.db import connection, migrations
 from django.db.models import Q
+
+import structlog
 
 # 0220_set_primary_dashboard set the primary dashboard for teams, but
 # it didn't account for deleted dashboards. This migration fixes projects

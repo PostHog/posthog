@@ -1,9 +1,9 @@
 // Adapted from https://raw.githubusercontent.com/microsoft/monaco-editor/main/src/basic-languages/mysql/mysql.ts
-
 import { Monaco } from '@monaco-editor/react'
+import { languages } from 'monaco-editor'
+
 import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
-import { languages } from 'monaco-editor'
 
 import { HogLanguage } from '~/queries/schema/schema-general'
 
@@ -249,8 +249,10 @@ export const language: () => languages.IMonarchLanguage = () => ({
         '_toInt64',
         'toFloat',
         'toDecimal',
+        '_toDate',
         'toDate',
         'toDateTime',
+        'toDateTimeUS',
         'toUUID',
         'toString',
         'toJSONString',
@@ -780,6 +782,9 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'maxIntersectionsIf',
         'maxIntersectionsPosition',
         'maxIntersectionsPositionIf',
+        'getSurveyResponse',
+        'windowFunnel',
+        'languageCodeToName',
     ],
     builtinVariables: [],
     tokenizer: {

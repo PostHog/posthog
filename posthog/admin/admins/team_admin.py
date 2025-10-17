@@ -1,8 +1,9 @@
 from django.contrib import admin
+from django.urls import reverse
 from django.utils.html import format_html
-from posthog.admin.inlines.action_inline import ActionInline
-from posthog.admin.inlines.group_type_mapping_inline import GroupTypeMappingInline
 
+from posthog.admin.inlines.group_type_mapping_inline import GroupTypeMappingInline
+from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.models import Team
 
 
@@ -33,19 +34,20 @@ class TeamAdmin(admin.ModelAdmin):
         "id",
         "uuid",
         "organization",
+        "project",
         "primary_dashboard",
         "test_account_filters",
         "created_at",
         "updated_at",
+        "internal_properties",
     ]
-    autocomplete_fields = ["project"]
 
-    inlines = [GroupTypeMappingInline, ActionInline]
+    inlines = [GroupTypeMappingInline, TeamMarketingAnalyticsConfigInline]
     fieldsets = [
         (
             None,
             {
-                "fields": ["name", "id", "uuid", "organization", "project"],
+                "fields": ["name", "id", "uuid", "organization", "project", "internal_properties"],
             },
         ),
         (
@@ -55,6 +57,8 @@ class TeamAdmin(admin.ModelAdmin):
                 "fields": [
                     "api_token",
                     "timezone",
+                    "week_start_day",
+                    "base_currency",
                     "slack_incoming_webhook",
                     "primary_dashboard",
                 ],
@@ -85,16 +89,20 @@ class TeamAdmin(admin.ModelAdmin):
                     "person_processing_opt_out",
                     "capture_console_log_opt_in",
                     "capture_performance_opt_in",
+                    "recording_domains",
                     "session_recording_sample_rate",
                     "session_recording_minimum_duration_milliseconds",
                     "session_recording_linked_flag",
+                    "session_recording_retention_period",
                     "api_query_rate_limit",
                     "data_attributes",
                     "session_recording_version",
-                    "access_control",
                     "inject_web_apps",
+                    "web_analytics_pre_aggregated_tables_enabled",
+                    "web_analytics_pre_aggregated_tables_version",
                     "extra_settings",
                     "modifiers",
+                    "drop_events_older_than",
                 ],
             },
         ),
@@ -112,15 +120,33 @@ class TeamAdmin(admin.ModelAdmin):
     ]
 
     def organization_link(self, team: Team):
-        return format_html(
-            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
-            team.organization.pk,
-            team.organization.name,
-        )
+        if team.organization:
+            return format_html(
+                '<a href="{}">{}</a>',
+                reverse("admin:posthog_organization_change", args=[team.organization.pk]),
+                team.organization.name,
+            )
+        return "-"
 
     def project_link(self, team: Team):
-        return format_html(
-            '<a href="/admin/posthog/project/{}/change/">{}</a>',
-            team.project.pk,
-            team.project.name,
-        )
+        if team.project:
+            return format_html(
+                '<a href="{}">{}</a>',
+                reverse("admin:posthog_project_change", args=[team.project.pk]),
+                team.project.name,
+            )
+        return "-"
+
+    @admin.display(description="PostHog system internal properties")
+    def internal_properties(self, team: Team):
+        from posthog import settings
+        from posthog.rate_limit import team_is_allowed_to_bypass_throttle
+
+        props: list[str] = []
+        if settings.API_QUERIES_LEGACY_TEAM_LIST and team.id in settings.API_QUERIES_LEGACY_TEAM_LIST:
+            props.append("API_QUERIES_LEGACY_RATE_LIMIT")
+        if settings.API_QUERIES_PER_TEAM and team.id in settings.API_QUERIES_PER_TEAM:
+            props.append("API_QUERIES_PER_TEAM:{}".format(settings.API_QUERIES_PER_TEAM[team.id]))
+        if team_is_allowed_to_bypass_throttle(team.id):
+            props.append("API_QUERIES_RATE_LIMIT_BYPASS")
+        return format_html("<span>{}</span>", ", ".join(props) or "-")

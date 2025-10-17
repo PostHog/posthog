@@ -1,8 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-
-template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
+    status="beta",
     free=False,
     type="destination",
     id="template-airtable",
@@ -10,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Creates Airtable records",
     icon_url="/static/services/airtable.png",
     category=["Custom"],
-    hog="""
+    code_language="hog",
+    code="""
 let url := f'https://api.airtable.com/v0/{inputs.base_id}/{inputs.table_name}'
 
 let payload := {

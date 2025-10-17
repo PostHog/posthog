@@ -1,9 +1,11 @@
-import { exec as hogExec, execAsync as hogExecAsync, ExecOptions, ExecResult, VMState } from '@posthog/hogvm'
 import * as crypto from 'crypto'
 import { RE2JS } from 're2js'
 
+import { ExecOptions, ExecResult, VMState, exec as hogExec, execAsync as hogExecAsync } from '@posthog/hogvm'
+
 import { performQuery } from '~/queries/query'
 import { HogQLASTQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 const external = {
     crypto, // TODO: switch to webcrypto and polyfill on the node side
@@ -22,14 +24,14 @@ const external = {
 export function execHog(code: any[] | VMState, options?: ExecOptions): ExecResult {
     return hogExec(code, {
         external,
-        ...(options ?? {}),
+        ...options,
     })
 }
 
 export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Promise<ExecResult> {
     return hogExecAsync(code, {
         external,
-        ...(options ?? {}),
+        ...options,
         asyncFunctions: {
             sleep: (seconds: number) => {
                 return new Promise((resolve) => setTimeout(resolve, seconds * 1000))
@@ -37,11 +39,17 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
             run: async (queryInput: string | Record<string, any>) => {
                 const queryNode: HogQLQuery | HogQLASTQuery =
                     typeof queryInput === 'object'
-                        ? {
-                              kind: NodeKind.HogQLASTQuery,
-                              query: queryInput,
-                          }
-                        : { kind: NodeKind.HogQLQuery, query: queryInput }
+                        ? setLatestVersionsOnQuery(
+                              {
+                                  kind: NodeKind.HogQLASTQuery,
+                                  query: queryInput,
+                              },
+                              { recursion: false }
+                          )
+                        : setLatestVersionsOnQuery(
+                              { kind: NodeKind.HogQLQuery, query: queryInput },
+                              { recursion: false }
+                          )
                 const response = await performQuery(queryNode)
                 return { results: response.results, columns: response.columns }
             },
@@ -51,7 +59,7 @@ export function execHogAsync(code: any[] | VMState, options?: ExecOptions): Prom
             posthogCapture: () => {
                 throw new Error('posthogCapture is not yet supported here')
             },
-            ...(options?.asyncFunctions ?? {}),
+            ...options?.asyncFunctions,
         },
     })
 }

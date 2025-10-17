@@ -3,11 +3,12 @@ from typing import Optional
 
 import structlog
 
-from ee.tasks.subscriptions.subscription_utils import UTM_TAGS_BASE
 from posthog.email import EmailMessage
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, get_unsubscribe_token
 from posthog.utils import absolute_uri
+
+from ee.tasks.subscriptions.subscription_utils import UTM_TAGS_BASE
 
 logger = structlog.get_logger(__name__)
 
@@ -18,6 +19,7 @@ def send_email_subscription_report(
     assets: list[ExportedAsset],
     invite_message: Optional[str] = None,
     total_asset_count: Optional[int] = None,
+    send_async: bool = True,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
 
@@ -64,4 +66,4 @@ def send_email_subscription_report(
         },
     )
     message.add_recipient(email=email)
-    message.send()
+    message.send(send_async=send_async)

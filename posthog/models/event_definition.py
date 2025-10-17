@@ -3,10 +3,10 @@ from django.db import models
 from django.utils import timezone
 
 from posthog.models.team import Team
-from posthog.models.utils import UUIDModel, UniqueConstraintByExpression
+from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 
 
-class EventDefinition(UUIDModel):
+class EventDefinition(UUIDTModel):
     team = models.ForeignKey(
         Team,
         on_delete=models.CASCADE,
@@ -36,7 +36,6 @@ class EventDefinition(UUIDModel):
                 opclasses=["gin_trgm_ops"],
             ),  # To speed up DB-based fuzzy searching
         ]
-        unique_together = ("team", "name")
         constraints = [
             UniqueConstraintByExpression(
                 concurrently=True,

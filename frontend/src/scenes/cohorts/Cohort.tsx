@@ -1,17 +1,30 @@
 import { CohortEdit } from 'scenes/cohorts/CohortEdit'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { CohortLogicProps } from './cohortEditLogic'
+import { CohortType } from '~/types'
+
 import { cohortSceneLogic } from './cohortSceneLogic'
 
-export const scene: SceneExport = {
+interface CohortSceneProps {
+    id?: CohortType['id']
+    tabId?: string
+}
+export const scene: SceneExport<CohortSceneProps> = {
     component: Cohort,
     logic: cohortSceneLogic,
-    paramsToProps: ({ params: { id } }): (typeof cohortSceneLogic)['props'] => ({
+    paramsToProps: ({ params: { id } }) => ({
         id: id && id !== 'new' ? parseInt(id) : 'new',
     }),
 }
 
-export function Cohort({ id }: CohortLogicProps = {}): JSX.Element {
-    return <CohortEdit id={id} />
+interface CohortProps {
+    id?: CohortType['id']
+    tabId?: string
+}
+
+export function Cohort({ id, tabId }: CohortProps): JSX.Element {
+    if (!tabId) {
+        throw new Error('Cohort must receive a tabId prop')
+    }
+    return <CohortEdit id={id} attachTo={cohortSceneLogic({ tabId })} tabId={tabId} />
 }

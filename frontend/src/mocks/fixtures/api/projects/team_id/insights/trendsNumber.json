@@ -3,24 +3,7 @@
     "short_id": "sJslPafh",
     "name": "Signups!",
     "derived_name": "signed_up count",
-    "filters": {
-        "events": [
-            {
-                "id": "signed_up",
-                "name": "signed_up",
-                "type": "events",
-                "order": 0
-            }
-        ],
-        "actions": [],
-        "display": "BoldNumber",
-        "insight": "TRENDS",
-        "interval": "day",
-        "date_from": "-7d",
-        "new_entity": [],
-        "properties": [],
-        "filter_test_accounts": false
-    },
+    "filters": {},
     "filters_hash": "cache_e7e4a4edb0e8e08b135e84dd64714fc6",
     "order": null,
     "deleted": false,
@@ -96,8 +79,30 @@
         "email": "427@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37,
     "timezone": null,
-    "tags": []
+    "tags": [],
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "dateRange": {
+                "date_from": "-7d"
+            },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "series": [
+                {
+                    "event": "signed_up",
+                    "kind": "EventsNode",
+                    "name": "signed_up"
+                }
+            ],
+            "trendsFilter": {
+                "display": "BoldNumber",
+                "resultCustomizationBy": "value"
+            },
+            "version": 2
+        },
+        "full": true
+    }
 }

@@ -1,8 +1,8 @@
 from contextlib import contextmanager
 from functools import wraps
 
-from django.dispatch.dispatcher import receiver
 from django.dispatch import Signal
+from django.dispatch.dispatcher import receiver
 
 is_muted = False
 

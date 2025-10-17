@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -9,7 +10,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { useEffect } from 'react'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -32,11 +33,11 @@ export const FlagsToolbarMenu = (): JSX.Element => {
     const { apiURL, posthog: posthogClient } = useValues(toolbarConfigLogic)
     const { openPayloadEditors } = useValues(flagsToolbarLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         posthogClient?.onFeatureFlags(setFeatureFlagValueFromPostHogClient)
         getUserFlags()
         checkLocalOverrides()
-    }, [])
+    })
 
     return (
         <ToolbarMenu>
@@ -111,7 +112,9 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                     value={typeof currentValue === 'string' ? currentValue : undefined}
                                                     options={
                                                         feature_flag.filters?.multivariate?.variants.map((variant) => ({
-                                                            label: `${variant.key} - ${variant.name} (${variant.rollout_percentage}%)`,
+                                                            label: `${variant.key}${
+                                                                variant.name ? ` - ${variant.name}` : ''
+                                                            } (${variant.rollout_percentage}%)`,
                                                             value: variant.key,
                                                         })) || []
                                                     }

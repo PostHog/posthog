@@ -1,4 +1,4 @@
-import { HogFunctionInvocationGlobals } from '~/src/cdp/types'
+import { HogFunctionInvocationGlobals } from '~/cdp/types'
 
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './default.template'
@@ -9,8 +9,8 @@ describe('default.template.ts', () => {
 
     beforeEach(async () => {
         await tester.beforeEach()
-        const date = new Date('2024-01-01')
-        jest.useFakeTimers().setSystemTime(date)
+        const fixedTime = new Date('2024-01-01')
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
 
         mockGlobals = tester.createGlobals({
             event: {
@@ -35,6 +35,7 @@ describe('default.template.ts', () => {
                 elements_chain: '',
                 event: 'event-name',
                 properties: {
+                    $example_added_property: 'example',
                     test_property: 'test_value',
                 },
                 timestamp: '2024-01-01T00:00:00Z',

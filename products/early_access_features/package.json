@@ -1,14 +1,16 @@
 {
     "name": "@posthog/products-early-access-features",
+    "dependencies": {
+        "kea": "^3.1.7",
+        "kea-forms": "^3.2.0",
+        "kea-loaders": "^3.1.1",
+        "kea-router": "^3.4.1"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@storybook/react": "*",
         "@types/react": "*",
         "clsx": "*",
-        "kea": "*",
-        "kea-forms": "*",
-        "kea-loaders": "*",
-        "kea-router": "*",
         "react": "*"
     }
 }

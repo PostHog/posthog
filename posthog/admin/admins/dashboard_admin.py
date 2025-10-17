@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.models import Dashboard, DashboardTile
@@ -36,15 +37,15 @@ class DashboardAdmin(admin.ModelAdmin):
     @admin.display(description="Team")
     def team_link(self, dashboard: Dashboard):
         return format_html(
-            '<a href="/admin/posthog/team/{}/change/">{}</a>',
-            dashboard.team.pk,
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[dashboard.team.pk]),
             dashboard.team.name,
         )
 
     @admin.display(description="Organization")
     def organization_link(self, dashboard: Dashboard):
         return format_html(
-            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
-            dashboard.team.organization.pk,
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_organization_change", args=[dashboard.team.organization.pk]),
             dashboard.team.organization.name,
         )

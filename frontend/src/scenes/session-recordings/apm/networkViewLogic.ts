@@ -1,17 +1,19 @@
 import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyMilliseconds } from 'lib/utils'
 import { performanceEventDataLogic } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { percentagesWithinEventRange } from 'scenes/session-recordings/apm/waterfall/TimingBar'
 import {
-    sessionRecordingDataLogic,
-    SessionRecordingDataLogicProps,
-} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+    SessionRecordingDataCoordinatorLogicProps,
+    sessionRecordingDataCoordinatorLogic,
+} from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 
 import { PerformanceEvent } from '~/types'
 
 import type { networkViewLogicType } from './networkViewLogicType'
 
-export interface NetworkViewLogicProps extends SessionRecordingDataLogicProps {}
+export interface NetworkViewLogicProps extends SessionRecordingDataCoordinatorLogicProps {}
 
 export const networkViewLogic = kea<networkViewLogicType>([
     path(['scenes', 'session-recordings', 'apm', 'networkViewLogic']),
@@ -19,12 +21,12 @@ export const networkViewLogic = kea<networkViewLogicType>([
     props({} as NetworkViewLogicProps),
     connect((props: NetworkViewLogicProps) => ({
         values: [
-            sessionRecordingDataLogic(props),
-            ['sessionPlayerData', 'sessionPlayerMetaData', 'snapshotsLoading', 'sessionPlayerMetaDataLoading'],
+            sessionRecordingDataCoordinatorLogic(props),
+            ['sessionPlayerData', 'sessionPlayerMetaData', 'snapshotsLoading', 'sessionPlayerMetaDataLoading', 'start'],
             performanceEventDataLogic({ key: props.sessionRecordingId, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents', 'sizeBreakdown'],
         ],
-        actions: [sessionRecordingDataLogic(props), ['loadSnapshots', 'maybeLoadRecordingMeta']],
+        actions: [sessionRecordingDataCoordinatorLogic(props), ['loadSnapshots', 'maybeLoadRecordingMeta']],
     })),
     actions({
         nextPage: () => true,
@@ -49,12 +51,15 @@ export const networkViewLogic = kea<networkViewLogicType>([
             (snapshotsLoading, sessionPlayerMetaDataLoading) => snapshotsLoading || sessionPlayerMetaDataLoading,
         ],
         pageViews: [
-            (s) => [s.allPerformanceEvents],
-            (allPerformanceEvents: PerformanceEvent[]) => {
+            (s) => [s.allPerformanceEvents, s.start],
+            (
+                allPerformanceEvents: PerformanceEvent[],
+                start: Dayjs
+            ): (PerformanceEvent & { timeInRecording: number })[][] => {
                 // ignore events before the first navigation event
                 // then we create an array of performance events for each page
                 // and store them in an array
-                const pages: PerformanceEvent[][] = []
+                const pages: (PerformanceEvent & { timeInRecording: number })[][] = []
 
                 for (const perfEvent of allPerformanceEvents) {
                     const hasAnyNavigation = Object.keys(pages).length
@@ -62,10 +67,14 @@ export const networkViewLogic = kea<networkViewLogicType>([
                     if (!hasAnyNavigation && eventType !== 'navigation') {
                         continue
                     }
+                    const timedEvent = {
+                        ...perfEvent,
+                        timeInRecording: dayjs(perfEvent.timestamp).valueOf() - start?.valueOf(),
+                    }
                     if (eventType === 'navigation') {
-                        pages.push([perfEvent])
+                        pages.push([timedEvent])
                     } else {
-                        pages[pages.length - 1].push(perfEvent)
+                        pages[pages.length - 1].push(timedEvent)
                     }
                 }
 

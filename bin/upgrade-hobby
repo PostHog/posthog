@@ -28,7 +28,7 @@ else
     echo ""
     echo ""
     echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
-    echo "🚨🚨🚨🚨🚨 WARNING: POTENTIAL DATA LOSS 🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨 WARNING: POTENTIAL DATA LOSS 🚨🚨🚨🚨🚨"
     echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
     echo ""
     echo ""
@@ -55,7 +55,40 @@ else
     fi
 fi
 
-[[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
+# a previous version of the deploy script should have been quoting the caddy_host env var
+tmp="$(mktemp)"
+awk '
+  /^[[:space:]]*($|#)/ { print; next }        # keep blanks/comments
+  {
+    # split on first "=" only
+    p = index($0, "="); if (!p) { print; next }
+    key = substr($0,1,p-1); val = substr($0,p+1)
+
+    # trim
+    sub(/^[[:space:]]+/,"",key); sub(/[[:space:]]+$/,"",key)
+    sub(/^[[:space:]]+/,"",val); sub(/[[:space:]]+$/,"",val)
+
+    # already quoted?
+    if (val ~ /^".*"$/ || val ~ /^'\''.*'\''$/) { print key "=" val; next }
+
+    # quote if value has space, comma, or ://
+    if (val ~ /[[:space:],]|:\/\//) {
+      gsub(/"/, "\\\"", val)
+      print key "=\"" val "\""
+    } else {
+      print key "=" val
+    }
+  }
+' .env > "$tmp" && mv "$tmp" .env
+
+if [[ -f ".env" ]]; then
+    set -a           # auto-export all variables
+    . ./.env         # or: source .env
+    set +a
+else
+    echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set."
+    exit 1
+fi
 
 # we introduced ENCRYPTION_SALT_KEYS and so if there isn't one, need to add it
 # check for it in the .env file
@@ -77,6 +110,13 @@ else
     fi
 fi
 
+if ! grep -q "SESSION_RECORDING_V2_METADATA_SWITCHOVER" .env; then
+  SESSION_RECORDING_V2_METADATA_SWITCHOVER=$(date -Iseconds)
+  echo "SESSION_RECORDING_V2_METADATA_SWITCHOVER=$SESSION_RECORDING_V2_METADATA_SWITCHOVER" >> .env
+  echo "Added missing SESSION_RECORDING_V2_METADATA_SWITCHOVER to .env file"
+  echo "Session replay will switch to v2 ingestion"
+  source .env
+fi
 
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
 
@@ -84,10 +124,22 @@ cd posthog
 git pull --prune
 cd ../
 
-# Upgrade Docker Compose to version 2.13.0
+# Download GeoLite2-City.mmdb if it doesn't exist
+echo "Downloading GeoIP database file"
+apt-get update && 
+apt-get install -y --no-install-recommends curl ca-certificates brotli && 
+mkdir -p ./share && 
+if [ ! -f ./share/GeoLite2-City.mmdb ]; then 
+    curl -L 'https://mmdbcdn.posthog.net/' --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb && 
+    echo '{\"date\": \"'$(date +%Y-%m-%d)'\"}' > ./share/GeoLite2-City.json && 
+    chmod 644 ./share/GeoLite2-City.mmdb &&
+    chmod 644 ./share/GeoLite2-City.json
+fi
+
+# Upgrade Docker Compose to version 2.33.1
 echo "Setting up Docker Compose"
 sudo rm /usr/local/bin/docker-compose
-sudo curl -L "https://github.com/docker/compose/releases/download/v2.13.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || true
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.33.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || true
 sudo chmod +x /usr/local/bin/docker-compose
 
 rm -f docker-compose.yml
@@ -109,7 +161,7 @@ docker-compose stop
 # single script.
 cat > compose/start <<EOF
 #!/bin/bash
-/compose/wait
+./compose/wait
 ./bin/migrate
 ./bin/docker-server
 EOF
@@ -119,7 +171,7 @@ then
     echo ""
     echo ""
     echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
-    echo "🚨🚨🚨🚨🚨WARNING: LAST CHANCE TO AVOID DATA LOSS 🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨🚨WARNING: LAST CHANCE TO AVOID DATA LOSS 🚨🚨🚨"
     echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
     echo ""
     echo ""

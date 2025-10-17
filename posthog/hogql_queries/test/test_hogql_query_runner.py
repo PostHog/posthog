@@ -1,15 +1,25 @@
+from datetime import UTC, datetime
+from typing import cast
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
+
+from posthog.schema import (
+    CachedHogQLQueryResponse,
+    HogQLASTQuery,
+    HogQLFilters,
+    HogQLPropertyFilter,
+    HogQLQuery,
+    HogQLVariable,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.visitor import clear_locations
+
+from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
-from posthog.schema import HogQLASTQuery, HogQLPropertyFilter, HogQLQuery, HogQLFilters
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    flush_persons_and_events,
-    _create_event,
-)
 
 
 class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -130,3 +140,67 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(clear_locations(query), expected)
         response = runner.calculate()
         self.assertEqual(response.results[0][0], 1)
+
+    def test_cache_target_age_is_two_hours_in_future_after_run(self):
+        runner = self._create_runner(HogQLQuery(query="select count(event) from events"))
+
+        fixed_now = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
+        expected_target_age = fixed_now + staleness_threshold_map[ThresholdMode.DEFAULT]["day"]
+
+        with patch("posthog.hogql_queries.query_runner.datetime") as mock_datetime:
+            mock_datetime.now.return_value = fixed_now
+            mock_datetime.timezone.utc = UTC
+
+            response = cast(CachedHogQLQueryResponse, runner.run())
+
+            self.assertIsNotNone(response.cache_target_age)
+            self.assertEqual(response.cache_target_age, expected_target_age)
+
+    def test_variables_in_hog_expression(self):
+        variable = InsightVariable.objects.create(team=self.team, name="Foo", code_name="foo", type="Boolean")
+        variable_id = str(variable.id)
+
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select {variables.foo ? 'exists' : 'does not'}",
+                variables={
+                    variable_id: HogQLVariable(code_name=variable.code_name, variableId=variable_id, value=True)
+                },
+            )
+        )
+
+        response = runner.calculate()
+        self.assertEqual(response.results[0][0], "exists")
+
+    def test_variables_in_hog_expression_sql(self):
+        variable = InsightVariable.objects.create(team=self.team, name="Bar", code_name="bar", type="Boolean")
+        variable_id = str(variable.id)
+
+        _create_event(distinct_id=f"id-{self.random_uuid}-3", event="clicky-3", team=self.team)
+        flush_persons_and_events()
+
+        query = (
+            "select count() from events where " "{variables.bar ? sql(event = 'clicky-3') : sql(event = 'clicky-4')}"
+        )
+
+        runner_true = self._create_runner(
+            HogQLQuery(
+                query=query,
+                variables={
+                    variable_id: HogQLVariable(code_name=variable.code_name, variableId=variable_id, value=True)
+                },
+            )
+        )
+        result_true = runner_true.calculate()
+        self.assertEqual(result_true.results[0][0], 2)
+
+        runner_false = self._create_runner(
+            HogQLQuery(
+                query=query,
+                variables={
+                    variable_id: HogQLVariable(code_name=variable.code_name, variableId=variable_id, value=False)
+                },
+            )
+        )
+        result_false = runner_false.calculate()
+        self.assertEqual(result_false.results[0][0], 1)

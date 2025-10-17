@@ -1,11 +1,15 @@
 from typing import Optional
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
 from django.test import override_settings
 
-from posthog.hogql.metadata import get_hogql_metadata
-from posthog.models import Cohort, PropertyDefinition
 from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLQuery
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from posthog.hogql.metadata import get_hogql_metadata
+
+from posthog.models import Cohort, PropertyDefinition
+from posthog.warehouse.models import ExternalDataSource, ExternalDataSourceType
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
@@ -279,7 +283,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "select event AS event FROM events",
                 "errors": [],
             },
@@ -287,7 +290,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_valid_view_nested_view(self):
         saved_query_response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "event_view",
                 "query": {
@@ -305,7 +308,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "select event AS event FROM event_view",
                 "errors": [],
             },
@@ -341,7 +343,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "query": "let i := NONO()",
                 "isValid": False,
-                "isValidView": False,
                 "notices": [],
                 "warnings": [],
                 "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}],
@@ -356,7 +357,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "query": "print(event, region)",
                 "isValid": True,
-                "isValidView": False,
                 "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6}],
                 "warnings": [{"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13}],
                 "errors": [],
@@ -392,7 +392,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "SELECT event AS event FROM events",
                 "errors": [],
             },
@@ -405,7 +404,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "SELECT event AS event, uuid FROM events",
                 "errors": [],
             },
@@ -418,7 +416,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": False,
                 "query": "SELECT toDate(timestamp), count() FROM events GROUP BY toDate(timestamp)",
                 "errors": [],
             },
@@ -433,7 +430,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "SELECT toDate(timestamp) as timestamp, count() as total_count FROM events GROUP BY timestamp",
                 "errors": [],
             },
@@ -446,7 +442,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": False,
                 "query": "SELECT * FROM events",
                 "errors": [],
             },
@@ -459,7 +454,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": False,
                 "query": "SELECT e.* FROM events e",
                 "errors": [],
             },
@@ -513,3 +507,34 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             LEFT JOIN cohorts c ON p.cohort_id = c.id
         """)
         self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons", "cohorts"]))
+
+    def test_experimental_join_condition(self):
+        metadata = self._select("""
+        SELECT t1.a
+        FROM
+            (SELECT number AS a, number * 10 AS b FROM numbers(5)) AS t1
+        JOIN
+            (SELECT number AS key, number * 2 AS c, number * 3 AS d FROM numbers(5)) AS t2
+        ON t1.a = t2.key
+        WHERE t1.b > 0 AND t2.c < t2.d
+        """)
+        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["numbers"]))
+
+    def test_views_type_resolution(self):
+        _source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="prefix",
+        )
+
+        metadata = self._select("SELECT metadata, metadata.name AS name FROM stripe.prefix.customer_revenue_view")
+        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["stripe.prefix.customer_revenue_view"]))
+
+        # Doesn't include `name` because it's a property access and not a field
+        # TODO: Should *probably* update the code to resolve that type as well
+        self.assertEqual([notice.message for notice in metadata.notices or []], ["Field 'metadata' is of type 'JSON'"])

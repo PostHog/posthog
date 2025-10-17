@@ -1,22 +1,17 @@
-import json
-
-import openai
-
 from datetime import datetime
 from typing import Optional, cast
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.schema import HogQLQueryResponse
-from posthog.utils import get_instance_region
-
+import openai
+import structlog
 from prometheus_client import Histogram
 
-from posthog.api.activity_log import ServerTimingsGathered
-from posthog.models import Team, User
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 
-import structlog
+from posthog.api.utils import ServerTimingsGathered
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.models import Team, User
+from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
 
@@ -49,16 +44,15 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
 )
 
 
-def prepare_data(query_response: HogQLQueryResponse) -> list[str]:
-    response_values = []
-    properties_list: list[dict] = [json.loads(x[1]) for x in query_response.results]
-    for props in properties_list:
-        response_values.extend([value for key, value in props.items() if key.startswith("$survey_response") and value])
-    return response_values
-
-
 def summarize_survey_responses(
-    survey_id: str, question_index: Optional[int], survey_start: datetime, survey_end: datetime, team: Team, user: User
+    survey_id: str,
+    question_text: str,
+    question_index: Optional[int],
+    question_id: Optional[str],
+    survey_start: datetime,
+    survey_end: datetime,
+    team: Team,
+    user: User,
 ):
     timer = ServerTimingsGathered()
 
@@ -66,12 +60,11 @@ def summarize_survey_responses(
         paginator = HogQLHasMorePaginator(limit=100, offset=0)
         q = parse_select(
             """
-            SELECT distinct_id, properties
+            SELECT getSurveyResponse({question_index}, {question_id})
             FROM events
             WHERE event == 'survey sent'
                 AND properties.$survey_id = {survey_id}
-                -- e.g. `$survey_response` or `$survey_response_2`
-                AND trim(JSONExtractString(properties, {survey_response_property})) != ''
+                AND trim(getSurveyResponse({question_index}, {question_id})) != ''
                 AND timestamp >= {start_date}
                 AND timestamp <= {end_date}
             """,
@@ -82,6 +75,8 @@ def summarize_survey_responses(
                 ),
                 "start_date": ast.Constant(value=survey_start),
                 "end_date": ast.Constant(value=survey_end),
+                "question_index": ast.Constant(value=question_index),
+                "question_id": ast.Constant(value=question_id),
             },
         )
 
@@ -94,11 +89,11 @@ def summarize_survey_responses(
 
     with timer("llm_api_prep"):
         instance_region = get_instance_region() or "HOBBY"
-        prepared_data = prepare_data(query_response)
+        prepared_data = [x[0] for x in query_response.results if x[0]]
 
     with timer("openai_completion"):
         result = openai.chat.completions.create(
-            model="gpt-4o-mini",  # allows 128k tokens
+            model="gpt-4.1-mini",  # allows 128k tokens
             temperature=0.7,
             messages=[
                 {
@@ -110,18 +105,24 @@ def summarize_survey_responses(
                 },
                 {
                     "role": "user",
+                    "content": f"""the survey question is {question_text}.""",
+                },
+                {
+                    "role": "user",
                     "content": f"""the survey responses are {prepared_data}.""",
                 },
                 {
                     "role": "user",
                     "content": """
-            generate a one or two paragraph summary of the survey response.
-            only summarize, the goal is to identify real user pain points and needs
-use bullet points to identify the themes, and highlights of quotes to bring them to life
-we're trying to identify what to work on
-            use as concise and simple language as is possible.
+            generate a one or two paragraph summary of the survey response,
+taking into consideration the survey question being asked.
+            only summarize, the goal is to identify real user pain points and needs.
+            use bullet points to identify the themes, and highlight quotes to bring them to life.
+            we're trying to identify what to work on.
+            use as concise and simple language as possible.
             generate no text other than the summary.
-            the aim is to let people see themes in the responses received. return the text in markdown format without using any paragraph formatting""",
+            the aim is to let people see themes in the responses received.
+            return the text in markdown format without using any paragraph formatting""",
                 },
             ],
             user=f"{instance_region}/{user.pk}",
@@ -134,4 +135,4 @@ we're trying to identify what to work on
     logger.info("survey_summary_response", result=result)
 
     content: str = result.choices[0].message.content or ""
-    return {"content": content, "timings": timer.get_all_timings()}
+    return {"content": content, "timings_header": timer.to_header_string()}

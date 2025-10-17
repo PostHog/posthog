@@ -1,14 +1,16 @@
-import { BaseIcon, IconCheck, IconChevronDown, IconEye, IconHide, IconLogomark, IconVideoCamera } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { BaseIcon, IconCheck, IconChevronDown, IconEye, IconHide, IconLogomark, IconVideoCamera } from '@posthog/icons'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
-import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
 import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
 import { EventType } from '~/types'

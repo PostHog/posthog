@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -67,9 +68,9 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
     path(() => ['scenes', 'session-recordings', 'templates', 'sessionReplayTemplatesLogic']),
     props({} as ReplayTemplateLogicPropsType),
     key((props) => `${props.category}-${props.template.key}`),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     actions({
         setVariables: (variables?: ReplayTemplateVariableType[]) => ({ variables }),
         setVariable: (variable: ReplayTemplateVariableType) => ({ variable }),

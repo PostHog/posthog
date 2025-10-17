@@ -1,18 +1,23 @@
 import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 
-import { captureException } from '@sentry/react'
+import posthog from 'posthog-js'
+
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
-    defaultDescriber,
     Description,
-    detectBoolean,
     HumanizedChange,
+    defaultDescriber,
+    detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
+import {
+    InsightBreakdownSummary,
+    PropertiesSummary,
+    SeriesSummary,
+} from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Link } from 'lib/lemon-ui/Link'
 import { areObjectValuesEmpty, pluralize } from 'lib/utils'
@@ -210,6 +215,7 @@ const insightActionsMapping: Record<
 
         return { description: [addedSentence, removedSentence], suffix: <></> }
     },
+    alerts: () => null,
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
@@ -226,12 +232,12 @@ const insightActionsMapping: Record<
     saved: () => null,
     is_sample: () => null,
     timezone: () => null,
-    effective_restriction_level: () => null,
-    effective_privilege_level: () => null,
     disable_baseline: () => null,
     dashboard_tiles: () => null,
     query_status: () => null,
     user_access_level: () => null,
+    _create_in_folder: () => null,
+    last_viewed_at: () => null,
 }
 
 function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | null {
@@ -244,7 +250,7 @@ function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | nu
             <div className="ActivityDescription">
                 <SeriesSummary query={query} />
                 <PropertiesSummary properties={query.properties} />
-                {isValidBreakdown(trendsQuery?.breakdownFilter) && <BreakdownSummary query={query} />}
+                {isValidBreakdown(trendsQuery?.breakdownFilter) && <InsightBreakdownSummary query={query} />}
             </div>
         ),
     }
@@ -346,7 +352,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
             }
         } catch (e) {
             console.error('Error while summarizing insight update', e)
-            captureException(e)
+            posthog.captureException(e)
         }
 
         if (changes.length) {
@@ -374,6 +380,36 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> exported{' '}
                     {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} as a {exportType}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'share_login_success') {
+        const afterData = logItem.detail.changes?.[0]?.after as any
+        const clientIp = afterData?.client_ip || 'unknown IP'
+        const passwordNote = afterData?.password_note || 'unknown password'
+
+        return {
+            description: (
+                <>
+                    <strong>Anonymous user</strong> successfully authenticated to shared insight{' '}
+                    {nameOrLinkToInsight(logItem?.detail.short_id, logItem.detail.name)} from {clientIp} using password{' '}
+                    <strong>{passwordNote}</strong>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'share_login_failed') {
+        const afterData = logItem.detail.changes?.[0]?.after as any
+        const clientIp = afterData?.client_ip || 'unknown IP'
+
+        return {
+            description: (
+                <>
+                    <strong>Anonymous user</strong> failed to authenticate to shared insight{' '}
+                    {nameOrLinkToInsight(logItem?.detail.short_id, logItem.detail.name)} from {clientIp}
                 </>
             ),
         }

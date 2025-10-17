@@ -2,12 +2,15 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from posthog.hogql.timings import HogQLTimings
 from posthog.schema import HogQLNotice, HogQLQueryModifiers
+
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.timings import HogQLTimings
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
     from posthog.hogql.transforms.property_types import PropertySwapper
+
     from posthog.models import Team
 
 
@@ -37,6 +40,8 @@ class HogQLContext:
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
+    # Context for determining the appropriate limit to apply
+    limit_context: Optional[LimitContext] = None
     # Apply a FORMAT clause to output data in given format.
     output_format: str | None = None
     # Globals that will be resolved in the context of the query
@@ -57,6 +62,10 @@ class HogQLContext:
     debug: bool = False
 
     property_swapper: Optional["PropertySwapper"] = None
+
+    def __post_init__(self):
+        if self.team:
+            self.team_id = self.team.id
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"

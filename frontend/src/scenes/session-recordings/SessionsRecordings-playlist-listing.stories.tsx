@@ -1,23 +1,23 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordings } from 'scenes/session-recordings/__mocks__/recordings'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 import { ReplayTabs } from '~/types'
 
 import { recordingPlaylists } from './__mocks__/recording_playlists'
 
 const meta: Meta = {
-    title: 'Replay/Listings',
+    component: App,
+    title: 'Replay/Tabs/Collections',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        pageUrl: urls.replay(ReplayTabs.Playlists),
     },
     decorators: [
         mswDecorator({
@@ -43,10 +43,5 @@ const meta: Meta = {
 }
 export default meta
 
-export function RecordingsPlayLists(): JSX.Element {
-    setFeatureFlags([FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN])
-    useEffect(() => {
-        router.actions.push(urls.replay(ReplayTabs.Playlists))
-    }, [])
-    return <App />
-}
+type Story = StoryObj<typeof meta>
+export const RecordingsPlayLists: Story = {}

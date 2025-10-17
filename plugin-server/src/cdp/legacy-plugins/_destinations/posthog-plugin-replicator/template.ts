@@ -14,7 +14,8 @@ export const replicatorPlugin: LegacyDestinationPlugin = {
         description: 'Replicate PostHog event stream in another PostHog instance',
         icon_url: 'https://raw.githubusercontent.com/PostHog/posthog-plugin-replicator/master/logo.png',
         category: [],
-        hog: 'return event',
+        code_language: 'javascript',
+        code: 'return event',
         inputs_schema: [
             {
                 templating: false,

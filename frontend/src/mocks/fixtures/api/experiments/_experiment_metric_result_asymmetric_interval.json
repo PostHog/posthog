@@ -1,0 +1,51 @@
+{
+    "cache_key": "cache_1aeef2b7a7acbcc4b54564ba1208a320",
+    "cache_target_age": "2025-02-19T09:13:37.273511Z",
+    "calculation_trigger": null,
+    "credible_intervals": {
+        "control": [0.07063151332765807, 0.1218892673220187],
+        "test": [0.07681082815508776, 0.13286603552770726]
+    },
+    "insight": [],
+    "is_cached": true,
+    "kind": "ExperimentQuery",
+    "last_refresh": "2025-02-18T09:14:37.273511Z",
+    "metric": {
+        "kind": "ExperimentMetric",
+        "source": {
+            "kind": "EventsNode",
+            "event": "experiment created",
+            "math": "total",
+            "math_hogql": null,
+            "math_property": null
+        },
+        "metric_type": "mean",
+        "name": "Experiments created"
+    },
+    "next_allowed_client_refresh": "2025-02-18T09:14:37.273511Z",
+    "p_value": 1,
+    "probability": {
+        "control": 0.3549,
+        "test": 0.6451
+    },
+    "query_status": null,
+    "significance_code": "low_win_probability",
+    "significant": false,
+    "stats_version": 2,
+    "timezone": "US/Pacific",
+    "variants": [
+        {
+            "absolute_exposure": 360,
+            "count": 31,
+            "exposure": 360,
+            "key": "control"
+        },
+        {
+            "absolute_exposure": 339,
+            "count": 32,
+            "exposure": 339,
+            "key": "test"
+        }
+    ],
+    "user_access_level": "editor"
+}

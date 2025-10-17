@@ -1,10 +1,10 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { PROPERTY_KEYS } from 'lib/taxonomy'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -150,7 +150,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     breakpoint()
 
                     cache.apiCache = {
-                        ...(cache.apiCache ?? {}),
+                        ...cache.apiCache,
                         [url]: {
                             ...response,
                             previous: normalizeEventDefinitionEndpointUrl({
@@ -174,7 +174,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     }
                     // Update cache as well
                     cache.apiCache = {
-                        ...(cache.apiCache ?? {}),
+                        ...cache.apiCache,
                         [values.eventDefinitions.current]: {
                             ...values.eventDefinitions,
                             results: values.eventDefinitions.results.map((d) =>
@@ -200,7 +200,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     if (!url) {
                         url = api.propertyDefinitions.determineListEndpoint({
                             event_names: [definition.name],
-                            excluded_properties: PROPERTY_KEYS,
+                            exclude_core_properties: true,
                             filter_by_event_names: true,
                             is_feature_flag: false,
                             limit: PROPERTY_DEFINITIONS_PER_EVENT,
@@ -221,14 +221,14 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     } else {
                         exampleEventProperties = (await api.get(exampleUrl))?.results?.[0].properties ?? {}
                         cache.apiCache = {
-                            ...(cache.apiCache ?? {}),
+                            ...cache.apiCache,
                             [exampleUrl]: exampleEventProperties,
                         }
                     }
 
                     const currentUrl = `${normalizePropertyDefinitionEndpointUrl(url)}`
                     cache.apiCache = {
-                        ...(cache.apiCache ?? {}),
+                        ...cache.apiCache,
                         [currentUrl]: {
                             count: response.count,
                             previous: normalizePropertyDefinitionEndpointUrl(response.previous),
@@ -260,7 +260,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     // Update cache as well
                     const eventCacheKey = values.eventPropertiesCacheMap[event.id].current as string
                     cache.apiCache = {
-                        ...(cache.apiCache ?? {}),
+                        ...cache.apiCache,
                         [eventCacheKey]: {
                             ...values.eventPropertiesCacheMap[event.id],
                             results: values.eventPropertiesCacheMap[event.id].results.map((p) =>

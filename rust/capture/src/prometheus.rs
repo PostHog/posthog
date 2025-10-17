@@ -1,18 +1,34 @@
-// Middleware + prometheus exporter setup
+// prometheus exporter setup
 
-use std::time::Instant;
-
-use axum::body::Body;
-use axum::{extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse};
+use limiters::redis::QuotaResource;
 use metrics::counter;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 
+pub const CAPTURE_EVENTS_DROPPED_TOTAL: &str = "capture_events_dropped_total";
+
 pub fn report_dropped_events(cause: &'static str, quantity: u64) {
-    counter!("capture_events_dropped_total", "cause" => cause).increment(quantity);
+    counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => cause).increment(quantity);
 }
 
 pub fn report_overflow_partition(quantity: u64) {
     counter!("capture_partition_key_capacity_exceeded_total").increment(quantity);
+}
+
+pub fn report_quota_limit_exceeded(resource: &QuotaResource, quantity: u64) {
+    counter!("capture_quota_limit_exceeded", "resource" => resource.as_str()).increment(quantity);
+}
+
+pub fn report_internal_error_metrics(
+    err_type: &'static str,
+    stage_tag: &'static str,
+    capture_mode: &'static str,
+) {
+    let tags = [
+        ("error", err_type),
+        ("stage", stage_tag),
+        ("mode", capture_mode),
+    ];
+    counter!("capture_error_by_stage_and_type", &tags).increment(1);
 }
 
 pub fn setup_metrics_recorder() -> PrometheusHandle {
@@ -34,37 +50,4 @@ pub fn setup_metrics_recorder() -> PrometheusHandle {
         .unwrap()
         .install_recorder()
         .unwrap()
-}
-
-/// Middleware to record some common HTTP metrics
-/// Generic over B to allow for arbitrary body types (eg Vec<u8>, Streams, a deserialized thing, etc)
-/// Someday tower-http might provide a metrics middleware: https://github.com/tower-rs/tower-http/issues/57
-pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse {
-    let start = Instant::now();
-
-    let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
-        matched_path.as_str().to_owned()
-    } else {
-        req.uri().path().to_owned()
-    };
-
-    let method = req.method().clone();
-
-    // Run the rest of the request handling first, so we can measure it and get response
-    // codes.
-    let response = next.run(req).await;
-
-    let latency = start.elapsed().as_secs_f64();
-    let status = response.status().as_u16().to_string();
-
-    let labels = [
-        ("method", method.to_string()),
-        ("path", path),
-        ("status", status),
-    ];
-
-    metrics::counter!("http_requests_total", &labels).increment(1);
-    metrics::histogram!("http_requests_duration_seconds", &labels).record(latency);
-
-    response
 }

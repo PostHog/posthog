@@ -1,0 +1,27 @@
+string: this is a secure string
+md5Hex(string): e7b466647ea215dbe59b00c756560911
+md5Hex(null): null
+md5(string, 'hex'): md5 not implemented
+md5(null, 'hex'): md5 not implemented
+md5(string, 'binary'): md5 not implemented
+md5(null, 'binary'): md5 not implemented
+md5(string, 'base64'): md5 not implemented
+md5(null, 'base64'): md5 not implemented
+md5(string, 'base64url'): md5 not implemented
+md5(null, 'base64url'): md5 not implemented
+sha256Hex(string): 5216c0931310b31737ef30353830c234901283544e934f54eb75f622cfb86c9d
+sha256Hex(null): null
+sha256(string, 'hex'): sha256 not implemented
+sha256(null, 'hex'): sha256 not implemented
+sha256(string, 'binary'): sha256 not implemented
+sha256(null, 'binary'): sha256 not implemented
+sha256(string, 'base64'): sha256 not implemented
+sha256(null, 'base64'): sha256 not implemented
+sha256(string, 'base64url'): sha256 not implemented
+sha256(null, 'base64url'): sha256 not implemented
+data: ['1', 'string', 'more', 'keys']
+sha256HmacChainHex(data): sha256HmacChainHex not implemented
+sha256HmacChain(data, 'hex'): sha256HmacChain not implemented
+sha256HmacChain(data, 'base64'): sha256HmacChain not implemented
+sha256HmacChain(data, 'binary'): sha256HmacChain not implemented
+sha256HmacChain(data, 'base64url'): sha256HmacChain not implemented

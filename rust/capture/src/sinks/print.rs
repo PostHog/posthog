@@ -24,7 +24,7 @@ impl Event for PrintSink {
         histogram!("capture_event_batch_size").record(events.len() as f64);
         counter!("capture_events_ingested_total").increment(events.len() as u64);
         for event in events {
-            info!("event: {:?}", event);
+            info!("event: {event:?}");
         }
 
         Ok(())

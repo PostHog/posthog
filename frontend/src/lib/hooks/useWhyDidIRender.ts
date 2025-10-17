@@ -16,10 +16,10 @@ export function useWhyDidIRender(name: string, props: Record<string, any>): void
             const changedProps = Object.keys(props).filter((key) => props[key] !== oldProps.current?.[key])
 
             if (changedProps.length > 0) {
-                // eslint-disable-next-line no-console
+                // oxlint-disable-next-line no-console
                 console.log(`${name} props changed:`, [...oldChangedProps, ...changedProps])
             }
         }
         oldProps.current = props
-    }, [Object.values(props)])
+    }, [Object.values(props), name]) // oxlint-disable-line react-hooks/exhaustive-deps
 }

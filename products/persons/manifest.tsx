@@ -9,4 +9,6 @@ export const manifest: ProductManifest = {
             encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
         persons: (): string => '/persons',
     },
+    fileSystemTypes: {},
+    treeItemsProducts: [],
 }

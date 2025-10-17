@@ -1,22 +1,29 @@
 from typing import Optional
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from posthog.schema import (
+    AutocompleteCompletionItemKind,
+    HogLanguage,
+    HogQLAutocomplete,
+    HogQLAutocompleteResponse,
+    HogQLQuery,
+)
+
+from posthog.hogql import ast
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
+
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import (
-    HogQLAutocomplete,
-    HogQLAutocompleteResponse,
-    HogLanguage,
-    HogQLQuery,
-    AutocompleteCompletionItemKind,
-)
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
@@ -293,7 +300,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 0
 
     def test_autocomplete_events_hidden_field(self):
-        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+        database = create_hogql_database(team=self.team)
         database.events.fields["event"] = StringDatabaseField(name="event", hidden=True)
 
         query = "select  from events"
@@ -303,7 +310,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             assert suggestion.label != "event"
 
     def test_autocomplete_special_characters(self):
-        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+        database = create_hogql_database(team=self.team)
         database.events.fields["event-name"] = StringDatabaseField(name="event-name")
 
         query = "select  from events"
@@ -318,7 +325,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.insertText == "`event-name`"
 
     def test_autocomplete_expressions(self):
-        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+        database = create_hogql_database(team=self.team)
 
         query = "person."
         results = self._expr(query=query, start=7, end=7, database=database)
@@ -331,8 +338,29 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.label == "created_at"
         assert suggestion.insertText == "created_at"
 
+    def test_autocomplete_resolve_expression_type(self):
+        database = create_hogql_database(team=self.team)
+
+        database.events.fields["expr_field"] = ast.ExpressionField(
+            name="expr_field",
+            isolate_scope=True,
+            expr=ast.Call(name="toDateTime", args=[ast.Constant(value="2025-01-01")]),
+        )
+
+        query = "select  from events"
+        results = self._select(query=query, start=7, end=7, database=database)
+
+        suggestions = list(filter(lambda x: x.label == "expr_field", results.suggestions))
+        assert len(suggestions) == 1
+
+        suggestion = suggestions[0]
+        assert suggestion is not None
+        assert suggestion.label == "expr_field"
+        assert suggestion.insertText == "expr_field"
+        assert suggestion.detail == "DateTime"
+
     def test_autocomplete_template_strings(self):
-        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+        database = create_hogql_database(team=self.team)
 
         query = "this isn't a string {concat(eve)} <- this is"
         results = self._template(query=query, start=28, end=31, database=database)
@@ -352,7 +380,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 0
 
     def test_autocomplete_template_json(self):
-        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+        database = create_hogql_database(team=self.team)
 
         query = '{ "key": "val_{event.distinct_id}_ue" }'
         results = self._json(query=query, start=15, end=20, database=database)
@@ -372,7 +400,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert len(results.suggestions) == 0
 
     def test_autocomplete_hog(self):
-        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+        database = create_hogql_database(team=self.team)
 
         # 1
         query = "let var1 := 3; let otherVar := 5; print(v)"
@@ -435,6 +463,40 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=14, end=14)
 
         assert "some_table" in [x.label for x in results.suggestions]
+
+    def test_autocomplete_warehouse_table_with_source_dot_notation(self):
+        credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="some_table",
+            format="CSV",
+            url_pattern="http://localhost/file.csv",
+            credential=credentials,
+            external_data_source=source,
+        )
+        query = "select * from "
+        results = self._select(query=query, start=14, end=14)
+
+        assert "stripe.some_table" in [x.label for x in results.suggestions]
+
+    def test_autocomplete_warehouse_table_with_source_and_prefix_dot_notation(self):
+        credentials = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, prefix="prefix"
+        )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="some_table",
+            format="CSV",
+            url_pattern="http://localhost/file.csv",
+            credential=credentials,
+            external_data_source=source,
+        )
+        query = "select * from "
+        results = self._select(query=query, start=14, end=14)
+
+        assert "stripe.prefix.some_table" in [x.label for x in results.suggestions]
 
     def test_autocomplete_warehouse_view(self):
         DataWarehouseSavedQuery.objects.create(

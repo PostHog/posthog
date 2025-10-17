@@ -19,8 +19,8 @@
 # By default the target Kafka cluster is the currently configured cluster in
 # Django settings.
 
-import argparse
 import sys
+import argparse
 
 from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError

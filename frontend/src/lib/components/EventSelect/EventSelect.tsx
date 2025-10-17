@@ -1,8 +1,10 @@
+import React, { useState } from 'react'
+
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import React, { useState } from 'react'
 
 interface EventSelectProps {
     onItemChange?: (values: any[]) => void
@@ -11,6 +13,8 @@ interface EventSelectProps {
     selectedItems?: any[]
     addElement: JSX.Element
     filterGroupTypes?: TaxonomicFilterGroupType[]
+    /** Allow users to select events that haven't been captured yet (default: false) */
+    allowNonCapturedEvents?: boolean
 }
 
 export const EventSelect = ({
@@ -20,6 +24,7 @@ export const EventSelect = ({
     selectedItems,
     addElement,
     filterGroupTypes,
+    allowNonCapturedEvents = false,
 }: EventSelectProps): JSX.Element => {
     const [open, setOpen] = useState<boolean>(false)
     const eventSelectFilterGroupTypes = filterGroupTypes || [TaxonomicFilterGroupType.Events]
@@ -45,6 +50,11 @@ export const EventSelect = ({
         }
     }
 
+    // Check if an event is non-captured (not captured yet)
+    const isNonCapturedEvent = (eventName: string): boolean => {
+        return selectedItems?.some((item) => item.name === eventName && item.isNonCaptured) || false
+    }
+
     // Add in the toggle popover logic for the passed in element
     const addElementWithToggle = React.cloneElement(addElement, { onClick: () => setOpen(!open) })
 
@@ -52,7 +62,14 @@ export const EventSelect = ({
         <div className="flex items-center flex-wrap gap-2">
             {selectedEvents.map((name) => (
                 <LemonSnack key={name} onClose={() => handleRemove(name)}>
-                    {name}
+                    <div className="flex items-center gap-1">
+                        <span>{name}</span>
+                        {isNonCapturedEvent(name) && (
+                            <LemonTag type="warning" size="small">
+                                Not captured yet
+                            </LemonTag>
+                        )}
+                    </div>
                 </LemonSnack>
             ))}
 
@@ -67,6 +84,7 @@ export const EventSelect = ({
                             setOpen(false)
                         }}
                         taxonomicGroupTypes={eventSelectFilterGroupTypes}
+                        allowNonCapturedEvents={allowNonCapturedEvents}
                     />
                 }
             >

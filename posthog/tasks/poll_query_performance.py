@@ -1,15 +1,15 @@
+import re
+import math
 from itertools import groupby
-from typing import Optional, Any
+from typing import Any, Optional
 
 from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryStatusManager
-from posthog.utils import UUID_REGEX
 from posthog.settings import CLICKHOUSE_CLUSTER
-import re
-import math
+from posthog.utils import UUID_REGEX
 
 logger = get_logger(__name__)
 
@@ -48,9 +48,12 @@ def get_query_results() -> list[Any]:
         WHERE initial_query_id REGEXP '\d+_[0-9a-f]{8}-'
         AND type = 'QueryFinish'
         AND event_time > subtractSeconds(now(), 10)
+        SETTINGS skip_unavailable_shards=1
         """
 
-    raw_results = sync_execute(SYSTEM_PROCESSES_SQL, {"cluster": CLICKHOUSE_CLUSTER}, workload=Workload.ONLINE)
+    raw_results = sync_execute(
+        SYSTEM_PROCESSES_SQL, {"cluster": CLICKHOUSE_CLUSTER}, workload=Workload.ONLINE, ch_user=ClickHouseUser.OPS
+    )
 
     noNaNInt = lambda num: 0 if math.isnan(num) else int(num)
 

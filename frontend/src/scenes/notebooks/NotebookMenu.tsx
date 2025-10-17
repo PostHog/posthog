@@ -1,15 +1,18 @@
-import './NotebookScene.scss'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconClock, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { notebookLogic, NotebookLogicProps } from './Notebook/notebookLogic'
+import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
     const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
@@ -40,7 +43,12 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                         icon: <IconTrash />,
                         status: 'danger',
                         disabledReason:
-                            notebook?.user_access_level !== 'editor'
+                            !notebook?.user_access_level ||
+                            !accessLevelSatisfied(
+                                AccessControlResourceType.Notebook,
+                                notebook.user_access_level,
+                                AccessControlLevel.Editor
+                            )
                                 ? 'You do not have permission to delete this notebook.'
                                 : undefined,
                         onClick: () => {
@@ -48,6 +56,12 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                             router.actions.push(urls.notebooks())
                         },
                     },
+                {
+                    label: () => (
+                        <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
+                    ),
+                    key: 'sync-info',
+                },
             ]}
         >
             <LemonButton aria-label="more" icon={<IconEllipsis />} size="small" />

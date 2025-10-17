@@ -1,15 +1,17 @@
-import { IconCopy, IconExternal } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import posthog from 'posthog-js'
+
+import { IconCopy } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+
 import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import posthog from 'posthog-js'
 
-import { playerShareLogic, PlayerShareLogicProps } from './playerShareLogic'
+import { PlayerShareLogicProps, playerShareLogic } from './playerShareLogic'
 
 function TimestampForm(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)
@@ -129,7 +131,6 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
                         type="primary"
                         to={linearUrl}
                         targetBlank={true}
-                        icon={<IconExternal />}
                         disabledReason={linearLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
                     >
                         Create issue
@@ -158,8 +159,8 @@ export function openPlayerShareDialog(props: PlayerShareLogicProps): void {
             props.shareType === 'private'
                 ? 'Share private link'
                 : props.shareType === 'public'
-                ? 'Share public link'
-                : 'Share to Linear',
+                  ? 'Share public link'
+                  : 'Share to Linear',
         content: <PlayerShareRecording {...props} />,
         width: 600,
         zIndex: '1162',

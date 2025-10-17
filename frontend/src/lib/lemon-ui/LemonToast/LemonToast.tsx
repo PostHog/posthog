@@ -1,10 +1,11 @@
-import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import posthog from 'posthog-js'
-import { toast, ToastContentProps as ToastifyRenderProps, ToastOptions } from 'react-toastify'
+import { ToastOptions, ToastContentProps as ToastifyRenderProps, toast } from 'react-toastify'
 
-import { IconErrorOutline } from '../icons'
+import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
+
 import { LemonButton } from '../LemonButton'
 import { Spinner } from '../Spinner'
+import { IconErrorOutline } from '../icons'
 
 export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
     return (
@@ -22,10 +23,12 @@ interface ToastButton {
     label: string
     action: (() => void) | (() => Promise<void>)
     dataAttr?: string
+    className?: string
 }
 
 interface ToastOptionsWithButton extends ToastOptions {
     button?: ToastButton
+    hideButton?: boolean
 }
 
 export const GET_HELP_BUTTON: ToastButton = {
@@ -55,6 +58,7 @@ export function ToastContent({ type, message, button, id }: ToastContentProps): 
                     type="secondary"
                     size="small"
                     data-attr={button.dataAttr}
+                    className={button.className}
                 >
                     {button.label}
                 </LemonButton>
@@ -96,7 +100,7 @@ export const lemonToast = {
             ...toastOptions,
         })
     },
-    error(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
+    error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}): void {
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
         // check if the function is available before calling it.
         if (posthog.capture) {
@@ -106,12 +110,14 @@ export const lemonToast = {
                 toastId: toastOptions.toastId,
             })
         }
+
         toastOptions = ensureToastId(toastOptions)
         toast.error(
             <ToastContent
                 type="error"
                 message={message}
-                button={button || GET_HELP_BUTTON}
+                // Show button if explicitly provided, or show GET_HELP_BUTTON unless hideButton is true
+                button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
                 id={toastOptions.toastId}
             />,
             {
@@ -132,18 +138,18 @@ export const lemonToast = {
             promise,
             {
                 pending: {
-                    render: <ToastContent type="info" message={messages.pending} />,
+                    render: <ToastContent type="info" message={messages.pending} button={button} />,
                     icon: icons.pending ?? <Spinner />,
                 },
                 success: {
                     render({ data }: ToastifyRenderProps<string>) {
-                        return <ToastContent type="success" message={data || messages.success} />
+                        return <ToastContent type="success" message={data || messages.success} button={button} />
                     },
                     icon: icons.success ?? <IconCheckCircle />,
                 },
                 error: {
                     render({ data }: ToastifyRenderProps<Error>) {
-                        return <ToastContent type="error" message={data?.message || messages.error} />
+                        return <ToastContent type="error" message={data?.message || messages.error} button={button} />
                     },
                     icon: icons.error ?? <IconErrorOutline />,
                 },

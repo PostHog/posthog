@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -31,7 +32,7 @@ export function serializeAnnotation(annotation: AnnotationType): RawAnnotationTy
 
 export const annotationsModel = kea<annotationsModelType>([
     path(['models', 'annotationsModel']),
-    connect({ values: [teamLogic, ['currentTeam', 'timezone']] }),
+    connect(() => ({ values: [teamLogic, ['currentTeam', 'timezone']] })),
     actions({
         deleteAnnotation: (annotation: AnnotationType) => ({ annotation }),
         loadAnnotationsNext: () => true,

@@ -1,16 +1,17 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { Node, NotebookEditor } from '../Notebook/utils'
+import { RichContentEditorType, RichContentNode } from 'lib/components/RichContentEditor/types'
+
 import { InsertionSuggestion } from './InsertionSuggestion'
-import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicType'
-import ReplayTimestampSuggestion from './ReplayTimestamp'
 import SlashCommands from './SlashCommands'
+import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicType'
 
 export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     path(['scenes', 'notebooks', 'Suggestions', 'insertionSuggestionsLogic']),
+
     actions({
-        setEditor: (editor: NotebookEditor | null) => ({ editor }),
-        setPreviousNode: (node: Node | null) => ({ node }),
+        setEditor: (editor: RichContentEditorType | null) => ({ editor }),
+        setPreviousNode: (node: RichContentNode | null) => ({ node }),
         setSuggestions: (suggestions: InsertionSuggestion[]) => ({ suggestions }),
         resetSuggestions: true,
         onTab: true,
@@ -18,19 +19,19 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     }),
     reducers({
         suggestions: [
-            [ReplayTimestampSuggestion] as InsertionSuggestion[],
+            [] as InsertionSuggestion[],
             {
                 setSuggestions: (_, { suggestions }) => suggestions,
             },
         ],
         previousNode: [
-            null as Node | null,
+            null as RichContentNode | null,
             {
                 setPreviousNode: (_, { node }) => node,
             },
         ],
         editor: [
-            null as NotebookEditor | null,
+            null as RichContentEditorType | null,
             {
                 setEditor: (_, { editor }) => editor,
             },
@@ -39,7 +40,7 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     selectors({
         activeSuggestion: [
             (s) => [s.suggestions, s.previousNode],
-            (suggestions: InsertionSuggestion[], previousNode: Node): InsertionSuggestion =>
+            (suggestions: InsertionSuggestion[], previousNode: RichContentNode): InsertionSuggestion =>
                 suggestions.find(
                     ({ dismissed, shouldShow }) =>
                         !dismissed && (typeof shouldShow === 'function' ? shouldShow({ previousNode }) : shouldShow)
@@ -68,20 +69,20 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
             }
         },
     })),
-    events(({ cache, actions }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
-            cache.onKeyDown = (e: KeyboardEvent) => {
-                if (e.key === 'Tab') {
-                    e.preventDefault()
-                    actions.onTab()
-                } else if (e.key === 'Escape') {
-                    actions.onEscape()
+            cache.disposables.add(() => {
+                const onKeyDown = (e: KeyboardEvent): void => {
+                    if (e.key === 'Tab') {
+                        e.preventDefault()
+                        actions.onTab()
+                    } else if (e.key === 'Escape') {
+                        actions.onEscape()
+                    }
                 }
-            }
-            window.addEventListener('keydown', cache.onKeyDown)
-        },
-        beforeUnmount: () => {
-            window.removeEventListener('keydown', cache.onKeyDown)
+                window.addEventListener('keydown', onKeyDown)
+                return () => window.removeEventListener('keydown', onKeyDown)
+            }, 'keydownListener')
         },
     })),
 ])

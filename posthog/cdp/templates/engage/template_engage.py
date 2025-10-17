@@ -1,8 +1,9 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
-from copy import deepcopy
 import dataclasses
+from copy import deepcopy
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
+
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -11,7 +12,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Engage.so",
     icon_url="/static/services/engage.png",
     category=["Email Marketing"],
-    hog="""
+    code_language="hog",
+    code="""
 fetch('https://api.engage.so/posthog', {
     'method': 'POST',
     'headers': {
@@ -59,6 +61,8 @@ class TemplateEngageMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         public_key = obj.config.get("publicKey", "")
         private_key = obj.config.get("secret", "")

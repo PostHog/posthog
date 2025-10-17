@@ -1,7 +1,5 @@
 import { PropertyOperator } from '~/types'
-import { PropertyFilterType } from '~/types'
-
-import { SavedSessionRecordingPlaylistsResult } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { PropertyFilterType, SavedSessionRecordingPlaylistsResult } from '~/types'
 
 export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
     count: 5,
@@ -14,6 +12,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             name: 'nightly',
             derived_name: '(Untitled)',
             description: '',
+            type: 'collection',
             pinned: true,
             created_at: '2022-11-17T16:52:29.444128Z',
             created_by: {
@@ -63,6 +62,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             name: 'blah',
             derived_name: '(Untitled)',
             description: '',
+            type: 'collection',
             pinned: false,
             created_at: '2022-11-18T18:46:26.494109Z',
             created_by: {
@@ -109,6 +109,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             short_id: 'neSyz9VK',
             name: 'dynamic test',
             derived_name: null,
+            type: 'collection',
             description: 'with a description',
             pinned: true,
             created_at: '2022-11-18T23:15:57.823086Z',
@@ -146,6 +147,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             short_id: 'IwejPyVW',
             name: 'asdfdasfsad',
             derived_name: null,
+            type: 'collection',
             description: '',
             pinned: false,
             created_at: '2022-11-18T18:46:20.354174Z',
@@ -184,6 +186,7 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
             name: '',
             derived_name: '(Untitled)',
             description: '',
+            type: 'collection',
             pinned: false,
             created_at: '2022-11-17T16:46:09.854845Z',
             created_by: {

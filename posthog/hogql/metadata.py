@@ -2,33 +2,23 @@ from typing import Optional, cast
 
 from django.conf import settings
 
-from posthog.clickhouse.explain import execute_explain_get_index_use
+from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, QueryIndexUsage
+
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.parser import (
-    parse_expr,
-    parse_program,
-    parse_select,
-    parse_string_template,
-)
+from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
+from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
-from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.variables import replace_variables
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
+
+from posthog.clickhouse.explain import execute_explain_get_index_use
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
-from posthog.schema import (
-    HogLanguage,
-    HogQLMetadata,
-    HogQLMetadataResponse,
-    HogQLNotice,
-    QueryIndexUsage,
-)
-from posthog.hogql.visitor import TraversingVisitor
 
 
 def get_hogql_metadata(
@@ -37,7 +27,6 @@ def get_hogql_metadata(
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
-        isValidView=False,
         query=query.query,
         errors=[],
         warnings=[],
@@ -70,14 +59,17 @@ def get_hogql_metadata(
                 process_expr_on_table(node, context=context)
         elif query.language == HogLanguage.HOG_QL:
             select_ast = parse_select(query.query)
-            if query.filters:
+            finder = find_placeholders(select_ast)
+            if finder.has_filters:
                 select_ast = replace_filters(select_ast, query.filters, team)
             if query.variables:
                 select_ast = replace_variables(select_ast, list(query.variables.values()), team)
-            _is_valid_view = is_valid_view(select_ast)
+            if finder.placeholder_fields or finder.placeholder_expressions:
+                select_ast = cast(ast.SelectQuery, replace_placeholders(select_ast, query.globals))
+
             table_names = get_table_names(select_ast)
             response.table_names = table_names
-            response.isValidView = _is_valid_view
+
             clickhouse_sql = print_ast(
                 select_ast,
                 context=context,
@@ -104,8 +96,11 @@ def get_hogql_metadata(
                 response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start))
             else:
                 response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end))
-        elif not settings.DEBUG:
-            # We don't want to accidentally expose too much data via errors
+        elif (
+            settings.DEBUG
+        ):  # We don't want to accidentally expose too much data via errors, so expose only when debug is enabled
+            response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}: {str(e)}"))
+        else:
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
 
     # We add a magic "F'" start prefix to get Antlr into the right parsing mode, subtract it now
@@ -136,21 +131,6 @@ def process_expr_on_table(
         raise
 
 
-def is_valid_view(select_query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
-    """Is not a valid view if:
-    a) There are any function calls in the select clause
-    b) There are any wildcard fields in the select clause
-    """
-    for query in extract_select_queries(select_query):
-        for field in query.select:
-            if isinstance(field, ast.Call):
-                return False
-            if isinstance(field, ast.Field):
-                if field.chain and field.chain[-1] == "*":
-                    return False
-    return True
-
-
 def get_table_names(select_query: ast.SelectQuery | ast.SelectSetQuery) -> list[str]:
     # Don't need types, we're only interested in the table names as passed in
     collector = TableCollector()
@@ -169,7 +149,7 @@ class TableCollector(TraversingVisitor):
 
     def visit_join_expr(self, node: ast.JoinExpr):
         if isinstance(node.table, ast.Field):
-            self.table_names.add(node.table.chain[0])
+            self.table_names.add(".".join([str(x) for x in node.table.chain]))
         else:
             self.visit(node.table)
 

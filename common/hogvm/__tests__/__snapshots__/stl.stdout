@@ -1,6 +1,7 @@
 -- empty, notEmpty, length, lower, upper, reverse --
 3
 TEST
+null
 rennips
 
 -- encodeURLComponent, decodeURLComponent --

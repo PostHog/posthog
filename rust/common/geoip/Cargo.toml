@@ -1,0 +1,14 @@
+[package]
+name = "common-geoip"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde_json.workspace = true
+maxminddb = "0.17"
+thiserror.workspace = true
+tracing.workspace = true
+tracing.features = ["log"]
+
+[lints]
+workspace = true

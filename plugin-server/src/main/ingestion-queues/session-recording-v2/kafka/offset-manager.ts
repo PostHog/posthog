@@ -1,6 +1,6 @@
 import { TopicPartitionOffset } from 'node-rdkafka'
 
-import { status } from '../../../../utils/status'
+import { logger } from '../../../../utils/logger'
 import { PartitionOffset } from '../types'
 
 type CommitOffsetsCallback = (offsets: TopicPartitionOffset[]) => Promise<void>
@@ -8,7 +8,10 @@ type CommitOffsetsCallback = (offsets: TopicPartitionOffset[]) => Promise<void>
 export class KafkaOffsetManager {
     private partitionOffsets: Map<number, number> = new Map()
 
-    constructor(private readonly commitOffsets: CommitOffsetsCallback, private readonly topic: string) {}
+    constructor(
+        private readonly commitOffsets: CommitOffsetsCallback,
+        private readonly topic: string
+    ) {}
 
     public trackOffset({ partition, offset }: PartitionOffset): void {
         // We track the next offset to process
@@ -31,7 +34,7 @@ export class KafkaOffsetManager {
         }
 
         if (topicPartitionOffsets.length > 0) {
-            status.info('🔁', 'offset_manager_committing_offsets', {
+            logger.info('🔁', 'offset_manager_committing_offsets', {
                 topic: this.topic,
                 offsets: topicPartitionOffsets.map(({ partition, offset }) => ({ partition, offset })),
             })

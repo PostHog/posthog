@@ -1,17 +1,19 @@
-from posthog.hogql.ast import SelectQuery, JoinExpr
+from datetime import datetime
+
+from posthog.hogql.ast import JoinExpr, SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
-    Table,
-    StringDatabaseField,
+    DatabaseField,
     DateTimeDatabaseField,
+    FieldOrTable,
+    FieldTraverser,
     IntegerDatabaseField,
     LazyJoin,
-    FieldTraverser,
-    DatabaseField,
-    LazyTable,
-    FieldOrTable,
-    LazyTableToAdd,
     LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
+    StringDatabaseField,
+    Table,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.log_entries import ReplayConsoleLogsLogEntriesTable
@@ -19,11 +21,12 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     join_with_person_distinct_ids_table,
 )
-from datetime import datetime
-
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1, select_from_sessions_table_v1
-from posthog.hogql.database.schema.sessions_v2 import select_from_sessions_table_v2, session_id_to_session_id_v7_expr
-
+from posthog.hogql.database.schema.sessions_v2 import (
+    select_from_sessions_table_v2,
+    session_id_to_session_id_v7_as_uint128_expr,
+)
+from posthog.hogql.database.schema.sessions_v3 import select_from_sessions_table_v3, session_id_to_uint128_as_uuid_expr
 from posthog.hogql.errors import ResolutionError
 
 
@@ -63,7 +66,29 @@ def join_replay_table_to_sessions_table_v2(
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=session_id_to_session_id_v7_expr(ast.Field(chain=[join_to_add.from_table, "session_id"])),
+            left=session_id_to_session_id_v7_as_uint128_expr(ast.Field(chain=[join_to_add.from_table, "session_id"])),
+            right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
+        ),
+        constraint_type="ON",
+    )
+    return join_expr
+
+
+def join_replay_table_to_sessions_table_v3(
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: SelectQuery
+) -> JoinExpr:
+    from posthog.hogql import ast
+
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from replay")
+
+    join_expr = ast.JoinExpr(table=select_from_sessions_table_v3(join_to_add.fields_accessed, node, context))
+    join_expr.join_type = "LEFT JOIN"
+    join_expr.alias = join_to_add.to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=session_id_to_uint128_as_uuid_expr(ast.Field(chain=[join_to_add.from_table, "session_id"])),
             right=ast.Field(chain=[join_to_add.to_table, "session_id_v7"]),
         ),
         constraint_type="ON",
@@ -169,6 +194,7 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "min_first_timestamp": DateTimeDatabaseField(name="min_first_timestamp", nullable=False),
     "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp", nullable=False),
     "first_url": DatabaseField(name="first_url", nullable=True),
+    "all_urls": DatabaseField(name="all_urls", nullable=True),
     "click_count": IntegerDatabaseField(name="click_count", nullable=False),
     "keypress_count": IntegerDatabaseField(name="keypress_count", nullable=False),
     "mouse_activity_count": IntegerDatabaseField(name="mouse_activity_count", nullable=False),
@@ -180,6 +206,7 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "event_count": IntegerDatabaseField(name="event_count", nullable=False),
     "message_count": IntegerDatabaseField(name="message_count", nullable=False),
     "snapshot_source": StringDatabaseField(name="snapshot_source", nullable=True),
+    "retention_period_days": IntegerDatabaseField(name="retention_period_days", nullable=True),
     "events": LazyJoin(
         from_field=["session_id"],
         join_table=EventsTable(),
@@ -235,6 +262,7 @@ def select_from_session_replay_events_table(requested_fields: dict[str, list[str
         "start_time": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_first_timestamp"])]),
         "end_time": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_last_timestamp"])]),
         "first_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "first_url"])]),
+        "all_urls": ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "all_urls"])]),
         "click_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "click_count"])]),
         "keypress_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "keypress_count"])]),
         "mouse_activity_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "mouse_activity_count"])]),

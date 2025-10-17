@@ -1,8 +1,9 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
 import { Summary } from 'prom-client'
 import RE2 from 're2'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import {
     Action,
@@ -18,7 +19,7 @@ import {
     PropertyOperator,
     StringMatching,
 } from '../../types'
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { PostgresRouter } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
 import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { captureException } from '../../utils/posthog'
@@ -132,19 +133,20 @@ export function matchString(actual: string, expected: string, matching: StringMa
 }
 
 export class ActionMatcher {
-    constructor(private postgres: PostgresRouter, private actionManager: ActionManager) {}
+    constructor(
+        private postgres: PostgresRouter,
+        private actionManager: ActionManager
+    ) {}
 
     public hasWebhooks(teamId: number): boolean {
         return Object.keys(this.actionManager.getTeamActions(teamId)).length > 0
     }
 
     /** Get all actions matched to the event. */
-    public async match(event: PostIngestionEvent): Promise<Action[]> {
+    public match(event: PostIngestionEvent): Action[] {
         const matchingStart = new Date()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
-        const teamActionsMatching: boolean[] = await Promise.all(
-            teamActions.map((action) => this.checkAction(event, action))
-        )
+        const teamActionsMatching: boolean[] = teamActions.map((action) => this.checkAction(event, action))
         const matches: Action[] = []
         for (let i = 0; i < teamActionsMatching.length; i++) {
             if (teamActionsMatching[i]) {
@@ -165,10 +167,10 @@ export class ActionMatcher {
      * Return whether the event is a match for the action.
      * The event is considered a match if any of the action's steps (match groups) is a match.
      */
-    public async checkAction(event: PostIngestionEvent, action: Action): Promise<boolean> {
+    public checkAction(event: PostIngestionEvent, action: Action): boolean {
         for (const step of action.steps) {
             try {
-                if (await this.checkStep(event, step)) {
+                if (this.checkStep(event, step)) {
                     return true
                 }
             } catch (error) {
@@ -196,13 +198,13 @@ export class ActionMatcher {
      * Return whether the event is a match for the step (match group).
      * The event is considered a match if no subcheck fails. Many subchecks are usually irrelevant and skipped.
      */
-    private async checkStep(event: PostIngestionEvent, step: ActionStep): Promise<boolean> {
+    private checkStep(event: PostIngestionEvent, step: ActionStep): boolean {
         return (
             this.checkStepUrl(event, step) &&
             this.checkStepEvent(event, step) &&
             // The below checks are less performant may parse the elements chain or do a database query hence moved to the end
             this.checkStepElement(event, step) &&
-            (await this.checkStepFilters(event, step))
+            this.checkStepFilters(event, step)
         )
     }
 
@@ -287,12 +289,12 @@ export class ActionMatcher {
      * Return whether the event is a match for the step's fiter constraints.
      * Step property: `properties`.
      */
-    private async checkStepFilters(event: PostIngestionEvent, step: ActionStep): Promise<boolean> {
+    private checkStepFilters(event: PostIngestionEvent, step: ActionStep): boolean {
         // CHECK CONDITIONS, OTHERWISE SKIPPED, OTHERWISE SKIPPED
         if (step.properties && step.properties.length) {
             // EVERY FILTER MUST BE A MATCH
             for (const filter of step.properties) {
-                if (!(await this.checkEventAgainstFilterAsync(event, filter))) {
+                if (!this.checkEventAgainstFilterAsync(event, filter)) {
                     return false
                 }
             }
@@ -319,7 +321,7 @@ export class ActionMatcher {
     /**
      * Sublevel 3 of action matching.
      */
-    private async checkEventAgainstFilterAsync(event: PostIngestionEvent, filter: PropertyFilter): Promise<boolean> {
+    private checkEventAgainstFilterAsync(event: PostIngestionEvent, filter: PropertyFilter): boolean {
         const match = this.checkEventAgainstFilterSync(event, filter)
 
         if (match) {
@@ -328,7 +330,7 @@ export class ActionMatcher {
 
         switch (filter.type) {
             case 'cohort':
-                return await this.checkEventAgainstCohortFilter(event, filter)
+                return this.checkEventAgainstCohortFilter(event, filter)
             default:
                 return false
         }
@@ -368,10 +370,7 @@ export class ActionMatcher {
     /**
      * Sublevel 4 of action matching.
      */
-    private async checkEventAgainstCohortFilter(
-        event: PostIngestionEvent,
-        filter: CohortPropertyFilter
-    ): Promise<boolean> {
+    private checkEventAgainstCohortFilter(event: PostIngestionEvent, filter: CohortPropertyFilter): boolean {
         let cohortId = filter.value
         if (cohortId === 'all') {
             // The "All users" cohort matches anyone
@@ -386,25 +385,7 @@ export class ActionMatcher {
         if (isNaN(cohortId)) {
             throw new Error(`Can't match against invalid cohort ID value "${filter.value}!"`)
         }
-        return await this.doesPersonBelongToCohort(Number(filter.value), event.person_id, event.teamId)
-    }
-
-    public async doesPersonBelongToCohort(cohortId: number, personUuid: string, teamId: number): Promise<boolean> {
-        const psqlResult = await this.postgres.query(
-            PostgresUse.COMMON_READ,
-            `
-        SELECT count(1) AS count
-        FROM posthog_cohortpeople
-        JOIN posthog_cohort ON (posthog_cohort.id = posthog_cohortpeople.cohort_id)
-        JOIN (SELECT * FROM posthog_person where team_id = $3) AS posthog_person_in_team ON (posthog_cohortpeople.person_id = posthog_person_in_team.id)
-        WHERE cohort_id=$1
-          AND posthog_person_in_team.uuid=$2
-          AND posthog_cohortpeople.version IS NOT DISTINCT FROM posthog_cohort.version
-        `,
-            [cohortId, personUuid, teamId],
-            'doesPersonBelongToCohort'
-        )
-        return psqlResult.rows[0].count > 0
+        return false
     }
 
     /**

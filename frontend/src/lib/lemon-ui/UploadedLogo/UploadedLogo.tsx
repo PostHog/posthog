@@ -41,10 +41,10 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
                 size === 'xlarge'
                     ? 'size-16 rounded before:absolute before:inset-0 before:border before:rounded'
                     : size === 'medium'
-                    ? 'size-6 rounded-xs'
-                    : size === 'small'
-                    ? 'size-5 rounded-xs'
-                    : 'size-4 rounded-xs'
+                      ? 'size-6 rounded-xs'
+                      : size === 'small'
+                        ? 'size-5 rounded-xs'
+                        : 'size-4 rounded-xs'
             )}
             ref={ref}
         >

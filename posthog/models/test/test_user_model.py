@@ -1,5 +1,10 @@
-from posthog.models import Team, User
 from posthog.test.base import BaseTest
+
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
+from posthog.models.organization import Organization, OrganizationMembership
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestUser(BaseTest):
@@ -82,3 +87,45 @@ class TestUser(BaseTest):
                     "has_seen_product_intro_for": None,
                 },
             )
+
+    def test_join_with_new_access_control_sets_allowed_team(self):
+        # Org WITH ADVANCED_PERMISSIONS
+        org = Organization.objects.create(name="RBAC Org")
+        org.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"}
+        ]
+        org.save()
+
+        t1 = Team.objects.create(organization=org, name="T1")
+        t2 = Team.objects.create(organization=org, name="T2")
+
+        # Block T1 by default using AccessControl
+        AccessControl.objects.create(team=t1, resource="project", resource_id=str(t1.id), access_level="none")
+
+        user = User.objects.create(email="rbac@example.com")
+        user.join(organization=org, level=OrganizationMembership.Level.MEMBER)
+
+        user.refresh_from_db()
+        # RBAC should pick t2
+        self.assertEqual(user.current_team, t2)
+
+    def test_join_admin_prefers_first_project_even_with_rbac(self):
+        # Admins bypass RBAC filtering
+        org = Organization.objects.create(name="Admin Org")
+        org.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"}
+        ]
+        org.save()
+
+        t1 = Team.objects.create(organization=org, name="T1")
+        Team.objects.create(organization=org, name="T2")
+
+        # RBAC: explicitly block T1
+        AccessControl.objects.create(team=t1, resource="project", resource_id=str(t1.id), access_level="none")
+
+        user = User.objects.create(email="admin@example.com")
+        user.join(organization=org, level=OrganizationMembership.Level.ADMIN)
+
+        # Admin should be set to the first team
+        user.refresh_from_db()
+        self.assertEqual(user.current_team, t1)

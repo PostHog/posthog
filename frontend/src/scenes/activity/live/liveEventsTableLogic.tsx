@@ -1,25 +1,33 @@
-import { fetchEventSource } from '@microsoft/fetch-event-source'
-import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+
+import { Spinner, lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { LiveEvent } from '~/types'
+import { Breadcrumb, LiveEvent } from '~/types'
 
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
 
 const ERROR_TOAST_ID = 'live-stream-error'
 
 export interface LiveEventsTableProps {
-    showLiveStreamErrorToast: boolean
+    showLiveStreamErrorToast?: boolean
+    tabId?: string
 }
 
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
+    tabAwareScene(),
     props({} as LiveEventsTableProps),
-    connect({
-        values: [teamLogic, ['currentTeam']],
-    }),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
+    })),
     actions(() => ({
         addEvents: (events) => ({ events }),
         clearEvents: true,
@@ -28,7 +36,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         pauseStream: true,
         resumeStream: true,
         setCurEventProperties: (curEventProperties) => ({ curEventProperties }),
-        setClientSideFilters: (clientSideFilters) => ({ clientSideFilters }),
+        setClientSideFilters: (clientSideFilters: Record<string, any>) => ({ clientSideFilters }),
         pollStats: true,
         setStats: (stats) => ({ stats }),
         addEventHost: (eventHost) => ({ eventHost }),
@@ -54,7 +62,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             },
         ],
         clientSideFilters: [
-            {},
+            {} as Record<string, any>,
             {
                 setClientSideFilters: (_, { clientSideFilters }) => clientSideFilters,
             },
@@ -105,13 +113,23 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         eventCount: [() => [selectors.events], (events: any) => events.length],
         filteredEvents: [
             (s) => [s.events, s.clientSideFilters],
-            (events, clientSideFilters) => {
+            (events: LiveEvent[], clientSideFilters: Record<string, any>) => {
                 return events.filter((event) => {
                     return Object.entries(clientSideFilters).every(([key, value]) => {
-                        return event[key] === value
+                        return key in event && event[key as keyof LiveEvent] === value
                     })
                 })
             },
+        ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: Scene.LiveEvents,
+                    name: sceneConfigurations[Scene.LiveEvents].name,
+                    iconType: sceneConfigurations[Scene.LiveEvents].iconType,
+                },
+            ],
         ],
     })),
     listeners(({ actions, values, cache, props }) => ({
@@ -141,12 +159,12 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             cache.batch = []
             cache.eventSourceController = new AbortController()
 
-            await fetchEventSource(url.toString(), {
+            await api.stream(url.toString(), {
                 headers: {
                     Authorization: `Bearer ${values.currentTeam.live_events_token}`,
                 },
                 signal: cache.eventSourceController.signal,
-                onmessage: (event) => {
+                onMessage: (event) => {
                     lemonToast.dismiss(ERROR_TOAST_ID)
                     const eventData = JSON.parse(event.data)
                     cache.batch.push(eventData)
@@ -156,7 +174,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                         cache.batch.length = 0
                     }
                 },
-                onerror: (error) => {
+                onError: (error) => {
                     if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
                         console.error('Failed to poll events. You likely have no events coming in.', error)
                         lemonToast.error(`No live events found. Continuing to retry in the background…`, {
@@ -193,9 +211,12 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             } catch (error) {
                 console.error('Failed to poll stats:', error)
             } finally {
-                cache.statsTimer = setTimeout(() => {
-                    actions.pollStats()
-                }, 1500)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.pollStats()
+                    }, 1500)
+                    return () => clearTimeout(timerId)
+                }, 'statsTimer')
             }
         },
         addEvents: ({ events }) => {
@@ -218,9 +239,6 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         beforeUnmount: () => {
             if (cache.eventSourceController) {
                 cache.eventSourceController.abort()
-            }
-            if (cache.statsTimer) {
-                clearTimeout(cache.statsTimer)
             }
         },
     })),

@@ -1,11 +1,14 @@
 from uuid import uuid4
 
+from posthog.test.base import APIBaseTest
+
 from django.db import transaction
+
 from rest_framework import status
 
-from ee.models.assistant import CoreMemory
 from posthog.models.team.team import Team
-from posthog.test.base import APIBaseTest
+
+from ee.models.assistant import CoreMemory
 
 
 class TestCoreMemoryAPI(APIBaseTest):
@@ -121,4 +124,4 @@ class TestCoreMemoryAPI(APIBaseTest):
         self.assertEqual(self.core_memory.text, "Valid update")
         self.assertEqual(self.core_memory.team, self.team)
         self.assertEqual(self.core_memory.initial_text, "")
-        self.assertIsNone(self.core_memory.scraping_status)
+        self.assertEqual(self.core_memory.scraping_status, CoreMemory.ScrapingStatus.COMPLETED)

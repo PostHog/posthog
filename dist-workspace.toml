@@ -1,0 +1,41 @@
+[workspace]
+members = ["cargo:./cli"]
+
+# Config for 'dist'
+[dist]
+# Skip checking whether the specified configuration files are up to date
+allow-dirty = ["ci"]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.30.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell", "npm"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = [
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-unknown-linux-musl",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "x86_64-pc-windows-msvc",
+]
+# Path that installers should place binaries in
+install-path = "~/.posthog"
+# Whether to install an updater program
+install-updater = true
+# A namespace to use when publishing this package to the npm registry
+npm-scope = "@posthog"
+# Publish jobs to run in CI
+publish-jobs = ["npm"]
+unix-archive = ".tar.gz"
+
+[dist.github-custom-runners]
+# ubuntu-20.04 (the dist default) is now deprecated by github
+aarch64-unknown-linux-gnu = "ubuntu-22.04"
+aarch64-unknown-linux-musl = "ubuntu-22.04"
+x86_64-unknown-linux-gnu = "ubuntu-22.04"
+x86_64-unknown-linux-musl = "ubuntu-22.04"
+global = "ubuntu-22.04"
+x86_64-pc-windows-msvc = "windows-2025"

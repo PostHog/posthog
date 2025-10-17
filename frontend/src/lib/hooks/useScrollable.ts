@@ -44,7 +44,7 @@ export function useScrollable(): { ref: React.MutableRefObject<HTMLDivElement | 
     }
 
     useLayoutEffect(() => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        // oxlint-disable-next-line @typescript-eslint/no-unused-vars
         function handler(this: HTMLElement, _: Event): void {
             updateIsScrollable(this)
         }
@@ -56,10 +56,11 @@ export function useScrollable(): { ref: React.MutableRefObject<HTMLDivElement | 
             const timeout = setTimeout(() => updateIsScrollable(element), 200)
             return () => {
                 element.removeEventListener('scroll', handler)
-                clearInterval(timeout)
+                clearTimeout(timeout)
             }
         }
-    }, [scrollRef.current])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     useLayoutEffect(() => {
         const element = scrollRef.current

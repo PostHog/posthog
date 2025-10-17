@@ -1,4 +1,5 @@
-import fetch from 'node-fetch'
+// eslint-disable-next-line no-restricted-imports
+import { fetch } from 'undici'
 
 import { Hub } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -43,7 +44,7 @@ describe('VMs are extra lazy 💤', () => {
         await lazyVm.getPluginMethod('onEvent')
         expect(lazyVm.ready).toEqual(true)
         expect(lazyVm.setupPluginIfNeeded).toHaveBeenCalled()
-        expect(fetch).toHaveBeenCalledWith('https://onevent.com/', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://onevent.com/', expect.anything())
     })
 
     test('getting methods and tasks returns null if plugin is in errored state', async () => {

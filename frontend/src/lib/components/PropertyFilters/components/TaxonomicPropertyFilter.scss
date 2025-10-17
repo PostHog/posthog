@@ -6,7 +6,7 @@
         width: 900px;
         min-width: 300px;
         max-width: 100%;
-        background: var(--bg-surface-primary);
+        background: var(--color-bg-surface-primary);
 
         .TaxonomicPropertyFilter__row-items {
             > :first-child {
@@ -31,7 +31,7 @@
     height: 40px; // Matches typical row height
 
     .TaxonomicPropertyFilter__row--or-filtering & {
-        width: 2rem;
+        width: 2.125rem;
     }
 }
 
@@ -47,7 +47,7 @@
     display: flex;
     flex: 1;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: 0.25rem;
     align-items: center;
     overflow: hidden;
 
@@ -56,7 +56,11 @@
         overflow: hidden;
     }
 
-    .TaxonomicPropertyFilter__row--showing-operators & {
+    .TaxonomicPropertyFilter__row--editable & {
+        gap: 0.5rem;
+    }
+
+    .TaxonomicPropertyFilter__row--showing-operators.TaxonomicPropertyFilter__row--editable & {
         > :first-child {
             flex-grow: 1;
             width: 30%;

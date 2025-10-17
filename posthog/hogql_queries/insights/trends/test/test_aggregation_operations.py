@@ -3,19 +3,21 @@ from typing import Literal, Union
 
 import pytest
 
-from posthog.hogql import ast
-from posthog.hogql_queries.insights.trends.aggregation_operations import (
-    AggregationOperations,
-)
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.team.team import Team
 from posthog.schema import (
     BaseMathType,
     ChartDisplayType,
     CountPerActorMathType,
+    DataWarehouseNode,
     EventsNode,
+    MathGroupTypeIndex,
     PropertyMathType,
 )
+
+from posthog.hogql import ast
+
+from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.team import Team
 
 
 @pytest.mark.parametrize(
@@ -113,3 +115,149 @@ def test_requiring_query_orchestration(
     agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
     res = agg_ops.requires_query_orchestration()
     assert res == result
+
+
+@pytest.mark.django_db
+def test_math_multiplier_with_sum():
+    team = Team()
+    series = EventsNode(event="$pageview", math=PropertyMathType.SUM, math_property="$cost", math_multiplier=0.001)
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
+
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
+    result = agg_ops.select_aggregation()
+
+    assert isinstance(result, ast.Call)
+    assert result.name == "ifNull"
+    assert len(result.args) == 2
+
+    sum_call = result.args[0]
+    assert isinstance(sum_call, ast.Call)
+    assert sum_call.name == "sum"
+    assert len(sum_call.args) == 1
+
+    mult_call = sum_call.args[0]
+    assert isinstance(mult_call, ast.Call)
+    assert mult_call.name == "toFloat"
+    assert len(mult_call.args) == 1
+
+    actual_mult = mult_call.args[0]
+    assert isinstance(actual_mult, ast.ArithmeticOperation)
+    assert actual_mult.op == ast.ArithmeticOperationOp.Mult
+
+    field_arg = actual_mult.left
+    multiplier_arg = actual_mult.right
+    assert isinstance(field_arg, ast.Field)
+    assert field_arg.chain == ["properties", "$cost"]
+    assert isinstance(multiplier_arg, ast.Constant)
+    assert multiplier_arg.value == 0.001
+
+
+@pytest.mark.django_db
+def test_math_multiplier_with_datawarehouse_node():
+    team = Team()
+    series = DataWarehouseNode(
+        id="test_table",
+        name="test_table",
+        table_name="test_table",
+        timestamp_field="timestamp",
+        distinct_id_field="distinct_id",
+        id_field="id",
+        math=PropertyMathType.SUM,
+        math_property="cost_micros",
+        math_multiplier=1 / 1000000,
+        math_property_revenue_currency={"static": "USD"},
+    )
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
+
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
+    result = agg_ops.select_aggregation()
+
+    assert isinstance(result, ast.Call)
+    assert result.name == "sum"
+    assert len(result.args) == 1
+
+    convert_call = result.args[0]
+    assert isinstance(convert_call, ast.Call)
+    assert convert_call.name == "convertCurrency"
+    assert len(convert_call.args) == 4
+
+    mult_expr = convert_call.args[2]
+    assert isinstance(mult_expr, ast.ArithmeticOperation)
+    assert mult_expr.op == ast.ArithmeticOperationOp.Mult
+
+    field_arg = mult_expr.left
+    multiplier_arg = mult_expr.right
+    assert isinstance(field_arg, ast.Field)
+    assert field_arg.chain == ["cost_micros"]
+    assert isinstance(multiplier_arg, ast.Constant)
+    assert multiplier_arg.value == 1 / 1000000
+
+
+@pytest.mark.parametrize(
+    "math,math_property,math_group_type_index,expected_actor_field",
+    [
+        # Person-based math types
+        [BaseMathType.TOTAL, None, None, "sql(e.person_id)"],
+        [BaseMathType.DAU, None, None, "sql(e.person_id)"],
+        [BaseMathType.WEEKLY_ACTIVE, None, None, "sql(e.person_id)"],
+        [BaseMathType.MONTHLY_ACTIVE, None, None, "sql(e.person_id)"],
+        [BaseMathType.UNIQUE_SESSION, None, None, "sql(e.person_id)"],
+        [PropertyMathType.AVG, "$browser", None, "sql(e.person_id)"],
+        [PropertyMathType.SUM, "$browser", None, "sql(e.person_id)"],
+        [CountPerActorMathType.AVG_COUNT_PER_ACTOR, None, None, "sql(e.person_id)"],
+        # Group-based math types
+        [BaseMathType.WEEKLY_ACTIVE, None, MathGroupTypeIndex.NUMBER_0, "sql(e.$group_0)"],
+        [BaseMathType.WEEKLY_ACTIVE, None, MathGroupTypeIndex.NUMBER_1, "sql(e.$group_1)"],
+        [BaseMathType.WEEKLY_ACTIVE, None, MathGroupTypeIndex.NUMBER_2, "sql(e.$group_2)"],
+        [BaseMathType.MONTHLY_ACTIVE, None, MathGroupTypeIndex.NUMBER_0, "sql(e.$group_0)"],
+        [BaseMathType.MONTHLY_ACTIVE, None, MathGroupTypeIndex.NUMBER_1, "sql(e.$group_1)"],
+        [BaseMathType.MONTHLY_ACTIVE, None, MathGroupTypeIndex.NUMBER_2, "sql(e.$group_2)"],
+        ["unique_group", None, MathGroupTypeIndex.NUMBER_0, "sql(e.$group_0)"],
+        ["unique_group", None, MathGroupTypeIndex.NUMBER_1, "sql(e.$group_1)"],
+        ["unique_group", None, MathGroupTypeIndex.NUMBER_2, "sql(e.$group_2)"],
+        # Property math with group index should use person_id
+        [PropertyMathType.AVG, "$browser", MathGroupTypeIndex.NUMBER_0, "sql(e.person_id)"],
+        [PropertyMathType.SUM, "$browser", MathGroupTypeIndex.NUMBER_1, "sql(e.person_id)"],
+        [CountPerActorMathType.AVG_COUNT_PER_ACTOR, None, MathGroupTypeIndex.NUMBER_2, "sql(e.person_id)"],
+    ],
+)
+def test_actor_id_returns_correct_field(
+    math: Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"]],
+    math_property: str,
+    math_group_type_index: MathGroupTypeIndex,
+    expected_actor_field: str,
+):
+    team = Team()
+    series = EventsNode(
+        event="$pageview", math=math, math_property=math_property, math_group_type_index=math_group_type_index
+    )
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
+
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
+    result = agg_ops.actor_id()
+    assert str(result) == expected_actor_field
+
+
+@pytest.mark.parametrize(
+    "math,math_group_type_index,expected_group_field",
+    [
+        [BaseMathType.WEEKLY_ACTIVE, MathGroupTypeIndex.NUMBER_0, "sql(e.$group_0)"],
+        [BaseMathType.MONTHLY_ACTIVE, MathGroupTypeIndex.NUMBER_1, "sql(e.$group_1)"],
+    ],
+)
+@pytest.mark.django_db
+def test_active_groups_query_orchestration(math, math_group_type_index, expected_group_field):
+    team = Team()
+    series = EventsNode(
+        event="$pageview",
+        math=math,
+        math_group_type_index=math_group_type_index,
+    )
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
+
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
+
+    assert agg_ops.requires_query_orchestration() is True
+    assert str(agg_ops.actor_id()) == expected_group_field, "Should use group field as actor id"
+    result = agg_ops.select_aggregation()
+    assert isinstance(result, ast.Placeholder)

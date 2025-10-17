@@ -1,11 +1,13 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Node } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
@@ -29,6 +31,8 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             ['insight'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['query'],
+            sceneLogic,
+            ['activeTabId'],
         ],
         actions: [eventUsageLogic, ['reportInsightViewed']],
     })),
@@ -50,17 +54,19 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
     listeners(({ actions, values }) => ({
         onQueryChange: async ({ query }, breakpoint) => {
             // We only want to report direct views on the insights page.
-            if (
-                !insightSceneLogic.isMounted() ||
-                insightSceneLogic.values.activeScene !== 'Insight' ||
-                insightSceneLogic.values.insight?.short_id !== values.insight?.short_id
-            ) {
+            const logic = insightSceneLogic.findMounted({ tabId: values.activeTabId })
+            const shortId = logic?.values.insight?.short_id
+
+            if (!logic || shortId !== values.insight?.short_id) {
                 return
             }
 
-            // Report the insight being viewed to our '/viewed' endpoint. Used for "recently viewed insights".
+            // Report the insight being viewed to our '/viewed' endpoint.
+            // Used for "recently viewed insights", and in insights dashboard.
             if (values.insight.id) {
-                void api.create(`api/environments/${values.currentProjectId}/insights/${values.insight.id}/viewed`)
+                void api.create(`api/environments/${values.currentProjectId}/insights/viewed`, {
+                    insight_ids: [values.insight.id],
+                })
             }
 
             // Debounce to avoid noisy events from the query changing multiple times.

@@ -1,4 +1,4 @@
-import { forwardRef, Ref } from 'react'
+import { Ref, forwardRef } from 'react'
 
 import { PropertyIconStandalone } from './PropertyIconStandalone'
 import { PropertyIconProps } from './types'

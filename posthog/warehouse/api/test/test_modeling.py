@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 
 

@@ -1,6 +1,7 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils'
@@ -38,6 +39,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_DEFAULT_FROM',
     'EMAIL_REPLY_TO',
     'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
+    'GITHUB_APP_SLUG',
     'PERSON_ON_EVENTS_ENABLED',
     'STRICT_CACHING_TEAMS',
     'SLACK_APP_CLIENT_ID',
@@ -48,7 +50,6 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'RATE_LIMITING_ALLOW_LIST_TEAMS',
     'SENTRY_AUTH_TOKEN',
     'SENTRY_ORGANIZATION',
-    'HEATMAP_SAMPLE_N',
 ]
 
 // Note: This logic does some heavy calculations - avoid connecting it outside of system status pages!

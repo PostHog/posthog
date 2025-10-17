@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
-import posthog from 'posthog-js'
-import { proxyLogic, ProxyRecord } from 'scenes/settings/environment/proxyLogic'
+import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 function snippetFunctions(arrayJs = '/static/array.js'): string {
@@ -21,7 +22,7 @@ function snippetFunctions(arrayJs = '/static/array.js'): string {
     }
     const snippetMethods = methods.join(' ')
 
-    return `!function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"${arrayJs}",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="${snippetMethods}".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);`
+    return `!function(t,e){var o,n,p,r;e.__SV||(window.posthog && window.posthog.__loaded)||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"${arrayJs}",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="${snippetMethods}".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);`
 }
 
 type SnippetOption = {
@@ -30,20 +31,7 @@ type SnippetOption = {
     comment?: string
 }
 
-function domainFor(proxyRecord: ProxyRecord | undefined): string {
-    if (!proxyRecord) {
-        return apiHostOrigin()
-    }
-
-    let domain = proxyRecord.domain
-    if (!domain.startsWith('https://')) {
-        domain = `https://${domain}`
-    }
-
-    return domain
-}
-
-export function useJsSnippet(indent = 0, arrayJs?: string): string {
+export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: string): string {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -60,8 +48,12 @@ export function useJsSnippet(indent = 0, arrayJs?: string): string {
         },
         ui_host: {
             content: apiHostOrigin(),
-            comment: "neccessary because you're using a proxy, this way links will point back to PostHog properly",
+            comment: "necessary because you're using a proxy, this way links will point back to PostHog properly",
             enabled: !!proxyRecord,
+        },
+        defaults: {
+            content: '2025-05-24',
+            enabled: true,
         },
         person_profiles: {
             content: 'identified_only',
@@ -70,8 +62,10 @@ export function useJsSnippet(indent = 0, arrayJs?: string): string {
         },
     }
 
+    const scriptTag = scriptAttributes ? `<script ${scriptAttributes}>` : '<script>'
+
     return [
-        '<script>',
+        scriptTag,
         `    ${snippetFunctions(arrayJs)}`,
         `    posthog.init('${currentTeam?.api_token}', {`,
         ...Object.entries(options)

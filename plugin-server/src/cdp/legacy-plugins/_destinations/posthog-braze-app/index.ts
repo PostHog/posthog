@@ -1,8 +1,8 @@
-import { ProcessedPluginEvent, Properties, RetryError } from '@posthog/plugin-scaffold'
 import crypto from 'crypto'
 
-import { Response } from '~/src/utils/fetch'
+import { ProcessedPluginEvent, Properties, RetryError } from '@posthog/plugin-scaffold'
 
+import { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 export type FetchBraze = (
@@ -143,7 +143,7 @@ const fetchBraze = async (
         Authorization: `Bearer ${meta.config.apiKey}`,
     }
 
-    let response: Response | undefined
+    let response: FetchResponse | undefined
 
     const startTime = Date.now()
 

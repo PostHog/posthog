@@ -1,4 +1,5 @@
 import { PubSub, Topic } from '@google-cloud/pubsub'
+
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { RetryError } from '@posthog/plugin-scaffold'
 
@@ -11,13 +12,25 @@ type PubSubMeta = LegacyDestinationPluginMeta & {
     }
     config: {
         topicId: string
+        googleCloudKeyJson: {
+            type: string
+            project_id: string
+            private_key_id: string
+            private_key: string
+            client_email: string
+            client_id: string
+            auth_uri: string
+            token_uri: string
+            auth_provider_x509_cert_url: string
+            client_x509_cert_url: string
+            universe_domain: string
+        }
     }
-    attachments: any
 }
 
 export const setupPlugin = async (meta: PubSubMeta): Promise<void> => {
-    const { global, attachments, config, logger } = meta
-    if (!attachments.googleCloudKeyJson) {
+    const { global, config, logger } = meta
+    if (!config.googleCloudKeyJson) {
         throw new Error('JSON config not provided!')
     }
     if (!config.topicId) {
@@ -25,10 +38,9 @@ export const setupPlugin = async (meta: PubSubMeta): Promise<void> => {
     }
 
     try {
-        const credentials = JSON.parse(attachments.googleCloudKeyJson.contents.toString())
         global.pubSubClient = new PubSub({
-            projectId: credentials['project_id'],
-            credentials,
+            projectId: config.googleCloudKeyJson.project_id,
+            credentials: config.googleCloudKeyJson,
         })
         global.pubSubTopic = global.pubSubClient.topic(config.topicId)
 

@@ -28,7 +28,7 @@ export default defineConfig({
     /* Fail the build on CI if you accidentally left test.only in the source code. */
     forbidOnly: !!process.env.CI,
     /* Retry on CI only */
-    retries: process.env.CI ? 8 : 2,
+    retries: process.env.CI ? 3 : 2,
     /* 
         GitHub Actions has 4 cores so run 3 workers 
         and leave one core for all the rest
@@ -49,7 +49,12 @@ export default defineConfig({
 
         /* Locate elements defined by `data-attr-something` with `page.getByTestId('something')` */
         testIdAttribute: 'data-attr',
+
+        screenshot: 'only-on-failure',
     },
+
+    /* Configure centralized screenshot directory */
+    snapshotDir: './__snapshots__',
 
     /* Configure projects for major browsers */
     projects: [
@@ -88,10 +93,10 @@ export default defineConfig({
         // },
 
         // {
-        //   name: 'webkit',
-        //   use: {
-        //     ...devices['Desktop Safari'],
-        //   },
+        //     name: 'webkit',
+        //     use: {
+        //         ...devices['Desktop Safari'],
+        //     },
         // },
 
         /* Test against mobile viewports. */

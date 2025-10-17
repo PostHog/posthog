@@ -1,12 +1,8 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    ReplicationScheme,
-    AggregatingMergeTree,
-)
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
 # V1 Sessions table
 TABLE_BASE_NAME = "sessions"
@@ -101,6 +97,9 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
 
     -- create a map of how many times we saw each event
     event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
@@ -181,6 +180,9 @@ argMinState({li_fat_id_property}, timestamp) as initial_li_fat_id,
 argMinState({mc_cid_property}, timestamp) as initial_mc_cid,
 argMinState({igshid_property}, timestamp) as initial_igshid,
 argMinState({ttclid_property}, timestamp) as initial_ttclid,
+argMinState({epik_property}, timestamp) as initial_epik,
+argMinState({qclid_property}, timestamp) as initial_qclid,
+argMinState({sccid_property}, timestamp) as initial_sccid,
 
 sumMap(CAST(([event], [1]), 'Map(String, UInt64)')) as event_count_map,
 sumIf(1, event='$pageview') as pageview_count,
@@ -211,6 +213,9 @@ GROUP BY `$session_id`, team_id
         mc_cid_property=source_column("mc_cid"),
         igshid_property=source_column("igshid"),
         ttclid_property=source_column("ttclid"),
+        epik_property=source_column("epik"),
+        qclid_property=source_column("qclid"),
+        sccid_property=source_column("sccid"),
         allowed_team_ids=ALLOWED_TEAM_IDS_SQL,
     )
 )
@@ -305,6 +310,9 @@ SELECT
     argMinMerge(initial_mc_cid) as initial_mc_cid,
     argMinMerge(initial_igshid) as initial_igshid,
     argMinMerge(initial_ttclid) as initial_ttclid,
+    argMinMerge(initial_epik) as initial_epik,
+    argMinMerge(initial_qclid) as initial_qclid,
+    argMinMerge(initial_sccid) as initial_sccid,
     sumMap(event_count_map) as event_count_map,
     sum(pageview_count) as pageview_count,
     sum(autocapture_count) as autocapture_count

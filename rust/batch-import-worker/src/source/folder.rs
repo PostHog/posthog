@@ -18,7 +18,7 @@ impl FolderSource {
 
     pub async fn assert_valid_path(&self, key: &str) -> Result<(), Error> {
         if !self.keys().await?.into_iter().any(|k| k == key) {
-            return Err(Error::msg(format!("Key not found: {}", key)));
+            return Err(Error::msg(format!("Key not found: {key}")));
         }
         Ok(())
     }
@@ -35,22 +35,22 @@ impl DataSource for FolderSource {
         Ok(keys)
     }
 
-    async fn size(&self, key: &str) -> Result<usize, Error> {
+    async fn size(&self, key: &str) -> Result<Option<u64>, Error> {
         self.assert_valid_path(key).await?;
         let path = self.path.join(key);
         let metadata = tokio::fs::metadata(path).await?;
-        Ok(metadata.len() as usize)
+        Ok(Some(metadata.len()))
     }
 
-    async fn get_chunk(&self, key: &str, offset: usize, size: usize) -> Result<Vec<u8>, Error> {
+    async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
         self.assert_valid_path(key).await?;
         let path = self.path.join(key);
         let mut file = tokio::fs::File::open(path).await?;
-        file.seek(std::io::SeekFrom::Start(offset as u64)).await?;
+        file.seek(std::io::SeekFrom::Start(offset)).await?;
         // Read until either we reach `size` bytes or the end of the file
-        let mut res = Vec::with_capacity(size);
+        let mut res = Vec::with_capacity(size as usize);
         let mut buffer = vec![0; 1024];
-        while res.len() < size {
+        while (res.len() as u64) < size {
             let bytes_read = file.read(&mut buffer).await?;
             if bytes_read == 0 {
                 break;
@@ -59,8 +59,8 @@ impl DataSource for FolderSource {
         }
 
         // The last call to read might have read more than `size` bytes, so truncate the result
-        if res.len() > size {
-            res.truncate(size);
+        if (res.len() as u64) > size {
+            res.truncate(size as usize);
         }
         Ok(res)
     }
@@ -97,7 +97,7 @@ mod tests {
     async fn test_size() {
         let (_temp_dir, source) = setup_test_folder().await;
         let size = source.size("test1.txt").await.unwrap();
-        assert_eq!(size, 11);
+        assert_eq!(size, Some(11));
     }
 
     #[tokio::test]

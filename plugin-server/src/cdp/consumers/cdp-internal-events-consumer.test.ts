@@ -4,7 +4,7 @@ import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { createInternalEvent, createKafkaMessage, insertHogFunction as _insertHogFunction } from '../_tests/fixtures'
+import { insertHogFunction as _insertHogFunction, createInternalEvent, createKafkaMessage } from '../_tests/fixtures'
 import { HogFunctionType } from '../types'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
@@ -16,13 +16,15 @@ describe('CDP Internal Events Consumer', () => {
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
         // Trigger the reload that django would do
-        await processor.hogFunctionManager.reloadAllHogFunctions()
+        processor['hogFunctionManager']['onHogFunctionsReloaded'](team.id, [item.id])
         return item
     }
 
     beforeEach(async () => {
         await resetTestDatabase()
-        hub = await createHub()
+        hub = await createHub({
+            SITE_URL: 'http://localhost:8000',
+        })
         team = await getFirstTeam(hub)
 
         processor = new CdpInternalEventsConsumer(hub)

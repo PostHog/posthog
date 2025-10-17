@@ -1,7 +1,8 @@
-import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
 import { Counter, Summary } from 'prom-client'
 import { VM } from 'vm2'
+
+import { RetryError } from '@posthog/plugin-scaffold'
 
 import {
     Hub,
@@ -13,9 +14,8 @@ import {
 } from '../../types'
 import { processError } from '../../utils/db/error'
 import { getPlugin, setPluginCapabilities } from '../../utils/db/sql'
-import { instrument } from '../../utils/metrics'
+import { logger } from '../../utils/logger'
 import { getNextRetryMs } from '../../utils/retries'
-import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
 import { constructInlinePluginInstance } from './inline/inline'
@@ -140,14 +140,14 @@ export class LazyPluginVM implements PluginInstance {
                         return
                     }
 
-                    status.debug('🔌', `Loaded ${logInfo}.`)
+                    logger.debug('🔌', `Loaded ${logInfo}.`)
                     await this.createLogEntry(
                         `Plugin loaded (instance ID ${this.hub.instanceId}).`,
                         PluginLogEntryType.Debug
                     )
                     resolve(vm)
                 } catch (error) {
-                    status.warn('⚠️', `Failed to load ${logInfo}. ${error}`)
+                    logger.warn('⚠️', `Failed to load ${logInfo}. ${error}`)
                     if (!(error instanceof SetupPluginError)) {
                         await this.processFatalVmSetupError(error, true)
                     }
@@ -168,16 +168,9 @@ export class LazyPluginVM implements PluginInstance {
         if (!this.ready) {
             const vm = (await this.resolveInternalVm)?.vm
             try {
-                await instrument(
-                    {
-                        metricName: 'vm.setup',
-                        key: 'plugin',
-                        tag: this.pluginConfig.plugin?.name || '?',
-                    },
-                    () => this._setupPlugin(vm)
-                )
+                await this._setupPlugin(vm)
             } catch (error) {
-                status.warn('⚠️', error.message)
+                logger.warn('⚠️', error.message)
                 return false
             }
         }
@@ -197,7 +190,7 @@ export class LazyPluginVM implements PluginInstance {
             if (this.pluginConfig.plugin && this.pluginConfig.plugin.name == 'Replicator') {
                 const host = this.pluginConfig.config['host']
                 const apiKey = String(this.pluginConfig.config['project_api_key'])
-                const team = await this.hub.teamManager.fetchTeam(this.pluginConfig.team_id)
+                const team = await this.hub.teamManager.getTeam(this.pluginConfig.team_id)
                 // There's a single team with replication for the same api key from US to EU
                 // otherwise we're just checking that token differs to better safeguard against forwarding
                 const isAllowed = team?.uuid == '017955d2-b09f-0000-ec00-2116c7e8a605' && host == 'eu.posthog.com'
@@ -218,7 +211,7 @@ export class LazyPluginVM implements PluginInstance {
                 .observe(new Date().getTime() - timer.getTime())
             this.ready = true
 
-            status.info('🔌', `setupPlugin succeeded for ${logInfo}.`)
+            logger.info('🔌', `setupPlugin succeeded for ${logInfo}.`)
             await this.createLogEntry(
                 `setupPlugin succeeded (instance ID ${this.hub.instanceId}).`,
                 PluginLogEntryType.Debug
@@ -240,13 +233,25 @@ export class LazyPluginVM implements PluginInstance {
                     this.totalInitAttemptsCounter
                 )
                 const nextRetryInfo = `Retrying in ${nextRetryMs / 1000} s...`
-                status.warn('⚠️', `setupPlugin failed with ${error} for ${logInfo}. ${nextRetryInfo}`)
+                logger.warn('⚠️', `setupPlugin failed with ${error} for ${logInfo}. ${nextRetryInfo}`)
                 await this.createLogEntry(
                     `setupPlugin failed with ${error} (instance ID ${this.hub.instanceId}). ${nextRetryInfo}`,
                     PluginLogEntryType.Error
                 )
                 this.initRetryTimeout = setTimeout(async () => {
-                    await this._setupPlugin(vm)
+                    try {
+                        await this._setupPlugin(vm)
+                    } catch (error) {
+                        // Handle the error to prevent unhandled promise rejection
+                        logger.error('🚨', `Plugin setup failed after retry timeout`, {
+                            error: error instanceof Error ? error.message : String(error),
+                            pluginId: this.pluginConfig.plugin?.id,
+                            pluginConfigId: this.pluginConfig.id,
+                            teamId: this.pluginConfig.team_id,
+                        })
+                        // The plugin is already marked as errored and disabled at this point
+                        // so we just need to prevent the process from crashing
+                    }
                 }, nextRetryMs)
             } else {
                 this.inErroredState = true
@@ -297,14 +302,14 @@ export class LazyPluginVM implements PluginInstance {
 }
 
 export async function populatePluginCapabilities(hub: Hub, pluginId: number): Promise<void> {
-    status.info('🔌', `Populating plugin capabilities for plugin ID ${pluginId}...`)
+    logger.info('🔌', `Populating plugin capabilities for plugin ID ${pluginId}...`)
     const plugin = await getPlugin(hub, pluginId)
     if (!plugin) {
-        status.error('🔌', `Plugin with ID ${pluginId} not found for populating capabilities.`)
+        logger.error('🔌', `Plugin with ID ${pluginId} not found for populating capabilities.`)
         return
     }
     if (!plugin.source__index_ts) {
-        status.error('🔌', `Plugin with ID ${pluginId} has no index.ts file for populating capabilities.`)
+        logger.error('🔌', `Plugin with ID ${pluginId} has no index.ts file for populating capabilities.`)
         return
     }
 

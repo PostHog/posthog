@@ -213,13 +213,26 @@
             "const": 6,
             "type": "number"
         },
+        "FontDisplay": {
+            "enum": ["auto", "block", "fallback", "optional", "swap"],
+            "type": "string"
+        },
         "FontFaceDescriptors": {
             "additionalProperties": false,
             "properties": {
-                "display": {
+                "ascentOverride": {
                     "type": "string"
                 },
+                "descentOverride": {
+                    "type": "string"
+                },
+                "display": {
+                    "$ref": "#/definitions/FontDisplay"
+                },
                 "featureSettings": {
+                    "type": "string"
+                },
+                "lineGapOverride": {
                     "type": "string"
                 },
                 "stretch": {

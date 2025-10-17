@@ -1,12 +1,12 @@
 import re
-from datetime import datetime, date
-from typing import Optional, Any, Literal
+import math
+from datetime import date, datetime
+from typing import Any, Literal, Optional
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-import math
-
 from posthog.hogql.errors import QueryError, ResolutionError
+
 from posthog.models.utils import UUIDT
 
 # Copied from clickhouse_driver.util.escape, adapted only from single quotes to backquotes.
@@ -23,6 +23,13 @@ escape_chars_map = {
 }
 singlequote_escape_chars_map = {**escape_chars_map, "'": "\\'"}
 backquote_escape_chars_map = {**escape_chars_map, "`": "\\`"}
+
+
+def safe_identifier(identifier: str) -> str:
+    if "%" in identifier:
+        identifier = identifier.replace("%", "")
+
+    return identifier
 
 
 # Copied from clickhouse_driver.util.escape_param

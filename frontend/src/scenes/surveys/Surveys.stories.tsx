@@ -1,6 +1,6 @@
-import { Meta, StoryFn } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
@@ -9,6 +9,7 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
+    AccessControlLevel,
     FeatureFlagBasicType,
     MultipleSurveyQuestion,
     PropertyFilterType,
@@ -48,6 +49,7 @@ const MOCK_BASIC_SURVEY: Survey = {
     iteration_count: null,
     iteration_frequency_days: null,
     schedule: SurveySchedule.Once,
+    user_access_level: AccessControlLevel.Editor,
 }
 
 const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
@@ -89,6 +91,7 @@ const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
     iteration_count: null,
     iteration_frequency_days: null,
     schedule: SurveySchedule.Once,
+    user_access_level: AccessControlLevel.Editor,
 }
 
 const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
@@ -168,6 +171,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     iteration_count: null,
     iteration_frequency_days: null,
     schedule: SurveySchedule.Once,
+    user_access_level: AccessControlLevel.Editor,
 }
 
 const MOCK_SURVEY_SHOWN = {
@@ -198,11 +202,13 @@ const MOCK_RESPONSES_COUNT = {
 }
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Surveys',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-06-28', // To stabilize relative dates
+        pageUrl: urls.surveys(),
     },
     decorators: [
         mswDecorator({
@@ -242,39 +248,34 @@ const meta: Meta = {
     ],
 }
 export default meta
-export const SurveysList: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.surveys())
-    }, [])
-    return <App />
+
+type Story = StoryObj<typeof meta>
+export const SurveysList: Story = {}
+
+export const SurveysGlobalSettings: Story = {
+    parameters: {
+        pageUrl: urls.surveys(SurveysTabs.Settings),
+    },
 }
 
-export const SurveysGlobalSettings: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.surveys(SurveysTabs.Settings))
-    }, [])
-    return <App />
-}
-
-export const NewSurvey: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.survey('new'))
-    }, [])
-    return <App />
+export const NewSurvey: Story = {
+    parameters: {
+        pageUrl: urls.survey('new'),
+    },
 }
 
 export const NewSurveyCustomisationSection: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.survey('new'))
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
-    }, [])
+    })
+
     return <App />
 }
+NewSurveyCustomisationSection.parameters = { pageUrl: urls.survey('new') }
 
 export const NewMultiQuestionSurveySection: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.survey('new'))
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
@@ -289,22 +290,24 @@ export const NewMultiQuestionSurveySection: StoryFn = () => {
                 ],
             } as MultipleSurveyQuestion,
         ])
-    }, [])
+    })
+
     return <App />
 }
+NewMultiQuestionSurveySection.parameters = { pageUrl: urls.survey('new') }
 
 export const NewSurveyPresentationSection: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.survey('new'))
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Presentation)
-    }, [])
+    })
+
     return <App />
 }
+NewSurveyPresentationSection.parameters = { pageUrl: urls.survey('new') }
 
 export const NewSurveyTargetingSection: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.survey('new?edit=true'))
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
@@ -316,23 +319,26 @@ export const NewSurveyTargetingSection: StoryFn = () => {
                 },
             ],
         })
-    }, [])
+    })
+
     return <App />
 }
 NewSurveyTargetingSection.parameters = {
+    pageUrl: urls.survey('new?edit=true'),
     testOptions: {
         waitForSelector: ['.LemonBanner .LemonIcon', '.TaxonomicPropertyFilter__row'],
     },
 }
 
 export const NewSurveyAppearanceSection: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.survey('new?edit=true'))
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
-    }, [])
+    })
+
     return <App />
 }
+NewSurveyAppearanceSection.parameters = { pageUrl: urls.survey('new?edit=true') }
 
 export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
     useStorybookMocks({
@@ -356,8 +362,8 @@ export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
             ],
         },
     })
-    useEffect(() => {
-        router.actions.push(urls.survey('new?edit=true'))
+
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
@@ -368,19 +374,19 @@ export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
                 descriptionContentType: 'html',
             },
         ])
-    }, [])
+    })
+
     return <App />
 }
-
 NewSurveyWithHTMLQuestionDescription.parameters = {
+    pageUrl: urls.survey('new?edit=true'),
     testOptions: {
         waitForSelector: '.survey-question-description strong',
     },
 }
 
 export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.survey('new?edit=true'))
+    useDelayedOnMountEffect(() => {
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
         surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
@@ -391,34 +397,33 @@ export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn 
                 descriptionContentType: 'text',
             },
         ])
-    }, [])
+    })
+
     return <App />
 }
 
 NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML.parameters = {
+    pageUrl: urls.survey('new?edit=true'),
     testOptions: {
         waitForSelector: '.survey-question-description',
     },
 }
 
-export const SurveyView: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.survey(MOCK_SURVEY_WITH_RELEASE_CONS.id))
-    }, [])
-    return <App />
-}
-SurveyView.tags = ['test-skip'] // FIXME: Fix the mocked data so that survey results can actually load
-
-export const SurveyTemplates: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.surveyTemplates())
-    }, [])
-    return <App />
+export const SurveyView: Story = {
+    tags: ['test-skip'], // FIXME: Fix the mocked data so that survey results can actually load
+    parameters: {
+        pageUrl: urls.survey(MOCK_SURVEY_WITH_RELEASE_CONS.id),
+    },
 }
 
-export const SurveyNotFound: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.survey('1234566789'))
-    }, [])
-    return <App />
+export const SurveyTemplates: Story = {
+    parameters: {
+        pageUrl: urls.surveyTemplates(),
+    },
+}
+
+export const SurveyNotFound: Story = {
+    parameters: {
+        pageUrl: urls.survey('1234566789'),
+    },
 }

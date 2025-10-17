@@ -7,7 +7,7 @@
         "chokidar": "^3.5.3",
         "cors": "^2.8.5",
         "cssnano": "^7.0.6",
-        "esbuild": "^0.25.0",
+        "esbuild": "^0.25.1",
         "esbuild-plugin-less": "^1.3.17",
         "esbuild-plugin-polyfill-node": "^0.3.0",
         "esbuild-sass-plugin": "3.0.0",
@@ -15,7 +15,7 @@
         "fs-extra": "^10.0.0",
         "postcss": "^8.5.2",
         "postcss-preset-env": "^10.1.4",
-        "typescript": "~4.9.5",
+        "typescript": "5.2.2",
         "ts-clone-node": "^4.0.0"
     }
 }

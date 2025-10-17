@@ -1,20 +1,25 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { hogqlQuery } from '~/queries/query'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -23,8 +28,8 @@ import {
     ExporterFormat,
     PersonListParams,
     PersonPropertyFilter,
-    PersonsTabType,
     PersonType,
+    PersonsTabType,
 } from '~/types'
 
 import { asDisplay } from './person-utils'
@@ -37,14 +42,53 @@ export interface PersonsLogicProps {
     fixedProperties?: PersonPropertyFilter[]
 }
 
+function createInitialEventsPayload(personId: string): DataTableNode {
+    return {
+        kind: NodeKind.DataTableNode,
+        full: true,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            personId: personId,
+            where: ["notEquals(event, '$exception')"],
+            after: '-24h',
+        },
+    }
+}
+
+function createInitialExceptionsPayload(personId: string): DataTableNode {
+    return {
+        kind: NodeKind.DataTableNode,
+        full: true,
+        showEventFilter: false,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            personId: personId,
+            event: '$exception',
+            after: '-24h',
+        },
+    }
+}
+
 export const personsLogic = kea<personsLogicType>([
     props({} as PersonsLogicProps),
     key((props) => {
+        if (props.urlId) {
+            return `url_${props.urlId}`
+        }
+
         if (props.fixedProperties) {
             return JSON.stringify(props.fixedProperties)
         }
 
-        return props.cohort ? `cohort_${props.cohort}` : 'scene'
+        if (props.cohort) {
+            return `cohort_${props.cohort}`
+        }
+
+        return 'scene'
     }),
     path((key) => ['scenes', 'persons', 'personsLogic', key]),
     connect(() => ({
@@ -66,6 +110,8 @@ export const personsLogic = kea<personsLogicType>([
         setActiveTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         setDistinctId: (distinctId: string) => ({ distinctId }),
+        setEventsQuery: (eventsQuery: DataTableNode | null) => ({ eventsQuery }),
+        setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => ({ exceptionsQuery }),
     }),
     loaders(({ values, actions, props }) => ({
         persons: [
@@ -108,13 +154,43 @@ export const personsLogic = kea<personsLogicType>([
                     const person = response.results[0]
                     if (person) {
                         actions.reportPersonDetailViewed(person)
+                        if (person.id != null) {
+                            const eventsQuery = createInitialEventsPayload(person.id)
+                            actions.setEventsQuery(eventsQuery)
+                            const exceptionsQuery = createInitialExceptionsPayload(person.id)
+                            actions.setExceptionsQuery(exceptionsQuery)
+                        }
                     }
+
                     return person
                 },
                 loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
                     const response = await hogqlQuery(
-                        'select id, groupArray(pdi.distinct_id) as distinct_ids, properties, is_identified, created_at from persons where id={id} group by id, properties, is_identified, created_at',
-                        { id: uuid }
+                        hogql`SELECT
+                            id,
+                            groupArray(101)(pdi2.distinct_id) as distinct_ids,
+                            properties,
+                            is_identified,
+                            created_at
+                        FROM persons
+                        LEFT JOIN (
+                            SELECT
+                                pdi2.distinct_id,
+                                argMax(pdi2.person_id, pdi2.version) AS person_id
+                            FROM raw_person_distinct_ids pdi2
+                            WHERE pdi2.distinct_id IN (
+                                    SELECT distinct_id
+                                    FROM raw_person_distinct_ids
+                                    WHERE person_id = {id}
+                                )
+                            GROUP BY pdi2.distinct_id
+                            HAVING argMax(pdi2.is_deleted, pdi2.version) = 0
+                                AND argMax(pdi2.person_id, pdi2.version) = {id}
+                        ) AS pdi2 ON pdi2.person_id = persons.id
+                        WHERE persons.id = {id}
+                        GROUP BY id, properties, is_identified, created_at`,
+                        { id: uuid },
+                        'blocking'
                     )
                     const row = response?.results?.[0]
                     if (row) {
@@ -127,6 +203,12 @@ export const personsLogic = kea<personsLogicType>([
                             created_at: row[4],
                         }
                         actions.reportPersonDetailViewed(person)
+                        if (person.id != null) {
+                            const eventsQuery = createInitialEventsPayload(person.id)
+                            actions.setEventsQuery(eventsQuery)
+                            const exceptionsQuery = createInitialExceptionsPayload(person.id)
+                            actions.setExceptionsQuery(exceptionsQuery)
+                        }
                         return person
                     }
                     return null
@@ -220,6 +302,20 @@ export const personsLogic = kea<personsLogicType>([
                 setDistinctId: (_, { distinctId }) => distinctId,
             },
         ],
+        eventsQuery: [
+            null as DataTableNode | null,
+            {
+                setEventsQuery: (_, { eventsQuery }) => {
+                    return eventsQuery
+                },
+            },
+        ],
+        exceptionsQuery: [
+            null as DataTableNode | null,
+            {
+                setExceptionsQuery: (_, { exceptionsQuery }) => exceptionsQuery,
+            },
+        ],
     })),
     selectors(() => ({
         apiDocsURL: [
@@ -241,15 +337,17 @@ export const personsLogic = kea<personsLogicType>([
                 const showPerson = person && location.pathname.match(/\/person\/.+/)
                 const breadcrumbs: Breadcrumb[] = [
                     {
-                        key: Scene.PersonsManagement,
-                        name: 'People',
+                        key: Scene.Persons,
+                        name: 'Persons',
                         path: urls.persons(),
+                        iconType: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                     },
                 ]
                 if (showPerson) {
                     breadcrumbs.push({
                         key: [Scene.Person, person.id || 'unknown'],
                         name: asDisplay(person),
+                        iconType: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                     })
                 }
                 return breadcrumbs
@@ -281,11 +379,7 @@ export const personsLogic = kea<personsLogicType>([
             ],
         ],
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
-        showCustomerSuccessDashboards: [
-            (s) => [s.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.CS_DASHBOARDS],
-        ],
-        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.PERSON_FEED_CANVAS]],
+        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]],
         primaryDistinctId: [
             (s) => [s.person],
             (person): string | null => {

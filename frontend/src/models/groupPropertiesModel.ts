@@ -1,5 +1,6 @@
 import { connect, events, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -10,9 +11,9 @@ import type { groupPropertiesModelType } from './groupPropertiesModelType'
 
 export const groupPropertiesModel = kea<groupPropertiesModelType>([
     path(['models', 'groupPropertiesModel']),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId'], groupsAccessLogic, ['groupsEnabled']],
-    }),
+    })),
     loaders(({ values }) => ({
         allGroupProperties: [
             {} as GroupTypeProperties,

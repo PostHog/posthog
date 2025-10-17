@@ -3,25 +3,7 @@
     "short_id": "jEAIVJnI",
     "name": "",
     "derived_name": "Pageview count",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0
-            }
-        ],
-        "actions": [],
-        "display": "ActionsTable",
-        "insight": "TRENDS",
-        "interval": "day",
-        "properties": {
-            "type": "AND",
-            "values": []
-        },
-        "filter_test_accounts": false
-    },
+    "filters": {},
     "filters_hash": "cache_7b48d5b511fdab675b9cf64c4c8aef09",
     "order": null,
     "deleted": false,
@@ -98,6 +80,34 @@
         "email": "marius@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview"
+                }
+            ],
+            "trendsFilter": {
+                "display": "ActionsTable",
+                "resultCustomizationBy": "value"
+            },
+            "version": 2
+        },
+        "full": true
+    }
 }

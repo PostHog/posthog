@@ -1,22 +1,26 @@
 import './PropertyFilters.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
+import React, { useEffect, useState } from 'react'
+
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
+    AllowedProperties,
     ExcludedProperties,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import React, { useEffect, useState } from 'react'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
+import { OperatorValueSelectProps } from './components/OperatorValueSelect'
 import { propertyFilterLogic } from './propertyFilterLogic'
 
-interface PropertyFiltersProps {
+export interface PropertyFiltersProps {
     endpoint?: string | null
     propertyFilters?: AnyPropertyFilter[] | null
     onChange: (filters: AnyPropertyFilter[]) => void
@@ -33,18 +37,22 @@ interface PropertyFiltersProps {
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
     addText?: string | null
+    editable?: boolean
     buttonText?: string
+    buttonSize?: 'xsmall' | 'small' | 'medium'
     hasRowOperator?: boolean
     sendAllKeyUpdates?: boolean
     allowNew?: boolean
     openOnInsert?: boolean
     errorMessages?: JSX.Element[] | null
-    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
+    propertyAllowList?: AllowedProperties
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
     disabledReason?: string
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean
+    addFilterDocLink?: string
+    operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
 }
 
 export function PropertyFilters({
@@ -64,6 +72,8 @@ export function PropertyFilters({
     propertyGroupType = null,
     addText = null,
     buttonText = 'Add filter',
+    editable = true,
+    buttonSize,
     hasRowOperator = true,
     sendAllKeyUpdates = false,
     allowNew = true,
@@ -75,6 +85,8 @@ export function PropertyFilters({
     disabledReason = undefined,
     exactMatchFeatureFlagCohortOperators = false,
     hideBehavioralCohorts,
+    addFilterDocLink,
+    operatorAllowlist,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -87,9 +99,7 @@ export function PropertyFilters({
     }, [propertyFilters, setFilters])
 
     // do not open on initial render, only open if newly inserted
-    useEffect(() => {
-        setAllowOpenOnInsert(true)
-    }, [])
+    useOnMountEffect(() => setAllowOpenOnInsert(true))
 
     return (
         <div className="PropertyFilters">
@@ -100,7 +110,7 @@ export function PropertyFilters({
             )}
             <div className="PropertyFilters__content max-w-full">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                    {(allowNew ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
+                    {(allowNew && editable ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
                         return (
                             <React.Fragment key={index}>
                                 {logicalRowDivider && index > 0 && index !== filtersWithNew.length - 1 && (
@@ -116,8 +126,10 @@ export function PropertyFilters({
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
                                     label={buttonText}
+                                    size={buttonSize}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
+                                    editable={editable}
                                     filterComponent={(onComplete) => (
                                         <TaxonomicPropertyFilter
                                             key={index}
@@ -141,6 +153,10 @@ export function PropertyFilters({
                                             allowRelativeDateOptions={allowRelativeDateOptions}
                                             exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
                                             hideBehavioralCohorts={hideBehavioralCohorts}
+                                            size={buttonSize}
+                                            addFilterDocLink={addFilterDocLink}
+                                            editable={editable}
+                                            operatorAllowlist={operatorAllowlist}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

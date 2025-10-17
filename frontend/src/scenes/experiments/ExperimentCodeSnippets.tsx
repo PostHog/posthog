@@ -1,4 +1,5 @@
 import { Link } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 function ServerSideWarning(): JSX.Element {
@@ -7,7 +8,7 @@ function ServerSideWarning(): JSX.Element {
             <p>
                 <b>Warning:</b> Server side experiment metrics require you to manually send the feature flag
                 information.{' '}
-                <Link to="https://posthog.com/tutorials/experiments#step-2-sending-the-right-events" target="_blank">
+                <Link to="https://posthog.com/docs/experiments/adding-experiment-code" target="_blank">
                     See this tutorial for more information.
                 </Link>
             </p>
@@ -161,13 +162,14 @@ export function GolangSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.Go} wrap>
-                {`experimentFlagValue, err := client.GetFeatureFlag(
-                    FeatureFlagPayload{
-                        Key:        '${flagKey}',
-                        DistinctId: "distinct-id",
-                    })
-
-if (experimentFlagValue == '${variant}' ) {
+                {`experimentFlagValue, err := client.GetFeatureFlag(posthog.FeatureFlagPayload{
+    Key:        '${flagKey}',
+    DistinctId: "distinct-id",
+})
+if err != nil {
+    // Handle error (e.g. capture error and fallback to default behaviour)
+}
+if experimentFlagValue == '${variant}' {
     // Do something differently for this user
 } else {
     // It's a good idea to let control variant always be the default behaviour,
@@ -230,6 +232,24 @@ if experiment_flag_value == '${variant}':
 else:
     # It's a good idea to let control variant always be the default behaviour,
     # so if something goes wrong with flag evaluation, you don't break your app.
+`}
+            </CodeSnippet>
+            <ServerSideWarning />
+        </>
+    )
+}
+
+export function JavaSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Java} wrap>
+                {`Object flagValue = postHog.getFeatureFlag("user distinct id", "${flagKey}");
+if ("${variant}".equals(flagValue)) {
+    // Do something differently for this user
+} else {
+    // It's a good idea to let control variant always be the default behaviour,
+    // so if something goes wrong with flag evaluation, you don't break your app.
+}
 `}
             </CodeSnippet>
             <ServerSideWarning />

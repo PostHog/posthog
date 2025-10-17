@@ -7,7 +7,6 @@ use std::{str::FromStr, sync::Arc};
 use async_trait::async_trait;
 use chrono;
 use serde;
-use sqlx::postgres::any::AnyConnectionBackend;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -257,19 +256,18 @@ pub struct PgTransactionBatch<'c, J, M> {
     shared_txn: Arc<Mutex<Option<sqlx::Transaction<'c, sqlx::postgres::Postgres>>>>,
 }
 
-impl<'c, J, M> PgTransactionBatch<'_, J, M> {
+impl<J, M> PgTransactionBatch<'_, J, M> {
     pub async fn commit(self) -> PgQueueResult<()> {
         let mut txn_guard = self.shared_txn.lock().await;
 
-        txn_guard
-            .as_deref_mut()
-            .ok_or(DatabaseError::TransactionAlreadyClosedError)?
-            .commit()
-            .await
-            .map_err(|e| DatabaseError::QueryError {
-                command: "COMMIT".to_owned(),
-                error: e,
-            })?;
+        let Some(txn) = txn_guard.take() else {
+            return Err(DatabaseError::TransactionAlreadyClosedError);
+        };
+
+        txn.commit().await.map_err(|e| DatabaseError::QueryError {
+            command: "COMMIT".to_owned(),
+            error: e,
+        })?;
 
         Ok(())
     }

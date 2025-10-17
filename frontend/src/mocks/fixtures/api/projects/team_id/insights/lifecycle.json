@@ -3,34 +3,7 @@
     "short_id": "jEAIVJnF",
     "name": "",
     "derived_name": "User lifecycle based on Pageview",
-    "filters": {
-        "events": [
-            {
-                "id": "$pageview",
-                "math": "total",
-                "name": "$pageview",
-                "type": "events",
-                "order": 0
-            }
-        ],
-        "actions": [],
-        "compare": false,
-        "display": "ActionsLineGraph",
-        "insight": "LIFECYCLE",
-        "interval": "day",
-        "shown_as": "Lifecycle",
-        "properties": {
-            "type": "AND",
-            "values": []
-        },
-        "step_limit": 5,
-        "funnel_filter": {},
-        "exclude_events": [],
-        "path_groupings": [],
-        "include_event_types": ["$pageview"],
-        "filter_test_accounts": false,
-        "local_path_cleaning_filters": []
-    },
+    "filters": {},
     "filters_hash": "cache_aa11294b4c87ebf92d0d5c6672b319ff",
     "order": null,
     "deleted": false,
@@ -211,6 +184,29 @@
         "email": "marius@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "LifecycleQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "event": "$pageview",
+                    "kind": "EventsNode",
+                    "name": "$pageview"
+                }
+            ]
+        },
+        "full": true
+    }
 }

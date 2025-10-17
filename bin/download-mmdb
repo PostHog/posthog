@@ -1,15 +1,30 @@
 #!/bin/bash
+set -o pipefail
 
 set -e
 
-# Get dir of this script
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mkdir -p "$DIR/../share"
 
 if [ ! -f "$DIR/../share/GeoLite2-City.mmdb" ] || [ ! -f "$DIR/../share/GeoLite2-City.json" ]; then
     rm -f "$DIR/../share/GeoLite2-City.mmdb" "$DIR/../share/GeoLite2-City.json"
-    curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb"
+
+    echo "Downloading GeoLite2-City.mmdb..."
+    if curl -L "https://mmdbcdn.posthog.net/" \
+        --http1.1 \
+        --fail \
+        --retry 10 \
+        --retry-max-time 300 \
+        --retry-all-errors \
+        --progress-bar \
+        --show-error |
+        brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb"; then
+        echo "Download successful"
+    else
+        echo "Download failed after retries"
+        exit 1
+    fi
 
     DATE=$(date +"%Y-%m-%d")
     echo "{ \"date\": \"$DATE\" }" >"$DIR/../share/GeoLite2-City.json"

@@ -1,12 +1,8 @@
-from typing import TYPE_CHECKING, Any, Optional, Union
 from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Optional, Union
 
-from django.db.models.functions.datetime import (
-    TruncDay,
-    TruncHour,
-    TruncMonth,
-    TruncWeek,
-)
+from django.db.models.functions.datetime import TruncDay, TruncHour, TruncMonth, TruncWeek
+
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 

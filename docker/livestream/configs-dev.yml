@@ -1,7 +1,4 @@
-prod: false
-tailscale:
-    controlUrl:
-    hostname: 'live-events-dev'
+debug: true
 kafka:
     brokers: 'kafka:9092'
     topic: 'events_plugin_ingestion'

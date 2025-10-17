@@ -1,4 +1,5 @@
 from typing import Any, Union
+
 from posthog.hogql import ast
 
 

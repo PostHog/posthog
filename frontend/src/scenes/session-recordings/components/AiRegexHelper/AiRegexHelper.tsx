@@ -1,13 +1,14 @@
 /**
  * @fileoverview A component that helps you to generate regex for your settings using Max AI
  */
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconAI, IconCopy, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { aiRegexHelperLogic } from './aiRegexHelperLogic'
@@ -27,12 +28,12 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
     const disabledReason = !aiAvailable
         ? 'To use AI features, set environment variable OPENAI_API_KEY for this instance of PostHog'
         : !dataProcessingAccepted
-        ? dataProcessingApprovalDisabledReason || 'You must accept the data processing agreement to use AI features'
-        : isLoading
-        ? 'Generating...'
-        : !input.length
-        ? 'Provide a prompt first'
-        : null
+          ? dataProcessingApprovalDisabledReason || 'You must accept the data processing agreement to use AI features'
+          : isLoading
+            ? 'Generating...'
+            : !input.length
+              ? 'Provide a prompt first'
+              : null
 
     return (
         <>
@@ -110,26 +111,18 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
 
 export function AiRegexHelperButton(): JSX.Element {
     const { setIsOpen } = useActions(aiRegexHelperLogic)
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-
-    const disabledReason = !dataProcessingAccepted
-        ? dataProcessingApprovalDisabledReason || 'You must accept the data processing agreement to use AI features'
-        : null
 
     return (
-        <AIConsentPopoverWrapper>
-            <LemonButton
-                type="tertiary"
-                size="small"
-                icon={<IconAI />}
-                onClick={() => {
-                    setIsOpen(true)
-                    posthog.capture('ai_regex_helper_open')
-                }}
-                disabledReason={disabledReason}
-            >
-                Help me with Regex
-            </LemonButton>
-        </AIConsentPopoverWrapper>
+        <LemonButton
+            type="tertiary"
+            size="small"
+            icon={<IconAI />}
+            onClick={() => {
+                setIsOpen(true)
+                posthog.capture('ai_regex_helper_open')
+            }}
+        >
+            Help me with Regex
+        </LemonButton>
     )
 }

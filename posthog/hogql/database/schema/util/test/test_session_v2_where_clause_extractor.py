@@ -1,16 +1,18 @@
-from typing import Union, Optional
+from typing import Optional, Union
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from inline_snapshot import snapshot
+
+from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
-from posthog.schema import SessionTableVersion
-from posthog.test.base import ClickhouseTestMixin, APIBaseTest
-
-from inline_snapshot import snapshot
 
 
 def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
@@ -52,42 +54,42 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
     def test_handles_select_with_eq(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp = '2021-01-01'")))
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) - toIntervalDay(3)) <= '2021-01-01') AND ((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= '2021-01-01')"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-01' - toIntervalDay(3)) AND fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= ('2021-01-01' + toIntervalDay(3))"
         )
         assert expected == actual
 
     def test_handles_select_with_eq_flipped(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE '2021-01-01' = $start_timestamp")))
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) - toIntervalDay(3)) <= '2021-01-01') AND ((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= '2021-01-01')"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-01' - toIntervalDay(3)) AND fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= ('2021-01-01' + toIntervalDay(3))"
         )
         assert expected == actual
 
     def test_handles_select_with_simple_gt(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp > '2021-01-01'")))
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= '2021-01-01')"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-01' - toIntervalDay(3))"
         )
         assert expected == actual
 
     def test_handles_select_with_simple_gte(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp >= '2021-01-01'")))
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= '2021-01-01')"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-01' - toIntervalDay(3))"
         )
         assert expected == actual
 
     def test_handles_select_with_simple_lt(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp < '2021-01-01'")))
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) - toIntervalDay(3)) <= '2021-01-01')"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= ('2021-01-01' + toIntervalDay(3))"
         )
         assert expected == actual
 
     def test_handles_select_with_simple_lte(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp <= '2021-01-01'")))
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) - toIntervalDay(3)) <= '2021-01-01')"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= ('2021-01-01' + toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -101,7 +103,7 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= '2021-01-01')"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-01' - toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -120,7 +122,7 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= '2021-01-01') AND ((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) - toIntervalDay(3)) <= '2021-01-03')"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-01' - toIntervalDay(3)) AND fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= ('2021-01-03' + toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -131,7 +133,7 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) - toIntervalDay(3)) <= '2021-01-01') AND ((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= '2021-01-03')"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= ('2021-01-01' + toIntervalDay(3)) AND fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-03' - toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -170,7 +172,7 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
             )
         )
         assert actual == f(
-            "(fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= '2021-01-03'"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-03' - toIntervalDay(3))"
         )
 
     def test_join(self):
@@ -182,7 +184,7 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= '2021-01-03')"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-03' - toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -195,14 +197,14 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= '2021-01-03')"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2021-01-03' - toIntervalDay(3))"
         )
         assert expected == actual
 
     def test_minus(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp >= today() - 2")))
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= (today() - 2))"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ((today() - 2) - toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -211,21 +213,21 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
             self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp >= minus(today() , 2)"))
         )
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= minus(today(), 2))"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= (minus(today(), 2) - toIntervalDay(3))"
         )
         assert expected == actual
 
     def test_less_function(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE less($start_timestamp, today())")))
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) - toIntervalDay(3)) <= today())"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= (today() + toIntervalDay(3))"
         )
         assert expected == actual
 
     def test_less_function_second_arg(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE less(today(), $start_timestamp)")))
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= today())"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= (today() - toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -236,7 +238,7 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= today())"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= (today() - toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -249,7 +251,7 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "(toTimeZone(fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), 'US/Pacific') + toIntervalDay(3)) >= toDateTime('2024-03-12 00:00:00', 'US/Pacific') AND (toTimeZone(fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), 'US/Pacific') - toIntervalDay(3)) <= toDateTime('2024-03-19 23:59:59', 'US/Pacific') "
+            "toTimeZone(fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), 'US/Pacific') >= (toDateTime('2024-03-12 00:00:00', 'US/Pacific') - toIntervalDay(3)) AND toTimeZone(fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), 'US/Pacific') <= (toDateTime('2024-03-19 23:59:59', 'US/Pacific') + toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -262,7 +264,7 @@ class TestSessionWhereClauseExtractorV2(ClickhouseTestMixin, APIBaseTest):
             )
         )
         expected = f(
-            "(fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= '2024-03-12'"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2024-03-12' - toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -302,7 +304,7 @@ SELECT
             )
         )
         expected = f(
-            "((fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= toStartOfDay(assumeNotNull(toDateTime('2024-04-13 00:00:00'))) AND (fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) - toIntervalDay(3)) <= assumeNotNull(toDateTime('2024-04-20 23:59:59')))"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= (toStartOfDay(assumeNotNull(toDateTime('2024-04-13 00:00:00'))) - toIntervalDay(3)) AND fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= (assumeNotNull(toDateTime('2024-04-20 23:59:59')) + toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -339,7 +341,7 @@ SELECT
         select = ast.SelectQuery(select=[], where=where)
         actual = f(self.inliner.get_inner_where(select))
         expected = f(
-            "(fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) + toIntervalDay(3)) >= '2024-03-12'"
+            "fromUnixTimestamp(intDiv(_toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= ('2024-03-12' - toIntervalDay(3))"
         )
         assert expected == actual
 
@@ -375,7 +377,7 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_1)s), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_1)s, toIntervalDay(3))))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS sessions
@@ -390,7 +392,7 @@ LIMIT 50000\
             """
 SELECT
     sessions.session_id,
-    uniq(uuid)
+    uniq(uuid) as uniq_uuid
 FROM events
 JOIN sessions
 ON events.$session_id = sessions.session_id
@@ -402,7 +404,7 @@ GROUP BY sessions.session_id
             """\
 SELECT
     sessions.session_id AS session_id,
-    uniq(events.uuid)
+    uniq(events.uuid) AS uniq_uuid
 FROM
     events
     JOIN (SELECT
@@ -411,7 +413,7 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_0)s), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3))))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id)
@@ -449,7 +451,7 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), today()), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(today(), toIntervalDay(3))))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_3)s)), events__session.session_id_v7)
@@ -527,17 +529,17 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_3)s, %(hogql_val_4)s)))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime(%(hogql_val_5)s, %(hogql_val_6)s))), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_3)s, %(hogql_val_4)s))), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime(%(hogql_val_5)s, %(hogql_val_6)s)), toIntervalDay(3))))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, %(hogql_val_7)s)), e__session.session_id_v7)
 WHERE
-    and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_20)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_21)s, %(hogql_val_22)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_23)s), assumeNotNull(toDateTime(%(hogql_val_24)s, %(hogql_val_25)s))), equals(e.event, %(hogql_val_26)s), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
+    and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_20)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_21)s, %(hogql_val_22)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_23)s), assumeNotNull(toDateTime(%(hogql_val_24)s, %(hogql_val_25)s))), equals(e.event, %(hogql_val_26)s), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
                     cohortpeople.person_id AS person_id
                 FROM
                     cohortpeople
                 WHERE
-                    and(equals(cohortpeople.team_id, <TEAM_ID>), and(equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0))))), 0)))
+                    and(equals(cohortpeople.team_id, <TEAM_ID>), and(equals(cohortpeople.cohort_id, 2), equals(cohortpeople.version, 0)))))))
 GROUP BY
     day_start,
     breakdown_value
@@ -569,12 +571,12 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), %(hogql_val_2)s), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), now64(6, %(hogql_val_3)s)), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_2)s, toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(now64(6, %(hogql_val_3)s), toIntervalDay(3))))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS s__session ON equals(toUInt128(accurateCastOrNull(s.session_id, %(hogql_val_4)s)), s__session.session_id_v7)
 WHERE
-    and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_6)s), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), %(hogql_val_8)s), 0), ifNull(less(toTimeZone(s.min_first_timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)), 0))
+    and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_6)s), 0), greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), %(hogql_val_8)s), less(toTimeZone(s.min_first_timestamp, %(hogql_val_9)s), now64(6, %(hogql_val_10)s)))
 GROUP BY
     s.session_id
 LIMIT 50000\
@@ -607,7 +609,7 @@ FROM
     FROM
         raw_sessions
     WHERE
-        and(equals(raw_sessions.team_id, <TEAM_ID>), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), minus(now64(6, %(hogql_val_1)s), toIntervalDay(7))), 0))
+        and(equals(raw_sessions.team_id, <TEAM_ID>), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(minus(now64(6, %(hogql_val_1)s), toIntervalDay(7)), toIntervalDay(3))))
     GROUP BY
         raw_sessions.session_id_v7,
         raw_sessions.session_id_v7) AS sessions

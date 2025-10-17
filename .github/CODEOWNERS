@@ -1,1 +1,3 @@
-/posthog/clickhouse/migrations/**  @PostHog/clickhouse 
+# If a file is set here, then PRs will require that team's approval to get that code merged.
+
+posthog/hogql/** @PostHog/hogql

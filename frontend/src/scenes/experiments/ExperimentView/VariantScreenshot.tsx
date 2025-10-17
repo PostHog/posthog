@@ -1,8 +1,10 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonFileInput, LemonModal, LemonSkeleton, lemonToast } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { useState } from 'react'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
@@ -138,7 +140,7 @@ export function VariantScreenshot({
                             loading={uploading}
                             value={filesToUpload}
                             callToAction={
-                                <div className="flex items-center justify-center w-full h-16 border border-dashed rounded cursor-pointer hover:border-accent-primary">
+                                <div className="flex items-center justify-center w-full h-16 border border-dashed rounded cursor-pointer hover:border-accent">
                                     <span className="text-2xl text-secondary">+</span>
                                 </div>
                             }

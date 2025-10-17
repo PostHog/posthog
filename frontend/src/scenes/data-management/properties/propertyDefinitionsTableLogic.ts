@@ -1,14 +1,15 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
-    normalizePropertyDefinitionEndpointUrl,
     PropertyDefinitionsPaginatedResponse,
+    normalizePropertyDefinitionEndpointUrl,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { urls } from 'scenes/urls'
 
@@ -48,9 +49,9 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
     path(['scenes', 'data-management', 'properties', 'propertyDefinitionsTableLogic']),
     props({} as PropertyDefinitionsTableLogicProps),
     key((props) => props.key || 'scene'),
-    connect({
+    connect(() => ({
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
-    }),
+    })),
     actions({
         loadPropertyDefinitions: (url: string | null = '') => ({
             url,
@@ -121,7 +122,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
 
                     const currentUrl = `${normalizePropertyDefinitionEndpointUrl(url)}`
                     cache.apiCache = {
-                        ...(cache.apiCache ?? {}),
+                        ...cache.apiCache,
                         [currentUrl]: {
                             ...response,
                             previous: normalizePropertyDefinitionEndpointUrl(response.previous),
@@ -141,7 +142,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                     }
                     // Update cache as well
                     cache.apiCache = {
-                        ...(cache.apiCache ?? {}),
+                        ...cache.apiCache,
                         [values.propertyDefinitions.current]: {
                             ...values.propertyDefinitions,
                             results: values.propertyDefinitions.results.map((d) =>

@@ -1,26 +1,22 @@
 import { PostgresRouter } from '../../../../utils/db/postgres'
-import { fetchTeamTokensWithRecordings } from '../../../../worker/ingestion/team-manager'
 import { TeamService } from './team-service'
-
-jest.mock('~/src/worker/ingestion/team-manager')
-const mockFetchTeamTokens = fetchTeamTokensWithRecordings as jest.MockedFunction<typeof fetchTeamTokensWithRecordings>
 
 describe('TeamService', () => {
     let teamService: TeamService
-    let mockPostgres: jest.Mocked<PostgresRouter>
+    let fetchSpy: jest.SpyInstance
 
     beforeEach(() => {
         jest.useFakeTimers()
-        mockPostgres = {} as jest.Mocked<PostgresRouter>
-        mockFetchTeamTokens.mockReset()
-
-        // Default mock implementation
-        mockFetchTeamTokens.mockResolvedValue({
-            'valid-token': { teamId: 1, consoleLogIngestionEnabled: true },
-            'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false },
-        })
-
+        const mockPostgres = {} as jest.Mocked<PostgresRouter>
         teamService = new TeamService(mockPostgres)
+
+        fetchSpy = jest.spyOn(teamService as any, 'fetchTeamTokensWithRecordings').mockResolvedValue([
+            {
+                'valid-token': { teamId: 1, consoleLogIngestionEnabled: true },
+                'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false },
+            },
+            {},
+        ])
     })
 
     afterEach(() => {
@@ -42,9 +38,12 @@ describe('TeamService', () => {
         })
 
         it('should return null if teamId is missing', async () => {
-            mockFetchTeamTokens.mockResolvedValue({
-                token: { teamId: null as any, consoleLogIngestionEnabled: true },
-            })
+            fetchSpy.mockResolvedValue([
+                {
+                    token: { teamId: null as any, consoleLogIngestionEnabled: true },
+                },
+                {},
+            ])
             const team = await teamService.getTeamByToken('token')
             expect(team).toBeNull()
         })
@@ -59,28 +58,28 @@ describe('TeamService', () => {
             await teamService.getTeamByToken('valid-token')
             await teamService.getTeamByToken('valid-token-2')
 
-            expect(mockFetchTeamTokens).toHaveBeenCalledTimes(1)
+            expect(fetchSpy).toHaveBeenCalledTimes(1)
         })
 
         it('should refresh after max age', async () => {
             await teamService.getTeamByToken('valid-token')
-            expect(mockFetchTeamTokens).toHaveBeenCalledTimes(1)
+            expect(fetchSpy).toHaveBeenCalledTimes(1)
 
             // Move time forward past the refresh interval
             jest.advanceTimersByTime(5 * 60 * 1000 + 1)
 
             // This should trigger a refresh
             await teamService.getTeamByToken('valid-token')
-            expect(mockFetchTeamTokens).toHaveBeenCalledTimes(2)
+            expect(fetchSpy).toHaveBeenCalledTimes(2)
         })
 
         it('should handle refresh errors and return cached data', async () => {
             // First call succeeds
             await teamService.getTeamByToken('valid-token')
-            expect(mockFetchTeamTokens).toHaveBeenCalledTimes(1)
+            expect(fetchSpy).toHaveBeenCalledTimes(1)
 
             // Make next refresh fail
-            mockFetchTeamTokens.mockRejectedValueOnce(new Error('Refresh failed'))
+            fetchSpy.mockRejectedValueOnce(new Error('Refresh failed'))
 
             // Advance time to trigger refresh
             jest.advanceTimersByTime(5 * 60 * 1000 + 1)
@@ -99,10 +98,13 @@ describe('TeamService', () => {
             expect(team1?.consoleLogIngestionEnabled).toBe(true)
 
             // Update mock data and capture the promise
-            const mockFetchPromise = Promise.resolve({
-                'valid-token': { teamId: 1, consoleLogIngestionEnabled: false },
-            })
-            mockFetchTeamTokens.mockReturnValue(mockFetchPromise)
+            const mockFetchPromise = Promise.resolve([
+                {
+                    'valid-token': { teamId: 1, consoleLogIngestionEnabled: false },
+                },
+                {},
+            ])
+            fetchSpy.mockReturnValue(mockFetchPromise)
 
             // Advance time to trigger refresh
             jest.advanceTimersByTime(5 * 60 * 1000 + 1)
@@ -122,10 +124,13 @@ describe('TeamService', () => {
             expect(team1?.teamId).toBe(1)
 
             // Update mock data to remove the team
-            const mockFetchPromise = Promise.resolve({
-                'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false }, // Remove valid-token
-            })
-            mockFetchTeamTokens.mockReturnValue(mockFetchPromise)
+            const mockFetchPromise = Promise.resolve([
+                {
+                    'valid-token-2': { teamId: 2, consoleLogIngestionEnabled: false }, // Remove valid-token
+                },
+                {},
+            ])
+            fetchSpy.mockReturnValue(mockFetchPromise)
 
             // Advance time to trigger refresh
             jest.advanceTimersByTime(5 * 60 * 1000 + 1)

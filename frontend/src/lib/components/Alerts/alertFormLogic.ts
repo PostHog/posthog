@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -8,12 +9,13 @@ import {
     AlertCalculationInterval,
     AlertConditionType,
     GoalLine,
-    InsightsThresholdBounds,
     InsightThresholdType,
+    InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
+import { insightAlertsLogic } from './insightAlertsLogic'
 import { AlertType, AlertTypeWrite } from './types'
 
 export type AlertFormType = Pick<
@@ -46,7 +48,7 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
 export interface AlertFormLogicProps {
     alert: AlertType | null
     insightId: QueryBasedInsightModel['id']
-    onEditSuccess: () => void
+    onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
 }
 
@@ -135,7 +137,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         const updatedAlert: AlertType = await api.alerts.create(payload)
 
                         lemonToast.success(`Alert created.`)
-                        props.onEditSuccess()
+                        props.onEditSuccess(updatedAlert.id)
 
                         return updatedAlert
                     }
@@ -143,7 +145,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     const updatedAlert: AlertType = await api.alerts.update(alert.id, payload)
 
                     lemonToast.success(`Alert saved.`)
-                    props.onEditSuccess()
+                    props.onEditSuccess(updatedAlert.id)
 
                     return updatedAlert
                 } catch (error: any) {
@@ -155,30 +157,49 @@ export const alertFormLogic = kea<alertFormLogicType>([
         },
     })),
 
-    listeners(({ props, values }) => ({
-        deleteAlert: async () => {
-            // deletion only allowed on created alert (which will have alertId)
-            if (!values.alertForm.id) {
-                throw new Error("Cannot delete alert that doesn't exist")
+    listeners(({ props, values }) => {
+        // Helper to refresh alerts in the parent logic if available
+        const refreshParentAlerts = (): void => {
+            if (props.insightVizDataLogicProps) {
+                insightAlertsLogic({
+                    insightId: props.insightId,
+                    insightLogicProps: props.insightVizDataLogicProps,
+                }).actions.loadAlerts()
             }
-            await api.alerts.delete(values.alertForm.id)
-            props.onEditSuccess()
-        },
-        snoozeAlert: async ({ snoozeUntil }) => {
-            // resolution only allowed on created alert (which will have alertId)
-            if (!values.alertForm.id) {
-                throw new Error("Cannot resolve alert that doesn't exist")
-            }
-            await api.alerts.update(values.alertForm.id, { snoozed_until: snoozeUntil })
-            props.onEditSuccess()
-        },
-        clearSnooze: async () => {
-            // resolution only allowed on created alert (which will have alertId)
-            if (!values.alertForm.id) {
-                throw new Error("Cannot resolve alert that doesn't exist")
-            }
-            await api.alerts.update(values.alertForm.id, { snoozed_until: null })
-            props.onEditSuccess()
-        },
-    })),
+        }
+
+        return {
+            deleteAlert: async () => {
+                // deletion only allowed on created alert (which will have alertId)
+                if (!values.alertForm.id) {
+                    throw new Error("Cannot delete alert that doesn't exist")
+                }
+                await api.alerts.delete(values.alertForm.id)
+                lemonToast.success('Alert deleted.')
+                refreshParentAlerts()
+                props.onEditSuccess(undefined)
+            },
+            snoozeAlert: async ({ snoozeUntil }) => {
+                // snoozing only allowed on created alert (which will have alertId)
+                if (!values.alertForm.id) {
+                    throw new Error("Cannot snooze alert that doesn't exist")
+                }
+                await api.alerts.update(values.alertForm.id, { snoozed_until: snoozeUntil })
+                refreshParentAlerts()
+                props.onEditSuccess(values.alertForm.id)
+            },
+            clearSnooze: async () => {
+                // resolution only allowed on created alert (which will have alertId)
+                if (!values.alertForm.id) {
+                    throw new Error("Cannot resolve alert that doesn't exist")
+                }
+                await api.alerts.update(values.alertForm.id, { snoozed_until: null })
+                refreshParentAlerts()
+                props.onEditSuccess(values.alertForm.id)
+            },
+            submitAlertFormSuccess: async () => {
+                refreshParentAlerts()
+            },
+        }
+    }),
 ])

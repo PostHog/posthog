@@ -1,0 +1,47 @@
+.BreakdownTag {
+    display: inline-flex;
+    gap: 0.125rem;
+    align-items: center;
+    height: 2.25rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1rem;
+    color: var(--primary-alt);
+    white-space: nowrap;
+    vertical-align: bottom;
+    background-color: var(--color-accent-highlight-secondary);
+    border: 1px solid var(--color-accent-highlight-secondary-border);
+    border-radius: 9999px;
+    outline: 0;
+
+    &.BreakdownTag--small {
+        height: 2rem;
+        padding: 0.25rem 0.625rem;
+    }
+
+    &:hover,
+    &:focus {
+        border-color: var(--color-accent-highlight-secondary-hover-border);
+    }
+
+    &:not(.BreakdownTag--clickable) {
+        border-color: transparent;
+    }
+
+    &.BreakdownTag--clickable {
+        touch-action: manipulation; // faster clicks
+        cursor: pointer;
+    }
+
+    // Close and popover buttons
+    .LemonButton {
+        margin: 0 -0.375rem 0 0.15rem;
+        border-radius: 99rem;
+    }
+
+    .LemonButton__chrome {
+        min-height: auto;
+        padding: 0.1875rem;
+    }
+}

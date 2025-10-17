@@ -1,18 +1,21 @@
 import './BoldNumber.scss'
 
-import { IconTrending } from '@posthog/icons'
-import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { percentage } from 'lib/utils'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useEffect } from 'react'
 import React from 'react'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+
+import { IconTrending } from '@posthog/icons'
+import { LemonRow, Link } from '@posthog/lemon-ui'
+
+import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { percentage } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -21,7 +24,6 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
-import { ensureTooltip } from '../LineGraph/LineGraph'
 import { Textfit } from './Textfit'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
@@ -43,7 +45,8 @@ function useBoldNumberTooltip({
     const divRef = useRef<HTMLDivElement>(null)
 
     const divRect = divRef.current?.getBoundingClientRect()
-    const [tooltipRoot, tooltipEl] = ensureTooltip()
+    const { getTooltip } = useInsightTooltip()
+    const [tooltipRoot, tooltipEl] = getTooltip()
 
     useLayoutEffect(() => {
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
@@ -58,6 +61,7 @@ function useBoldNumberTooltip({
                         dataIndex: 1,
                         datasetIndex: 1,
                         id: 1,
+                        order: 1,
                         label: seriesResult?.label,
                         count: seriesResult?.aggregated_value,
                     },
@@ -70,7 +74,7 @@ function useBoldNumberTooltip({
                 groupTypeLabel={groupTypeLabel || aggregationLabel(series?.[0].math_group_type_index).plural}
             />
         )
-    }, [isTooltipShown])
+    }, [isTooltipShown]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         const tooltipRect = tooltipEl.getBoundingClientRect()
@@ -87,12 +91,16 @@ function useBoldNumberTooltip({
 
 export function BoldNumber({ showPersonsModal = true, context }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, trendsFilter, compareFilter, querySource, isDataWarehouseSeries } = useValues(
+    const { insightData, trendsFilter, compareFilter, querySource, hasDataWarehouseSeries } = useValues(
         insightVizDataLogic(insightProps)
     )
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
-    const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown, groupTypeLabel: context?.groupTypeLabel })
+    const valueRef = useBoldNumberTooltip({
+        showPersonsModal,
+        isTooltipShown,
+        groupTypeLabel: context?.groupTypeLabel,
+    })
 
     const showComparison = !!compareFilter?.compare && insightData?.result?.length > 1
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined
@@ -104,23 +112,23 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
                 onClick={
                     context?.onDataPointClick
                         ? () => context?.onDataPointClick?.({ compare: 'current' }, resultSeries)
-                        : showPersonsModal && resultSeries.aggregated_value != null && !isDataWarehouseSeries // != is intentional to catch undefined too
-                        ? () => {
-                              openPersonsModal({
-                                  title: resultSeries.label,
-                                  query: {
-                                      kind: NodeKind.InsightActorsQuery,
-                                      source: querySource!,
-                                      includeRecordings: true,
-                                  },
-                                  additionalSelect: {
-                                      value_at_data_point: 'event_count',
-                                      matched_recordings: 'matched_recordings',
-                                  },
-                                  orderBy: ['event_count DESC, actor_id DESC'],
-                              })
-                          }
-                        : undefined
+                        : showPersonsModal && resultSeries.aggregated_value != null && !hasDataWarehouseSeries // != is intentional to catch undefined too
+                          ? () => {
+                                openPersonsModal({
+                                    title: resultSeries.label,
+                                    query: {
+                                        kind: NodeKind.InsightActorsQuery,
+                                        source: querySource!,
+                                        includeRecordings: true,
+                                    },
+                                    additionalSelect: {
+                                        value_at_data_point: 'event_count',
+                                        matched_recordings: 'matched_recordings',
+                                    },
+                                    orderBy: ['event_count DESC, actor_id DESC'],
+                                })
+                            }
+                          : undefined
                 }
                 onMouseLeave={() => setIsTooltipShown(false)}
                 ref={valueRef}
@@ -162,10 +170,10 @@ function BoldNumberComparison({
         percentageDiff === null
             ? 'No data for comparison in the'
             : percentageDiff > 0
-            ? `Up ${percentage(percentageDiff)} from`
-            : percentageDiff < 0
-            ? `Down ${percentage(-percentageDiff)} from`
-            : 'No change from'
+              ? `Up ${percentage(percentageDiff)} from`
+              : percentageDiff < 0
+                ? `Down ${percentage(-percentageDiff)} from`
+                : 'No change from'
 
     return (
         <LemonRow
@@ -201,6 +209,7 @@ function BoldNumberComparison({
                                     query: {
                                         kind: NodeKind.InsightActorsQuery,
                                         source: querySource!,
+                                        includeRecordings: true,
                                     },
                                     additionalSelect: {
                                         value_at_data_point: 'event_count',
@@ -236,8 +245,8 @@ export function HogQLBoldNumber(): JSX.Element {
 
     const formattedValue = tabularData?.[0]?.[0]?.formattedValue
     const directValue = response?.[0]?.[0]
-    const resultsValue = response?.results?.[0]?.[0]
-    const resultValue = response?.result?.[0]?.[0]
+    const resultsValue = 'results' in response ? response?.results?.[0]?.[0] : undefined
+    const resultValue = 'result' in response ? response?.result?.[0]?.[0] : undefined
 
     // If any of the values is null, show empty state
     if (formattedValue === null || directValue === null || resultsValue === null || resultValue === null) {

@@ -1,7 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=True,
     type="destination",
@@ -10,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Trigger Zaps in Zapier based on PostHog events. NOTE: Typically this is created from within Zapier using the PostHog app there.",
     icon_url="/static/services/zapier.png",
     category=["Custom"],
-    hog="""
+    code_language="hog",
+    code="""
 let hook_path := inputs.hook;
 let prefix := 'https://hooks.zapier.com/';
 // Remove the prefix if it exists

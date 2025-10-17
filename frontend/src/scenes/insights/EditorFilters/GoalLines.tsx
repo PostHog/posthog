@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconEye, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
 
@@ -57,12 +59,7 @@ export function GoalLines({ insightProps }: GoalLinesProps): JSX.Element {
                 </div>
             ))}
 
-            <LemonButton
-                type="secondary"
-                onClick={addGoalLine}
-                icon={<IconPlusSmall color="var(--accent-primary)" />}
-                sideIcon={null}
-            >
+            <LemonButton type="secondary" onClick={addGoalLine} icon={<IconPlusSmall />} sideIcon={null}>
                 Add goal line
             </LemonButton>
         </div>

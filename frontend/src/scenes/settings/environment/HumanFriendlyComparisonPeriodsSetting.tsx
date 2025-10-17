@@ -1,5 +1,7 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSwitch } from '@posthog/lemon-ui'
+
 import { teamLogic } from 'scenes/teamLogic'
 
 export function HumanFriendlyComparisonPeriodsSetting(): JSX.Element {

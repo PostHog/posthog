@@ -1,16 +1,16 @@
-from unittest.mock import ANY, patch
-
 from freezegun import freeze_time
-from rest_framework import status
-
-from posthog.models import Action, Tag, User
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    FuzzyInt,
     QueryMatchingTest,
     snapshot_postgres_queries_context,
-    FuzzyInt,
 )
+from unittest.mock import ANY, patch
+
+from rest_framework import status
+
+from posthog.models import Action, Tag, User
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -63,6 +63,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "is_action": True,
             "bytecode_error": None,
             "tags": [],
+            "user_access_level": "manager",
         }
 
         # Assert analytics are sent
@@ -440,3 +441,31 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         deletion_response = self.client.delete(f"/api/projects/{self.team.id}/actions/{response.json()['id']}")
         self.assertEqual(deletion_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_create_action_in_specific_folder(self):
+        """
+        Verify that creating an Action with '_create_in_folder' stores its FileSystem entry
+        under the specified folder.
+        """
+        # 1. Create an Action, passing `_create_in_folder`
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "user signed up in folder",
+                "_create_in_folder": "Special Folder/Actions",
+            },
+            HTTP_ORIGIN="http://testserver",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        action_id = response.json()["id"]
+        assert action_id is not None
+
+        # 2. Verify the FileSystem entry
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(action_id), type="action").first()
+        assert fs_entry is not None, "A FileSystem entry was not created for this Action."
+        assert (
+            "Special Folder/Actions" in fs_entry.path
+        ), f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."

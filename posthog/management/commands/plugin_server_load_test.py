@@ -1,20 +1,21 @@
-import dataclasses
-import datetime as dt
-import logging
-import secrets
 import sys
 import time
+import logging
+import secrets
+import datetime as dt
+import dataclasses
 from itertools import chain
 
-import structlog
 from django.conf import settings
 from django.core.management.base import BaseCommand
+
+import structlog
 from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import capture_batch_internal
 from posthog.demo.products.hedgebox import HedgeboxMatrix
+from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.models import Team
-from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
 
@@ -24,9 +25,9 @@ logger = structlog.get_logger(__name__)
 class Command(BaseCommand):
     help = """
         Uses the HedgeboxMatrix to generate a realistic dataset and sends it to
-        Kafka for ingestion by the plugin server, and waits for offset lag to be
-        0. You'll need to run the plugin-server and it's dependencies separately
-        from running this script.
+        Kafka for ingestion by the plugin server, and waits for offset lag to exit.
+        You'll need to run the capture-rs, plugin-server and it's dependencies
+        separately from running this script.
     """
 
     def add_arguments(self, parser):
@@ -66,7 +67,7 @@ class Command(BaseCommand):
         now = options.get("now") or dt.datetime.now(dt.UTC)
 
         admin = KafkaAdminClient(bootstrap_servers=settings.KAFKA_HOSTS)
-        consumer = KafkaConsumer(KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, bootstrap_servers=settings.KAFKA_HOSTS)
+        consumer = KafkaConsumer(KAFKA_EVENTS_PLUGIN_INGESTION, bootstrap_servers=settings.KAFKA_HOSTS)
         team = Team.objects.filter(id=int(options["team_id"])).first()
         if not team:
             logger.critical("Cannot find team with id: " + options["team_id"])
@@ -97,36 +98,48 @@ class Command(BaseCommand):
             key=lambda e: e.timestamp,
         )
 
-        start_time = time.monotonic()
+        # enrich events and reformat timestamps to ISO8601 strings
+        events = []
         for event in ordered_events:
-            capture_internal(
-                event={
+            events.append(
+                {
                     **dataclasses.asdict(event),
                     "timestamp": event.timestamp.isoformat(),
                     "person_id": str(event.person_id),
                     "person_created_at": event.person_created_at.isoformat(),
-                },
-                distinct_id=event.distinct_id,
-                ip="",
-                site_url="",
-                token=token,
-                now=event.timestamp,
-                sent_at=event.timestamp,
+                }
             )
+
+        # as in "classic" capture_internal, ordered_events are submitted async
+        # returning a list of futures (previously ignored!) so final event
+        # ordering in the ingest topic is not guaranteed here
+        start_time = time.monotonic()
+        results = capture_batch_internal(
+            events=events,
+            event_source="plugin_server_load_test",
+            token=token,
+            process_person_profile=True,  # allow person profile processing to occur as cfg for this token (team/project)
+        )
+        for future in results:
+            try:
+                result = future.result()
+                result.raise_for_status()
+            except Exception as e:
+                logger.exception("event_submission_fail", error=e)
 
         while True:
             offsets = admin.list_consumer_group_offsets(group_id="clickhouse-ingestion")
-            end_offsets = consumer.end_offsets([TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)])
+            end_offsets = consumer.end_offsets([TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION, partition=0)])
             if end_offsets is None:
                 logger.error(
                     "no_end_offsets",
-                    topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+                    topic=KAFKA_EVENTS_PLUGIN_INGESTION,
                     partition=0,
                 )
                 sys.exit(1)
 
-            end_offset = end_offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)]
-            offset = offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, partition=0)].offset
+            end_offset = end_offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION, partition=0)]
+            offset = offsets[TopicPartition(topic=KAFKA_EVENTS_PLUGIN_INGESTION, partition=0)].offset
             logger.info("offset_lag", offset=offset, end_offset=end_offset)
             if end_offset == offset:
                 break

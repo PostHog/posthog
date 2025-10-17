@@ -1,12 +1,12 @@
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
-    Table,
-    IntegerDatabaseField,
-    StringDatabaseField,
     DateTimeDatabaseField,
-    LazyTable,
     FieldOrTable,
+    IntegerDatabaseField,
+    LazyTable,
     LazyTableToAdd,
+    StringDatabaseField,
+    Table,
 )
 
 LOG_ENTRIES_FIELDS: dict[str, FieldOrTable] = {

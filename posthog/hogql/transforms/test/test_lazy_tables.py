@@ -1,14 +1,17 @@
 from typing import Any
 
 import pytest
+from posthog.test.base import BaseTest
+
 from django.test import override_settings
+
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
-from posthog.test.base import BaseTest
+
 from posthog.warehouse.models.join import DataWarehouseJoin
 
 

@@ -7,15 +7,15 @@
     min-width: 0;
     max-width: 100%;
     height: 100%;
-    background: var(--bg-surface-primary);
-    border: 1px solid var(--border-primary);
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
     border-radius: var(--radius);
 
     .ExportedInsight__header {
         display: flex;
         justify-content: space-between;
         padding: 1rem;
-        border-bottom: 1px solid var(--border-primary);
+        border-bottom: 1px solid var(--color-border-primary);
 
         .ExportedInsight__header__title {
             font-size: 1rem;
@@ -40,7 +40,7 @@
     }
 
     .LemonTable {
-        --lemon-table-background-color: var(--bg-surface-primary);
+        --lemon-table-background-color: var(--color-bg-surface-primary);
     }
 
     .ExportedInsight__watermark {

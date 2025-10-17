@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 
 import type { currentPageLogicType } from './currentPageLogicType'
 
@@ -45,6 +45,7 @@ export function withoutPostHogInit(href: string): string {
 
 export const currentPageLogic = kea<currentPageLogicType>([
     path(['toolbar', 'stats', 'currentPageLogic']),
+
     actions(() => ({
         setHref: (href: string) => ({ href }),
         setWildcardHref: (href: string) => ({ href }),
@@ -75,11 +76,13 @@ export const currentPageLogic = kea<currentPageLogicType>([
             // Iterate over query params and do the same for their values
             if (urlParts.length > 1) {
                 const queryParams = urlParts[1].split('&')
+
                 for (let i = 0; i < queryParams.length; i++) {
                     const [key, value] = queryParams[i].split('=')
                     queryParams[i] = `${key}=${replaceWithWildcard(value)}`
                 }
-                url = `${url}?${queryParams.join('&')}`
+
+                url = `${url}\\?${queryParams.join('&')}`
             }
 
             actions.setWildcardHref(url)
@@ -87,22 +90,15 @@ export const currentPageLogic = kea<currentPageLogicType>([
     })),
 
     afterMount(({ actions, values, cache }) => {
-        // an earlier bug means that some folk have a bad URL saved
-        // this auto-fixes things for those folks
-        // to save us having to explain the fix individually
-        // can be removed by end of Nov 2024
-        if (values.href && values.href.includes('#__posthog=')) {
-            actions.setHref(withoutPostHogInit(values.href))
-        }
+        actions.setHref(withoutPostHogInit(values.href))
 
-        cache.interval = window.setInterval(() => {
-            if (window.location.href !== values.href) {
-                actions.setHref(window.location.href)
-            }
-        }, 500)
-    }),
-
-    beforeUnmount(({ cache }) => {
-        window.clearInterval(cache.interval)
+        cache.disposables.add(() => {
+            const interval = window.setInterval(() => {
+                if (window.location.href !== values.href) {
+                    actions.setHref(withoutPostHogInit(window.location.href))
+                }
+            }, 500)
+            return () => window.clearInterval(interval)
+        }, 'urlChangeInterval')
     }),
 ])

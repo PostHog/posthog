@@ -1,35 +1,47 @@
-import { IconPencil } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { MicrophoneHog } from 'lib/components/hedgehogs'
+
+import { IconPencil } from '@posthog/icons'
+import { LemonSelect, Link } from '@posthog/lemon-ui'
+
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { TZLabel } from 'lib/components/TZLabel'
+import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { shortTimeZone } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType, InsightShortId, ProductKey } from '~/types'
 
 import { AnnotationModal } from './AnnotationModal'
-import {
-    ANNOTATION_DAYJS_FORMAT,
-    annotationModalLogic,
-    annotationScopeToLevel,
-    annotationScopeToName,
-} from './annotationModalLogic'
+import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from './annotationModalLogic'
+import { annotationScopesMenuOptions, annotationsLogic } from './annotationsLogic'
 
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+
     const { currentOrganization } = useValues(organizationLogic)
-    const { annotations, annotationsLoading, next, loadingNext, timezone, shouldShowEmptyState } =
-        useValues(annotationModalLogic)
-    const { loadAnnotationsNext, openModalToCreateAnnotation } = useActions(annotationModalLogic)
+
+    const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
+
+    const { filteredAnnotations, shouldShowEmptyState, annotationsLoading, scope } = useValues(annotationsLogic)
+    const { setScope } = useActions(annotationsLogic)
+
+    const { loadingNext, next } = useValues(annotationsModel)
+    const { loadAnnotationsNext } = useActions(annotationsModel)
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
@@ -37,21 +49,35 @@ export function Annotations(): JSX.Element {
             key: 'annotation',
             width: '30%',
             render: function RenderAnnotation(_, annotation: AnnotationType): JSX.Element {
+                let renderedContent = <>{annotation.content ?? ''}</>
+                if ((annotation.content || '').trim().length > 30) {
+                    renderedContent = (
+                        <Tooltip
+                            title={
+                                <TextContent
+                                    text={annotation.content ?? ''}
+                                    data-attr="annotation-scene-comment-title-rendered-content"
+                                />
+                            }
+                        >
+                            {(annotation.content ?? '').slice(0, 27) + '...'}
+                        </Tooltip>
+                    )
+                }
                 return (
                     <div className="font-semibold">
                         <Link subtle to={urls.annotation(annotation.id)}>
-                            {annotation.content}
+                            {renderedContent}
                         </Link>
                     </div>
                 )
             },
         },
         {
-            title: `Date and time (${shortTimeZone(timezone)})`,
+            title: `Timestamp`,
             dataIndex: 'date_marker',
-            render: function RenderDateMarker(_, annotation: AnnotationType): string {
-                // Format marker. Minute precision is used, because that's as detailed as our graphs can be
-                return annotation.date_marker?.format(ANNOTATION_DAYJS_FORMAT) || ''
+            render: function RenderDateMarker(_, annotation: AnnotationType): JSX.Element | null {
+                return annotation.date_marker ? <TZLabel time={annotation.date_marker} /> : null
             },
             sorter: (a, b) => a.date_marker?.diff(b.date_marker) || 1,
         },
@@ -64,10 +90,10 @@ export function Annotations(): JSX.Element {
                     annotation.scope === AnnotationScope.Insight
                         ? `This annotation only applies to the "${annotation.insight_name}" insight`
                         : annotation.scope === AnnotationScope.Dashboard
-                        ? `This annotation applies to all insights on the ${annotation.dashboard_name} dashboard`
-                        : annotation.scope === AnnotationScope.Project
-                        ? `This annotation applies to all insights in the ${currentTeam?.name} project`
-                        : `This annotation applies to all insights in the ${currentOrganization?.name} organization`
+                          ? `This annotation applies to all insights on the ${annotation.dashboard_name} dashboard`
+                          : annotation.scope === AnnotationScope.Project
+                            ? `This annotation applies to all insights in the ${currentTeam?.name} project`
+                            : `This annotation applies to all insights in the ${currentOrganization?.name} organization`
                 return (
                     <Tooltip title={tooltip} placement="right">
                         <LemonTag className="uppercase">
@@ -121,13 +147,26 @@ export function Annotations(): JSX.Element {
     ]
 
     return (
-        <>
-            <p>
-                Annotations allow you to mark when certain changes happened so you can easily see how they impacted your
-                metrics.
-            </p>
+        <SceneContent>
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.Annotations].name}
+                description={sceneConfigurations[Scene.Annotations].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Annotations].iconType || 'default_icon_type',
+                }}
+                actions={
+                    <LemonButton type="primary" onClick={() => openModalToCreateAnnotation()} size="small">
+                        New annotation
+                    </LemonButton>
+                }
+            />
+            <SceneDivider />
+            <div className="flex flex-row items-center gap-2 justify-end">
+                <div>Scope:</div>
+                <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />
+            </div>
             <div data-attr="annotations-content">
-                <div className="mt-4">
+                <div className={cn('mt-4 mb-0 empty:hidden')}>
                     <ProductIntroduction
                         productName="Annotations"
                         productKey={ProductKey.ANNOTATIONS}
@@ -135,7 +174,7 @@ export function Annotations(): JSX.Element {
                         description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
                         docsURL="https://posthog.com/docs/data/annotations"
                         action={() => openModalToCreateAnnotation()}
-                        isEmpty={annotations.length === 0 && !annotationsLoading}
+                        isEmpty={shouldShowEmptyState}
                         customHog={MicrophoneHog}
                     />
                 </div>
@@ -144,7 +183,7 @@ export function Annotations(): JSX.Element {
                         <LemonTable
                             data-attr="annotations-table"
                             rowKey="id"
-                            dataSource={annotations}
+                            dataSource={filteredAnnotations}
                             columns={columns}
                             defaultSorting={{
                                 columnKey: 'date_marker',
@@ -171,6 +210,6 @@ export function Annotations(): JSX.Element {
                 )}
             </div>
             <AnnotationModal />
-        </>
+        </SceneContent>
     )
 }

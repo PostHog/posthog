@@ -4,7 +4,7 @@ import { code } from '../../src/utils/utils'
 import { transformCode } from '../../src/worker/vm/transforms'
 import { resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 
 const EMPTY_IMPORTS = {}
 

@@ -1,17 +1,22 @@
 import '~/styles'
+
+import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/blocks'
 import type { Meta, Parameters, Preview } from '@storybook/react'
-import { Title, Subtitle, Description, Primary, Controls, Stories } from '@storybook/blocks'
-import { worker } from '~/mocks/browser'
+
+import { apiHostOrigin } from 'lib/utils/apiHost'
+
 import { loadPostHogJS } from '~/loadPostHogJS'
+import { worker } from '~/mocks/browser'
+import { defaultMocks } from '~/mocks/handlers'
+
+import { getStorybookAppContext } from './app-context'
+import { withFeatureFlags } from './decorators/withFeatureFlags'
 import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
-import { defaultMocks } from '~/mocks/handlers'
-import { withFeatureFlags } from './decorators/withFeatureFlags'
+import { withPageUrl } from './decorators/withPageUrl'
 import { withTheme } from './decorators/withTheme'
-import { apiHostOrigin } from 'lib/utils/apiHost'
-import { getStorybookAppContext } from './app-context'
 
-const setupMsw = () => {
+const setupMsw = (): void => {
     // Make sure the msw worker is started
     worker.start({
         quiet: true,
@@ -32,7 +37,7 @@ const setupMsw = () => {
 }
 setupMsw()
 
-const setupPosthogJs = () => {
+const setupPosthogJs = (): void => {
     // Make sure we don't hit production posthog. We want to control requests to,
     // e.g. `/decide/` for feature flags
     window.JS_POSTHOG_HOST = apiHostOrigin()
@@ -87,6 +92,8 @@ export const decorators: Meta['decorators'] = [
     withFeatureFlags,
     // Set theme from global context
     withTheme,
+    // Set the page URL
+    withPageUrl,
 ]
 
 const preview: Preview = {

@@ -1,29 +1,36 @@
-import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { getClampedExclusionStepRange } from 'scenes/funnels/funnelUtils'
+
+import { IconFilter, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+
+import { IconWithCount } from 'lib/lemon-ui/icons'
+import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-
-import { FunnelsQuery } from '~/queries/schema/schema-general'
 
 type ExclusionRowSuffixComponentBaseProps = {
     index: number
     onClose?: () => void
-    isVertical: boolean
+    typeKey: string
 }
 
 export function ExclusionRowSuffix({
     index,
     onClose,
-    isVertical,
+    typeKey,
 }: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, funnelsFilter, series, isFunnelWithEnoughSteps, exclusionDefaultStepRange } = useValues(
+    const { funnelsFilter, series, isFunnelWithEnoughSteps, exclusionDefaultStepRange } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+
+    // Get the entity filter logic that was created by the parent ActionFilter component
+    const mountedLogic = entityFilterLogic.findMounted({ typeKey })
+
+    // Use the logic for visibility state if it exists, otherwise use local state
+    const propertyFiltersVisible = (mountedLogic && mountedLogic.values.entityFilterVisible[index]) || false
 
     const exclusions = funnelsFilter?.exclusions
     const numberOfSeries = series?.length || 0
@@ -34,21 +41,36 @@ export function ExclusionRowSuffix({
     }
 
     const onChange = (funnelFromStep = stepRange.funnelFromStep, funnelToStep = stepRange.funnelToStep): void => {
-        const newStepRange = getClampedExclusionStepRange({
-            stepRange: { funnelFromStep, funnelToStep },
-            query: querySource as FunnelsQuery,
-        })
+        const newStepRange = getClampedFunnelStepRange({ funnelFromStep, funnelToStep }, series)
         const newExclusions = funnelsFilter?.exclusions?.map((exclusion, exclusionIndex) =>
             exclusionIndex === index ? { ...exclusion, ...newStepRange } : exclusion
         )
         updateInsightFilter({ exclusions: newExclusions })
     }
 
+    const togglePropertyFiltersVisibility = (): void => {
+        if (mountedLogic) {
+            mountedLogic.actions.setEntityFilterVisibility(index, !propertyFiltersVisible)
+        }
+    }
+
+    const propertyFiltersButton = (
+        <IconWithCount key="property-filter" count={exclusions?.[index]?.properties?.length || 0} showZero={false}>
+            <LemonButton
+                icon={<IconFilter />}
+                title="Show filters"
+                data-attr={`show-prop-filter-${index}`}
+                noPadding
+                onClick={togglePropertyFiltersVisibility}
+            />
+        </IconWithCount>
+    )
+
     return (
-        <div className={clsx('flex items-center flex-nowrap pl-1 mx-0', isVertical ? 'w-full my-1' : 'w-auto my-0')}>
-            between
+        <div className="flex items-center gap-2 w-full p-1 my-1">
+            <span>between</span>
             <LemonSelect
-                className="mx-1"
+                className="min-w-0 flex-shrink"
                 size="small"
                 value={stepRange.funnelFromStep || 0}
                 onChange={onChange}
@@ -57,9 +79,9 @@ export function ExclusionRowSuffix({
                     .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
                 disabled={!isFunnelWithEnoughSteps}
             />
-            and
+            <span>and</span>
             <LemonSelect
-                className="ml-1"
+                className="min-w-0 flex-shrink"
                 size="small"
                 value={stepRange.funnelToStep || (stepRange.funnelFromStep ?? 0) + 1}
                 onChange={(toStep: number) => onChange(stepRange.funnelFromStep, toStep)}
@@ -68,14 +90,17 @@ export function ExclusionRowSuffix({
                     .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
                 disabled={!isFunnelWithEnoughSteps}
             />
-            <LemonButton
-                size="small"
-                icon={<IconTrash />}
-                onClick={onClose}
-                data-attr="delete-prop-exclusion-filter"
-                title="Delete event exclusion series"
-                className="ml-1"
-            />
+            <div className="flex items-center gap-1 ml-auto">
+                {propertyFiltersButton}
+                <LemonButton
+                    size="small"
+                    icon={<IconTrash />}
+                    onClick={onClose}
+                    data-attr="delete-prop-exclusion-filter"
+                    title="Delete event exclusion series"
+                    noPadding
+                />
+            </div>
         </div>
     )
 }

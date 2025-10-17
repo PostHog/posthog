@@ -1,5 +1,6 @@
-import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconX } from '@posthog/icons'
 
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
@@ -93,7 +94,7 @@ export function ElementInfoWindow(): JSX.Element | null {
                 </div>
             ) : null}
             <div
-                className="overflow-auto rounded-lg border border-secondary"
+                className="overflow-auto rounded-lg border border-primary"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ minHeight, maxHeight }}
             >

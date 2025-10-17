@@ -1,16 +1,18 @@
 import './DefinitionPopover.scss'
 
-import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+
+import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
+
+import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CoreFilterDefinition, UserBasicType } from '~/types'
 
 interface DefinitionPopoverProps {

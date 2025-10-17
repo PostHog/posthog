@@ -1,17 +1,18 @@
-import { IconCalendar, IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { ActionsListView } from '~/toolbar/actions/ActionsListView'
+import { IconCalendar, IconPlus } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { ActionStep } from '~/toolbar/actions/ActionStep'
+import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
 import { actionsTabLogic } from '../actions/actionsTabLogic'
 import { ElementStatistic } from './ElementStatistic'
 
 export function ElementInfo(): JSX.Element | null {
-    const { clickCount: totalClickCount, dateRange } = useValues(heatmapLogic)
+    const { clickCount: totalClickCount, dateRange } = useValues(heatmapToolbarMenuLogic)
 
     const { activeMeta } = useValues(elementsLogic)
     const { createAction } = useActions(elementsLogic)
@@ -21,7 +22,7 @@ export function ElementInfo(): JSX.Element | null {
         return null
     }
 
-    const { element, position, count, clickCount, rageclickCount, actionStep } = activeMeta
+    const { element, position, count, clickCount, rageclickCount, deadclickCount, actionStep } = activeMeta
 
     return (
         <>
@@ -47,6 +48,7 @@ export function ElementInfo(): JSX.Element | null {
                         <ElementStatistic title="Ranking" prefix="#" value={position || 0} />
                         <ElementStatistic title="Autocapture clicks" value={clickCount || 0} />
                         <ElementStatistic title="Rageclicks" value={rageclickCount || 0} />
+                        <ElementStatistic title="Deadclicks" value={deadclickCount || 0} />
                     </div>
                 </div>
             ) : null}

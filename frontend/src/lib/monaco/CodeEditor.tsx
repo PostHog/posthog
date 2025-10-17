@@ -1,7 +1,12 @@
 import './CodeEditor.scss'
 
-import MonacoEditor, { DiffEditor as MonacoDiffEditor, type EditorProps, loader, Monaco } from '@monaco-editor/react'
+import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
+import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
+import * as monaco from 'monaco-editor'
+import { useEffect, useMemo, useRef, useState } from 'react'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
@@ -10,13 +15,11 @@ import { initHogLanguage } from 'lib/monaco/languages/hog'
 import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
+import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { inStorybookTestRunner } from 'lib/utils'
-import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
-import * as monaco from 'monaco-editor'
-import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { AnyDataNode, HogLanguage, HogQLMetadataResponse } from '~/queries/schema/schema-general'
+import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
 
 if (loader) {
     loader.config({ monaco })
@@ -34,7 +37,7 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     schema?: Record<string, any> | null
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
-    onError?: (error: string | null, isValidView: boolean) => void
+    onError?: (error: string | null) => void
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
 }
@@ -68,6 +71,9 @@ function initEditor(
     }
     if (editorProps?.language === 'hogJson') {
         initHogJsonLanguage(monaco)
+    }
+    if (editorProps?.language === 'liquid') {
+        initLiquidLanguage(monaco)
     }
     if (options.tabFocusMode || editorProps.onPressUpNoValue) {
         editor.onKeyDown((evt) => {
@@ -148,6 +154,7 @@ export function CodeEditor({
         onError,
         onMetadata,
         onMetadataLoading,
+        metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
     })
     useMountedLogic(builtCodeEditorLogic)
 
@@ -161,11 +168,10 @@ export function CodeEditor({
         body?.appendChild(monacoRoot)
         return monacoRoot
     }, [])
-    useEffect(() => {
-        return () => {
-            monacoRoot?.remove()
-        }
-    }, [])
+
+    useOnMountEffect(() => {
+        return () => monacoRoot?.remove()
+    })
 
     useEffect(() => {
         if (!monaco) {
@@ -199,11 +205,11 @@ export function CodeEditor({
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
-    }, [])
+    })
 
     const editorOptions: editor.IStandaloneEditorConstructionOptions = {
         minimap: {
@@ -233,6 +239,36 @@ export function CodeEditor({
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
+
+        // Override Monaco's suggestion widget styling to prevent truncation
+        const overrideSuggestionWidgetStyling = (): void => {
+            const style = document.createElement('style')
+            style.textContent = `
+            .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label>.contents>.main>.left>.monaco-icon-label {
+               flex-shrink: 0;
+            }
+
+            `
+            document.head.appendChild(style)
+        }
+
+        // Apply styling immediately and also when suggestion widget appears
+        overrideSuggestionWidgetStyling()
+
+        // Monitor for suggestion widget creation and apply styling
+        const observer = new MutationObserver(() => {
+            const suggestWidget = document.querySelector('.monaco-editor .suggest-widget')
+            if (suggestWidget) {
+                overrideSuggestionWidgetStyling()
+            }
+        })
+        observer.observe(document.body, { childList: true, subtree: true })
+
+        // Clean up observer
+        monacoDisposables.current.push({
+            dispose: () => observer.disconnect(),
+        })
+
         if (onPressCmdEnter) {
             monacoDisposables.current.push(
                 editor.addAction({
@@ -269,14 +305,33 @@ export function CodeEditor({
 
     if (originalValue) {
         // If originalValue is provided, we render a diff editor instead
+        const diffEditorOnMount = (diff: importedEditor.IStandaloneDiffEditor, monaco: Monaco): void => {
+            const modifiedEditor = diff.getModifiedEditor()
+            setMonacoAndEditor([monaco, modifiedEditor])
+
+            if (editorProps.onChange) {
+                const disposable = modifiedEditor.onDidChangeModelContent((event: editor.IModelContentChangedEvent) => {
+                    editorProps.onChange?.(modifiedEditor.getValue(), event)
+                })
+                monacoDisposables.current.push(disposable)
+            }
+            onMount?.(modifiedEditor, monaco)
+        }
+
         return (
             <MonacoDiffEditor
                 key={queryKey}
-                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 loading={<Spinner />}
+                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 original={originalValue}
                 modified={value}
-                options={editorOptions}
+                options={{
+                    ...editorOptions,
+                    renderSideBySide: false,
+                    acceptSuggestionOnEnter: 'on',
+                    renderGutterMenu: false,
+                }}
+                onMount={diffEditorOnMount}
                 {...editorProps}
             />
         )

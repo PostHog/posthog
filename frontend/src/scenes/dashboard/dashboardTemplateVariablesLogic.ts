@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 import { isEmptyObject } from 'lib/utils'
@@ -29,9 +30,9 @@ const FALLBACK_EVENT = {
 export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLogicType>([
     path(['scenes', 'dashboard', 'DashboardTemplateVariablesLogic']),
     props({ variables: [] } as DashboardTemplateVariablesLogicProps),
-    connect({
+    connect(() => ({
         actions: [iframedToolbarBrowserLogic, ['toolbarMessageReceived', 'disableElementSelector']],
-    }),
+    })),
     actions({
         setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
         setVariable: (variableName: string, filterGroup: Optional<FilterType, 'type'>) => ({

@@ -16,3 +16,7 @@
 .brief-spin {
     animation: InsightsEmptyState__BriefSpin 2s infinite ease-in-out;
 }
+
+[data-attr='insight-empty-state'] a.Link {
+    color: var(--color-accent);
+}

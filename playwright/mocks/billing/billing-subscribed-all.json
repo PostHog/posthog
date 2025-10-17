@@ -486,7 +486,15 @@
         {
             "key": "organizations_projects",
             "name": "Projects",
-            "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+            "unit": null,
+            "limit": null,
+            "note": "Unlimited"
+        },
+        {
+            "key": "environments",
+            "name": "Environments",
+            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
             "unit": null,
             "limit": null,
             "note": "Unlimited"
@@ -897,6 +905,7 @@
             "percentage_usage": 0,
             "projected_usage": 548,
             "projected_amount_usd": "0.00",
+            "projected_amount_usd_with_limit": "0.00",
             "unit": "event",
             "addons": [
                 {
@@ -1781,6 +1790,7 @@
             "percentage_usage": 0,
             "projected_usage": 77,
             "projected_amount_usd": "0.00",
+            "projected_amount_usd_with_limit": "0.00",
             "unit": "recording",
             "addons": [],
             "contact_support": false,
@@ -2275,6 +2285,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": "0.00",
+            "projected_amount_usd_with_limit": "0.00",
             "unit": "request",
             "addons": [],
             "contact_support": false,
@@ -2371,14 +2382,6 @@
                     },
                     "icon_key": null,
                     "type": "primary"
-                },
-                {
-                    "key": "multiple_environments",
-                    "name": "Multi-environment support",
-                    "description": "Test flags in local development or staging by using the same flag key across PostHog projects.",
-                    "images": null,
-                    "icon_key": "IconStack",
-                    "type": "secondary"
                 },
                 {
                     "key": "user_opt_in",
@@ -2761,6 +2764,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": "0.00",
+            "projected_amount_usd_with_limit": "0.00",
             "unit": "survey response",
             "addons": [],
             "contact_support": false,
@@ -3044,6 +3048,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": null,
             "addons": [],
             "contact_support": false,
@@ -3141,8 +3146,16 @@
                         {
                             "key": "organizations_projects",
                             "name": "Projects",
-                            "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+                            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
                             "unit": "project",
+                            "limit": 1,
+                            "note": null
+                        },
+                        {
+                            "key": "environments",
+                            "name": "Environments",
+                            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
+                            "unit": "environment",
                             "limit": 1,
                             "note": null
                         },
@@ -3213,7 +3226,15 @@
                         {
                             "key": "organizations_projects",
                             "name": "Projects",
-                            "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+                            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "environments",
+                            "name": "Environments",
+                            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
                             "unit": null,
                             "limit": null,
                             "note": "Unlimited"
@@ -3309,6 +3330,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": null,
             "addons": [],
             "contact_support": true,
@@ -3341,7 +3363,15 @@
                 {
                     "key": "organizations_projects",
                     "name": "Projects",
-                    "description": "Create silos of data within PostHog. All data belongs to a single project and all queries are project-specific.",
+                    "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "environments",
+                    "name": "Environments",
+                    "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
                     "images": null,
                     "icon_key": null,
                     "type": null

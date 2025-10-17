@@ -7,6 +7,7 @@ import pytz
 
 from posthog.demo.matrix.models import EVENT_PAGELEAVE, SimPerson, SimSessionIntent
 from posthog.demo.products.spikegpt.data import FAKE_CHATS
+
 from .taxonomy import URL_HOME
 
 if TYPE_CHECKING:
@@ -53,6 +54,19 @@ class SpikeGPTPerson(SimPerson):
             self.country_code = (
                 "US" if self.cluster.random.random() < 0.7132 else self.cluster.address_provider.country_code()
             )
+            # mimesis doesn't support choosing cities in a specific country, so these will be pretty odd until they fix this
+            self.region = (
+                "California"
+                if self.country_code == "US" and self.cluster.random.random() < 0.5
+                else self.cluster.address_provider.region()
+            )
+            self.city = (
+                "San Francisco"
+                if self.region == "California" and self.cluster.random.random() < 0.3
+                else self.cluster.address_provider.city()
+            )
+            self.language = "en-GB" if self.country_code == "GB" else "en-US"
+
             try:  # Some tiny regions aren't in pytz - we want to omit those
                 self.timezone = self.cluster.random.choice(pytz.country_timezones[self.country_code])
             except KeyError:

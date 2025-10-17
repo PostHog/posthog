@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconPencil, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
@@ -10,20 +13,21 @@ import {
     LemonTable,
     LemonTableColumns,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
-import { useState } from 'react'
 
-import { Holdout, holdoutsLogic, NEW_HOLDOUT } from './holdoutsLogic'
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+
+import { ExperimentHoldoutType } from '~/types'
+
+import { NEW_HOLDOUT, holdoutsLogic } from './holdoutsLogic'
 
 export function Holdouts(): JSX.Element {
     const { holdouts, holdoutsLoading, holdout } = useValues(holdoutsLogic)
     const { createHoldout, deleteHoldout, setHoldout, updateHoldout } = useActions(holdoutsLogic)
 
     const [isHoldoutModalOpen, setIsHoldoutModalOpen] = useState(false)
-    const [editingHoldout, setEditingHoldout] = useState<Holdout | null>(null)
+    const [editingHoldout, setEditingHoldout] = useState<ExperimentHoldoutType | null>(null)
 
-    const openEditModal = (holdout: Holdout): void => {
+    const openEditModal = (holdout: ExperimentHoldoutType): void => {
         setEditingHoldout(holdout)
         setHoldout(holdout)
         setIsHoldoutModalOpen(true)
@@ -44,8 +48,14 @@ export function Holdouts(): JSX.Element {
         if (!holdout.name) {
             return 'Name is required'
         }
-        if (holdout.filters?.[0]?.rollout_percentage === undefined) {
+        if (
+            holdout.filters?.[0]?.rollout_percentage === undefined ||
+            holdout.filters?.[0]?.rollout_percentage === null
+        ) {
             return 'Rollout percentage is required'
+        }
+        if (holdout.filters[0].rollout_percentage < 0 || holdout.filters[0].rollout_percentage > 100) {
+            return 'Rollout percentage should be between 0 and 100'
         }
     }
 
@@ -65,7 +75,7 @@ export function Holdouts(): JSX.Element {
             title: 'Rollout Percentage',
             dataIndex: 'filters',
             key: 'rollout',
-            render: (filters: Holdout['filters']) => {
+            render: (filters: ExperimentHoldoutType['filters']) => {
                 const percentage = filters?.[0]?.rollout_percentage || 0
                 return <div>{percentage} %</div>
             },
@@ -73,7 +83,7 @@ export function Holdouts(): JSX.Element {
         {
             title: 'Actions',
             key: 'actions',
-            render: (_: any, record: Holdout) => (
+            render: (_: any, record: ExperimentHoldoutType) => (
                 <div className="flex gap-2">
                     <LemonButton
                         type="secondary"
@@ -221,7 +231,7 @@ export function Holdouts(): JSX.Element {
                 }
                 loading={holdoutsLoading}
                 dataSource={holdouts}
-                columns={columns as LemonTableColumns<Holdout>}
+                columns={columns as LemonTableColumns<ExperimentHoldoutType>}
             />
             <LemonButton type="primary" onClick={openCreateModal} data-attr="add-holdout">
                 New holdout

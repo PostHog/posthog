@@ -1,14 +1,17 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCalculator, IconPencil } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 
 import { experimentLogic } from '../experimentLogic'
+import { modalsLogic } from '../modalsLogic'
 
 export function RunningTime(): JSX.Element {
     const { experiment, actualRunningTime } = useValues(experimentLogic)
-    const { openCalculateRunningTimeModal } = useActions(experimentLogic)
+    const { openCalculateRunningTimeModal } = useActions(modalsLogic)
 
     const recommendedSampleSize = experiment.parameters.recommended_sample_size
     const minimumDetectableEffect = experiment.parameters.minimum_detectable_effect
@@ -51,7 +54,7 @@ export function RunningTime(): JSX.Element {
                     <>
                         <LemonProgress
                             className="w-full border"
-                            bgColor="var(--bg-table)"
+                            bgColor="var(--color-bg-table)"
                             size="medium"
                             percent={(actualRunningTime / recommendedRunningTime) * 100}
                         />

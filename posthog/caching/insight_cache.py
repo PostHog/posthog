@@ -2,20 +2,21 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
-import structlog
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
 from django.utils.timezone import now
+
+import structlog
 from prometheus_client import Counter, Gauge
-from posthog.exceptions_capture import capture_exception
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Dashboard, Insight, InsightCachingState
 from posthog.models.instance_setting import get_instance_setting
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.tasks import update_cache_task
 
 logger = structlog.get_logger(__name__)
@@ -123,7 +124,7 @@ def update_cache(caching_state_id: UUID):
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
-    with conversion_to_query_based(insight):
+    with upgrade_query(insight):
         try:
             response = process_query_dict(
                 insight.team,

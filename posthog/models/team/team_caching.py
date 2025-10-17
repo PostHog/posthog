@@ -2,6 +2,7 @@ import json
 from typing import TYPE_CHECKING, Optional
 
 from django.core.cache import cache
+
 from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:

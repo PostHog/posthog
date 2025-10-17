@@ -1,33 +1,42 @@
 import { useActions, useValues } from 'kea'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { TZLabel } from 'lib/components/TZLabel'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
+import { router } from 'kea-router'
+
+import { IconPeople } from '@posthog/icons'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Group, PropertyDefinitionType } from '~/types'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { groupsModel } from '~/models/groupsModel'
+import { Query } from '~/queries/Query/Query'
+import { QueryContext } from '~/queries/types'
+import { GroupTypeIndex } from '~/types'
 
+import { getCRMColumns } from './crm/utils'
+import { groupViewLogic } from './groupViewLogic'
 import { groupsListLogic } from './groupsListLogic'
+import { groupsSceneLogic } from './groupsSceneLogic'
 
-export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Element {
-    const {
-        groupTypeName: { singular, plural },
-        groups,
-        groupsLoading,
-        search,
-    } = useValues(groupsListLogic({ groupTypeIndex }))
-    const { loadGroups, setSearch } = useActions(groupsListLogic({ groupTypeIndex }))
+export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
+    const { groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
+    const { query, queryWasModified } = useValues(groupsListLogic({ groupTypeIndex }))
+    const { setQuery } = useActions(groupsListLogic({ groupTypeIndex }))
+    const { saveGroupViewModalOpen, groupViewName } = useValues(groupViewLogic)
+    const { setSaveGroupViewModalOpen, setGroupViewName, saveGroupView } = useActions(groupViewLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { aggregationLabel } = useValues(groupsModel)
+    const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -39,90 +48,127 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
         groupsAccessStatus == GroupsAccessStatus.NoAccess
     ) {
         return (
-            <>
+            <SceneContent>
+                <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
+                <SceneTitleSection
+                    name="Groups"
+                    description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
+                    resourceType={{
+                        type: groupTypeName,
+                        forceIcon: <IconPeople />,
+                    }}
+                />
                 <GroupsIntroduction />
-            </>
+            </SceneContent>
         )
     }
 
-    const columns: LemonTableColumns<Group> = [
-        {
-            title: capitalizeFirstLetter(plural),
-            key: 'group_key',
-            render: function Render(_, group: Group) {
-                return (
-                    <LemonTableLink
-                        to={urls.group(group.group_type_index.toString(), group.group_key)}
-                        title={groupDisplayId(group.group_key, group.group_properties)}
-                    />
-                )
-            },
+    let columns = {
+        group_name: {
+            title: groupTypeName,
         },
-        {
-            title: 'First seen',
-            key: 'created_at',
-            render: function Render(_, group: Group) {
-                return <TZLabel time={group.created_at} />
-            },
-        },
-    ]
+    } as QueryContext['columns']
+    let hiddenColumns = [] as string[]
+    if (hasCrmIterationOneEnabled) {
+        columns = getCRMColumns(groupTypeName, groupTypeIndex)
+        hiddenColumns.push('key')
+    }
 
     return (
-        <>
-            <LemonInput
-                type="search"
-                placeholder={`Search for ${plural}`}
-                onChange={setSearch}
-                value={search}
-                data-attr="group-search"
-                className="mb-4"
-            />
-            <LemonDivider className="mb-4" />
-            <LemonTable
-                columns={columns}
-                rowKey="group_key"
-                loading={groupsLoading}
-                dataSource={groups.results}
-                expandable={{
-                    expandedRowRender: function RenderPropertiesTable({ group_properties }) {
-                        return <PropertiesTable type={PropertyDefinitionType.Group} properties={group_properties} />
-                    },
-                    rowExpandable: ({ group_properties }) =>
-                        !!group_properties && Object.keys(group_properties).length > 0,
+        <SceneContent>
+            <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
+
+            <SceneTitleSection
+                name={capitalizeFirstLetter(groupTypeNamePlural)}
+                description={`A catalog of all ${groupTypeNamePlural} for this project`}
+                resourceType={{
+                    type: 'cohort',
                 }}
-                pagination={{
-                    controlled: true,
-                    onBackward: groups.previous
-                        ? () => {
-                              loadGroups(groups.previous)
-                              window.scrollTo(0, 0)
-                          }
-                        : undefined,
-                    onForward: groups.next
-                        ? () => {
-                              loadGroups(groups.next)
-                              window.scrollTo(0, 0)
-                          }
-                        : undefined,
-                }}
-                emptyState={
-                    <>
-                        <LemonBanner type="info">
-                            No {plural} found. Make sure to send properties with your {singular} for them to show up in
-                            the list.{' '}
-                            <Link to="https://posthog.com/docs/user-guides/group-analytics" target="_blank">
-                                Read more here.
-                            </Link>
-                        </LemonBanner>
-                        <CodeSnippet language={Language.JavaScript} wrap>
-                            {`posthog.group('${singular}', your_${singular}_id, {\n` +
-                                `    name: 'Awesome ${singular}',\n` +
-                                '    value: 11\n' +
-                                '});'}
-                        </CodeSnippet>
-                    </>
+                actions={
+                    hasCrmIterationOneEnabled ? (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            data-attr={`new-group-${groupTypeIndex}`}
+                            onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                        >
+                            New {aggregationLabel(groupTypeIndex).singular}
+                        </LemonButton>
+                    ) : undefined
                 }
             />
-        </>
+            <SceneDivider />
+
+            <Query
+                query={{ ...query, hiddenColumns }}
+                setQuery={setQuery}
+                context={{
+                    refresh: 'blocking',
+                    emptyStateHeading: queryWasModified
+                        ? `No ${groupTypeNamePlural} found`
+                        : `No ${groupTypeNamePlural} exist because none have been identified`,
+                    emptyStateDetail: queryWasModified ? (
+                        'Try changing the date range or property filters.'
+                    ) : (
+                        <>
+                            Go to the{' '}
+                            <Link to="https://posthog.com/docs/product-analytics/group-analytics#how-to-create-groups">
+                                group analytics docs
+                            </Link>{' '}
+                            to learn what needs to be done
+                        </>
+                    ),
+                    columns,
+                    groupTypeLabel: groupTypeNamePlural,
+                }}
+                dataAttr="groups-table"
+            />
+
+            {hasCrmIterationOneEnabled && (
+                <LemonModal
+                    isOpen={saveGroupViewModalOpen}
+                    onClose={() => setSaveGroupViewModalOpen(false)}
+                    title="Save filtered groups view"
+                    footer={
+                        <>
+                            <LemonButton onClick={() => setSaveGroupViewModalOpen(false)}>Cancel</LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => saveGroupView(window.location.href, groupTypeIndex)}
+                                disabledReason={!groupViewName.trim() ? 'Name is required' : undefined}
+                            >
+                                Save
+                            </LemonButton>
+                        </>
+                    }
+                >
+                    <div className="space-y-4">
+                        <p>Save this filtered view as a shortcut in the People panel.</p>
+                        <LemonInput
+                            placeholder="Enter view name"
+                            value={groupViewName}
+                            onChange={setGroupViewName}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && groupViewName.trim()) {
+                                    saveGroupView(window.location.href, groupTypeIndex)
+                                }
+                            }}
+                            autoFocus
+                        />
+                    </div>
+                </LemonModal>
+            )}
+        </SceneContent>
     )
+}
+
+export function GroupsScene(): JSX.Element {
+    const { groupTypeIndex } = useValues(groupsSceneLogic)
+    return <Groups groupTypeIndex={groupTypeIndex as GroupTypeIndex} />
+}
+
+export const scene: SceneExport = {
+    component: GroupsScene,
+    logic: groupsSceneLogic,
+    settingSectionId: 'environment-customer-analytics',
 }

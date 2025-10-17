@@ -1,16 +1,24 @@
-import { LemonButton, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { useEffect } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
-import { commentsLogic, CommentsLogicProps } from './commentsLogic'
+import { CommentsLogicProps, commentsLogic } from './commentsLogic'
 
 export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
-    const { key, composedComment, commentsLoading, replyingCommentId, itemContext } = useValues(commentsLogic(props))
-    const { setComposedComment, sendComposedContent, setReplyingComment, setComposerRef, clearItemContext } =
-        useActions(commentsLogic(props))
+    const { key, commentsLoading, replyingCommentId, itemContext, isEmpty } = useValues(commentsLogic(props))
+    const {
+        sendComposedContent,
+        setReplyingComment,
+        clearItemContext,
+        setRichContentEditor,
+        onRichContentEditorUpdate,
+    } = useActions(commentsLogic(props))
 
     const placeholder = replyingCommentId
         ? 'Reply...'
@@ -19,18 +27,18 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
     useEffect(() => {
         // Whenever the discussion context changes or we fully unmount we clear the item context
         return () => clearItemContext()
-    }, [key])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [key, clearItemContext])
 
     return (
         <div className="deprecated-space-y-2">
-            <LemonTextAreaMarkdown
-                data-attr="comment-composer"
+            <LemonRichContentEditor
+                logicKey="discussions"
                 placeholder={placeholder}
-                value={composedComment}
-                onChange={setComposedComment}
-                disabled={commentsLoading}
+                onCreate={setRichContentEditor}
+                onUpdate={onRichContentEditorUpdate}
                 onPressCmdEnter={sendComposedContent}
-                ref={setComposerRef}
+                disabled={commentsLoading}
             />
             <div className="flex justify-between items-center gap-2">
                 <div className="flex-1" />
@@ -47,7 +55,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
                 <LemonButton
                     type="primary"
                     onClick={sendComposedContent}
-                    disabledReason={!composedComment ? 'No message' : null}
+                    disabledReason={isEmpty ? 'No message' : null}
                     sideIcon={<KeyboardShortcut command enter />}
                     data-attr="discussions-comment"
                 >

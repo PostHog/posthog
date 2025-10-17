@@ -2,7 +2,7 @@ import { Meta } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
-import { FeatureFlagType, SDKKey } from '~/types'
+import { AccessControlLevel, FeatureFlagEvaluationRuntime, FeatureFlagType, SDKKey } from '~/types'
 import { AvailableFeature } from '~/types'
 
 import { OPTIONS } from './FeatureFlagCodeOptions'
@@ -22,6 +22,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     active: true,
     deleted: false,
     created_at: '2021-05-05T12:00:00Z',
+    updated_at: '2021-05-05T12:00:00Z',
     created_by: null,
     experiment_set: [],
     is_simple_flag: false,
@@ -29,7 +30,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     rollback_conditions: [],
     performed_rollback: false,
     can_edit: true,
-    user_access_level: 'editor',
+    user_access_level: AccessControlLevel.Editor,
     tags: [],
     surveys: [],
     is_remote_configuration: false,
@@ -37,6 +38,8 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     status: 'ACTIVE',
     version: 0,
     last_modified_by: null,
+    evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+    evaluation_tags: [],
 }
 
 const GROUP_FEATURE_FLAG: FeatureFlagType = {

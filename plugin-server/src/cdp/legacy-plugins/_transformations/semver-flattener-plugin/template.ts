@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 export const semverFlattenerPlugin: LegacyTransformationPlugin = {
     processEvent,
@@ -12,7 +13,8 @@ export const semverFlattenerPlugin: LegacyTransformationPlugin = {
         description: 'This plugin will flatten semver versions in the specified properties.',
         icon_url: '/static/transformations/semver-flattener.png',
         category: ['Transformation'],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [
             {
                 key: 'properties',

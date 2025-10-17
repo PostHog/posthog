@@ -2,16 +2,18 @@ use std::sync::Arc;
 
 use axum::async_trait;
 
-use chunk_id::{ChunkId, WithChunkId};
+use chunk_id::OrChunkId;
 use reqwest::Url;
 use sourcemap::OwnedSourceMapCache;
-use tracing::warn;
 
-use crate::error::{ChunkIdError, Error};
+use crate::{
+    error::ResolveError, langs::hermes::HermesRef, symbol_store::hermesmap::ParsedHermesMap,
+};
 
 pub mod caching;
 pub mod chunk_id;
 pub mod concurrency;
+pub mod hermesmap;
 pub mod saving;
 pub mod sourcemap;
 
@@ -26,7 +28,7 @@ pub trait SymbolCatalog<Ref, Set>: Send + Sync + 'static {
     // TODO - this doesn't actually need to return an Arc, but it does for now, because I'd
     // need to re-write the cache to let it return &'s instead, and the Arc overhead is not
     // going to be super critical right now
-    async fn lookup(&self, team_id: i32, r: Ref) -> Result<Arc<Set>, Error>;
+    async fn lookup(&self, team_id: i32, r: Ref) -> Result<Arc<Set>, ResolveError>;
 }
 
 #[async_trait]
@@ -56,46 +58,51 @@ pub trait Provider: Send + Sync + 'static {
 
 pub struct Catalog {
     // "source map provider"
-    pub smp: Box<dyn Provider<Ref = Url, Set = OwnedSourceMapCache, Err = Error>>,
-    pub chunk_id_smp:
-        Box<dyn Provider<Ref = ChunkId, Set = OwnedSourceMapCache, Err = ChunkIdError>>,
+    pub smp: Box<dyn Provider<Ref = OrChunkId<Url>, Set = OwnedSourceMapCache, Err = ResolveError>>,
+    // Hermes map provider
+    pub hmp:
+        Box<dyn Provider<Ref = OrChunkId<HermesRef>, Set = ParsedHermesMap, Err = ResolveError>>,
 }
 
 impl Catalog {
     pub fn new(
-        smp: impl Provider<Ref = Url, Set = OwnedSourceMapCache, Err = Error>,
-        chunk_id_smp: impl Provider<Ref = ChunkId, Set = OwnedSourceMapCache, Err = ChunkIdError>,
+        smp: impl Provider<Ref = OrChunkId<Url>, Set = OwnedSourceMapCache, Err = ResolveError>,
+        hmp: impl Provider<Ref = OrChunkId<HermesRef>, Set = ParsedHermesMap, Err = ResolveError>,
     ) -> Self {
         Self {
             smp: Box::new(smp),
-            chunk_id_smp: Box::new(chunk_id_smp),
+            hmp: Box::new(hmp),
         }
     }
 }
 
 #[async_trait]
 impl SymbolCatalog<Url, OwnedSourceMapCache> for Catalog {
-    async fn lookup(&self, team_id: i32, r: Url) -> Result<Arc<OwnedSourceMapCache>, Error> {
+    async fn lookup(&self, team_id: i32, r: Url) -> Result<Arc<OwnedSourceMapCache>, ResolveError> {
+        let r = OrChunkId::inner(r);
         self.smp.lookup(team_id, r).await
     }
 }
 
 #[async_trait]
-impl SymbolCatalog<WithChunkId<Url>, OwnedSourceMapCache> for Catalog {
+impl SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache> for Catalog {
     async fn lookup(
         &self,
         team_id: i32,
-        r: WithChunkId<Url>,
-    ) -> Result<Arc<OwnedSourceMapCache>, Error> {
-        match self.chunk_id_smp.lookup(team_id, r.chunk_id).await {
-            Ok(s) => Ok(s),
-            Err(ChunkIdError::Other(e)) => Err(e), // Anything not specifically a chunk id error we just return
-            Err(e) => {
-                // If we hit some chunk id error, we fall back to trying to fetch from the outside world
-                warn!("Chunk ID lookup failed, falling back {:?}", e);
-                self.lookup(team_id, r.inner).await
-            }
-        }
+        r: OrChunkId<Url>,
+    ) -> Result<Arc<OwnedSourceMapCache>, ResolveError> {
+        self.smp.lookup(team_id, r).await
+    }
+}
+
+#[async_trait]
+impl SymbolCatalog<OrChunkId<HermesRef>, ParsedHermesMap> for Catalog {
+    async fn lookup(
+        &self,
+        team_id: i32,
+        r: OrChunkId<HermesRef>,
+    ) -> Result<Arc<ParsedHermesMap>, ResolveError> {
+        self.hmp.lookup(team_id, r).await
     }
 }
 

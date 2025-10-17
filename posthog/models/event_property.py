@@ -1,12 +1,13 @@
 from django.db import models
-
-from posthog.models.team import Team
-from posthog.models.utils import UniqueConstraintByExpression, sane_repr
 from django.db.models.expressions import F
 from django.db.models.functions import Coalesce
 
+from posthog.models.team import Team
+from posthog.models.utils import UniqueConstraintByExpression, sane_repr
+
 
 class EventProperty(models.Model):
+    id = models.BigAutoField(primary_key=True)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     event = models.CharField(max_length=400, null=False)
@@ -14,10 +15,6 @@ class EventProperty(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=["team", "event", "property"],
-                name="posthog_event_property_unique_team_event_property",
-            ),
             UniqueConstraintByExpression(
                 concurrently=True,
                 name="posthog_event_property_unique_proj_event_property",

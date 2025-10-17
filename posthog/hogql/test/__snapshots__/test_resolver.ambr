@@ -40,6 +40,9 @@
                           $session_id: {
                             hidden: False
                           },
+                          $session_id_uuid: {
+                            hidden: False
+                          },
                           $window_id: {
                             hidden: False
                           },
@@ -119,6 +122,9 @@
                             hidden: False
                           },
                           person_id: {
+                            hidden: False
+                          },
+                          person_mode: {
                             hidden: False
                           },
                           poe: {
@@ -314,6 +320,13 @@
                     }
                   }
                 },
+                person_mode: {
+                  alias: "person_mode"
+                  type: {
+                    name: "person_mode"
+                    table_type: <recursion ...>
+                  }
+                },
                 properties: {
                   alias: "properties"
                   type: {
@@ -337,6 +350,7 @@
                 }
               }
               ctes: {}
+              is_lambda_type: False
               tables: {
                 events: <recursion ...>
               }
@@ -482,6 +496,23 @@
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -810,6 +841,17 @@
             type: <recursion ...>
           },
           {
+            alias: "person_mode"
+            expr: {
+              chain: [
+                "person_mode"
+              ]
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
+          },
+          {
             alias: "person_id"
             expr: {
               args: [
@@ -875,8 +917,8 @@
                         ]
                         name: "empty"
                         return_type: {
-                          data_type: "unknown"
-                          nullable: True
+                          data_type: "int"
+                          nullable: False
                         }
                       }
                     }
@@ -1174,8 +1216,8 @@
                         ]
                         name: "empty"
                         return_type: {
-                          data_type: "unknown"
-                          nullable: True
+                          data_type: "int"
+                          nullable: False
                         }
                       }
                     }
@@ -1331,11 +1373,13 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -1372,6 +1416,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -1456,6 +1503,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  person_mode: {
                     hidden: False
                   },
                   poe: {
@@ -1625,6 +1675,23 @@
         }
       },
       {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "person_id"
         expr: {
           args: [
@@ -1690,8 +1757,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -2087,8 +2154,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -2261,11 +2328,13 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -2292,6 +2361,9 @@
                 table: {
                   fields: {
                     active_milliseconds: {
+                      hidden: False
+                    },
+                    all_urls: {
                       hidden: False
                     },
                     click_count: {
@@ -2343,6 +2415,9 @@
                       hidden: False
                     },
                     properties: {
+                      hidden: False
+                    },
+                    retention_period_days: {
                       hidden: False
                     },
                     session: {
@@ -2409,6 +2484,24 @@
         hidden: True
         type: {
           alias: "first_url"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "all_urls"
+        expr: {
+          chain: [
+            "e",
+            "all_urls"
+          ]
+          type: {
+            name: "all_urls"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "all_urls"
           type: <recursion ...>
         }
       },
@@ -2611,6 +2704,24 @@
         }
       },
       {
+        alias: "retention_period_days"
+        expr: {
+          chain: [
+            "e",
+            "retention_period_days"
+          ]
+          type: {
+            name: "retention_period_days"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "retention_period_days"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "start_time"
         expr: {
           chain: [
@@ -2803,6 +2914,9 @@
                           id: {
                             hidden: False
                           },
+                          max_inserted_at: {
+                            hidden: False
+                          },
                           session_id: {
                             hidden: False
                           },
@@ -2872,6 +2986,7 @@
       anonymous_tables: []
       columns: {
         active_milliseconds: <recursion ...>,
+        all_urls: <recursion ...>,
         click_count: <recursion ...>,
         console_error_count: <recursion ...>,
         console_log_count: <recursion ...>,
@@ -2883,12 +2998,14 @@
         keypress_count: <recursion ...>,
         message_count: <recursion ...>,
         mouse_activity_count: <recursion ...>,
+        retention_period_days: <recursion ...>,
         session_id: <recursion ...>,
         size: <recursion ...>,
         snapshot_source: <recursion ...>,
         start_time: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>,
         s: <recursion ...>
@@ -2935,6 +3052,7 @@
                   b: <recursion ...>
                 }
                 ctes: {}
+                is_lambda_type: False
                 tables: {}
               }
             }
@@ -3025,6 +3143,7 @@
                         b: <recursion ...>
                       }
                       ctes: {}
+                      is_lambda_type: False
                       tables: {}
                     }
                   }
@@ -3101,6 +3220,7 @@
         b: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         x: <recursion ...>,
         y: <recursion ...>
@@ -3148,6 +3268,9 @@
                             hidden: False
                           },
                           $session_id: {
+                            hidden: False
+                          },
+                          $session_id_uuid: {
                             hidden: False
                           },
                           $window_id: {
@@ -3229,6 +3352,9 @@
                             hidden: False
                           },
                           person_id: {
+                            hidden: False
+                          },
+                          person_mode: {
                             hidden: False
                           },
                           poe: {
@@ -3424,6 +3550,13 @@
                     }
                   }
                 },
+                person_mode: {
+                  alias: "person_mode"
+                  type: {
+                    name: "person_mode"
+                    table_type: <recursion ...>
+                  }
+                },
                 properties: {
                   alias: "properties"
                   type: {
@@ -3447,6 +3580,7 @@
                 }
               }
               ctes: {}
+              is_lambda_type: False
               tables: {
                 events: <recursion ...>
               }
@@ -3592,6 +3726,23 @@
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -3921,6 +4072,17 @@
               type: <recursion ...>
             },
             {
+              alias: "person_mode"
+              expr: {
+                chain: [
+                  "person_mode"
+                ]
+                type: <recursion ...>
+              }
+              hidden: True
+              type: <recursion ...>
+            },
+            {
               alias: "person_id"
               expr: {
                 args: [
@@ -3986,8 +4148,8 @@
                           ]
                           name: "empty"
                           return_type: {
-                            data_type: "unknown"
-                            nullable: True
+                            data_type: "int"
+                            nullable: False
                           }
                         }
                       }
@@ -4285,8 +4447,8 @@
                           ]
                           name: "empty"
                           return_type: {
-                            data_type: "unknown"
-                            nullable: True
+                            data_type: "int"
+                            nullable: False
                           }
                         }
                       }
@@ -4448,6 +4610,9 @@
                             $session_id: {
                               hidden: False
                             },
+                            $session_id_uuid: {
+                              hidden: False
+                            },
                             $window_id: {
                               hidden: False
                             },
@@ -4527,6 +4692,9 @@
                               hidden: False
                             },
                             person_id: {
+                              hidden: False
+                            },
+                            person_mode: {
                               hidden: False
                             },
                             poe: {
@@ -4696,6 +4864,23 @@
                   }
                 },
                 {
+                  alias: "person_mode"
+                  expr: {
+                    chain: [
+                      "person_mode"
+                    ]
+                    type: {
+                      name: "person_mode"
+                      table_type: <recursion ...>
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "person_mode"
+                    type: <recursion ...>
+                  }
+                },
+                {
                   alias: "person_id"
                   expr: {
                     args: [
@@ -4761,8 +4946,8 @@
                               ]
                               name: "empty"
                               return_type: {
-                                data_type: "unknown"
-                                nullable: True
+                                data_type: "int"
+                                nullable: False
                               }
                             }
                           }
@@ -5158,8 +5343,8 @@
                               ]
                               name: "empty"
                               return_type: {
-                                data_type: "unknown"
-                                nullable: True
+                                data_type: "int"
+                                nullable: False
                               }
                             }
                           }
@@ -5332,11 +5517,13 @@
                   event_person_id: <recursion ...>,
                   issue_id: <recursion ...>,
                   person_id: <recursion ...>,
+                  person_mode: <recursion ...>,
                   properties: <recursion ...>,
                   timestamp: <recursion ...>,
                   uuid: <recursion ...>
                 }
                 ctes: {}
+                is_lambda_type: False
                 tables: {
                   events: <recursion ...>
                 }
@@ -5379,11 +5566,13 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -5424,6 +5613,7 @@
                 b: <recursion ...>
               }
               ctes: {}
+              is_lambda_type: False
               tables: {}
             }
           }
@@ -5488,6 +5678,7 @@
         b: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -5531,6 +5722,7 @@
                   b: <recursion ...>
                 }
                 ctes: {}
+                is_lambda_type: False
                 tables: {}
               }
             }
@@ -5596,6 +5788,7 @@
         b: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         x: <recursion ...>
       }
@@ -5634,6 +5827,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -5715,6 +5911,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  person_mode: {
                     hidden: False
                   },
                   poe: {
@@ -5884,6 +6083,23 @@
         }
       },
       {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "person_id"
         expr: {
           args: [
@@ -5949,8 +6165,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -6346,8 +6562,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -6520,11 +6736,13 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -6565,6 +6783,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -6646,6 +6867,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    person_mode: {
                       hidden: False
                     },
                     poe: {
@@ -6816,6 +7040,23 @@
         }
       },
       {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "person_id"
         expr: {
           args: [
@@ -6881,8 +7122,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -7278,8 +7519,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -7453,11 +7694,13 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -7498,6 +7741,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -7579,6 +7825,9 @@
                         hidden: False
                       },
                       person_id: {
+                        hidden: False
+                      },
+                      person_mode: {
                         hidden: False
                       },
                       poe: {
@@ -7641,8 +7890,11 @@
     type: {
       aliases: {}
       anonymous_tables: []
-      columns: {}
+      columns: {
+        max(timestamp): <recursion ...>
+      }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -7685,6 +7937,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -7766,6 +8021,9 @@
                         hidden: False
                       },
                       person_id: {
+                        hidden: False
+                      },
+                      person_mode: {
                         hidden: False
                       },
                       poe: {
@@ -7829,6 +8087,12 @@
                       $virt_initial_referring_domain_type: {
                         hidden: False
                       },
+                      $virt_revenue: {
+                        hidden: False
+                      },
+                      $virt_revenue_last_30_days: {
+                        hidden: False
+                      },
                       created_at: {
                         hidden: False
                       },
@@ -7842,6 +8106,9 @@
                         hidden: False
                       },
                       properties: {
+                        hidden: False
+                      },
+                      revenue_analytics: {
                         hidden: False
                       },
                       some_expr: {
@@ -7945,6 +8212,7 @@
         some_expr: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>,
         p: <recursion ...>
@@ -8020,6 +8288,7 @@
       anonymous_tables: []
       columns: {}
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -8137,6 +8406,7 @@
       anonymous_tables: []
       columns: {}
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -8173,6 +8443,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -8256,6 +8529,9 @@
                   person_id: {
                     hidden: False
                   },
+                  person_mode: {
+                    hidden: False
+                  },
                   poe: {
                     hidden: False
                   },
@@ -8322,6 +8598,7 @@
         timestamp: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -8394,6 +8671,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -8477,6 +8757,9 @@
                     person_id: {
                       hidden: False
                     },
+                    person_mode: {
+                      hidden: False
+                    },
                     poe: {
                       hidden: False
                     },
@@ -8545,6 +8828,7 @@
         timestamp: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -8619,6 +8903,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -8700,6 +8987,9 @@
                         hidden: False
                       },
                       person_id: {
+                        hidden: False
+                      },
+                      person_mode: {
                         hidden: False
                       },
                       poe: {
@@ -8800,6 +9090,7 @@
         timestamp: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -8880,6 +9171,9 @@
                                 hidden: False
                               },
                               $session_id: {
+                                hidden: False
+                              },
+                              $session_id_uuid: {
                                 hidden: False
                               },
                               $window_id: {
@@ -8963,6 +9257,9 @@
                               person_id: {
                                 hidden: False
                               },
+                              person_mode: {
+                                hidden: False
+                              },
                               poe: {
                                 hidden: False
                               },
@@ -9005,6 +9302,7 @@
                   c: <recursion ...>
                 }
                 ctes: {}
+                is_lambda_type: False
                 tables: {
                   events: <recursion ...>
                 }
@@ -9076,6 +9374,7 @@
         b: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -9148,6 +9447,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $session_id_uuid: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -9227,6 +9529,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  person_mode: {
                     hidden: False
                   },
                   poe: {
@@ -9336,6 +9641,7 @@
         id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -9378,6 +9684,9 @@
                     $session_id: {
                       hidden: False
                     },
+                    $session_id_uuid: {
+                      hidden: False
+                    },
                     $window_id: {
                       hidden: False
                     },
@@ -9457,6 +9766,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    person_mode: {
                       hidden: False
                     },
                     poe: {
@@ -9569,6 +9881,7 @@
         id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -9607,6 +9920,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -9688,6 +10004,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  person_mode: {
                     hidden: False
                   },
                   poe: {
@@ -9784,6 +10103,7 @@
         person_id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -9824,6 +10144,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -9905,6 +10228,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    person_mode: {
                       hidden: False
                     },
                     poe: {
@@ -10004,6 +10330,7 @@
         person_id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -10098,6 +10425,7 @@
         id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         person_distinct_ids: <recursion ...>
       }
@@ -10137,6 +10465,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -10220,6 +10551,9 @@
                     person_id: {
                       hidden: False
                     },
+                    person_mode: {
+                      hidden: False
+                    },
                     poe: {
                       hidden: False
                     },
@@ -10285,6 +10619,7 @@
           timestamp: <recursion ...>
         }
         ctes: {}
+        is_lambda_type: False
         tables: {
           events: <recursion ...>
         }
@@ -10321,6 +10656,9 @@
                           hidden: False
                         },
                         $session_id: {
+                          hidden: False
+                        },
+                        $session_id_uuid: {
                           hidden: False
                         },
                         $window_id: {
@@ -10404,6 +10742,9 @@
                         person_id: {
                           hidden: False
                         },
+                        person_mode: {
+                          hidden: False
+                        },
                         poe: {
                           hidden: False
                         },
@@ -10469,6 +10810,7 @@
               timestamp: <recursion ...>
             }
             ctes: {}
+            is_lambda_type: False
             tables: {
               events: <recursion ...>
             }
@@ -10517,6 +10859,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -10600,6 +10945,9 @@
                   person_id: {
                     hidden: False
                   },
+                  person_mode: {
+                    hidden: False
+                  },
                   poe: {
                     hidden: False
                   },
@@ -10644,6 +10992,18 @@
               table_type: <recursion ...>
               virtual_table: {
                 fields: {
+                  $virt_initial_channel_type: {
+                    hidden: False
+                  },
+                  $virt_initial_referring_domain_type: {
+                    hidden: False
+                  },
+                  $virt_revenue: {
+                    hidden: False
+                  },
+                  $virt_revenue_last_30_days: {
+                    hidden: False
+                  },
                   created_at: {
                     hidden: False
                   },
@@ -10651,6 +11011,9 @@
                     hidden: False
                   },
                   properties: {
+                    hidden: False
+                  },
+                  revenue_analytics: {
                     hidden: False
                   }
                 },
@@ -10683,6 +11046,7 @@
         id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }

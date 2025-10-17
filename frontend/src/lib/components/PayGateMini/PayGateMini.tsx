@@ -1,19 +1,20 @@
-import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
-import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
-import { billingLogic } from 'scenes/billing/billingLogic'
+
+import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { getProductIcon } from 'scenes/products/Products'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
-import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { PayGateButton } from './PayGateButton'
-import { payGateMiniLogic, PayGateMiniLogicProps } from './payGateMiniLogic'
+import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 
 export type PayGateMiniProps = PayGateMiniLogicProps & {
     /**
@@ -25,6 +26,14 @@ export type PayGateMiniProps = PayGateMiniLogicProps & {
     background?: boolean
     isGrandfathered?: boolean
     docsLink?: string
+    /**
+     * Custom loading state to show while billing data is loading
+     */
+    loadingSkeleton?: JSX.Element
+    /**
+     * Actions
+     */
+    handleSubmit?: () => void
 }
 
 /** A sort of paywall for premium features.
@@ -41,14 +50,15 @@ export function PayGateMini({
     background = true,
     isGrandfathered,
     docsLink,
+    loadingSkeleton,
+    handleSubmit,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, gateVariant, bypassPaywall } = useValues(
+    const { productWithFeature, featureInfo, gateVariant, bypassPaywall, ctaLabel } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
     const { setBypassPaywall } = useActions(payGateMiniLogic({ feature, currentUsage }))
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { billingLoading } = useValues(billingLogic)
-    const { hideUpgradeModal } = useActions(upgradeModalLogic)
     const { user } = useValues(userLogic)
 
     useEffect(() => {
@@ -57,21 +67,44 @@ export function PayGateMini({
                 product_key: productWithFeature?.type,
                 feature: feature,
                 gate_variant: gateVariant,
+                cta_label: ctaLabel,
             })
         }
-    }, [gateVariant])
+    }, [gateVariant, ctaLabel]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const handleCtaClick = (): void => {
-        hideUpgradeModal()
+        if (handleSubmit) {
+            handleSubmit()
+        }
         posthog.capture('pay gate CTA clicked', {
             product_key: productWithFeature?.type,
             feature: feature,
             gate_variant: gateVariant,
+            cta_label: ctaLabel,
         })
     }
 
     if (billingLoading) {
-        return null
+        return (
+            loadingSkeleton || (
+                <div
+                    className={clsx(
+                        className,
+                        background && 'bg-primary border border-primary',
+                        'PayGateMini rounded flex flex-col items-center p-4 text-center'
+                    )}
+                >
+                    <LemonSkeleton className="w-20 h-10 mb-2" />
+                    <LemonSkeleton className="w-48 h-12 mb-2" />
+                    <LemonSkeleton className="w-1/2 h-6 mb-2" />
+                    <LemonSkeleton className="w-1/2 h-6 mb-2" />
+                    <div className="flex items-center justify-center gap-x-2 mt-3">
+                        <LemonSkeleton className="w-32 h-10" />
+                        <LemonSkeleton className="w-32 h-10" />
+                    </div>
+                </div>
+            )
+        )
     }
 
     if (gateVariant && preflight?.instance_preferences?.disable_paid_fs) {
@@ -215,9 +248,9 @@ const renderUsageLimitMessage = (
                             </p>
                         )}
                         <p className="mb-4 text-xs italic text-secondary">
-                            Need unlimited projects? Check out the{' '}
+                            Need unlimited projects? Check out one of our{' '}
                             <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
-                                Teams addon
+                                platform add-ons
                             </Link>
                             .
                         </p>

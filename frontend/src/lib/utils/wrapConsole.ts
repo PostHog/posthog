@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+/* oxlint-disable no-console */
 export function wrapConsole(level: 'log' | 'warn' | 'error', fn: (args: Array<unknown>) => boolean): () => void {
     // Flag the handler to prevent max call stack errors (any code in this execution might retrigger the log)
     const wrappedFn = console[level]
@@ -24,4 +24,4 @@ export function wrapConsole(level: 'log' | 'warn' | 'error', fn: (args: Array<un
         console[level] = wrappedFn
     }
 }
-/* eslint-enable no-console */
+/* oxlint-enable no-console */

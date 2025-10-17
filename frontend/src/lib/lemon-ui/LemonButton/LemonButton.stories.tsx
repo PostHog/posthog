@@ -1,13 +1,18 @@
-import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import clsx from 'clsx'
+
+import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
 import { More } from './More'
@@ -57,10 +62,10 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
     return (
         <div className="deprecated-space-y-2">
             {types.map((type) => (
-                <>
+                <div key={type}>
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
                     <StatusesTemplate {...props} type={type} />
-                </>
+                </div>
             ))}
         </div>
     )
@@ -95,30 +100,30 @@ export const TextOnly = (): JSX.Element => {
 }
 
 export const Sizes = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
+    const sizes: LemonButtonProps['size'][] = ['xxsmall', 'xsmall', 'small', 'medium', 'large']
 
     return (
         <div className="deprecated-space-y-2">
             {sizes.map((size) => (
-                <>
+                <div key={size}>
                     <h5>size={size}</h5>
                     <StatusesTemplate size={size} type="secondary" />
-                </>
+                </div>
             ))}
         </div>
     )
 }
 
 export const SizesIconOnly = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
+    const sizes: LemonButtonProps['size'][] = ['xxsmall', 'xsmall', 'small', 'medium', 'large']
 
     return (
         <div className="deprecated-space-y-2">
             {sizes.map((size) => (
-                <>
+                <div key={size}>
                     <h5>size={size}</h5>
                     <StatusesTemplate size={size} type="secondary" noText />
-                </>
+                </div>
             ))}
         </div>
     )
@@ -200,61 +205,6 @@ export const Active = (): JSX.Element => {
     )
 }
 
-export const PseudoStates = (): JSX.Element => {
-    return (
-        <div className="deprecated-space-y-8">
-            <div>
-                <div>
-                    <h5>TYPE=3D STATE=DEFAULT</h5>
-                    <StatusesTemplate type="primary" />
-                </div>
-                <div id="hover">
-                    <h5>TYPE=3D STATE=HOVER</h5>
-                    <StatusesTemplate type="primary" />
-                </div>
-                <div id="active">
-                    <h5>TYPE=3D STATE=HOVER,ACTIVE</h5>
-                    <StatusesTemplate type="primary" />
-                </div>
-            </div>
-            <div>
-                <div>
-                    <h5>TYPE=SECONDARY STATE=DEFAULT</h5>
-                    <StatusesTemplate type="secondary" />
-                </div>
-                <div id="hover">
-                    <h5>TYPE=SECONDARY STATE=HOVER</h5>
-                    <StatusesTemplate type="secondary" />
-                </div>
-                <div id="active">
-                    <h5>TYPE=SECONDARY STATE=HOVER,ACTIVE</h5>
-                    <StatusesTemplate type="secondary" />
-                </div>
-            </div>
-            <div>
-                <div>
-                    <h5>TYPE=TERTIARY STATE=DEFAULT</h5>
-                    <StatusesTemplate type="tertiary" />
-                </div>
-                <div id="hover">
-                    <h5>TYPE=TERTIARY STATE=HOVER</h5>
-                    <StatusesTemplate type="tertiary" />
-                </div>
-                <div id="active">
-                    <h5>TYPE=TERTIARY STATE=HOVER,ACTIVE</h5>
-                    <StatusesTemplate type="tertiary" />
-                </div>
-            </div>
-        </div>
-    )
-}
-PseudoStates.parameters = {
-    pseudo: {
-        hover: ['#hover .LemonButton', '#active .LemonButton'],
-        active: ['#active .LemonButton'],
-    },
-}
-
 export const MenuButtons = (): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
@@ -303,7 +253,7 @@ export const WithSideAction = (): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
             {types.map((type) => (
-                <>
+                <div key={type}>
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
                     <div className="flex items-center gap-2">
                         {statuses.map((status, i) => (
@@ -321,7 +271,7 @@ export const WithSideAction = (): JSX.Element => {
                             </LemonButton>
                         ))}
                     </div>
-                </>
+                </div>
             ))}
         </div>
     )
@@ -441,7 +391,23 @@ WithVeryLongPopoverToTheBottom.args = {
 export const WithTooltip: Story = BasicTemplate.bind({})
 WithTooltip.args = {
     ...Default.args,
-    tooltip: 'The flux capacitor will be reloaded. This might take up to 14 hours.',
+    tooltip: (
+        <>
+            This is example with a link: <Link to="https://posthog.com">Go home</Link>
+        </>
+    ),
+}
+
+export const WithTooltipPlacementAndArrowOffset: Story = BasicTemplate.bind({})
+WithTooltipPlacementAndArrowOffset.args = {
+    ...Default.args,
+    tooltip: (
+        <>
+            This is example with a link: <Link to="https://posthog.com">Go home</Link>
+        </>
+    ),
+    tooltipPlacement: 'top-start',
+    tooltipArrowOffset: 30,
 }
 
 export const More_ = (): JSX.Element => {
@@ -474,6 +440,27 @@ export const WithOverflowingContent = (): JSX.Element => {
                 Truncating {longText}
             </LemonButton>
             <LemonButton type="secondary">{longText}</LemonButton>
+        </div>
+    )
+}
+
+export const WithAccessControl = (): JSX.Element => {
+    return (
+        <div className="flex gap-2">
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Project}
+                minAccessLevel={AccessControlLevel.Admin}
+                userAccessLevel={AccessControlLevel.Admin}
+            >
+                <LemonButton type="primary">Enabled (admin ≥ admin)</LemonButton>
+            </AccessControlAction>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Project}
+                minAccessLevel={AccessControlLevel.Admin}
+                userAccessLevel={AccessControlLevel.Viewer}
+            >
+                <LemonButton type="primary">Disabled (viewer {'<'} admin)</LemonButton>
+            </AccessControlAction>
         </div>
     )
 }

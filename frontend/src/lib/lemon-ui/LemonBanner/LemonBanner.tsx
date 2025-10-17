@@ -1,8 +1,10 @@
 import './LemonBanner.scss'
 
-import { IconInfo, IconWarning, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconInfo, IconWarning, IconX } from '@posthog/icons'
+
 import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 
@@ -19,8 +21,13 @@ export interface LemonBannerProps {
     className?: string
     /** If provided, the banner will be dismissed and hidden when the key is set in localStorage. */
     dismissKey?: string
+    /**
+     * If left unset, the type-specific icon will show up above a certain width of the banner.
+     * If set to a boolean, the icon will either always be hidden or always shown.
+     */
     hideIcon?: boolean
     square?: boolean
+    icon?: React.ReactNode
 }
 
 /** Generic alert message. */
@@ -31,8 +38,9 @@ export function LemonBanner({
     action,
     className,
     dismissKey = '',
-    hideIcon = false,
+    hideIcon,
     square = false,
+    icon,
 }: LemonBannerProps): JSX.Element | null {
     const logic = lemonBannerLogic({ dismissKey })
     const { isDismissed } = useValues(logic)
@@ -61,10 +69,12 @@ export function LemonBanner({
         >
             <div className="flex items-center gap-2 grow @md:!px-1">
                 {!hideIcon &&
-                    (type === 'warning' || type === 'error' ? (
-                        <IconWarning className="LemonBanner__icon hidden @md:!block" />
+                    (icon ? (
+                        icon
+                    ) : type === 'warning' || type === 'error' ? (
+                        <IconWarning className={clsx('LemonBanner__icon', hideIcon !== false && 'hidden @md:!block')} />
                     ) : (
-                        <IconInfo className="LemonBanner__icon hidden @md:!block" />
+                        <IconInfo className={clsx('LemonBanner__icon', hideIcon !== false && 'hidden @md:!block')} />
                     ))}
                 <div className="grow overflow-hidden">{children}</div>
                 {action && <LemonButton className="!hidden @md:!flex" type="secondary" {...action} />}

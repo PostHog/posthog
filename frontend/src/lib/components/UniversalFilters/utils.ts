@@ -1,12 +1,14 @@
 import {
     ActionFilter,
+    EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
     LogEntryPropertyFilter,
+    PropertyFilterType,
     RecordingPropertyFilter,
+    UniversalFilterValue,
     UniversalFiltersGroup,
     UniversalFiltersGroupValue,
-    UniversalFilterValue,
 } from '~/types'
 
 import { isCohortPropertyFilter } from '../PropertyFilters/utils'
@@ -19,6 +21,9 @@ export function isEntityFilter(filter: UniversalFilterValue): filter is ActionFi
 }
 export function isEventFilter(filter: UniversalFilterValue): filter is ActionFilter {
     return filter.type === 'events'
+}
+export function isEventPropertyFilter(filter: UniversalFilterValue): filter is EventPropertyFilter {
+    return filter.type === PropertyFilterType.Event
 }
 export function isActionFilter(filter: UniversalFilterValue): filter is ActionFilter {
     return filter.type === 'actions'
@@ -34,4 +39,11 @@ export function isLogEntryPropertyFilter(filter: UniversalFilterValue): filter i
 }
 export function isEditableFilter(filter: UniversalFilterValue): boolean {
     return isEntityFilter(filter) ? false : !isCohortPropertyFilter(filter)
+}
+export function isCommentTextFilter(filter: UniversalFiltersGroupValue): boolean {
+    return (
+        !isUniversalGroupFilterLike(filter) &&
+        filter.type === PropertyFilterType.Recording &&
+        filter.key === 'comment_text'
+    )
 }

@@ -1,5 +1,9 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { apiStatusLogicType } from './apiStatusLogicType'
@@ -12,6 +16,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         setTimeSensitiveAuthenticationRequired: (required: boolean | [resolve: () => void, reject: () => void]) => ({
             required,
         }),
+        setTwoFactorVerificationExpiredToastShown: (shown: boolean) => ({ shown }),
     }),
 
     reducers({
@@ -28,6 +33,13 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             false as boolean | [resolve: () => void, reject: () => void],
             {
                 setTimeSensitiveAuthenticationRequired: (_, { required }) => required,
+            },
+        ],
+
+        twoFactorVerificationExpiredToastShown: [
+            false,
+            {
+                setTwoFactorVerificationExpiredToastShown: (_, { shown }) => shown,
             },
         ],
     }),
@@ -47,12 +59,35 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
 
             try {
                 if (response?.status === 403) {
-                    const data = await response?.json()
-                    if (data.detail === 'This action requires you to be recently authenticated.') {
+                    const responseData = await response?.json()
+                    if (responseData.detail === 'This action requires you to be recently authenticated.') {
                         actions.setTimeSensitiveAuthenticationRequired(true)
+                    } else if (
+                        responseData.detail === '2FA setup required' &&
+                        !values.timeSensitiveAuthenticationRequired &&
+                        !twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen
+                    ) {
+                        twoFactorLogic.findMounted()?.actions.openTwoFactorSetupModal(true)
+                    } else if (
+                        responseData.detail === '2FA verification required' &&
+                        !values.twoFactorVerificationExpiredToastShown
+                    ) {
+                        actions.setTwoFactorVerificationExpiredToastShown(true)
+                        lemonToast.error(
+                            'Your session requires re-authentication. You will be logged out to verify your identity again.',
+                            {
+                                button: {
+                                    label: 'Understood',
+                                    action: () => {
+                                        userLogic.findMounted()?.actions.logout()
+                                    },
+                                },
+                                autoClose: false,
+                            }
+                        )
                     }
                 }
-            } catch (e) {
+            } catch {
                 // Pass
             }
 

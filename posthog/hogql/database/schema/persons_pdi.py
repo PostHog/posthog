@@ -5,14 +5,15 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
-    IntegerDatabaseField,
-    LazyTable,
     FieldOrTable,
-    LazyTableToAdd,
+    IntegerDatabaseField,
     LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
     StringDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
+
 from posthog.models.organization import Organization
 
 
@@ -45,7 +46,9 @@ def persons_pdi_join(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from person_distinct_ids")
     join_expr = ast.JoinExpr(table=persons_pdi_select(join_to_add.fields_accessed))
-    organization: Organization = context.team.organization if context.team else None
+    organization: Organization | None = context.team.organization if context.team else None
+    if not organization:
+        raise ResolutionError("Organization not found in context")
     # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
     use_inner_join = (
         posthoganalytics.feature_enabled(

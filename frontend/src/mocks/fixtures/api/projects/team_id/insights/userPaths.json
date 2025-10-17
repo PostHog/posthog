@@ -3,19 +3,7 @@
     "short_id": "jEAIVJnM",
     "name": "",
     "derived_name": "User paths based on page views",
-    "filters": {
-        "insight": "PATHS",
-        "properties": {
-            "type": "AND",
-            "values": []
-        },
-        "step_limit": 5,
-        "funnel_filter": {},
-        "exclude_events": [],
-        "path_groupings": [],
-        "include_event_types": ["$pageview"],
-        "local_path_cleaning_filters": []
-    },
+    "filters": {},
     "filters_hash": "cache_30bd7e1ea45e6354cbec68f67d602d63",
     "order": null,
     "deleted": false,
@@ -342,6 +330,27 @@
         "email": "marius@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "kind": "PathsQuery",
+            "pathsFilter": {
+                "excludeEvents": [],
+                "includeEventTypes": ["$pageview"],
+                "localPathCleaningFilters": [],
+                "pathGroupings": [],
+                "stepLimit": 5
+            },
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            }
+        },
+        "full": true
+    }
 }

@@ -1,4 +1,7 @@
 import { useActions, useValues } from 'kea'
+
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -45,10 +48,12 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
             <div className="flex justify-between items-center">
                 <LemonLabel>Query Steps</LemonLabel>
 
-                <div className="flex items-center gap-2">
-                    <span className="text-secondary">Graph type</span>
-                    <FunnelVizType insightProps={insightProps} />
-                </div>
+                <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
+                    <div className="flex items-center gap-2">
+                        <span className="text-secondary">Graph type</span>
+                        <FunnelVizType insightProps={insightProps} />
+                    </div>
+                </Tooltip>
             </div>
             <ActionFilter
                 bordered
@@ -73,6 +78,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.HogQLExpression,
                 ]}
+                addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
             />
             <div className="mt-4 deprecated-space-y-4">
                 {showGroupsOptions && (

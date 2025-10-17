@@ -46,8 +46,7 @@ pub fn setup_metrics_routes(router: Router) -> Router {
 
 pub fn setup_metrics_recorder() -> PrometheusHandle {
     const BUCKETS: &[f64] = &[
-        0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0,
-        1000.0, 2000.0, 5000.0, 10000.0,
+        1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
     ];
 
     PrometheusBuilder::new()
@@ -116,6 +115,11 @@ pub fn gauge(name: &'static str, lables: &[(String, String)], value: f64) {
     metrics::gauge!(name, lables).set(value);
 }
 
+pub fn histogram(name: &'static str, labels: &[(String, String)], value: f64) {
+    let filtered_labels = apply_label_filter(labels);
+    metrics::histogram!(name, &filtered_labels).record(value);
+}
+
 // A guard to record the time between creation and drop as a histogram entry
 pub struct TimingGuard<'a> {
     name: &'static str,
@@ -140,9 +144,9 @@ enum TimingGuardLabels<'a> {
     Owned(Vec<(String, String)>),
 }
 
-impl<'a> TimingGuard<'a> {
+impl TimingGuard<'_> {
     // This consumes the guard, making "label this span and then immediately report the timing"
-    // a one-liner (simple don't re-bind the return value), but also it's a bit of a footgun.
+    // a one-liner (simply don't re-bind the return value), but also it's a bit of a footgun.
     pub fn label(mut self, key: &str, value: &str) -> Self {
         self.labels.push_label(key, value);
         self
@@ -153,7 +157,7 @@ impl<'a> TimingGuard<'a> {
     pub fn fin(self) {}
 }
 
-impl<'a> Drop for TimingGuard<'a> {
+impl Drop for TimingGuard<'_> {
     fn drop(&mut self) {
         let labels = self.labels.as_slice();
         metrics::histogram!(self.name, labels).record(self.start.elapsed().as_millis() as f64);

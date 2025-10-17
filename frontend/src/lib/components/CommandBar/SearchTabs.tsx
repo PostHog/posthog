@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 import { RefObject } from 'react'
 
+import { SearchBarTab } from './SearchBarTab'
 import { groupToName } from './constants'
 import { searchBarLogic } from './searchBarLogic'
-import { SearchBarTab } from './SearchBarTab'
 
 type SearchTabsProps = {
     inputRef: RefObject<HTMLInputElement>

@@ -1,8 +1,10 @@
+from typing import Any
+
+from posthog.schema import DashboardFilter, HogQLVariable, NodeKind
+
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
-from posthog.schema import DashboardFilter, HogQLVariable, NodeKind
-from typing import Any
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
 
@@ -95,6 +97,7 @@ def apply_dashboard_variables(query: Any, variables_overrides: dict[str, dict], 
                     variableId=variable_id,
                     code_name=query_variable.code_name,
                     value=overriden_hogql_variable.get("value"),
+                    isNull=overriden_hogql_variable.get("isNull"),
                 )
 
         return query.model_copy(update={"variables": updated_variables})

@@ -1,0 +1,21 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}Personal API Key has been deactivated{% endblock %}
+{% block section %}
+<p>
+    Your Personal API Key <strong>{{ label }}</strong> with value <strong>{{ mask_value }}</strong> was publicly exposed.
+    {% if more_info %}{{ more_info }}{% endif %}
+</p>
+<p>
+    To protect your account, this key is no longer valid. You can reactivate this key by rolling it.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{{ url }}">Roll your key</a>
+</div>
+
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ url }}">{{ url }}</a>
+    </p>
+</div>
+{% endblock %} {% block preheader %}{{preheader}}{% endblock %}

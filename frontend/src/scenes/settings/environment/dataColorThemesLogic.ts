@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path } from 'kea'
+
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'
@@ -6,10 +7,10 @@ import type { dataColorThemesLogicType } from './dataColorThemesLogicType'
 
 export const dataColorThemesLogic = kea<dataColorThemesLogicType>([
     path(['scenes', 'settings', 'environment', 'dataColorThemesLogic']),
-    connect({
+    connect(() => ({
         values: [dataThemeLogic, ['themes', 'themesLoading', 'defaultTheme', 'posthogTheme']],
         actions: [dataColorThemesModalLogic, ['openModal', 'submitThemeSuccess'], dataThemeLogic, ['setThemes']],
-    }),
+    })),
     actions({
         selectTheme: (id: 'new' | number | null) => ({ id }),
     }),

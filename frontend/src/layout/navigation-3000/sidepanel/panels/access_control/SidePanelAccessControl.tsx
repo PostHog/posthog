@@ -1,5 +1,9 @@
 import { useValues } from 'kea'
 
+import { resourceTypeToString } from 'lib/utils/accessControlUtils'
+
+import { AccessControlResourceType } from '~/types'
+
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import { AccessControlObject } from './AccessControlObject'
@@ -15,6 +19,8 @@ export const SidePanelAccessControl = (): JSX.Element => {
                     <AccessControlObject
                         resource={sceneSidePanelContext.access_control_resource}
                         resource_id={sceneSidePanelContext.access_control_resource_id}
+                        title="Object permissions"
+                        description={`Use object permissions to assign access for individuals and roles to this ${resourceTypeToString(sceneSidePanelContext.access_control_resource as AccessControlResourceType)}.`}
                     />
                 ) : (
                     <p>Not supported</p>

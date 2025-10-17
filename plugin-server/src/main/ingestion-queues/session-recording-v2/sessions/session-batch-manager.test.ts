@@ -2,6 +2,7 @@ import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionMetadataStore } from './session-metadata-store'
 
 jest.setTimeout(1000)
@@ -14,6 +15,7 @@ describe('SessionBatchManager', () => {
     let mockFileStorage: jest.Mocked<SessionBatchFileStorage>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
+    let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
         ({
@@ -23,7 +25,7 @@ describe('SessionBatchManager', () => {
                 return 0
             },
             discardPartition: jest.fn(),
-        } as unknown as jest.Mocked<SessionBatchRecorder>)
+        }) as unknown as jest.Mocked<SessionBatchRecorder>
 
     beforeEach(() => {
         jest.mocked(SessionBatchRecorder).mockImplementation(() => {
@@ -50,12 +52,19 @@ describe('SessionBatchManager', () => {
             storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionMetadataStore>
 
+        mockConsoleLogStore = {
+            storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionConsoleLogStore>
+
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
+            maxEventsPerSessionPerBatch: Number.MAX_SAFE_INTEGER,
             offsetManager: mockOffsetManager,
             fileStorage: mockFileStorage,
             metadataStore: mockMetadataStore,
+            consoleLogStore: mockConsoleLogStore,
+            metadataSwitchoverDate: new Date('2025-01-02'),
         })
     })
 
@@ -68,7 +77,14 @@ describe('SessionBatchManager', () => {
         await manager.flush()
 
         expect(firstBatch.flush).toHaveBeenCalled()
-        expect(SessionBatchRecorder).toHaveBeenCalledWith(mockOffsetManager, mockFileStorage, mockMetadataStore)
+        expect(SessionBatchRecorder).toHaveBeenCalledWith(
+            mockOffsetManager,
+            mockFileStorage,
+            mockMetadataStore,
+            mockConsoleLogStore,
+            new Date('2025-01-02'),
+            Number.MAX_SAFE_INTEGER
+        )
 
         const secondBatch = manager.getCurrentBatch()
         expect(secondBatch).not.toBe(firstBatch)
@@ -132,6 +148,98 @@ describe('SessionBatchManager', () => {
             const batch = manager.getCurrentBatch()
             manager.discardPartitions([])
             expect(batch.discardPartition).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('rate limiting config', () => {
+        it('should pass maxEventsPerSessionPerBatch to new batches', () => {
+            manager = new SessionBatchManager({
+                maxBatchSizeBytes: 100,
+                maxBatchAgeMs: 1000,
+                maxEventsPerSessionPerBatch: 500,
+                offsetManager: mockOffsetManager,
+                fileStorage: mockFileStorage,
+                metadataStore: mockMetadataStore,
+                consoleLogStore: mockConsoleLogStore,
+                metadataSwitchoverDate: new Date('2025-01-02'),
+            })
+
+            expect(SessionBatchRecorder).toHaveBeenCalledWith(
+                mockOffsetManager,
+                mockFileStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02'),
+                500
+            )
+        })
+
+        it('should pass maxEventsPerSessionPerBatch to batches created after flush', async () => {
+            manager = new SessionBatchManager({
+                maxBatchSizeBytes: 100,
+                maxBatchAgeMs: 1000,
+                maxEventsPerSessionPerBatch: 250,
+                offsetManager: mockOffsetManager,
+                fileStorage: mockFileStorage,
+                metadataStore: mockMetadataStore,
+                consoleLogStore: mockConsoleLogStore,
+                metadataSwitchoverDate: new Date('2025-01-02'),
+            })
+
+            await manager.flush()
+
+            expect(SessionBatchRecorder).toHaveBeenLastCalledWith(
+                mockOffsetManager,
+                mockFileStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02'),
+                250
+            )
+        })
+
+        it('should handle maxEventsPerSessionPerBatch = 0', () => {
+            manager = new SessionBatchManager({
+                maxBatchSizeBytes: 100,
+                maxBatchAgeMs: 1000,
+                maxEventsPerSessionPerBatch: 0,
+                offsetManager: mockOffsetManager,
+                fileStorage: mockFileStorage,
+                metadataStore: mockMetadataStore,
+                consoleLogStore: mockConsoleLogStore,
+                metadataSwitchoverDate: new Date('2025-01-02'),
+            })
+
+            expect(SessionBatchRecorder).toHaveBeenCalledWith(
+                mockOffsetManager,
+                mockFileStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02'),
+                0
+            )
+        })
+
+        it('should handle maxEventsPerSessionPerBatch = MAX_SAFE_INTEGER', () => {
+            manager = new SessionBatchManager({
+                maxBatchSizeBytes: 100,
+                maxBatchAgeMs: 1000,
+                maxEventsPerSessionPerBatch: Number.MAX_SAFE_INTEGER,
+                offsetManager: mockOffsetManager,
+                fileStorage: mockFileStorage,
+                metadataStore: mockMetadataStore,
+                consoleLogStore: mockConsoleLogStore,
+                metadataSwitchoverDate: new Date('2025-01-02'),
+            })
+
+            expect(SessionBatchRecorder).toHaveBeenCalledWith(
+                mockOffsetManager,
+                mockFileStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02'),
+                Number.MAX_SAFE_INTEGER
+            )
         })
     })
 })

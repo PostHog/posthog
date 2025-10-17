@@ -1,11 +1,16 @@
 // Metrics that make sense across all Kafka consumers
-
 import { Counter, Gauge, Summary } from 'prom-client'
 
 export const kafkaRebalancePartitionCount = new Gauge({
     name: 'kafka_rebalance_partition_count',
     help: 'Number of partitions assigned to this consumer. (Calculated during rebalance events.)',
     labelNames: ['topic'],
+})
+
+export const kafkaConsumerAssignment = new Gauge({
+    name: 'kafka_consumer_assignment',
+    help: 'Kafka consumer partition assignment status',
+    labelNames: ['topic_name', 'partition_id', 'pod', 'group_id'],
 })
 
 export const latestOffsetTimestampGauge = new Gauge({
@@ -44,14 +49,14 @@ export const kafkaConsumerEventRequestPendingMsSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
-export const ingestionPartitionKeyOverflowed = new Counter({
-    name: 'ingestion_partition_key_overflowed',
-    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
-    labelNames: ['partition_key'],
-})
-
 export const cookielessRedisErrorCounter = new Counter({
     name: 'cookieless_redis_error',
     help: 'Count redis errors.',
     labelNames: ['operation'],
+})
+
+export const kafkaHeaderStatusCounter = new Counter({
+    name: 'kafka_header_status_total',
+    help: 'Count of events by header name and presence status',
+    labelNames: ['header', 'status'],
 })

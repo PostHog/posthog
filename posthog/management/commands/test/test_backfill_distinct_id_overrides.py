@@ -1,9 +1,10 @@
-import operator
 import uuid
+import operator
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.management.commands.backfill_distinct_id_overrides import Backfill
-from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 class ExecuteBackfillTestCase(ClickhouseTestMixin, BaseTest):

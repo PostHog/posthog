@@ -1,0 +1,23 @@
+:root {
+    --text-input-height-sm: var(--button-height-sm);
+    --text-input-height-base: var(--button-height-base);
+    --text-input-height-lg: var(--button-height-lg);
+}
+
+.text-input-primitive--height-sm {
+    height: var(--text-input-height-sm);
+    min-height: var(--text-input-height-sm);
+    padding: var(--button-padding-y-sm) var(--button-padding-x-sm);
+}
+
+.text-input-primitive--height-base {
+    height: var(--text-input-height-base);
+    min-height: var(--text-input-height-base);
+    padding: var(--button-padding-y-base) var(--button-padding-x-base);
+}
+
+.text-input-primitive--height-lg {
+    height: var(--text-input-height-lg);
+    min-height: var(--text-input-height-lg);
+    padding: var(--button-padding-y-lg) var(--button-padding-x-lg);
+}

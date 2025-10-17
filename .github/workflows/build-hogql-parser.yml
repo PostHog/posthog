@@ -23,7 +23,7 @@ jobs:
 
             - name: Check if common/hogql_parser/ has changed
               id: changed-files
-              uses: tj-actions/changed-files@v43
+              uses: step-security/changed-files@3dbe17c78367e7d60f00d78ae6781a35be47b4a1 # v45
               with:
                   since_last_remote_commit: true
                   files_yaml: |
@@ -42,7 +42,7 @@ jobs:
                       parser_release_needed='true'
                     else
                       message_body="It looks like the code of \`hogql-parser\` has changed since last push, but its version stayed the same at $local. 👀\nMake sure to resolve this in \`hogql_parser/setup.py\` before merging!${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' && '\nThis needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this.' || ''}}"
-                      curl -s -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }} -X POST -d "{ \"body\": \"$message_body\" }" "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
+                      curl -s -u posthog-bot:${{ secrets.POSTHOG_BOT_PAT || secrets.GITHUB_TOKEN }} -X POST -d "{ \"body\": \"$message_body\" }" "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
                     fi
                   fi
                   echo "parser-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
@@ -64,9 +64,9 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
-            - uses: actions/setup-python@v4
+            - uses: actions/setup-python@v5
               with:
-                  python-version: '3.11'
+                  python-version: '3.12.11'
 
             - name: Build sdist
               if: matrix.os == 'ubuntu-22.04' # Only build the sdist once
@@ -116,23 +116,33 @@ jobs:
                   path: dist
 
             - name: Publish package to PyPI
-              uses: pypa/gh-action-pypi-publish@release/v1
+              uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # release/v1
 
             - uses: actions/checkout@v4
               with:
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
                   ref: ${{ github.event.pull_request.head.ref }}
 
             - name: Update hogql-parser in requirements
               shell: bash
+              env:
+                  RETRIES: 20
               run: |
-                  local=$(python common/hogql_parser/setup.py --version)
-                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" requirements.in
-                  sed -i "s/hogql-parser==.*/hogql-parser==${local}/g" requirements.txt
+                  # In case the version is not available yet, try up to $RETRIES times
+                  for i in {1..$RETRIES}; do
+                      if uv add hogql-parser==$(python common/hogql_parser/setup.py --version); then
+                          break
+                      fi
+                      if [[ $i -eq $RETRIES ]]; then
+                        echo "Failed to update hogql-parser in requirements"
+                        exit 1
+                      fi
+                      sleep 0.5
+                  done
 
-            - uses: EndBug/add-and-commit@v9
+            - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
               with:
-                  add: '["requirements.in", "requirements.txt"]'
+                  add: '["pyproject.toml", "uv.lock"]'
                   message: 'Use new hogql-parser version'
                   default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT }}

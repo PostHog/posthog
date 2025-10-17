@@ -1,16 +1,36 @@
 import './ConditionalFormattingTab.scss'
 
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ColorGlyph } from 'lib/components/SeriesGlyph'
 
-import { ColorPickerButton } from '~/queries/nodes/DataVisualization/Components/ColorPickerButton'
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonColorGlyph,
+    LemonColorPicker,
+    LemonInput,
+    LemonSelect,
+    LemonTag,
+} from '@posthog/lemon-ui'
+
 import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { FORMATTING_TEMPLATES } from '../../types'
 import { conditionalFormattingLogic } from './conditionalFormattingLogic'
+
+const DEFAULT_PICKER_COLORS = [
+    '#FFADAD', // Current default
+    '#E8A598',
+    '#FFD6A5',
+    '#FFCFD2',
+    '#FDFFB6',
+    '#C1FBA4',
+    '#9BF6FF',
+    '#A0C4FF',
+    '#BDB2FF',
+    '#FFC6FF',
+]
 
 const getRuleHeader = (rule: ConditionalFormattingRule): string => {
     if (!rule.columnName || !rule.input) {
@@ -36,7 +56,7 @@ export const ConditionalFormattingTab = (): JSX.Element => {
         useActions(dataVisualizationLogic)
 
     return (
-        <div className="flex flex-col ConditionalFormattingTab">
+        <div className="flex flex-col ConditionalFormattingTab p-3">
             <p>You can add rules to make the cells in the table change color if they meet certain conditions.</p>
 
             {conditionalFormattingRules.length > 0 && (
@@ -50,7 +70,7 @@ export const ConditionalFormattingTab = (): JSX.Element => {
                         key: rule.id,
                         header: (
                             <>
-                                <ColorGlyph color={rule.color} />
+                                <LemonColorGlyph color={rule.color} />
                                 <span className="ml-2">{getRuleHeader(rule)}</span>
                             </>
                         ),
@@ -118,7 +138,13 @@ const RuleItem = ({ rule: propsRule }: { rule: ConditionalFormattingRule }): JSX
             />
 
             <div className="flex flex-1">
-                <ColorPickerButton color={rule.color} onColorSelect={selectColor} />
+                <LemonColorPicker
+                    selectedColor={rule.color}
+                    onSelectColor={selectColor}
+                    colors={DEFAULT_PICKER_COLORS}
+                    showCustomColor
+                    hideDropdown
+                />
                 <LemonInput
                     placeholder="value"
                     className="ml-2 flex-1"

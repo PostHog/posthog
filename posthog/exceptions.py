@@ -1,13 +1,15 @@
 from typing import Any, Optional, TypedDict
 
-import structlog
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
+
+import structlog
 from rest_framework import status
 from rest_framework.exceptions import APIException
-from posthog.exceptions_capture import capture_exception
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +44,13 @@ class Conflict(APIException):
     default_code = "conflict"
 
 
+class ClickHouseAtCapacity(APIException):
+    status_code = 503
+    default_detail = (
+        "Queries are a little too busy right now. We're working to free up resources. Please try again later."
+    )
+
+
 class EstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."
@@ -51,17 +60,28 @@ class QuerySizeExceeded(APIException):
     default_detail = "Query size exceeded."
 
 
+class ClickHouseQueryTimeOut(APIException):
+    status_code = 504
+    default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
+
+
+class ClickHouseQueryMemoryLimitExceeded(APIException):
+    status_code = 504
+    default_detail = "Query has reached the max memory limit before completing. See our docs for how to improve your query memory footprint. You may need to narrow date range or materialize."
+
+
 class ExceptionContext(TypedDict):
     request: HttpRequest
 
 
 def exception_reporting(exception: Exception, context: ExceptionContext) -> Optional[str]:
     """
-    Determines which exceptions to report and sends them to Sentry.
+    Determines which exceptions to report and sends them to error tracking.
     Used through drf-exceptions-hog
     """
     if not isinstance(exception, APIException):
-        logger.exception(exception, path=context["request"].path)
+        tags = get_query_tags().model_dump(exclude_none=True)
+        logger.exception(exception, path=context["request"].path, **tags)
         return capture_exception(exception)
     return None
 

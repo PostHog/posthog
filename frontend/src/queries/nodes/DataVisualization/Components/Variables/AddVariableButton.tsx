@@ -1,8 +1,7 @@
-import { IconGear, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { IconGear, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonInput, LemonMenu } from '@posthog/lemon-ui'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { NewVariableModal } from './NewVariableModal'
@@ -10,18 +9,19 @@ import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
 export const AddVariableButton = ({
+    title = 'Query variable',
     buttonProps,
 }: {
+    title?: string
     buttonProps?: Pick<LemonButtonProps, 'type' | 'size' | 'sideIcon'>
 }): JSX.Element => {
     const { showEditingUI } = useValues(dataVisualizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { openNewVariableModal, openExistingVariableModal } = useActions(variableModalLogic)
 
-    const { variables, variablesLoading } = useValues(variablesLogic)
-    const { addVariable } = useActions(variablesLogic)
+    const { variablesLoading, filteredVariables, searchTerm } = useValues(variablesLogic)
+    const { setSearchTerm, clickVariable } = useActions(variablesLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES] || !showEditingUI) {
+    if (!showEditingUI) {
         return <></>
     }
 
@@ -56,6 +56,7 @@ export const AddVariableButton = ({
                     },
                     {
                         label: 'Existing variable',
+                        custom: true,
                         items: variablesLoading
                             ? [
                                   {
@@ -63,29 +64,54 @@ export const AddVariableButton = ({
                                       onClick: () => {},
                                   },
                               ]
-                            : variables.map((n) => ({
-                                  label: (
-                                      <span className="flex items-center justify-between w-full gap-2 group">
-                                          <span className="flex items-center gap-2">
-                                              <span>{n.name}</span>
-                                              <span className="text-xs text-muted-alt">{n.type}</span>
-                                          </span>
-                                      </span>
-                                  ),
-                                  onClick: () => addVariable({ variableId: n.id, code_name: n.code_name }),
-                                  sideAction: {
-                                      icon: <IconGear />,
-                                      onClick: (e) => {
-                                          e.stopPropagation()
-                                          openExistingVariableModal(n)
-                                      },
+                            : [
+                                  {
+                                      label: () => (
+                                          <div className="pb-1">
+                                              <LemonInput
+                                                  data-attr="insight-variable-search"
+                                                  type="search"
+                                                  placeholder="Search variables"
+                                                  value={searchTerm}
+                                                  onChange={setSearchTerm}
+                                                  autoFocus
+                                              />
+                                          </div>
+                                      ),
                                   },
-                              })),
+                                  ...(filteredVariables.length
+                                      ? filteredVariables.map((n) => ({
+                                            label: (
+                                                <span className="flex items-center justify-between w-full gap-2 group">
+                                                    <span className="flex items-center gap-2">
+                                                        <span>{n.name}</span>
+                                                        <span className="text-xs text-muted-alt">{n.type}</span>
+                                                    </span>
+                                                </span>
+                                            ),
+                                            onClick: () => clickVariable(n),
+                                            active: n.selected,
+                                            sideAction: {
+                                                icon: <IconGear />,
+                                                onClick: (e: React.MouseEvent<HTMLButtonElement, MouseEvent>) => {
+                                                    e.stopPropagation()
+                                                    openExistingVariableModal(n)
+                                                },
+                                            },
+                                        }))
+                                      : [
+                                            {
+                                                label: 'No variables found',
+                                                disabledReason: 'No variables match your search',
+                                                onClick: () => {},
+                                            },
+                                        ]),
+                              ],
                     },
                 ]}
             >
                 <LemonButton type="secondary" icon={<IconPlus />} sideIcon={null} {...buttonProps}>
-                    Query variable
+                    {title}
                 </LemonButton>
             </LemonMenu>
             <NewVariableModal />

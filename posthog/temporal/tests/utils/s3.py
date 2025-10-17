@@ -1,13 +1,15 @@
+import os
+import gzip
+import json
+import datetime as dt
+
+from django.conf import settings
+
+import brotli
 import aioboto3
 import botocore
-from pyarrow import fs
 import pyarrow.parquet as pq
-import datetime as dt
-import json
-import os
-from django.conf import settings
-import gzip
-import brotli
+from pyarrow import fs
 
 
 async def read_parquet_from_s3(

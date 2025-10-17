@@ -1,4 +1,8 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+
+import { IconExternal } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -6,6 +10,7 @@ import { identifierToHuman } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
+import { urls } from 'scenes/urls'
 
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
@@ -32,8 +37,11 @@ import {
     containsHogQLQuery,
     filterKeyForQuery,
     getDisplay,
+    getResultCustomizations,
     getShowPercentStackView,
     getShowValuesOnSeries,
+    isDataTableNode,
+    isDataVisualizationNode,
     isFunnelsQuery,
     isHogQuery,
     isInsightQueryWithBreakdown,
@@ -48,7 +56,6 @@ import {
 import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { insightSceneLogic } from '../insightSceneLogic'
 import type { insightNavLogicType } from './insightNavLogicType'
 
 export interface Tab {
@@ -75,6 +82,9 @@ export interface QueryPropertyCache
         Omit<Partial<StickinessQuery>, 'kind' | 'response'>,
         Omit<Partial<LifecycleQuery>, 'kind' | 'response'> {
     commonFilter: CommonInsightFilter
+    commonFilterTrendsStickiness?: {
+        resultCustomizations?: Record<string, any>
+    }
 }
 
 const cleanSeriesEntityMath = (
@@ -117,7 +127,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],
-        actions: [insightDataLogic(props), ['setQuery'], insightSceneLogic, ['setOpenedWithQuery']],
+        actions: [insightDataLogic(props), ['setQuery']],
     })),
     actions({
         setActiveView: (view: InsightType) => ({ view }),
@@ -138,7 +148,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
         activeView: [
             (s) => [s.query],
             (query) => {
-                if (containsHogQLQuery(query)) {
+                if (isDataTableNode(query)) {
+                    return InsightType.JSON
+                } else if (containsHogQLQuery(query)) {
                     return InsightType.SQL
                 } else if (isHogQuery(query)) {
                     return InsightType.HOG
@@ -183,7 +195,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         dataAttr: 'insight-lifecycle-tab',
                     },
                     {
-                        label: 'SQL',
+                        label: (
+                            <>
+                                SQL <IconExternal />
+                            </>
+                        ),
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     },
@@ -227,17 +243,17 @@ export const insightNavLogic = kea<insightNavLogicType>([
         setActiveView: ({ view }) => {
             const query = getDefaultQuery(view, values.filterTestAccountsDefault)
 
-            if (isInsightVizNode(query)) {
+            if (isDataVisualizationNode(query)) {
+                router.actions.push(urls.sqlEditor(query.source.query))
+            } else if (isInsightVizNode(query)) {
                 actions.setQuery({
                     ...query,
                     source: values.queryPropertyCache
                         ? mergeCachedProperties(query.source, values.queryPropertyCache)
                         : query.source,
                 } as InsightVizNode)
-                actions.setOpenedWithQuery(query)
             } else {
                 actions.setQuery(query)
-                actions.setOpenedWithQuery(query)
             }
         },
         setQuery: ({ query }) => {
@@ -284,6 +300,14 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     const { resultCustomizations, ...commonProperties } = query[filterKey] || {}
     newCache.commonFilter = { ...cache?.commonFilter, ...commonProperties }
 
+    /** store the insight specific filter for trend and stickiness queries */
+    if (isTrendsQuery(query) || isStickinessQuery(query)) {
+        newCache.commonFilterTrendsStickiness = {
+            ...cache?.commonFilterTrendsStickiness,
+            ...(resultCustomizations !== undefined ? { resultCustomizations } : {}),
+        }
+    }
+
     return newCache
 }
 
@@ -304,8 +328,8 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                 const mathAvailability = isTrendsQuery(mergedQuery)
                     ? MathAvailability.All
                     : isStickinessQuery(mergedQuery)
-                    ? MathAvailability.ActorsOnly
-                    : MathAvailability.None
+                      ? MathAvailability.ActorsOnly
+                      : MathAvailability.None
                 mergedQuery.series = cleanSeriesMath(cache.series, mathAvailability)
             }
         }
@@ -361,6 +385,13 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                 }
             }
         }
+
+        if (isRetentionQuery(query) && cache.breakdownFilter?.breakdowns) {
+            mergedQuery.breakdownFilter = {
+                ...query.breakdownFilter,
+                breakdowns: cache.breakdownFilter.breakdowns.filter((b) => b.type === 'person' || b.type === 'event'),
+            }
+        }
     }
 
     // funnel paths filter
@@ -372,6 +403,12 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     const filterKey = filterKeyForQuery(mergedQuery)
     if (cache[filterKey] || cache.commonFilter) {
         const node = { kind: mergedQuery.kind, [filterKey]: cache.commonFilter } as unknown as InsightQueryNode
+        const nodeTrendsStickiness = (isTrendsQuery(mergedQuery) || isStickinessQuery(mergedQuery)
+            ? {
+                  kind: mergedQuery.kind,
+                  [filterKey]: cache.commonFilterTrendsStickiness,
+              }
+            : {}) as unknown as InsightQueryNode
         mergedQuery[filterKey] = {
             ...query[filterKey],
             ...cache[filterKey],
@@ -381,6 +418,9 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
             ...(getShowValuesOnSeries(node) ? { showValuesOnSeries: getShowValuesOnSeries(node) } : {}),
             ...(getShowPercentStackView(node) ? { showPercentStackView: getShowPercentStackView(node) } : {}),
             ...(getDisplay(node) ? { display: getDisplay(node) } : {}),
+            ...(getResultCustomizations(nodeTrendsStickiness)
+                ? { resultCustomizations: getResultCustomizations(nodeTrendsStickiness) }
+                : {}),
         }
     }
 

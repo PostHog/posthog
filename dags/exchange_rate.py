@@ -1,19 +1,16 @@
 import os
-import requests
 import datetime
 from typing import Any
 
 import dagster
-
+import requests
 from clickhouse_driver import Client
-from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.models.exchange_rate.sql import (
-    EXCHANGE_RATE_DICTIONARY_NAME,
-    EXCHANGE_RATE_DATA_BACKFILL_SQL,
-)
-from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 
-from dags.common import JobOwners
+from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DATA_BACKFILL_SQL, EXCHANGE_RATE_DICTIONARY_NAME
+
+from dags.common import JobOwners, settings_with_log_comment
 
 OPEN_EXCHANGE_RATES_API_BASE_URL = "https://openexchangerates.org/api"
 
@@ -26,10 +23,17 @@ class ExchangeRateConfig(dagster.Config):
     api_base_url: str = OPEN_EXCHANGE_RATES_API_BASE_URL
 
 
-# We'll have one partition for each day, starting from 2025-01-01 for the daily job
-# And one partition for hourly updates for the hourly job (starting in March 2025 because that's when we started using hourly updates)
-DAILY_PARTITION_DEFINITION = dagster.DailyPartitionsDefinition(start_date="2025-01-01")
-HOURLY_PARTITION_DEFINITION = dagster.HourlyPartitionsDefinition(start_date="2025-03-10-00:00Z")
+# We'll have one partition for each day, starting from 2025 Jan 1st for the daily job
+DAILY_PARTITION_DEFINITION = dagster.DailyPartitionsDefinition(start_date=datetime.datetime(2025, 1, 1))
+
+# And one partition for hourly updates for the hourly job
+HOURLY_PARTITION_DEFINITION = dagster.HourlyPartitionsDefinition(
+    start_date=datetime.datetime(
+        2025, 3, 10
+    ),  # Start in March 2025 because that's when we started using hourly updates
+    minute_offset=45,  # Run at XX:45 to avoid peak load at the top of the hour
+    end_offset=12,  # Generate 12 partitions after the current hour to be safe (1 should be enough, 0 breaks our workflow)
+)
 
 
 def get_date_partition_from_hourly_partition(hourly_partition: str) -> str:
@@ -141,7 +145,6 @@ def hourly_exchange_rates(
     )
 
 
-@dagster.op
 def store_exchange_rates_in_clickhouse(
     context: dagster.OpExecutionContext,
     date_str: str,
@@ -170,7 +173,10 @@ def store_exchange_rates_in_clickhouse(
         # Batch insert all values
         def insert(client: Client) -> bool:
             try:
-                client.execute(EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=values))
+                client.execute(
+                    EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=values),
+                    settings=settings_with_log_comment(context),
+                )
                 context.log.info("Successfully inserted exchange rates")
                 return True
             except Exception as e:
@@ -180,7 +186,10 @@ def store_exchange_rates_in_clickhouse(
         # Simply ask the dictionary to be reloaded with the new data
         def reload_dict(client: Client) -> bool:
             try:
-                client.execute(f"SYSTEM RELOAD DICTIONARY {EXCHANGE_RATE_DICTIONARY_NAME}")
+                client.execute(
+                    f"SYSTEM RELOAD DICTIONARY {EXCHANGE_RATE_DICTIONARY_NAME}",
+                    settings=settings_with_log_comment(context),
+                )
                 context.log.info("Successfully reloaded exchange_rate_dict dictionary")
                 return True
             except Exception as e:
@@ -191,10 +200,10 @@ def store_exchange_rates_in_clickhouse(
         reload_results = cluster.map_all_hosts(reload_dict).result()
 
         if not all(insert_results.values()):
-            raise Exception("Failed to insert some exchange rates")
+            raise Exception(f"Failed to insert some exchange rates, {insert_results}")
 
         if not all(reload_results.values()):
-            raise Exception("Failed to reload some exchange_rate_dict dictionary")
+            raise Exception(f"Failed to reload some exchange_rate_dict dictionaries, {reload_results}")
 
     else:
         context.log.warning(f"No exchange rates to store for {date_str}")
@@ -220,7 +229,7 @@ def daily_exchange_rates_in_clickhouse(
 
     # Store the rates in ClickHouse
     rows, values = store_exchange_rates_in_clickhouse(
-        context=dagster.build_op_context(), date_str=date_str, exchange_rates=exchange_rates, cluster=cluster
+        context=context, date_str=date_str, exchange_rates=exchange_rates, cluster=cluster
     )
 
     # Calculate some statistics for metadata
@@ -261,7 +270,7 @@ def hourly_exchange_rates_in_clickhouse(
 
     # Store the rates in ClickHouse
     rows, values = store_exchange_rates_in_clickhouse(
-        context=dagster.build_op_context(), date_str=date_str, exchange_rates=exchange_rates, cluster=cluster
+        context=context, date_str=date_str, exchange_rates=exchange_rates, cluster=cluster
     )
 
     # Calculate some statistics for metadata
@@ -288,13 +297,13 @@ def hourly_exchange_rates_in_clickhouse(
 daily_exchange_rates_job = dagster.define_asset_job(
     name="daily_exchange_rates_job",
     selection=[daily_exchange_rates.key, daily_exchange_rates_in_clickhouse.key],
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_REVENUE_ANALYTICS.value},
 )
 
 hourly_exchange_rates_job = dagster.define_asset_job(
     name="hourly_exchange_rates_job",
     selection=[hourly_exchange_rates.key, hourly_exchange_rates_in_clickhouse.key],
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_REVENUE_ANALYTICS.value},
 )
 
 
@@ -313,12 +322,10 @@ def daily_exchange_rates_schedule(context):
 
 @dagster.schedule(
     job=hourly_exchange_rates_job,
-    cron_schedule="45 * * * *",  # Run every hour at XX:45, random minute to avoid peak load at the top of the hour
+    cron_schedule=HOURLY_PARTITION_DEFINITION.get_cron_schedule(),
 )
 def hourly_exchange_rates_schedule(context):
     """Process current day's exchange rates data for this hour."""
     current_hour = context.scheduled_execution_time
-    timestamp = current_hour.strftime(
-        "%Y-%m-%d-%H:00"
-    )  # This runs at 45 minutes, but the partition is always at the top of the hour
+    timestamp = current_hour.strftime("%Y-%m-%d-%H:%M")
     return dagster.RunRequest(run_key=timestamp, partition_key=timestamp)

@@ -1,10 +1,12 @@
 import { useValues } from 'kea'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SDK_DEFAULTS_DATE } from './constants'
 import { JSInstallSnippet } from './js-web'
 
 function EnvVarsSnippet(): JSX.Element {
@@ -38,6 +40,7 @@ posthog.init(
             ? `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
             : null
     }
+    defaults: '${SDK_DEFAULTS_DATE}'
   }
 )
 

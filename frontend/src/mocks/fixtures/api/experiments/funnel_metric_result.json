@@ -1,0 +1,67 @@
+{
+    "baseline": {
+        "denominator_sum": null,
+        "denominator_sum_squares": null,
+        "key": "control",
+        "number_of_samples": 989,
+        "numerator_denominator_sum_product": null,
+        "sum": 859.0,
+        "sum_squares": 859.0,
+        "step_counts": [859],
+        "validation_failures": []
+    },
+    "cache_key": "cache_08a7b94252174a9400b06680a11683bd",
+    "cache_target_age": "2025-09-05T16:14:05.250745Z",
+    "calculation_trigger": null,
+    "credible_intervals": null,
+    "insight": null,
+    "is_cached": true,
+    "kind": "ExperimentQuery",
+    "last_refresh": "2025-09-04T16:14:05.250745Z",
+    "metric": null,
+    "next_allowed_client_refresh": "2025-09-04T16:15:05.250745Z",
+    "p_value": null,
+    "probability": null,
+    "query_metadata": {
+        "events": [],
+        "updated_at": "2025-09-04T16:14:11.089132Z"
+    },
+    "query_status": null,
+    "significance_code": null,
+    "significant": null,
+    "stats_version": null,
+    "timezone": "UTC",
+    "variant_results": [
+        {
+            "chance_to_win": 0.00010223913233654233,
+            "credible_interval": [-0.10891502266388127, -0.03366202531112027],
+            "denominator_sum": null,
+            "denominator_sum_squares": null,
+            "key": "test-1",
+            "method": "bayesian",
+            "number_of_samples": 874,
+            "numerator_denominator_sum_product": null,
+            "significant": true,
+            "sum": 705.0,
+            "sum_squares": 705.0,
+            "step_counts": [705],
+            "validation_failures": []
+        },
+        {
+            "chance_to_win": 0.9831535028773773,
+            "credible_interval": [0.002690288824904803, 0.06708670125273555],
+            "denominator_sum": null,
+            "denominator_sum_squares": null,
+            "key": "test-2",
+            "method": "bayesian",
+            "number_of_samples": 1137,
+            "numerator_denominator_sum_product": null,
+            "significant": true,
+            "sum": 1022.0,
+            "sum_squares": 1022.0,
+            "step_counts": [1022],
+            "validation_failures": []
+        }
+    ],
+    "variants": null
+}

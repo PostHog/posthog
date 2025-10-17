@@ -1,10 +1,10 @@
-import { IconBell } from '@posthog/icons'
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
+
+import { IconBell } from '@posthog/icons'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
@@ -19,15 +19,8 @@ export type AlertsButtonProps = LemonButtonProps & {
 
 export function AlertsButton({ insight, insightLogicProps, text, ...props }: AlertsButtonProps): JSX.Element {
     const { push } = useActions(router)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showAlerts = featureFlags[FEATURE_FLAGS.ALERTS]
-
     const logic = insightAlertsLogic({ insightId: insight.id!, insightLogicProps })
     const { alerts } = useValues(logic)
-
-    if (!showAlerts) {
-        return <></>
-    }
 
     return (
         <LemonButton

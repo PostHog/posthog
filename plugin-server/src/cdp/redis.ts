@@ -1,13 +1,12 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
 import { PluginsServerConfig } from '../types'
 import { createRedisClient } from '../utils/db/redis'
 import { timeoutGuard } from '../utils/db/utils'
+import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
-import { status } from '../utils/status'
 
 type WithCheckRateLimit<T> = {
     checkRateLimit: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => T
@@ -127,7 +126,7 @@ export const createCdpRedisPool = (config: PluginsServerConfig): CdpRedis => {
             if (options.failOpen) {
                 // We log the error and return null
                 captureException(e)
-                status.error(`Redis call${options.name} failed`, e)
+                logger.error(`Redis call${options.name} failed`, e)
                 return null
             }
             throw e
@@ -149,4 +148,15 @@ export const createCdpRedisPool = (config: PluginsServerConfig): CdpRedis => {
         useClient,
         usePipeline,
     }
+}
+
+export type RedisPipelineResults = [Error | null, any][]
+
+export const getRedisPipelineResults = (
+    res: RedisPipelineResults,
+    index: number,
+    numOperations: number
+): RedisPipelineResults => {
+    // pipeline results are just a big array of operation results so we need to slice out the correct parts
+    return res.slice(index * numOperations, index * numOperations + numOperations)
 }

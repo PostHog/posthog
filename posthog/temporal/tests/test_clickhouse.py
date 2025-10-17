@@ -1,9 +1,10 @@
-import datetime as dt
 import uuid
+import datetime as dt
 
 import pytest
 
-from posthog.temporal.common.clickhouse import encode_clickhouse_data
+from posthog.clickhouse.query_tagging import QueryTags
+from posthog.temporal.common.clickhouse import add_log_comment_param, encode_clickhouse_data
 
 
 @pytest.mark.parametrize(
@@ -38,3 +39,19 @@ def test_encode_clickhouse_data(data, expected):
     """Test data is encoded as expected."""
     result = encode_clickhouse_data(data)
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "params,qt,want",
+    [
+        ({}, QueryTags(), {"log_comment": "{}"}),
+        ({"param_log_comment": ""}, QueryTags(), {"param_log_comment": "", "log_comment": "{}"}),
+        ({"param_log_comment": "{}"}, QueryTags(), {"param_log_comment": "{}"}),
+        ({"param_log_comment": '{"kind":"qt"}'}, QueryTags(), {"param_log_comment": '{"kind":"qt"}'}),
+        ({"param_log_comment": '{"kind":"xyz"}'}, QueryTags(kind="abc"), {"param_log_comment": '{"kind":"xyz"}'}),
+        ({}, QueryTags(kind="abc"), {"log_comment": '{"kind":"abc"}'}),
+    ],
+)
+def test_add_log_comment_param(params, qt, want):
+    add_log_comment_param(params, qt)
+    assert params == want

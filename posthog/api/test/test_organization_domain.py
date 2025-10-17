@@ -1,20 +1,17 @@
 import datetime
-from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
 
-import dns.resolver
-import dns.rrset
-from django.utils import timezone
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import ANY, patch
+
+from django.utils import timezone
+
+import dns.rrset
+import dns.resolver
 from rest_framework import status
 
-from posthog.models import (
-    Organization,
-    OrganizationDomain,
-    OrganizationMembership,
-    Team,
-)
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
 
 
 class FakeAnswer:
@@ -119,8 +116,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         # Verify the domain creation capture event was called
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "organization domain created",
+            event="organization domain created",
+            distinct_id=self.user.distinct_id,
             properties={
                 "domain": "the.posthog.com",
                 "jit_provisioning_enabled": False,
@@ -465,8 +462,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         # Verify the domain deletion capture event was called
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "organization domain deleted",
+            event="organization domain deleted",
+            distinct_id=self.user.distinct_id,
             properties={
                 "domain": "myposthog.com",
                 "is_verified": False,

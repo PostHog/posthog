@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

@@ -1,10 +1,12 @@
-import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import React, { useMemo } from 'react'
 
+import { IconX } from '@posthog/icons'
+
+import { LemonDropdownProps } from 'lib/lemon-ui/LemonDropdown'
+
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import {
-    isLemonMenuSection,
     LemonMenu,
     LemonMenuItem,
     LemonMenuItemBase,
@@ -12,6 +14,7 @@ import {
     LemonMenuItemNode,
     LemonMenuProps,
     LemonMenuSection,
+    isLemonMenuSection,
 } from '../LemonMenu/LemonMenu'
 import { PopoverProps } from '../Popover'
 import { TooltipProps } from '../Tooltip'
@@ -76,7 +79,9 @@ export interface LemonSelectPropsBase<T>
     placeholder?: string
     size?: LemonButtonProps['size']
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
-    visible?: boolean
+    visible?: LemonDropdownProps['visible']
+    startVisible?: LemonDropdownProps['startVisible']
+    truncateText?: { maxWidthClass: string }
 }
 
 export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
@@ -114,6 +119,8 @@ export function LemonSelect<T extends string | number | boolean | null>({
     menu,
     renderButtonContent,
     visible,
+    startVisible,
+    truncateText,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [items, allLeafOptions] = useMemo(
@@ -143,6 +150,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 .findIndex((i) => (i as LemonMenuItem).active)}
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
             visible={visible}
+            startVisible={startVisible}
         >
             <LemonButton
                 className={clsx(className, 'LemonSelect')}
@@ -167,12 +175,18 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 tooltip={activeLeaf?.tooltip}
                 {...buttonProps}
             >
-                <span className="flex flex-1">
+                <span
+                    className={
+                        truncateText
+                            ? `block w-full overflow-hidden text-ellipsis whitespace-nowrap ${truncateText.maxWidthClass}`
+                            : 'flex flex-1'
+                    }
+                >
                     {renderButtonContent
                         ? renderButtonContent(activeLeaf)
                         : activeLeaf
-                        ? activeLeaf.label
-                        : value ?? <span className="text-secondary">{placeholder}</span>}
+                          ? activeLeaf.label
+                          : (value ?? placeholder)}
                 </span>
             </LemonButton>
         </LemonMenu>

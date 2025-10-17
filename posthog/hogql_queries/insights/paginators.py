@@ -1,14 +1,15 @@
-from typing import Any, Optional, cast
+from typing import Any, Optional, Union, cast
+
+from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.constants import (
-    get_max_limit_for_context,
-    get_default_limit_for_context,
-    LimitContext,
     DEFAULT_RETURNED_ROWS,
+    LimitContext,
+    get_default_limit_for_context,
+    get_max_limit_for_context,
 )
 from posthog.hogql.query import execute_hogql_query
-from posthog.schema import HogQLQueryResponse
 
 
 class HogQLHasMorePaginator:
@@ -35,10 +36,20 @@ class HogQLHasMorePaginator:
         limit = min(max_rows, default_rows if (limit is None or limit <= 0) else limit)
         return cls(limit=limit, offset=offset, limit_context=limit_context)
 
-    def paginate(self, query: ast.SelectQuery) -> ast.SelectQuery:
-        query.limit = ast.Constant(value=self.limit + 1)
-        query.offset = ast.Constant(value=self.offset)
-        return query
+    def paginate(self, query: Union[ast.SelectQuery, ast.SelectSetQuery]) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
+        if isinstance(query, ast.SelectQuery):
+            query.limit = ast.Constant(value=self.limit + 1)
+            query.offset = ast.Constant(value=self.offset)
+            return query
+        elif isinstance(query, ast.SelectSetQuery):
+            # Doesn't really make sense to paginate a SelectSetQuery, but we can paginate each of the individual select queries
+            # Note that simply dividing the limit by the number of queries doesn't work because the offset needs to be applied
+            # to each query individually.
+            for select_query in query.select_queries():
+                self.paginate(select_query)  # Updates in place
+            return query
+
+        raise ValueError(f"Unsupported query type: {type(query)}, must be one of SELECT type")
 
     def has_more(self) -> bool:
         if not self.response or not self.response.results:
@@ -57,7 +68,7 @@ class HogQLHasMorePaginator:
 
     def execute_hogql_query(
         self,
-        query: ast.SelectQuery,
+        query: Union[ast.SelectQuery, ast.SelectSetQuery],
         *,
         query_type: str,
         **kwargs,

@@ -1,20 +1,23 @@
-import { SDKInstructionsMap, SDKKey } from '~/types'
-
 import {
     AngularInstructions,
     AstroInstructions,
     BubbleInstructions,
+    FlutterInstructions,
     FramerInstructions,
     HTMLSnippetInstructions,
     JSWebInstructions,
     NextJSInstructions,
     NuxtJSInstructions,
+    RNInstructions,
     ReactInstructions,
     RemixInstructions,
     SvelteInstructions,
     VueInstructions,
     WebflowInstructions,
+    iOSInstructions,
 } from '.'
+
+import { SDKInstructionsMap, SDKKey } from '~/types'
 
 export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
@@ -30,4 +33,7 @@ export const SurveysSDKInstructions: SDKInstructionsMap = {
     [SDKKey.SVELTE]: SvelteInstructions,
     [SDKKey.VUE_JS]: VueInstructions,
     [SDKKey.WEBFLOW]: WebflowInstructions,
+    [SDKKey.IOS]: iOSInstructions,
+    [SDKKey.FLUTTER]: FlutterInstructions,
+    [SDKKey.REACT_NATIVE]: RNInstructions,
 }

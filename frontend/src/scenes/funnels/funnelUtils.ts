@@ -5,7 +5,8 @@ import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { FunnelExclusionSteps, FunnelsQuery } from '~/queries/schema/schema-general'
+import { AnyEntityNode, FunnelExclusionSteps, FunnelsFilter } from '~/queries/schema/schema-general'
+import { integer } from '~/queries/schema/type-utils'
 import {
     AnyPropertyFilter,
     Breakdown,
@@ -92,53 +93,60 @@ export function getSeriesPositionName(
     return
 }
 
+const calculateAverageConversionTime = (breakdown_results: FunnelStepWithNestedBreakdown[]): number | null => {
+    const resultsWithAverage = breakdown_results.filter((r) => r.average_conversion_time != null)
+    const totalCount = resultsWithAverage.reduce((sum, r) => sum + r.count, 0)
+    const weightedSum = resultsWithAverage.reduce((sum, r) => sum + r.average_conversion_time! * r.count, 0)
+    return totalCount > 0 ? weightedSum / totalCount : null
+}
+
 export function aggregateBreakdownResult(
-    breakdownList: FunnelStep[][],
+    results: FunnelStep[][],
     breakdownProperty?: BreakdownKeyType
 ): FunnelStepWithNestedBreakdown[] {
-    if (breakdownList.length) {
+    if (results.length) {
         // Create mapping to determine breakdown ordering by first step counts
-        const breakdownToOrderMap: Record<string | number, FunnelStep> = breakdownList
-            .reduce<{ breakdown_value: (string | number)[]; count: number }[]>(
-                (allEntries, breakdownSteps) => [
-                    ...allEntries,
-                    {
-                        breakdown_value: getBreakdownStepValues(breakdownSteps?.[0], -1).breakdown_value,
-                        count: breakdownSteps?.[0]?.count ?? 0,
-                    },
-                ],
-                []
-            )
+        const breakdownToOrderMap: Record<string | number, FunnelStep> = results
+            .reduce<{ breakdown_value: (string | number)[]; count: number }[]>((allEntries, breakdownSteps) => {
+                allEntries.push({
+                    breakdown_value: getBreakdownStepValues(breakdownSteps?.[0], -1).breakdown_value,
+                    count: breakdownSteps?.[0]?.count ?? 0,
+                })
+                return allEntries
+            }, [])
             .sort((a, b) => b.count - a.count)
             .reduce(
-                (allEntries, breakdown, order) => ({
-                    ...allEntries,
-                    [breakdown.breakdown_value.join('_')]: { ...breakdown, order },
-                }),
+                (allEntries, breakdown, order) =>
+                    Object.assign(allEntries, {
+                        [breakdown.breakdown_value.join('_')]: { ...breakdown, order },
+                    }),
                 {}
             )
 
-        return breakdownList[0].map((step, i) => ({
-            ...step,
-            count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
-            breakdown: breakdownProperty,
-            nested_breakdown: breakdownList
-                .reduce(
-                    (allEntries, breakdownSteps) => [
-                        ...allEntries,
-                        {
-                            ...breakdownSteps[i],
-                            order: breakdownToOrderMap[
-                                getBreakdownStepValues(breakdownSteps[i], i).breakdown_value.join('_')
-                            ].order,
-                        },
-                    ],
-                    []
-                )
-                .sort((a, b) => a.order - b.order),
-            average_conversion_time: null,
-            people: [],
-        }))
+        return results[0].map((step, i) => {
+            const breakdownResults = results
+                .reduce((allEntries, breakdownSteps) => {
+                    allEntries.push({
+                        ...breakdownSteps[i],
+                        order: breakdownToOrderMap[
+                            getBreakdownStepValues(breakdownSteps[i], i).breakdown_value.join('_')
+                        ].order,
+                    })
+                    return allEntries
+                }, [])
+                .sort((a, b) => a.order - b.order)
+
+            return {
+                ...step,
+                count: results.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
+                breakdown: breakdownProperty,
+                nested_breakdown: breakdownResults,
+                average_conversion_time: calculateAverageConversionTime(breakdownResults),
+                // we can't compute the median, as we don't have the distribution of conversion times
+                median_conversion_time: null,
+                people: [],
+            }
+        })
     }
     return []
 }
@@ -217,24 +225,16 @@ export const getBreakdownStepValues = (
     return EMPTY_BREAKDOWN_VALUES
 }
 
-export const getClampedExclusionStepRange = ({
-    stepRange,
-    query,
-}: {
-    stepRange: FunnelExclusionSteps
-    query: FunnelsQuery
-}): FunnelExclusionSteps => {
-    const maxStepIndex = Math.max((query.series.length || 0) - 1, 1)
-
-    let { funnelFromStep, funnelToStep } = stepRange
-
-    funnelFromStep = clamp(funnelFromStep ?? 0, 0, maxStepIndex)
-    funnelToStep = clamp(funnelToStep ?? maxStepIndex, funnelFromStep + 1, maxStepIndex)
+export const getClampedFunnelStepRange = (
+    stepRange: FunnelExclusionSteps | FunnelsFilter,
+    series: AnyEntityNode[] | null | undefined
+): { funnelFromStep?: integer; funnelToStep?: integer } => {
+    const maxStepIndex = Math.max((series?.length || 0) - 1, 1)
+    const { funnelFromStep, funnelToStep } = stepRange
 
     return {
-        ...(stepRange || {}),
-        funnelFromStep,
-        funnelToStep,
+        ...(funnelFromStep != null ? { funnelFromStep: clamp(funnelFromStep, 0, maxStepIndex - 1) } : {}),
+        ...(funnelToStep != null ? { funnelToStep: clamp(funnelToStep, (funnelFromStep || 0) + 1, maxStepIndex) } : {}),
     }
 }
 
@@ -263,10 +263,14 @@ export function getIncompleteConversionWindowStartDate(
 
 export function stepsWithConversionMetrics(
     steps: FunnelStepWithNestedBreakdown[],
-    stepReference: FunnelStepReference
+    stepReference: FunnelStepReference,
+    optionalSteps: number[] = []
 ): FunnelStepWithConversionMetrics[] {
+    let lastNonOptionalStep = 0
     const stepsWithConversionMetrics = steps.map((step, i) => {
-        const previousCount = i > 0 ? steps[i - 1].count : step.count // previous is faked for the first step
+        // Use lastNonOptionalStep for previousCount calculation (this is the last non-optional step we've seen)
+        const previousStepIndex = i > 0 ? lastNonOptionalStep : 0
+        const previousCount = i > 0 ? steps[previousStepIndex].count : step.count // previous is faked for the first step
         const droppedOffFromPrevious = Math.max(previousCount - step.count, 0)
 
         const nestedBreakdown = step.nested_breakdown?.map((breakdown, breakdownIndex) => {
@@ -274,7 +278,7 @@ export function stepsWithConversionMetrics(
             // firstBreakdownCount serves as previousBreakdownCount for the first step so that
             // "Relative to previous step" is shown correctly – later series use the actual previous steps
             const previousBreakdownCount =
-                i === 0 ? firstBreakdownCount : steps[i - 1].nested_breakdown?.[breakdownIndex].count || 0
+                i === 0 ? firstBreakdownCount : steps[previousStepIndex].nested_breakdown?.[breakdownIndex].count || 0
             const nestedDroppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
             const conversionRates = {
                 fromPrevious: previousBreakdownCount === 0 ? 0 : breakdown.count / previousBreakdownCount,
@@ -302,6 +306,13 @@ export function stepsWithConversionMetrics(
             // and conversion percentage as 0% but that's better for users than `NaN%`
             total: Number.isNaN(conversionRatesTotal) ? 0 : conversionRatesTotal,
         }
+
+        // Update lastNonOptionalStep after processing this step, so it's available for the next iteration
+        // Note: optionalSteps are 1-indexed, so we convert to 0-indexed
+        if (!optionalSteps.includes(i + 1)) {
+            lastNonOptionalStep = i
+        }
+
         return {
             ...step,
             droppedOffFromPrevious,
@@ -552,7 +563,7 @@ export const appendToCorrelationConfig = (
 
     const oldCorrelationConfig = oldCurrentTeam.correlation_config
 
-    const configList = [...Array.from(new Set(currentValue.concat([configValue])))]
+    const configList = Array.from(new Set(currentValue.concat([configValue])))
 
     const correlationConfig = {
         ...oldCorrelationConfig,

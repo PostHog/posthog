@@ -1,18 +1,20 @@
 import './PropertyFilterButton.scss'
 
-import { IconX } from '@posthog/icons'
-import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import React from 'react'
+
+import { IconX } from '@posthog/icons'
+import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
+
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { midEllipsis } from 'lib/utils'
-import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
-import { formatPropertyLabel } from '../utils'
+import { formatPropertyLabel, propertyFilterTypeToPropertyDefinitionType } from '../utils'
 
 export interface PropertyFilterButtonProps {
     onClick?: () => void
@@ -27,11 +29,23 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         const { cohortsById } = useValues(cohortsModel)
         const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+        const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(item.type)
+
         const closable = onClose !== undefined
         const clickable = onClick !== undefined
         const label =
             children ||
-            formatPropertyLabel(item, cohortsById, (s) => formatPropertyValueForDisplay(item.key, s)?.toString() || '?')
+            formatPropertyLabel(
+                item,
+                cohortsById,
+                (s) =>
+                    formatPropertyValueForDisplay(
+                        item.key,
+                        s,
+                        propertyDefinitionType,
+                        (item as GroupPropertyFilter).group_type_index as GroupTypeIndex | undefined
+                    )?.toString() || '?'
+            )
 
         const ButtonComponent = clickable ? 'button' : 'div'
 

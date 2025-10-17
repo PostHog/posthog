@@ -1,6 +1,6 @@
-import { Meta } from '@storybook/react'
-import { combineUrl, router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
+import { combineUrl } from 'kea-router'
+
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -21,6 +21,7 @@ const playlist = (playlistId: string): SessionRecordingPlaylistType => {
         derived_name: '(Untitled)',
         description: '',
         pinned: false,
+        type: 'collection',
         created_at: '2023-07-31T16:24:38.956943Z',
         created_by: {
             id: 1,
@@ -69,14 +70,23 @@ const playlist = (playlistId: string): SessionRecordingPlaylistType => {
     }
 }
 
+const sceneUrl = (url: string, searchParams: Record<string, any> = {}): string =>
+    combineUrl(url, {
+        pause: true,
+        t: 7,
+        ...searchParams,
+    }).url
+
 const meta: Meta = {
-    title: 'Replay/Player/Success',
+    component: App,
+    title: 'Replay/Tabs/Home/Success',
     tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
         waitForSelector: '.PlayerFrame__content .replayer-wrapper iframe',
+        pageUrl: urls.replay(),
     },
     decorators: [
         mswDecorator({
@@ -172,37 +182,19 @@ const meta: Meta = {
 }
 export default meta
 
-const sceneUrl = (url: string, searchParams: Record<string, any> = {}): string =>
-    combineUrl(url, {
-        pause: true,
-        t: 7,
-        ...searchParams,
-    }).url
-
-export function RecentRecordings(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(sceneUrl(urls.replay()))
-    }, [])
-    return <App />
+type Story = StoryObj<typeof meta>
+export const RecentRecordings: Story = {
+    parameters: { pageUrl: sceneUrl(urls.replay()) },
 }
 
-export function RecordingsPlayListNoPinnedRecordings(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(sceneUrl(urls.replayPlaylist('abcdefg')))
-    }, [])
-    return <App />
+export const RecordingsPlayListNoPinnedRecordings: Story = {
+    parameters: { pageUrl: sceneUrl(urls.replayPlaylist('abcdefg')) },
 }
 
-export function RecordingsPlayListWithPinnedRecordings(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(sceneUrl(urls.replayPlaylist('1234567')))
-    }, [])
-    return <App />
+export const RecordingsPlayListWithPinnedRecordings: Story = {
+    parameters: { pageUrl: sceneUrl(urls.replayPlaylist('1234567')) },
 }
 
-export function SecondRecordingInList(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(sceneUrl(urls.replay(), { sessionRecordingId: recordings[1].id }))
-    }, [])
-    return <App />
+export const SecondRecordingInList: Story = {
+    parameters: { pageUrl: sceneUrl(urls.replay(), { sessionRecordingId: recordings[1].id }) },
 }

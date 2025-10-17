@@ -1,16 +1,17 @@
 import re
 from typing import get_args
 
+from django.core.exceptions import ImproperlyConfigured
+
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     extend_schema,  # noqa: F401
     extend_schema_field,
+    extend_schema_serializer,  # noqa: F401
 )  # # noqa: F401 for easy import
-from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
-from django.core.exceptions import ImproperlyConfigured
-
 
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
@@ -38,10 +39,15 @@ class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
             if isinstance(permission, APIScopePermission):
                 try:
                     scopes = permission._get_required_scopes(request, view)
+                    if not scopes:
+                        return []
                     return [{self.name: scopes}]
                 except (PermissionDenied, ImproperlyConfigured):
                     # NOTE: This should never happen - it indicates that we shouldn't be including it in the docs
                     pass
+
+        # Return empty array if no scopes found
+        return []
 
     def get_security_definition(self, auto_schema):
         return {"type": "http", "scheme": "bearer"}
@@ -249,7 +255,7 @@ def custom_postprocessing_hook(result, generator, request, public):
             paths[path][method] = definition
     return {
         **result,
-        "info": {"title": "PostHog API", "version": None, "description": ""},
+        "info": {"title": "PostHog API", "version": "1.0.0", "description": ""},
         "paths": paths,
         "x-tagGroups": [{"name": "All endpoints", "tags": sorted(set(all_tags))}],
     }

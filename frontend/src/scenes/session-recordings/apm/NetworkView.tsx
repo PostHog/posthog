@@ -1,13 +1,15 @@
 import './NetworkView.scss'
 
-import { LemonTable, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+
+import { LemonTable, Link } from '@posthog/lemon-ui'
+
+import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import AssetProportions from 'scenes/session-recordings/apm/components/AssetProportions'
 import { PerformanceCardRow } from 'scenes/session-recordings/apm/components/PerformanceCard'
 import { MethodTag, StatusTag } from 'scenes/session-recordings/apm/playerInspector/ItemPerformanceEvent'
@@ -15,6 +17,7 @@ import { NetworkBar } from 'scenes/session-recordings/apm/waterfall/NetworkBar'
 
 import { PerformanceEvent } from '~/types'
 
+import { ItemTimeDisplay } from '../components/ItemTimeDisplay'
 import { sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
 import { networkViewLogic } from './networkViewLogic'
 
@@ -67,38 +70,9 @@ function Duration({ item }: { item: PerformanceEvent }): JSX.Element {
     return <div className="text-right">{formattedDurationFor(item)}</div>
 }
 
-function Pager(): JSX.Element {
-    const { page, pageCount } = useValues(networkViewLogic)
-    const { prevPage, nextPage } = useActions(networkViewLogic)
-
-    return (
-        <div className="flex deprecated-space-x-2">
-            <LemonButton
-                onClick={prevPage}
-                icon={<IconChevronLeft />}
-                disabledReason={page === 0 ? "You're on the first page" : null}
-                type="secondary"
-                noPadding={true}
-                size="xsmall"
-            />
-            <div className="text-center whitespace-nowrap font-medium">
-                {page + 1} of {pageCount}
-            </div>
-            <LemonButton
-                onClick={nextPage}
-                icon={<IconChevronRight />}
-                disabledReason={page === pageCount - 1 ? "You're on the last page" : null}
-                type="secondary"
-                noPadding={true}
-                size="xsmall"
-            />
-        </div>
-    )
-}
-
 function WaterfallMeta(): JSX.Element | null {
-    const { currentPage, sizeBreakdown } = useValues(networkViewLogic)
-
+    const { currentPage, sizeBreakdown, page, pageCount } = useValues(networkViewLogic)
+    const { prevPage, nextPage } = useActions(networkViewLogic)
     if (!currentPage[0]) {
         return null
     }
@@ -107,24 +81,36 @@ function WaterfallMeta(): JSX.Element | null {
 
     return (
         <>
-            <div className="flex deprecated-space-x-12 px-4 justify-between">
-                <span className="flex items-center gap-1 truncate">
-                    <Link to={pageUrl} target="_blank" className="truncate">
-                        {pageUrl}
-                    </Link>
-                    {pageUrl && (
-                        <span className="flex items-center">
-                            <CopyToClipboardInline
-                                description={pageUrl}
-                                explicitValue={pageUrl}
-                                iconStyle={{ color: 'var(--text-secondary)' }}
-                                selectable={true}
-                            />
-                        </span>
-                    )}
-                </span>
+            <div className="flex gap-x-2 px-2 justify-between">
+                <LemonButton
+                    onClick={prevPage}
+                    icon={<IconChevronLeft />}
+                    disabledReason={page === 0 ? "You're on the first page" : null}
+                    type="secondary"
+                    noPadding={true}
+                    size="xsmall"
+                />
+                <div className="flex items-center gap-1 flex-1 justify-between overflow-hidden">
+                    <ItemTimeDisplay
+                        timestamp={dayjs(currentPage[0].timestamp)}
+                        timeInRecording={currentPage[0].timeInRecording}
+                        className="flex-shrink-0 p-0 min-w-4"
+                    />
 
-                <Pager />
+                    <Tooltip title={pageUrl}>
+                        <Link to={pageUrl} target="_blank" className="block truncate">
+                            {pageUrl}
+                        </Link>
+                    </Tooltip>
+                </div>
+                <LemonButton
+                    onClick={nextPage}
+                    icon={<IconChevronRight />}
+                    disabledReason={page === pageCount - 1 ? "You're on the last page" : null}
+                    type="secondary"
+                    noPadding={true}
+                    size="xsmall"
+                />
             </div>
             <LemonDivider />
             <div className="px-4">

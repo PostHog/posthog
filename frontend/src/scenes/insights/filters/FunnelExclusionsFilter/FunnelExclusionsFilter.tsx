@@ -1,7 +1,7 @@
-import useSize from '@react-hook/size'
 import { useActions, useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useRef } from 'react'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -23,12 +23,10 @@ export function FunnelExclusionsFilter(): JSX.Element {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const ref = useRef(null)
-    const [width] = useSize(ref)
-    const isVerticalLayout = !!width && width < 450 // If filter container shrinks below 500px, initiate verticality
 
     const setFilters = (filters: Partial<FilterType>): void => {
         const exclusions = filters.events?.map((entity) => {
-            const baseEntity = legacyEntityToNode(entity as ActionFilterType, false, MathAvailability.None) as
+            const baseEntity = legacyEntityToNode(entity as ActionFilterType, true, MathAvailability.None) as
                 | EventsNode
                 | ActionsNode
             return { ...baseEntity, funnelFromStep: entity.funnel_from_step, funnelToStep: entity.funnel_to_step }
@@ -36,12 +34,14 @@ export function FunnelExclusionsFilter(): JSX.Element {
         updateInsightFilter({ exclusions })
     }
 
+    const typeKey = `${keyForInsightLogicProps('new')(insightProps)}-FunnelExclusionsFilter`
+
     return (
         <ActionFilter
             ref={ref}
             setFilters={setFilters}
             filters={exclusionFilters}
-            typeKey={`${keyForInsightLogicProps('new')(insightProps)}-FunnelExclusionsFilter`}
+            typeKey={typeKey}
             addFilterDefaultOptions={{
                 id: '$pageview',
                 name: '$pageview',
@@ -57,8 +57,9 @@ export function FunnelExclusionsFilter(): JSX.Element {
             hideRename
             hideDeleteBtn
             seriesIndicatorType="alpha"
-            renderRow={(props) => <ExclusionRow {...props} isVertical={isVerticalLayout} />}
-            customRowSuffix={(props) => <ExclusionRowSuffix {...props} isVertical={isVerticalLayout} />}
+            renderRow={(props) => <ExclusionRow {...props} />}
+            customRowSuffix={(props) => <ExclusionRowSuffix typeKey={typeKey} {...props} />}
+            filtersLeftPadding={true}
         />
     )
 }

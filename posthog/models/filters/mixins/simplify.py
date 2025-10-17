@@ -1,8 +1,9 @@
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
+from posthog.schema import PropertyOperator
+
 from posthog.constants import PropertyOperatorType
 from posthog.models.property import GroupTypeIndex, PropertyGroup
-from posthog.schema import PropertyOperator
 
 if TYPE_CHECKING:  # Avoid circular import
     from posthog.models import Property, Team
@@ -21,11 +22,11 @@ class SimplifyFilterMixin:
         - if aggregating by groups, adds property filter to remove blank groups
         - for cohort properties, replaces them with more concrete lookups or with cohort conditions
         """
-        if self._data.get("is_simplified"):  # type: ignore
+        if self._data.get("is_simplified"):
             return self
 
         # :TRICKY: Make a copy to avoid caching issues
-        result: Any = self.shallow_clone({"is_simplified": True})  # type: ignore
+        result: Any = self.shallow_clone({"is_simplified": True})
 
         if getattr(result, "filter_test_accounts", False):
             new_group = {"type": "AND", "values": team.test_account_filters}
@@ -40,23 +41,20 @@ class SimplifyFilterMixin:
         if hasattr(result, "entities_to_dict"):
             for entity_type, entities in result.entities_to_dict().items():
                 updated_entities[entity_type] = [
-                    self._simplify_entity(team, entity_type, entity, **kwargs)  # type: ignore
-                    for entity in entities
+                    self._simplify_entity(team, entity_type, entity, **kwargs) for entity in entities
                 ]
 
         from posthog.models.property.util import clear_excess_levels
 
         prop_group = clear_excess_levels(
-            self._simplify_property_group(team, result.property_groups, **kwargs),  # type: ignore
+            self._simplify_property_group(team, result.property_groups, **kwargs),
             skip=True,
         )
-        prop_group = prop_group.to_dict()  # type: ignore
+        prop_group = prop_group.to_dict()
 
         new_group_props = []
         if getattr(result, "aggregation_group_type_index", None) is not None:
-            new_group_props.append(
-                self._group_set_property(cast(int, result.aggregation_group_type_index)).to_dict()  # type: ignore
-            )
+            new_group_props.append(self._group_set_property(cast(int, result.aggregation_group_type_index)).to_dict())
 
         if new_group_props:
             new_group = {"type": "AND", "values": new_group_props}
@@ -127,4 +125,4 @@ class SimplifyFilterMixin:
 
     @property
     def is_simplified(self) -> bool:
-        return self._data.get("is_simplified", False)  # type: ignore
+        return self._data.get("is_simplified", False)

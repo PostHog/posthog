@@ -1,10 +1,8 @@
-from typing import Optional
-
 from posthog.api.hog_function import HogFunctionSerializer
-from posthog.api.hog_function_template import HogFunctionTemplates
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 
-def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dict) -> Optional[HogFunctionSerializer]:
+def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dict) -> HogFunctionSerializer:
     plugin = plugin_config["plugin"]
     # Attempts to find a related HogFunctionTemplate for the plugin config
 
@@ -16,7 +14,7 @@ def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dic
     if plugin_id == "user-agent":
         plugin_id = "user-agent-plugin"
 
-    template = HogFunctionTemplates.template(f"plugin-{plugin_id}")
+    template = HogFunctionTemplate.objects.get(template_id=f"plugin-{plugin_id}")
 
     if not template:
         raise Exception(f"Template not found for plugin {plugin_id}")
@@ -26,12 +24,12 @@ def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dic
         inputs[key] = {"value": value}
 
     data = {
-        "template_id": template.id,
+        "template_id": template.template_id,
         "type": template.type,
         "name": plugin.name,
         "description": template.description,
         "filters": template.filters,
-        "hog": template.hog,
+        "hog": template.code,
         "inputs": inputs,
         "enabled": plugin_config.get("enabled", True),
         "icon_url": template.icon_url,

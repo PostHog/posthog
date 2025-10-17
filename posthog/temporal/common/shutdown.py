@@ -1,12 +1,12 @@
-import asyncio
-import contextvars
-import threading
 import typing
+import asyncio
+import threading
+import contextvars
 
-import structlog
+from structlog import get_logger
 from temporalio import activity
 
-LOGGER = structlog.get_logger()
+LOGGER = get_logger(__name__)
 
 
 class WorkerShuttingDownError(Exception):
@@ -91,7 +91,7 @@ class ShutdownMonitor:
         """Start an `asyncio.Task` to monitor for worker shutdown."""
 
         async def monitor() -> None:
-            await self.logger.ainfo("Starting shutdown monitoring task.")
+            self.logger.info("Starting shutdown monitoring task.")
 
             try:
                 await activity.wait_for_worker_shutdown()
@@ -115,8 +115,6 @@ class ShutdownMonitor:
             self.logger.info("Starting shutdown monitoring thread.")
 
             while not self._stop_event_sync.is_set():
-                self.logger.debug("Checking for worker shutdown.")
-
                 try:
                     activity.wait_for_worker_shutdown_sync(timeout=0.1)
                 except RuntimeError:
@@ -130,7 +128,7 @@ class ShutdownMonitor:
                 # it's a wrapper on `threading.Event.wait`, which does return a `bool`
                 # indicating the reason. So we must also check if the event was set.
                 if activity.is_worker_shutdown():
-                    self.logger.debug("Shutdown detected.")
+                    self.logger.info("Shutdown detected.")
                     self._is_shutdown_event_sync.set()
                     break
 
@@ -183,4 +181,7 @@ class ShutdownMonitor:
     def raise_if_is_worker_shutdown(self):
         """Raise an exception if worker is shutting down."""
         if self.is_worker_shutdown():
+            self.logger.debug("Worker is shutting down.")
             raise WorkerShuttingDownError.from_activity_context()
+
+        self.logger.debug("Worker is not shutting down.")

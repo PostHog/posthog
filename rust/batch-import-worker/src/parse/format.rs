@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Error};
+use chrono::Duration;
 use common_types::{InternallyCapturedEvent, RawEvent};
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
@@ -10,7 +11,8 @@ use crate::{context::AppContext, job::model::JobModel};
 
 use super::{
     content::{
-        captured::captured_parse_fn, mixpanel::MixpanelEvent, ContentType, TransformContext,
+        amplitude::AmplitudeEvent, captured::captured_parse_fn, mixpanel::MixpanelEvent,
+        ContentType, TransformContext,
     },
     Parsed,
 };
@@ -42,6 +44,12 @@ impl FormatConfig {
         let transform_context = TransformContext {
             team_id: model.team_id,
             token: context.get_token_for_team_id(model.team_id).await?,
+            job_id: model.id,
+            identify_cache: context.identify_cache.clone(),
+            group_cache: context.group_cache.clone(),
+            import_events: model.import_config.import_events,
+            generate_identify_events: model.import_config.generate_identify_events,
+            generate_group_identify_events: model.import_config.generate_group_identify_events,
         };
 
         match content {
@@ -51,6 +59,10 @@ impl FormatConfig {
                 let event_transform = MixpanelEvent::parse_fn(
                     transform_context,
                     config.skip_no_distinct_id,
+                    config
+                        .timestamp_offset_seconds
+                        .map(Duration::seconds)
+                        .unwrap_or_default(),
                     skip_geoip(),
                 );
 
@@ -66,6 +78,28 @@ impl FormatConfig {
 
                     Ok(Parsed {
                         data: result?,
+                        consumed,
+                    })
+                };
+
+                Ok(Box::new(parser))
+            }
+            ContentType::Amplitude => {
+                let format_parse = json_nd(*skip_blanks);
+                let event_transform = AmplitudeEvent::parse_fn(transform_context, skip_geoip());
+                let parser = move |data| {
+                    let parsed: Parsed<Vec<AmplitudeEvent>> = format_parse(data)?;
+                    let consumed = parsed.consumed;
+                    let result: Vec<_> = parsed
+                        .data
+                        .into_par_iter()
+                        .map(&event_transform)
+                        .filter_map(|x| x.ok())
+                        .flatten()
+                        .collect();
+
+                    Ok(Parsed {
+                        data: result,
                         consumed,
                     })
                 };
@@ -154,8 +188,7 @@ pub fn newline_delim<T: Send>(
                 }
                 Err(e) => {
                     return Err(e.context(format!(
-                        "Starting at byte {} of current chunk",
-                        last_validly_consumed_byte
+                        "Starting at byte {last_validly_consumed_byte} of current chunk"
                     )));
                 }
             }

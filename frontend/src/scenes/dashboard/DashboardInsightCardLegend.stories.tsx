@@ -1,12 +1,12 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Dashboards',
     decorators: [
         mswDecorator({
@@ -21,21 +21,17 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         waitForSelector: '.InsightCard',
+        pageUrl: urls.dashboard(1),
     },
     tags: ['test-skip'], // Flakey
 }
 export default meta
 
-export const InsightLegend = (): JSX.Element => {
-    useEffect(() => {
-        router.actions.push(urls.dashboard(1))
-    }, [])
-    return <App />
-}
+type Story = StoryObj<typeof meta>
+export const InsightLegend: Story = {}
 
-export const InsightLegendLegacy = (): JSX.Element => {
-    useEffect(() => {
-        router.actions.push(urls.dashboard(2))
-    }, [])
-    return <App />
+export const InsightLegendLegacy: Story = {
+    parameters: {
+        pageUrl: urls.dashboard(2),
+    },
 }

@@ -1,0 +1,253 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "plugins": ["typescript", "unicorn", "react", "react-perf", "jest", "promise", "jsdoc", "oxc"],
+    "env": {
+        "builtin": true
+    },
+    "ignorePatterns": [
+        "node_modules",
+        "dist",
+        "build",
+        "rust",
+        "cli",
+        "plugin-server",
+        "common/hogvm/typescript",
+        "common/hogvm/typescript/dist",
+        "common/plugin_transpiler/dist",
+        "common/hogvm/__tests__/__snapshots__",
+        "common/hogvm/__tests__/__snapshots__/**"
+    ],
+    "rules": {
+        "no-constant-condition": "off",
+        "no-prototype-builtins": "off",
+        "no-irregular-whitespace": "off",
+        "require-await": "off",
+        "no-await-in-loop": "off",
+        "react/prop-types": "off",
+        "react/react-in-jsx-scope": "off",
+        "react/no-unescaped-entities": "off",
+        "react/jsx-no-target-blank": "off",
+        "@typescript-eslint/no-empty-function": "off",
+        "@typescript-eslint/no-inferrable-types": "off",
+        "@typescript-eslint/ban-ts-comment": "off",
+        "@typescript-eslint/no-explicit-any": "off",
+        "check-tag-names": "off",
+        "no-unused-vars": [
+            "error",
+            {
+                "ignoreRestSiblings": true,
+                "destructuredArrayIgnorePattern": "^_$"
+            }
+        ],
+        "no-useless-spread": "error",
+        "no-accumulating-spread": "error",
+        "no-useless-fallback-in-spread": "error",
+        "react-hooks/exhaustive-deps": "warn",
+        "no-else-return": "warn",
+        "react-hooks/rules-of-hooks": "error",
+        "react/jsx-curly-brace-presence": [
+            "error",
+            {
+                "props": "never",
+                "children": "never",
+                "propElementValues": "always"
+            }
+        ],
+        "no-console": [
+            "error",
+            {
+                "allow": ["info", "warn", "error"]
+            }
+        ],
+        "no-debugger": "error",
+        "react/self-closing-comp": [
+            "error",
+            {
+                "component": true,
+                "html": true
+            }
+        ],
+        "@typescript-eslint/prefer-ts-expect-error": "error",
+        "@typescript-eslint/explicit-function-return-type": [
+            "error",
+            {
+                "allowExpressions": true
+            }
+        ],
+        "curly": "error",
+        "no-restricted-imports": [
+            "error",
+            {
+                "paths": [
+                    {
+                        "name": "dayjs",
+                        "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
+                    },
+                    {
+                        "name": "chart.js",
+                        "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
+                    },
+                    {
+                        "name": "chart.js/auto",
+                        "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
+                    },
+                    {
+                        "name": "~/queries/schema",
+                        "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                    }
+                ]
+            }
+        ],
+        "react/forbid-dom-props": [
+            "error",
+            {
+                "forbid": [
+                    {
+                        "propName": "style",
+                        "message": "style should be avoided in favor of utility CSS classes - see https://storybook.posthog.net/?path=/docs/lemon-ui-utilities--overview"
+                    }
+                ]
+            }
+        ],
+        "react/forbid-elements": [
+            "error",
+            {
+                "forbid": [
+                    {
+                        "element": "Layout",
+                        "message": "use utility classes instead"
+                    },
+                    {
+                        "element": "Tabs",
+                        "message": "use <LemonTabs> instead"
+                    },
+                    {
+                        "element": "Space",
+                        "message": "use flex or space utility classes instead"
+                    },
+                    {
+                        "element": "Spin",
+                        "message": "use Spinner instead"
+                    },
+                    {
+                        "element": "Badge",
+                        "message": "use LemonBadge instead"
+                    },
+                    {
+                        "element": "InputNumber",
+                        "message": "use LemonInput with type=\"number\" instead"
+                    },
+                    {
+                        "element": "Collapse",
+                        "message": "use <LemonCollapse> instead"
+                    },
+                    {
+                        "element": "Slider",
+                        "message": "use <LemonSlider> instead"
+                    },
+                    {
+                        "element": "Checkbox",
+                        "message": "use <LemonCheckbox> instead"
+                    },
+                    {
+                        "element": "MonacoEditor",
+                        "message": "use <CodeEditor> instead"
+                    },
+                    {
+                        "element": "Typography",
+                        "message": "use utility classes instead"
+                    },
+                    {
+                        "element": "Input.TextArea",
+                        "message": "use <LemonTextArea> instead"
+                    },
+                    {
+                        "element": "ReactMarkdown",
+                        "message": "use <LemonMarkdown> instead"
+                    },
+                    {
+                        "element": "a",
+                        "message": "use <Link> instead"
+                    },
+                    {
+                        "element": "Tag",
+                        "message": "use <LemonTag> instead"
+                    },
+                    {
+                        "element": "Alert",
+                        "message": "use <LemonBanner> instead"
+                    },
+                    {
+                        "element": "ReactJson",
+                        "message": "use <JSONViewer> for dark mode support instead"
+                    },
+                    {
+                        "element": "Radio",
+                        "message": "use <LemonRadio> instead"
+                    },
+                    {
+                        "element": "Skeleton",
+                        "message": "use <LemonSkeleton> instead"
+                    },
+                    {
+                        "element": "Divider",
+                        "message": "use <LemonDivider> instead"
+                    },
+                    {
+                        "element": "Popconfirm",
+                        "message": "use <LemonDialog> instead"
+                    },
+                    {
+                        "element": "Button",
+                        "message": "use <LemonButton> instead"
+                    },
+                    {
+                        "element": "Input",
+                        "message": "use <LemonInput> instead"
+                    },
+                    {
+                        "element": "Modal",
+                        "message": "use <LemonModal> or <LemonDialog> instead"
+                    },
+                    {
+                        "element": "Select",
+                        "message": "use <LemonSelect> instead"
+                    },
+                    {
+                        "element": "Progress",
+                        "message": "use <LemonProgress> instead"
+                    }
+                ]
+            }
+        ],
+        "no-constant-binary-expression": "error",
+        "no-useless-rename": "error",
+        "no-useless-call": "error",
+        "import/no-restricted-paths": [
+            "error",
+            {
+                "zones": [
+                    {
+                        "target": "./frontend/**",
+                        "from": "./ee/frontend/**",
+                        "message": "EE licensed TypeScript should only be accessed via the posthogEE objects. Use `import posthogEE from '@posthog/ee/exports'`"
+                    }
+                ]
+            }
+        ],
+        "jest/no-restricted-matchers": [
+            "error",
+            {
+                "toBeDefined": "Do not use .toBeDefined() in tests, use .toBeTruthy() or .not.toBeUndefined() instead."
+            }
+        ]
+    },
+    "overrides": [
+        {
+            "files": ["*.stories.tsx"],
+            "rules": {
+                "react-hooks/rules-of-hooks": "off"
+            }
+        }
+    ]
+}

@@ -16,7 +16,7 @@ const createEvent = (event: Partial<PluginEvent>): PluginEvent =>
             ...event.properties,
         },
         ...event,
-    } as unknown as PluginEvent)
+    }) as unknown as PluginEvent
 
 const meta = {
     config: {

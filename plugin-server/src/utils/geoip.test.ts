@@ -2,7 +2,7 @@ import { Reader } from '@maxmind/geoip2-node'
 
 import { defaultConfig } from '../config/config'
 import { PluginsServerConfig } from '../types'
-import { GeoIp, GeoIPService } from './geoip'
+import { GeoIPService, GeoIp } from './geoip'
 
 describe('GeoIp', () => {
     let service: GeoIPService
@@ -26,7 +26,7 @@ describe('GeoIp', () => {
     describe('from disk', () => {
         it('should load the mmdb from disk if set', async () => {
             const geoip = await service.get()
-            expect(geoip).toBeDefined()
+            expect(geoip).toBeTruthy()
             commonCheck(geoip)
         })
 
@@ -53,7 +53,7 @@ describe('GeoIp', () => {
         it('should not refresh the mmdb if there is no metadata', async () => {
             jest.spyOn(service as any, 'loadMmdbMetadata').mockResolvedValue(undefined)
             const geoip = await service.get()
-            expect(geoip).toBeDefined()
+            expect(geoip).toBeTruthy()
             expect(service['_mmdbMetadata']).toBeUndefined()
             expect(jest.mocked(service['loadMmdb'])).toHaveBeenCalledTimes(1)
 
@@ -71,7 +71,7 @@ describe('GeoIp', () => {
                 date: '2025-01-01',
             })
             const geoip = await service.get()
-            expect(geoip).toBeDefined()
+            expect(geoip).toBeTruthy()
             expect(service['_mmdbMetadata']).toEqual({ date: '2025-01-01' })
             expect(jest.mocked(service['loadMmdb'])).toHaveBeenCalledTimes(1)
 
@@ -85,7 +85,7 @@ describe('GeoIp', () => {
                 date: '2025-01-01',
             })
             const geoip = await service.get()
-            expect(geoip).toBeDefined()
+            expect(geoip).toBeTruthy()
             expect(service['_mmdbMetadata']).toEqual({ date: '2025-01-01' })
             expect(jest.mocked(service['loadMmdb'])).toHaveBeenCalledTimes(1)
 

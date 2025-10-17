@@ -110,8 +110,8 @@ export function pageUrl(d: PathNodeData, display?: boolean): string {
     return name.length > 15
         ? name.substring(0, 6) + '...' + name.slice(-8)
         : name.length < 4 && d.name.length < 25
-        ? d.name.replace(/(^[0-9]+_)/, '')
-        : name
+          ? d.name.replace(/(^[0-9]+_)/, '')
+          : name
 }
 
 export const isSelectedPathStartOrEnd = (

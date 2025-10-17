@@ -1,10 +1,63 @@
-import { NotebookType } from '~/types'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { NotebookType } from 'scenes/notebooks/types'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import mockNotebook from '../__mocks__/notebook-12345.json'
-import { JSONContent } from '../utils'
 import { migrate } from './migrate'
 
 describe('migrate()', () => {
+    beforeEach(() => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/upgrade': (req) => {
+                    const data = req.body as any
+                    if (data?.query?.source?.kind === 'RetentionQuery') {
+                        return [
+                            200,
+                            {
+                                query: {
+                                    kind: 'InsightVizNode',
+                                    source: {
+                                        version: 2,
+                                        aggregation_group_type_index: 0,
+                                        kind: 'RetentionQuery',
+                                        retentionFilter: {
+                                            meanRetentionCalculation: 'simple',
+                                            period: 'Week',
+                                            retentionReference: 'total',
+                                            retentionType: 'retention_first_time',
+                                            returningEntity: {
+                                                id: 'recording analyzed',
+                                                name: 'recording analyzed',
+                                                order: 0,
+                                                type: 'events',
+                                                uuid: '286575a9-1485-47d0-9bf6-9d439bc051b3',
+                                            },
+                                            targetEntity: {
+                                                id: 'recording analyzed',
+                                                name: 'recording analyzed',
+                                                order: 0,
+                                                type: 'events',
+                                                uuid: 'af560c55-fa85-4c38-b056-94b6e253530a',
+                                            },
+                                            totalIntervals: 7,
+                                        },
+                                    },
+                                },
+                            },
+                        ]
+                    }
+                    return [500, {}]
+                },
+            },
+        })
+
+        initKeaTests()
+    })
+
     const contentToExpected: [string, JSONContent[], JSONContent[]][] = [
         ['migrates node without changes', [{ type: 'paragraph' }], [{ type: 'paragraph' }]],
         [
@@ -13,7 +66,7 @@ describe('migrate()', () => {
                 {
                     type: 'ph-query',
                     attrs: {
-                        query: '{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"AND","values":[]}]},"filterTestAccounts":true,"dateRange":{"date_to":null,"date_from":"-90d"},"series":[{"kind":"EventsNode","event":"$pageview","name":"$pageview","properties":[{"key":"$referring_domain","type":"event","value":"google|duckduckgo|brave|bing","operator":"regex"},{"key":"utm_source","type":"event","value":"is_not_set","operator":"is_not_set"},{"key":"$host","type":"event","value":["posthog.com"],"operator":"exact"}],"math":"dau"}],"interval":"week","breakdown":{"breakdown_type":"event","breakdown":"$referring_domain"},"trendsFilter":{"compare":true,"display":"ActionsBar"}}}',
+                        query: '{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"AND","values":[]}]},"filterTestAccounts":true,"dateRange":{"date_to":null,"date_from":"-90d"},"series":[{"kind":"EventsNode","event":"$pageview","name":"$pageview","properties":[{"key":"$referring_domain","type":"event","value":"google|duckduckgo|brave|bing","operator":"regex"},{"key":"utm_source","type":"event","value":"is_not_set","operator":"is_not_set"},{"key":"$host","type":"event","value":["posthog.com"],"operator":"exact"}],"math":"dau"}],"interval":"week","breakdown":{"breakdown_type":"event","breakdown":"$referring_domain"},"trendsFilter":{"compare":true,"display":"ActionsBar"},"version":2}}',
                         title: 'SEO trend last 90 days',
                         __init: null,
                         height: null,
@@ -60,6 +113,7 @@ describe('migrate()', () => {
                                 breakdownFilter: { breakdown_type: 'event', breakdown: '$referring_domain' },
                                 trendsFilter: { display: 'ActionsBar' },
                                 compareFilter: { compare: true },
+                                version: 2,
                             },
                         },
                         title: 'SEO trend last 90 days',
@@ -240,6 +294,7 @@ describe('migrate()', () => {
                         query: {
                             kind: 'InsightVizNode',
                             source: {
+                                version: 2,
                                 kind: 'RetentionQuery',
                                 retentionFilter: {
                                     period: 'Week',
@@ -310,6 +365,7 @@ describe('migrate()', () => {
                                     show_legend: true,
                                 },
                                 filterTestAccounts: false,
+                                version: 2,
                             },
                         },
                         title: 'Rollout of users on 3000',
@@ -354,6 +410,7 @@ describe('migrate()', () => {
                                     showLegend: true,
                                 },
                                 filterTestAccounts: false,
+                                version: 2,
                             },
                         },
                         title: 'Rollout of users on 3000',
@@ -416,6 +473,7 @@ describe('migrate()', () => {
                                 trendsFilter: { display: 'ActionsBar' },
                                 compareFilter: { compare: true, compare_to: '-4w' },
                                 filterTestAccounts: true,
+                                version: 2,
                             },
                         },
                         title: 'SEO trend last 90 days',
@@ -475,6 +533,7 @@ describe('migrate()', () => {
                                 trendsFilter: { display: 'ActionsBar' },
                                 compareFilter: { compare: true, compare_to: '-4w' },
                                 filterTestAccounts: true,
+                                version: 2,
                             },
                         },
                         title: 'SEO trend last 90 days',
@@ -665,6 +724,7 @@ describe('migrate()', () => {
                                     compare: true,
                                 },
                                 filterTestAccounts: false,
+                                version: 2,
                             },
                         },
                         title: 'Weekly Org Signups',
@@ -795,6 +855,7 @@ describe('migrate()', () => {
                                 },
                                 compareFilter: { compare: true },
                                 filterTestAccounts: false,
+                                version: 2,
                             },
                         },
                         title: 'Weekly Org Signups',
@@ -826,6 +887,7 @@ describe('migrate()', () => {
                                     compare: true,
                                     aggregationAxisFormat: 'percentage',
                                 },
+                                version: 2,
                             },
                         },
                         title: 'Some insight',
@@ -856,6 +918,7 @@ describe('migrate()', () => {
                                 compareFilter: {
                                     compare: true,
                                 },
+                                version: 2,
                             },
                         },
                         title: 'Some insight',
@@ -888,6 +951,7 @@ describe('migrate()', () => {
                                     compare: true,
                                     showValuesOnSeries: true,
                                 },
+                                version: 2,
                             },
                         },
                         title: 'Some insight',
@@ -918,6 +982,7 @@ describe('migrate()', () => {
                                 compareFilter: {
                                     compare: true,
                                 },
+                                version: 2,
                             },
                         },
                         title: 'Some insight',
@@ -931,18 +996,18 @@ describe('migrate()', () => {
         ],
     ]
 
-    it.each(contentToExpected)('migrates %s', (_name, prevContent, nextContent) => {
+    it.each(contentToExpected)('migrates %s', async (_name, prevContent, nextContent) => {
         const prevNotebook: NotebookType = {
             ...mockNotebook,
-            user_access_level: 'editor' as const,
+            user_access_level: AccessControlLevel.Editor,
             content: { type: 'doc', content: prevContent },
         }
         const nextNotebook: NotebookType = {
             ...mockNotebook,
-            user_access_level: 'editor' as const,
+            user_access_level: AccessControlLevel.Editor,
             content: { type: 'doc', content: nextContent },
         }
 
-        expect(migrate(prevNotebook)).toEqual(nextNotebook)
+        await expect(migrate(prevNotebook)).resolves.toEqual(nextNotebook)
     })
 })

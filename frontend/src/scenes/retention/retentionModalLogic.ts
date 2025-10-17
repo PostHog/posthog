@@ -1,12 +1,24 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { retentionToActorsQuery } from 'scenes/retention/queries'
 import { urls } from 'scenes/urls'
 
-import { groupsModel, Noun } from '~/models/groupsModel'
-import { ActorsQuery, DataTableNode, NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
+import { cohortsModel } from '~/models/cohortsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
+import {
+    ActorsQuery,
+    DataTableNode,
+    InsightActorsQuery,
+    NodeKind,
+    RetentionQuery,
+} from '~/queries/schema/schema-general'
 import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
@@ -31,15 +43,32 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
         actions: [retentionPeopleLogic(props), ['loadPeople']],
     })),
     actions(() => ({
-        openModal: (rowIndex: number) => ({ rowIndex }),
+        openModal: (rowIndex: number, breakdownValue?: string | number | null) => ({ rowIndex, breakdownValue }),
         closeModal: true,
+        saveAsCohort: (cohortName: string) => ({ cohortName }),
+        setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
     })),
     reducers({
         selectedInterval: [
             null as number | null,
             {
-                openModal: (_, { rowIndex }) => rowIndex,
+                openModal: (_, { rowIndex }: { rowIndex: number; breakdownValue?: string | number | null }) => rowIndex,
                 closeModal: () => null,
+            },
+        ],
+        selectedBreakdownValue: [
+            null as string | number | null,
+            {
+                openModal: (_, { breakdownValue }: { rowIndex: number; breakdownValue?: string | number | null }) =>
+                    breakdownValue ?? null,
+                closeModal: () => null,
+            },
+        ],
+        isCohortModalOpen: [
+            false,
+            {
+                setIsCohortModalOpen: (_, { isOpen }) => isOpen,
+                closeModal: () => false,
             },
         ],
     }),
@@ -55,17 +84,47 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
             },
         ],
         actorsQuery: [
-            (s) => [s.querySource, s.selectedInterval],
-            (querySource: RetentionQuery, selectedInterval): ActorsQuery | null => {
+            (s) => [s.querySource, s.selectedInterval, s.selectedBreakdownValue],
+            (
+                querySource: RetentionQuery,
+                selectedInterval: number | null,
+                selectedBreakdownValue: string | number | null
+            ): ActorsQuery | null => {
                 if (!querySource) {
                     return null
                 }
-                return retentionToActorsQuery(querySource, selectedInterval ?? 0)
+                return retentionToActorsQuery(querySource, selectedInterval ?? 0, 0, selectedBreakdownValue)
+            },
+        ],
+        insightEventsQueryUrl: [
+            (s) => [s.actorsQuery],
+            (actorsQuery: ActorsQuery): string | null => {
+                if (!actorsQuery) {
+                    return null
+                }
+
+                // Generate insight events query from actors query
+                const { select: _select, ...source } = actorsQuery
+
+                const { includeRecordings, ...insightActorsQuery } = source.source as InsightActorsQuery
+
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        source: insightActorsQuery,
+                        select: ['*', 'event', 'person', 'timestamp'],
+                        after: 'all', // Show all events by default because date range is filtered by the source
+                    },
+                    full: true,
+                }
+
+                return urls.insightNew({ query })
             },
         ],
         exploreUrl: [
             (s) => [s.actorsQuery],
-            (actorsQuery): string | null => {
+            (actorsQuery: ActorsQuery): string | null => {
                 if (!actorsQuery) {
                     return null
                 }
@@ -86,9 +145,25 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
-        openModal: ({ rowIndex }) => {
-            actions.loadPeople(rowIndex)
+    listeners(({ actions, values }) => ({
+        openModal: ({ rowIndex, breakdownValue }: { rowIndex: number; breakdownValue?: string | number | null }) => {
+            actions.loadPeople(rowIndex, breakdownValue)
+        },
+        saveAsCohort: async ({ cohortName }) => {
+            const cohortParams = {
+                is_static: true,
+                name: cohortName,
+            }
+            const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
+            cohortsModel.actions.cohortCreated(cohort)
+            lemonToast.success('Cohort saved', {
+                toastId: `cohort-saved-${cohort.id}`,
+                button: {
+                    label: 'View cohort',
+                    action: () => router.actions.push(urls.cohort(cohort.id)),
+                },
+            })
+            actions.setIsCohortModalOpen(false)
         },
     })),
 ])

@@ -1,29 +1,30 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { groupsModel, Noun } from '~/models/groupsModel'
-import { Group } from '~/types'
+import { groupsModel } from '~/models/groupsModel'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/queries/schema/schema-general'
+import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
 
-export interface GroupsPaginatedResponse {
-    next: string | null
-    previous: string | null
-    results: Group[]
+export interface GroupsListLogicProps {
+    groupTypeIndex: GroupTypeIndex
 }
 
-export interface GroupsListLogicProps {
-    groupTypeIndex: number
-}
+const INITIAL_SORTING = [] as string[]
+const INITIAL_GROUPS_FILTER = [] as GroupPropertyFilter[]
 
 export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
     key((props: GroupsListLogicProps) => props.groupTypeIndex),
-    path(['groups', 'groupsListLogic']),
-    connect({
+    path(['scenes', 'groups', 'groupsListLogic']),
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -32,55 +33,158 @@ export const groupsListLogic = kea<groupsListLogicType>([
             groupsAccessLogic,
             ['groupsEnabled'],
         ],
-    }),
-    actions(() => ({
-        loadGroups: (url?: string | null) => ({ url }),
-        setSearch: (search: string, debounce: boolean = true) => ({ search, debounce }),
     })),
-    loaders(({ props, values }) => ({
-        groups: [
-            { next: null, previous: null, results: [] } as GroupsPaginatedResponse,
-            {
-                loadGroups: async ({ url }, breakpoint) => {
-                    await breakpoint(300)
+    actions(() => ({
+        setQuery: (query: DataTableNode) => ({ query }),
+        setQueryWasModified: (queryWasModified: boolean) => ({ queryWasModified }),
+        setGroupFilters: (filters: GroupPropertyFilter[]) => ({ filters }),
+    })),
+    reducers(() => ({
+        query: [
+            (_: any, props: GroupsListLogicProps) =>
+                ({
+                    kind: NodeKind.DataTableNode,
 
-                    if (!values.groupsEnabled) {
-                        return values.groups
+                    source: {
+                        kind: NodeKind.GroupsQuery,
+                        select: undefined,
+                        group_type_index: props.groupTypeIndex,
+                    },
+
+                    full: true,
+                    showEventFilter: false,
+                    showPersistentColumnConfigurator: true,
+                    propertiesViaUrl: true,
+                }) as DataTableNode,
+            { setQuery: (_, { query }) => query },
+        ],
+        groupFilters: [
+            INITIAL_GROUPS_FILTER,
+            {
+                setGroupFilters: (_, { filters }) => filters,
+                setQuery: (state, { query }) => {
+                    if (query.source.kind === NodeKind.GroupsQuery && query.source.properties) {
+                        return query.source.properties as GroupPropertyFilter[]
                     }
-                    url =
-                        url ||
-                        `api/environments/${values.currentTeamId}/groups/?group_type_index=${props.groupTypeIndex}${
-                            values.search ? '&search=' + encodeURIComponent(values.search) : ''
-                        }`
-                    return await api.get(url)
+                    return state
                 },
             },
         ],
-    })),
-    reducers({
-        search: [
-            '',
+        sorting: [
+            INITIAL_SORTING,
             {
-                setSearch: (_, { search }) => search,
+                setQuery: (state, { query }) => {
+                    if (query.source.kind === NodeKind.GroupsQuery && query.source.orderBy !== undefined) {
+                        return query.source.orderBy
+                    }
+                    return state
+                },
             },
         ],
-    }),
-    selectors({
-        groupTypeName: [
-            (s, p) => [p.groupTypeIndex, s.aggregationLabel],
-            (groupTypeIndex, aggregationLabel): Noun =>
-                groupTypeIndex === -1 ? { singular: 'person', plural: 'persons' } : aggregationLabel(groupTypeIndex),
+        queryWasModified: [
+            false,
+            {
+                setQueryWasModified: (_, { queryWasModified }) => queryWasModified,
+            },
         ],
-    }),
+    })),
     listeners(({ actions }) => ({
-        setSearch: async ({ debounce }, breakpoint) => {
-            if (debounce) {
-                await breakpoint(300)
-            }
-            actions.loadGroups()
+        setQuery: () => {
+            actions.setQueryWasModified(true)
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadGroups()
+    actionToUrl(({ values, props }) => ({
+        setQuery: () => {
+            const searchParams: Record<string, string> = {}
+
+            if (values.query.source.kind !== NodeKind.GroupsQuery) {
+                return [router.values.location.pathname, searchParams, undefined, { replace: true }]
+            }
+
+            if (values.query.source.properties?.length) {
+                searchParams[`properties_${props.groupTypeIndex}`] = JSON.stringify(values.query.source.properties)
+            }
+
+            if (values.query.source.select?.length) {
+                searchParams[`select_${props.groupTypeIndex}`] = JSON.stringify(values.query.source.select)
+            }
+
+            if (values.query.source.orderBy?.length) {
+                searchParams[`orderBy_${props.groupTypeIndex}`] = JSON.stringify(values.query.source.orderBy)
+            }
+
+            return [router.values.location.pathname, searchParams, undefined, { replace: true }]
+        },
+        setGroupFilters: () => {
+            const searchParams: Record<string, string> = {}
+
+            if (values.groupFilters?.length) {
+                searchParams[`properties_${props.groupTypeIndex}`] = JSON.stringify(values.groupFilters)
+            }
+
+            return [router.values.location.pathname, searchParams, undefined, { replace: true }]
+        },
+    })),
+    urlToAction(({ actions, values, props }) => ({
+        [`/groups/${props.groupTypeIndex}`]: (_, searchParams) => {
+            if (values.query.source.kind !== NodeKind.GroupsQuery) {
+                return
+            }
+
+            const queryOverrides = {} as Record<string, Array<string> | object>
+            const parseParam = (paramName: string): void => {
+                const rawParam = searchParams[`${paramName}_${props.groupTypeIndex}`]
+                if (!rawParam) {
+                    return
+                }
+
+                try {
+                    const parsedParam = JSON.parse(rawParam)
+                    if (parsedParam) {
+                        queryOverrides[paramName] = parsedParam
+                    }
+                } catch (error: any) {
+                    posthog.captureException('Failed to parse query overrides from URL', error)
+                }
+            }
+
+            parseParam('properties')
+            parseParam('select')
+            parseParam('orderBy')
+
+            if (Object.keys(queryOverrides).length > 0) {
+                actions.setQuery({
+                    ...values.query,
+                    source: {
+                        ...values.query.source,
+                        ...queryOverrides,
+                    },
+                })
+            } else {
+                actions.setQuery({
+                    ...values.query,
+                    source: {
+                        ...values.query.source,
+                        properties: values.groupFilters,
+                        orderBy: values.sorting,
+                    },
+                })
+            }
+        },
+    })),
+    afterMount(({ actions, values }) => {
+        if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.select === undefined) {
+            const defaultColumns = values.groupTypes.get(
+                values.query.source.group_type_index as GroupTypeIndex
+            )?.default_columns
+            actions.setQuery({
+                ...values.query,
+                source: {
+                    ...values.query.source,
+                    select: defaultColumns ?? defaultDataTableColumns(NodeKind.GroupsQuery),
+                },
+            })
+            actions.setQueryWasModified(false)
+        }
     }),
 ])

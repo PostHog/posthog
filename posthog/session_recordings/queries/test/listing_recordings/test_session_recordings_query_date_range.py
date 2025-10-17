@@ -1,18 +1,17 @@
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import DateRange
-from posthog.test.base import (
-    APIBaseTest,
-)
+
+from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsQueryDateRange
 
 
 @freeze_time("2021-01-01T13:46:23")
 class TestSessionRecordingsQueryDateRange(APIBaseTest):
     def test_with_relative_dates(self) -> None:
-        query_date_range = QueryDateRange(
+        query_date_range = SessionRecordingsQueryDateRange(
             date_range=DateRange(date_from="-3d", date_to="-24h", explicitDate=True),
             team=self.team,
             interval=None,
@@ -25,7 +24,7 @@ class TestSessionRecordingsQueryDateRange(APIBaseTest):
         )
 
     def test_with_string_dates(self) -> None:
-        query_date_range = QueryDateRange(
+        query_date_range = SessionRecordingsQueryDateRange(
             date_range=DateRange(date_from="2020-12-29", date_to="2021-01-01", explicitDate=True),
             team=self.team,
             interval=None,
@@ -33,10 +32,12 @@ class TestSessionRecordingsQueryDateRange(APIBaseTest):
         )
 
         assert query_date_range.date_from() == datetime(2020, 12, 29, 0, 0, 0, 0, UTC)
-        assert query_date_range.date_to() == datetime(year=2021, month=1, day=1, hour=0, minute=0, second=0, tzinfo=UTC)
+        assert query_date_range.date_to() == datetime(
+            year=2021, month=1, day=1, hour=23, minute=59, second=59, microsecond=999999, tzinfo=UTC
+        )
 
     def test_with_string_date_times(self) -> None:
-        query_date_range = QueryDateRange(
+        query_date_range = SessionRecordingsQueryDateRange(
             date_range=DateRange(date_from="2020-12-29T12:23:45Z", date_to="2021-01-01T13:34:42Z", explicitDate=True),
             team=self.team,
             interval=None,
@@ -49,7 +50,7 @@ class TestSessionRecordingsQueryDateRange(APIBaseTest):
         )
 
     def test_with_no_date_from(self) -> None:
-        query_date_range = QueryDateRange(
+        query_date_range = SessionRecordingsQueryDateRange(
             date_range=DateRange(date_from=None, date_to="2021-01-01T13:34:42Z", explicitDate=True),
             team=self.team,
             interval=None,
@@ -63,7 +64,7 @@ class TestSessionRecordingsQueryDateRange(APIBaseTest):
         )
 
     def test_with_no_date_to(self) -> None:
-        query_date_range = QueryDateRange(
+        query_date_range = SessionRecordingsQueryDateRange(
             date_range=DateRange(date_from="2021-01-01T11:34:42Z", date_to=None, explicitDate=True),
             team=self.team,
             interval=None,

@@ -1,18 +1,23 @@
 import { useActions, useValues } from 'kea'
-import { CustomUnitModal } from 'lib/components/UnitPicker/CustomUnitModal'
+import { useMemo, useState } from 'react'
+
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useMemo, useRef, useState } from 'react'
 import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-const aggregationDisplayMap = INSIGHT_UNIT_OPTIONS.reduce((acc, option) => {
-    acc[option.value] = option.label
-    return acc
-}, {})
+import { unitPickerModalLogic } from './unitPickerModalLogic'
+
+const aggregationDisplayMap = INSIGHT_UNIT_OPTIONS.reduce<Record<AggregationAxisFormat, React.ReactNode>>(
+    (acc, option) => {
+        acc[option.value] = option.label
+        return acc
+    },
+    {} as Record<AggregationAxisFormat, React.ReactNode>
+)
 
 export interface HandleUnitChange {
     format?: AggregationAxisFormat
@@ -25,20 +30,17 @@ export function UnitPicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { trendsFilter, display } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { showCustomUnitModal } = useActions(unitPickerModalLogic)
 
     const { reportAxisUnitsChanged } = useActions(eventUsageLogic)
 
     const [isVisible, setIsVisible] = useState(false)
     const [localAxisFormat, setLocalAxisFormat] = useState(trendsFilter?.aggregationAxisFormat || undefined)
-    const [customUnitModal, setCustomUnitModal] = useState<'prefix' | 'postfix' | null>(null)
-
-    const customUnitModalRef = useRef<HTMLDivElement | null>(null)
 
     useKeyboardHotkeys(
         {
             escape: {
                 action: function () {
-                    setCustomUnitModal(null)
                     setIsVisible(false)
                 },
             },
@@ -64,11 +66,10 @@ export function UnitPicker(): JSX.Element {
         })
 
         setIsVisible(false)
-        setCustomUnitModal(null)
     }
 
     const displayValue = useMemo(() => {
-        let displayValue = 'None'
+        let displayValue: React.ReactNode = 'None'
         if (localAxisFormat) {
             displayValue = aggregationDisplayMap[localAxisFormat]
         }
@@ -81,16 +82,24 @@ export function UnitPicker(): JSX.Element {
         return displayValue
     }, [localAxisFormat, trendsFilter])
 
+    const handleCustomPrefix = (): void => {
+        showCustomUnitModal({
+            type: 'prefix',
+            currentValue: trendsFilter?.aggregationAxisPrefix || '',
+            callback: (value: string) => handleChange({ prefix: value }),
+        })
+    }
+
+    const handleCustomPostfix = (): void => {
+        showCustomUnitModal({
+            type: 'postfix',
+            currentValue: trendsFilter?.aggregationAxisPostfix || '',
+            callback: (value: string) => handleChange({ postfix: value }),
+        })
+    }
+
     return (
         <div className="flex-1 mb-2.5 mx-2">
-            <CustomUnitModal
-                formativeElement={customUnitModal}
-                isOpen={customUnitModal !== null}
-                onSave={handleChange}
-                trendsFilter={trendsFilter}
-                onClose={() => setCustomUnitModal(null)}
-                overlayRef={(ref) => (customUnitModalRef.current = ref)}
-            />
             <LemonButtonWithDropdown
                 onClick={() => setIsVisible(!isVisible)}
                 size="small"
@@ -99,7 +108,6 @@ export function UnitPicker(): JSX.Element {
                 fullWidth
                 dropdown={{
                     onClickOutside: () => setIsVisible(false),
-                    additionalRefs: [customUnitModalRef],
                     visible: isVisible,
                     overlay: (
                         <>
@@ -117,7 +125,7 @@ export function UnitPicker(): JSX.Element {
                             <>
                                 <LemonDivider />
                                 <LemonButton
-                                    onClick={() => setCustomUnitModal('prefix')}
+                                    onClick={handleCustomPrefix}
                                     active={!!trendsFilter?.aggregationAxisPrefix}
                                     fullWidth
                                 >
@@ -127,7 +135,7 @@ export function UnitPicker(): JSX.Element {
                                         : '...'}
                                 </LemonButton>
                                 <LemonButton
-                                    onClick={() => setCustomUnitModal('postfix')}
+                                    onClick={handleCustomPostfix}
                                     active={!!trendsFilter?.aggregationAxisPostfix}
                                     fullWidth
                                 >

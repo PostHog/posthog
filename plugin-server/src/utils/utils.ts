@@ -1,9 +1,10 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import {
     ClickHouseTimestamp,
@@ -11,11 +12,10 @@ import {
     ISOTimestamp,
     Plugin,
     PluginConfigId,
-    PluginsServerConfig,
     TimestampFormat,
 } from '../types'
+import { logger } from './logger'
 import { captureException } from './posthog'
-import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5
@@ -23,10 +23,13 @@ const GRACEFUL_EXIT_PERIOD_SECONDS = 5
 export class NoRowsUpdatedError extends Error {}
 
 export function killGracefully(): void {
-    status.error('⏲', 'Shutting plugin server down gracefully with SIGTERM...')
+    logger.error('⏲', 'Shutting plugin server down gracefully with SIGTERM...')
     process.kill(process.pid, 'SIGTERM')
     setTimeout(() => {
-        status.error('⏲', `Plugin server still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`)
+        logger.error(
+            '⏲',
+            `Plugin server still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`
+        )
         process.exit(1)
     }, GRACEFUL_EXIT_PERIOD_SECONDS * 1000)
 }
@@ -46,8 +49,7 @@ export function bufferToStream(binary: Buffer): Readable {
     return readableInstanceStream
 }
 
-export function base64StringToUint32ArrayLE(base64: string): Uint32Array {
-    const buffer = Buffer.from(base64, 'base64')
+export function bufferToUint32ArrayLE(buffer: Buffer): Uint32Array {
     const dataView = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     const length = buffer.byteLength / 4
     const result = new Uint32Array(length)
@@ -60,7 +62,7 @@ export function base64StringToUint32ArrayLE(base64: string): Uint32Array {
     return result
 }
 
-export function uint32ArrayLEToBase64String(uint32Array: Uint32Array): string {
+export function uint32ArrayLEToBuffer(uint32Array: Uint32Array): Buffer {
     const buffer = new ArrayBuffer(uint32Array.length * 4)
     const dataView = new DataView(buffer)
 
@@ -68,8 +70,7 @@ export function uint32ArrayLEToBase64String(uint32Array: Uint32Array): string {
         // explicitly set little-endian
         dataView.setUint32(i * 4, uint32Array[i], true)
     }
-
-    return Buffer.from(buffer).toString('base64')
+    return Buffer.from(buffer)
 }
 
 export function createRandomUint32x4(): Uint32Array {
@@ -84,6 +85,12 @@ export function cloneObject<T>(obj: T): T {
     }
     if (Array.isArray(obj)) {
         return (obj as any[]).map(cloneObject) as unknown as T
+    }
+    if (obj instanceof Date) {
+        return new Date(obj.getTime()) as T
+    }
+    if (obj instanceof DateTime) {
+        return obj.toUTC() as T
     }
     const clone: Record<string, any> = {}
     for (const i in obj) {
@@ -253,7 +260,7 @@ export class UUID7 extends UUID {
             super(bufferOrUnixTimeMs)
             return
         }
-        const unixTimeMs = bufferOrUnixTimeMs ?? DateTime.utc().toMillis()
+        const unixTimeMs = (bufferOrUnixTimeMs as number | undefined) ?? DateTime.utc().toMillis()
         let unixTimeMsBig = BigInt(unixTimeMs)
 
         if (!rand) {
@@ -443,7 +450,7 @@ export function createPostgresPool(
         onError ||
         ((error) => {
             captureException(error)
-            status.error('🔴', 'PostgreSQL error encountered!\n', error)
+            logger.error('🔴', 'PostgreSQL error encountered!\n', error)
         })
 
     pgPool.on('error', handleError)
@@ -473,16 +480,6 @@ export function pluginConfigIdFromStack(
     }
 }
 
-export function logOrThrowJobQueueError(server: PluginsServerConfig, error: Error, message: string): void {
-    captureException(error)
-    if (server.CRASH_IF_NO_PERSISTENT_JOB_QUEUE) {
-        status.error('🔴', message)
-        throw error
-    } else {
-        status.info('🟡', message)
-    }
-}
-
 export function groupBy<T extends Record<string, any>, K extends keyof T>(
     objects: T[],
     key: K,
@@ -499,19 +496,25 @@ export function groupBy<T extends Record<string, any>, K extends keyof T>(
     flat = false
 ): Record<T[K], T[] | T> {
     return flat
-        ? objects.reduce((grouping, currentItem) => {
-              if (currentItem[key] in grouping) {
-                  throw new Error(
-                      `Key "${String(key)}" has more than one matching value, which is not allowed in flat groupBy!`
-                  )
-              }
-              grouping[currentItem[key]] = currentItem
-              return grouping
-          }, {} as Record<T[K], T>)
-        : objects.reduce((grouping, currentItem) => {
-              ;(grouping[currentItem[key]] = grouping[currentItem[key]] || []).push(currentItem)
-              return grouping
-          }, {} as Record<T[K], T[]>)
+        ? objects.reduce(
+              (grouping, currentItem) => {
+                  if (currentItem[key] in grouping) {
+                      throw new Error(
+                          `Key "${String(key)}" has more than one matching value, which is not allowed in flat groupBy!`
+                      )
+                  }
+                  grouping[currentItem[key]] = currentItem
+                  return grouping
+              },
+              {} as Record<T[K], T>
+          )
+        : objects.reduce(
+              (grouping, currentItem) => {
+                  ;(grouping[currentItem[key]] = grouping[currentItem[key]] || []).push(currentItem)
+                  return grouping
+              },
+              {} as Record<T[K], T[]>
+          )
 }
 
 export function clamp(value: number, min: number, max: number): number {
@@ -710,4 +713,16 @@ export const areMapsEqual = <K, V>(map1: Map<K, V>, map2: Map<K, V>): boolean =>
         }
     }
     return true
+}
+
+export function promisifyCallback<TResult>(fn: (cb: (err: any, result?: TResult) => void) => void): Promise<TResult> {
+    return new Promise<TResult>((resolve, reject) => {
+        fn((err, result) => {
+            if (err) {
+                reject(err)
+            } else {
+                resolve(result as TResult)
+            }
+        })
+    })
 }

@@ -1,13 +1,16 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import React from 'react'
+
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
-import React from 'react'
-import { urls } from 'scenes/urls'
 
-import { breadcrumbExcludeSteps, onboardingLogic, OnboardingStepKey, stepKeyToTitle } from './onboardingLogic'
-import { onboardingTemplateConfigLogic } from './productAnalyticsSteps/onboardingTemplateConfigLogic'
+import { OnboardingStepKey } from '~/types'
+
+import { breadcrumbExcludeSteps, onboardingLogic, stepKeyToTitle } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -45,7 +48,6 @@ export const OnboardingStep = ({
     const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const { dashboardCreatedDuringOnboarding } = useValues(onboardingTemplateConfigLogic)
 
     if (!stepKey) {
         throw new Error('stepKey is required in any OnboardingStep')
@@ -92,11 +94,7 @@ export const OnboardingStep = ({
                     </div>
                 </div>
             </div>
-            <div
-                className={`${stepKey !== 'product_intro' && 'p-2'} ${
-                    stepKey !== 'product_intro' && !fullWidth && 'max-w-screen-md mx-auto'
-                }`}
-            >
+            <div className={clsx('p-2', !fullWidth && 'max-w-screen-md mx-auto')}>
                 {subtitle && (
                     <div className="max-w-screen-md mx-auto">
                         <p>{subtitle}</p>
@@ -117,14 +115,7 @@ export const OnboardingStep = ({
                             type="secondary"
                             onClick={() => {
                                 onSkip && onSkip()
-                                !hasNextStep
-                                    ? completeOnboarding(
-                                          undefined,
-                                          dashboardCreatedDuringOnboarding
-                                              ? urls.dashboard(dashboardCreatedDuringOnboarding.id)
-                                              : undefined
-                                      )
-                                    : goToNextStep()
+                                !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
                             data-attr="onboarding-skip-button"
                         >
@@ -140,14 +131,7 @@ export const OnboardingStep = ({
                             data-attr="onboarding-continue"
                             onClick={() => {
                                 onContinue?.()
-                                !hasNextStep
-                                    ? completeOnboarding(
-                                          undefined,
-                                          dashboardCreatedDuringOnboarding
-                                              ? urls.dashboard(dashboardCreatedDuringOnboarding.id)
-                                              : undefined
-                                      )
-                                    : goToNextStep()
+                                !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                             disabledReason={continueDisabledReason}

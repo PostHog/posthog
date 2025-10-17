@@ -56,6 +56,9 @@ impl SingleTopicConsumer {
                 &consumer_config.kafka_consumer_offset_reset,
             );
 
+        // IMPORTANT: this means *by default* all consumers are
+        // responsible for storing their own offsets, regardless
+        // of whether automatic offset commit is enabled or disabled!
         client_config.set("enable.auto.offset.store", "false");
 
         if common_config.kafka_tls {
@@ -64,8 +67,13 @@ impl SingleTopicConsumer {
                 .set("enable.ssl.certificate.verification", "false");
         };
 
-        if !consumer_config.kafka_consumer_auto_commit {
-            client_config.set("enable.auto.offset.store", "false");
+        if consumer_config.kafka_consumer_auto_commit {
+            client_config.set("enable.auto.commit", "true").set(
+                "auto.commit.interval.ms",
+                consumer_config
+                    .kafka_consumer_auto_commit_interval_ms
+                    .to_string(),
+            );
         }
 
         let consumer: StreamConsumer = client_config.create()?;
@@ -129,7 +137,7 @@ impl SingleTopicConsumer {
                     let was_err = result.is_err();
                     results.push(result);
                     if was_err {
-                        break; // Early exit on error, since it might indicate a kafka error or something
+                        break; // Early exit on error, since it might indicate a kafka error or somethingz
                     }
                 }
             } => {}

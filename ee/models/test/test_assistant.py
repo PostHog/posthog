@@ -1,10 +1,11 @@
 from datetime import timedelta
 
-from django.utils import timezone
 from freezegun import freeze_time
+from posthog.test.base import BaseTest
+
+from django.utils import timezone
 
 from ee.models.assistant import CoreMemory
-from posthog.test.base import BaseTest
 
 
 class TestCoreMemory(BaseTest):
@@ -28,7 +29,7 @@ class TestCoreMemory(BaseTest):
         self.assertTrue(self.core_memory.is_scraping_pending)
 
         # Test pending status outside time window
-        self.core_memory.scraping_started_at = timezone.now() - timedelta(minutes=6)
+        self.core_memory.scraping_started_at = timezone.now() - timedelta(minutes=11)
         self.core_memory.save()
         self.assertFalse(self.core_memory.is_scraping_pending)
 
@@ -52,11 +53,11 @@ class TestCoreMemory(BaseTest):
             self.assertTrue(self.core_memory.is_scraping_pending)
 
         # Test exactly 5 minutes after (should be false)
-        with freeze_time(initial_time + timedelta(minutes=5)):
+        with freeze_time(initial_time + timedelta(minutes=10)):
             self.assertFalse(self.core_memory.is_scraping_pending)
 
         # Test 6 minutes after (should be false)
-        with freeze_time(initial_time + timedelta(minutes=6)):
+        with freeze_time(initial_time + timedelta(minutes=11)):
             self.assertFalse(self.core_memory.is_scraping_pending)
 
     def test_core_memory_operations(self):
@@ -64,7 +65,7 @@ class TestCoreMemory(BaseTest):
         test_text = "Test memory content"
         self.core_memory.set_core_memory(test_text)
         self.assertEqual(self.core_memory.text, test_text)
-        self.assertEqual(self.core_memory.initial_text, test_text)
+        self.assertEqual(self.core_memory.initial_text, "")
         self.assertEqual(self.core_memory.scraping_status, CoreMemory.ScrapingStatus.COMPLETED)
 
         # Test appending core memory
@@ -92,4 +93,5 @@ class TestCoreMemory(BaseTest):
         # Test formatted text with long content
         long_text = "x" * 6000
         self.core_memory.set_core_memory(long_text)
-        self.assertEqual(len(self.core_memory.formatted_text), 5000)
+        self.assertEqual(len(self.core_memory.formatted_text), 5001)
+        self.assertEqual(self.core_memory.formatted_text, long_text[:2500] + "…" + long_text[-2500:])

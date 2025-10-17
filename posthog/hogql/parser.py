@@ -1,8 +1,16 @@
-from typing import Literal, Optional, cast
 from collections.abc import Callable
+from typing import Literal, Optional, cast
 
-from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
+from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
+from hogql_parser import (
+    parse_expr as _parse_expr_cpp,
+    parse_full_template_string as _parse_full_template_string_cpp,
+    parse_order_expr as _parse_order_expr_cpp,
+    parse_program as _parse_program_cpp,
+    parse_select as _parse_select_cpp,
+)
+from opentelemetry import trace
 from prometheus_client import Histogram
 
 from posthog.hogql import ast
@@ -12,16 +20,11 @@ from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
-from posthog.hogql.parse_string import parse_string_literal_text, parse_string_literal_ctx, parse_string_text_ctx
+from posthog.hogql.parse_string import parse_string_literal_ctx, parse_string_literal_text, parse_string_text_ctx
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
-from hogql_parser import (
-    parse_expr as _parse_expr_cpp,
-    parse_order_expr as _parse_order_expr_cpp,
-    parse_select as _parse_select_cpp,
-    parse_full_template_string as _parse_full_template_string_cpp,
-    parse_program as _parse_program_cpp,
-)
+
+tracer = trace.get_tracer(__name__)
 
 
 def safe_lambda(f):
@@ -137,10 +140,13 @@ def parse_select(
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
-        with RULE_TO_HISTOGRAM["select"].labels(backend=backend).time():
+        with (
+            RULE_TO_HISTOGRAM["select"].labels(backend=backend).time(),
+            tracer.start_as_current_span("parse_statement_to_node"),
+        ):
             node = RULE_TO_PARSE_FUNCTION[backend]["select"](statement)
         if placeholders:
-            with timings.measure("replace_placeholders"):
+            with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
     return node
 
@@ -402,13 +408,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             else:
                 select_query.array_join_op = "ARRAY JOIN"
             select_query.array_join_list = self.visit(array_join_clause.columnExprList())
-            for expr in select_query.array_join_list:
-                if not isinstance(expr, ast.Alias):
-                    raise SyntaxError(
-                        "ARRAY JOIN arrays must have an alias",
-                        start=expr.start,
-                        end=expr.end,
-                    )
+            if select_query.array_join_list:
+                for expr in select_query.array_join_list:
+                    if not isinstance(expr, ast.Alias):
+                        raise SyntaxError(
+                            "ARRAY JOIN arrays must have an alias",
+                            start=expr.start,
+                            end=expr.end,
+                        )
 
         if ctx.topClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.topClause()")
@@ -732,7 +739,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif ctx.PERCENT():
             op = ast.ArithmeticOperationOp.Mod
         else:
-            raise NotImplementedError(f"Unsupported ColumnExprPrecedence1: {ctx.operator.text}")
+            raise NotImplementedError(f"Unsupported ColumnExprPrecedence1: {ctx.getText()}")
         left = self.visit(ctx.left)
         right = self.visit(ctx.right)
         return ast.ArithmeticOperation(left=left, right=right, op=op)
@@ -759,7 +766,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
             return ast.Call(name="concat", args=args)
         else:
-            raise NotImplementedError(f"Unsupported ColumnExprPrecedence2: {ctx.operator.text}")
+            raise NotImplementedError(f"Unsupported ColumnExprPrecedence2: {ctx.getText()}")
 
     def visitColumnExprPrecedence3(self, ctx: HogQLParser.ColumnExprPrecedence3Context):
         left = self.visit(ctx.left)
@@ -1089,10 +1096,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.JoinExpr(table=ast.Field(chain=[name]), table_args=args)
 
     def visitTableIdentifier(self, ctx: HogQLParser.TableIdentifierContext):
-        text = self.visit(ctx.identifier())
+        nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else []
+
         if ctx.databaseIdentifier():
-            return [self.visit(ctx.databaseIdentifier()), text]
-        return [text]
+            return [self.visit(ctx.databaseIdentifier()), *nested]
+
+        return nested
 
     def visitTableArgList(self, ctx: HogQLParser.TableArgListContext):
         return [self.visit(arg) for arg in ctx.columnExpr()]
@@ -1163,7 +1172,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ExprCall(expr=expr, args=[self.visit(ctx.selectSetStmt())])
 
     def visitHogqlxChildElement(self, ctx: HogQLParser.HogqlxChildElementContext):
-        return self.visit(ctx.hogqlxTagElement() or ctx.columnExpr())
+        if ctx.hogqlxTagElement():
+            return self.visit(ctx.hogqlxTagElement())
+        if ctx.hogqlxText():
+            return self.visit(ctx.hogqlxText())
+        return self.visit(ctx.columnExpr())
+
+    def visitHogqlxText(self, ctx: HogQLParser.HogqlxTextContext):
+        return ast.Constant(value=ctx.HOGQLX_TEXT_TEXT().getText())
 
     def visitHogqlxTagElementClosed(self, ctx: HogQLParser.HogqlxTagElementClosedContext):
         kind = self.visit(ctx.identifier())
@@ -1178,14 +1194,25 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         attributes = [self.visit(a) for a in ctx.hogqlxTagAttribute()] if ctx.hogqlxTagAttribute() else []
 
-        if ctx.hogqlxChildElement():
-            for a in attributes:
-                if a.name == "children":
-                    raise SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute")
-            children = []
-            for element in ctx.hogqlxChildElement():
-                children.append(self.visit(element))
-            attributes.append(ast.HogQLXAttribute(name="children", value=children))
+        # ── collect child nodes, discarding pure-indentation whitespace ──
+        kept_children = []
+        for element in ctx.hogqlxChildElement():
+            child = self.visit(element)
+
+            if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                v = child.value
+                only_ws = v.isspace()
+                has_nl = "\n" in v or "\r" in v
+                if only_ws and has_nl:
+                    continue  # drop indentation text node
+
+            kept_children.append(child)
+
+        if kept_children:
+            if any(a.name == "children" for a in attributes):
+                raise SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute")
+            attributes.append(ast.HogQLXAttribute(name="children", value=kept_children))
+
         return ast.HogQLXTag(kind=opening, attributes=attributes)
 
     def visitHogqlxTagAttribute(self, ctx: HogQLParser.HogqlxTagAttributeContext):

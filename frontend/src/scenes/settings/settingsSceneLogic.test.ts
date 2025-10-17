@@ -1,17 +1,18 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { initKeaTests } from '~/test/init'
+
+import { settingsSceneLogic } from './settingsSceneLogic'
 
 // Mock the survey preview functions
 jest.mock('posthog-js/dist/surveys-preview', () => ({
     renderFeedbackWidgetPreview: jest.fn(),
     renderSurveysPreview: jest.fn(),
 }))
-
-import { initKeaTests } from '~/test/init'
-
-import { settingsSceneLogic } from './settingsSceneLogic'
 
 describe('settingsSceneLogic', () => {
     let logic: ReturnType<typeof settingsSceneLogic.build>

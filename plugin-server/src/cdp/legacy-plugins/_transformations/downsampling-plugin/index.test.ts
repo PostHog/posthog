@@ -1,5 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent, setupPlugin } from './index'
@@ -15,7 +16,7 @@ const createEvent = (event: Partial<PluginEvent>): PluginEvent =>
             ...event.properties,
         },
         ...event,
-    } as unknown as PluginEvent)
+    }) as unknown as PluginEvent
 
 beforeEach(() => {
     meta = {

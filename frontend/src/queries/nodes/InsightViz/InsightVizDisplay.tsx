@@ -1,5 +1,6 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -14,22 +15,25 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
-import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
 
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { InsightVizNode, QuerySchema } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
+import { shouldQueryBeAsync } from '~/queries/utils'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -42,10 +46,11 @@ export function InsightVizDisplay({
     disableLastComputation,
     disableLastComputationRefresh,
     showingResults,
-    insightMode,
     context,
     embedded,
     inSharedMode,
+    editMode,
+    insightProps,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -53,12 +58,13 @@ export function InsightVizDisplay({
     disableLastComputation?: boolean
     disableLastComputationRefresh?: boolean
     showingResults?: boolean
-    insightMode?: ItemMode
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
     embedded: boolean
     inSharedMode?: boolean
+    editMode?: boolean
+    insightProps: InsightLogicProps<QuerySchema>
 }): JSX.Element | null {
-    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
+    const { canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -78,7 +84,9 @@ export function InsightVizDisplay({
         timedOutQueryId,
         vizSpecificOptions,
         query,
+        display,
     } = useValues(insightVizDataLogic(insightProps))
+    const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
 
     // Empty states that completely replace the graph
@@ -101,7 +109,7 @@ export function InsightVizDisplay({
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
             if (!isFunnelWithEnoughSteps) {
-                return <FunnelSingleStepState actionable={!embedded && insightMode === ItemMode.Edit} />
+                return <FunnelSingleStepState actionable={!embedded && editMode} />
             }
             if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
                 return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
@@ -110,7 +118,15 @@ export function InsightVizDisplay({
 
         // Insight agnostic empty states
         if (erroredQueryId) {
-            return <InsightErrorState query={query} queryId={erroredQueryId} />
+            return (
+                <InsightErrorState
+                    query={query}
+                    queryId={erroredQueryId}
+                    onRetry={() => {
+                        loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+                    }}
+                />
+            )
         }
         if (timedOutQueryId) {
             return <InsightTimeoutState queryId={timedOutQueryId} />
@@ -125,6 +141,7 @@ export function InsightVizDisplay({
                 return (
                     <TrendInsight
                         view={InsightType.TRENDS}
+                        editMode={editMode}
                         context={context}
                         embedded={embedded}
                         inSharedMode={inSharedMode}
@@ -134,6 +151,7 @@ export function InsightVizDisplay({
                 return (
                     <TrendInsight
                         view={InsightType.STICKINESS}
+                        editMode={editMode}
                         context={context}
                         embedded={embedded}
                         inSharedMode={inSharedMode}
@@ -143,6 +161,7 @@ export function InsightVizDisplay({
                 return (
                     <TrendInsight
                         view={InsightType.LIFECYCLE}
+                        editMode={editMode}
                         context={context}
                         embedded={embedded}
                         inSharedMode={inSharedMode}
@@ -177,10 +196,9 @@ export function InsightVizDisplay({
             !disableTable
         ) {
             return (
-                <>
-                    <h2 className="font-semibold text-lg my-4 mx-0">Detailed results</h2>
+                <SceneSection title="Detailed results">
                     <FunnelStepsTable />
-                </>
+                </SceneSection>
             )
         }
 
@@ -209,14 +227,12 @@ export function InsightVizDisplay({
                     )}
 
                     <InsightsTable
-                        isLegend
+                        // Do not show ribbons for world map insight table. All ribbons are nuances of blue, and do not bring any UX value
+                        isLegend={display !== ChartDisplayType.WorldMap}
+                        editMode={editMode}
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
-                        canEditSeriesNameInline={!hasFormula && insightMode === ItemMode.Edit}
-                        seriesNameTooltip={
-                            hasFormula && insightMode === ItemMode.Edit
-                                ? 'Formula series names are not editable'
-                                : undefined
-                        }
+                        canEditSeriesNameInline={!hasFormula && editMode}
+                        seriesNameTooltip={hasFormula && editMode ? 'Formula series names are not editable' : undefined}
                         canCheckUncheckSeries={canEditInsight}
                     />
                 </>

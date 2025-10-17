@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
+
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -65,7 +66,7 @@ export function TextCardModal({
                 enableFormOnSubmit
             >
                 <Field name="body" label="">
-                    <LemonTextAreaMarkdown data-attr="text-card-edit-area" />
+                    <LemonTextAreaMarkdown maxLength={4000} data-attr="text-card-edit-area" />
                 </Field>
             </Form>
         </LemonModal>

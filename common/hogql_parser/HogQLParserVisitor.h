@@ -249,6 +249,8 @@ public:
 
     virtual std::any visitHogqlxChildElement(HogQLParser::HogqlxChildElementContext *context) = 0;
 
+    virtual std::any visitHogqlxText(HogQLParser::HogqlxTextContext *context) = 0;
+
     virtual std::any visitHogqlxTagElementClosed(HogQLParser::HogqlxTagElementClosedContext *context) = 0;
 
     virtual std::any visitHogqlxTagElementNested(HogQLParser::HogqlxTagElementNestedContext *context) = 0;

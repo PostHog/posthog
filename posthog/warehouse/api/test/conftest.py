@@ -1,6 +1,16 @@
+import logging
+
+import pytest
+
 import psycopg
 import pytest_asyncio
+from asgiref.sync import async_to_sync
 from psycopg import sql
+from temporalio.client import Client as TemporalClient
+from temporalio.service import RPCError
+
+from posthog.temporal.common.client import sync_connect
+from posthog.warehouse.models import ExternalDataSchema
 
 
 @pytest_asyncio.fixture
@@ -69,3 +79,29 @@ async def setup_postgres_test_db(postgres_config):
         await cursor.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(postgres_config["database"])))
 
     await connection.close()
+
+
+@async_to_sync
+async def delete_temporal_schedule(temporal: TemporalClient, schedule_id: str):
+    """Delete a Temporal Schedule with the given id."""
+    handle = temporal.get_schedule_handle(schedule_id)
+    await handle.delete()
+
+
+def cleanup_temporal_schedules(client):
+    """Clean up any Temporal Schedules created during the test."""
+    for schedule in ExternalDataSchema.objects.all():
+        try:
+            delete_temporal_schedule(client, str(schedule.id))
+        except RPCError:
+            # Assume this is fine as we are tearing down, but don't fail silently.
+            logging.warning("Schedule %s has already been deleted, ignoring.", schedule.id)
+            continue
+
+
+@pytest.fixture
+def temporal():
+    """Return a TemporalClient instance."""
+    client = sync_connect()
+    yield client
+    cleanup_temporal_schedules(client)

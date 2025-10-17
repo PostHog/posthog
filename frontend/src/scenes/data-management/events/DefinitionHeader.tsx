@@ -1,13 +1,16 @@
+import React from 'react'
+
 import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark } from '@posthog/icons'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconEyeHidden, IconSelectAll } from 'lib/lemon-ui/icons'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LinkProps } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
-import React from 'react'
+import { IconEyeHidden, IconSelectAll } from 'lib/lemon-ui/icons'
 
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { EventDefinition, PropertyDefinition } from '~/types'
 
 interface IconWithBadgeProps {
@@ -23,7 +26,7 @@ function IconWithBadge({ icon, verified, hidden, tooltipTitle, className }: Icon
         <div className="relative inline-flex">
             {React.cloneElement(icon, { className: className || icon.props.className })}
             {(verified || hidden) && (
-                <div className="absolute -bottom-1 -left-2 flex items-center justify-center rounded-full bg-white shadow-md p-[1px]">
+                <div className="absolute -bottom-1 -left-2 flex items-center justify-center rounded-full bg-primary-light shadow-md p-[1px]">
                     {hidden ? (
                         <IconEyeHidden className="text-danger text-xs" />
                     ) : (
@@ -127,6 +130,21 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             className="taxonomy-icon taxonomy-icon-muted"
         />
     )
+}
+
+export function getEventMetadataDefinitionIcon(definition: PropertyDefinition): JSX.Element {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_metadata[definition.id]) {
+        return <IconLogomark />
+    }
+    return <IconList />
+}
+
+export function getRevenueAnalyticsDefinitionIcon(definition: PropertyDefinition): JSX.Element {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.revenue_analytics_properties[definition.id]) {
+        return <IconLogomark />
+    }
+
+    return <IconList />
 }
 
 export function DefinitionHeader({

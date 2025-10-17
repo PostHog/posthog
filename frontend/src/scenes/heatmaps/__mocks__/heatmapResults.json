@@ -1,0 +1,382 @@
+{
+    "results": [
+        {
+            "count": 1,
+            "pointer_y": 1280,
+            "pointer_relative_x": 0.09,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 592,
+            "pointer_relative_x": 0.09,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 1168,
+            "pointer_relative_x": 0.74,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 96,
+            "pointer_relative_x": 0.11,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 448,
+            "pointer_relative_x": 0.17,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 432,
+            "pointer_relative_x": 0.07,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 96,
+            "pointer_relative_x": 0.75,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 3,
+            "pointer_y": 1136,
+            "pointer_relative_x": 0.94,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 560,
+            "pointer_relative_x": 0.97,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 128,
+            "pointer_relative_x": 0.26,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 400,
+            "pointer_relative_x": 0.17,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 80,
+            "pointer_relative_x": 1.1,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 272,
+            "pointer_relative_x": 0.26,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 16,
+            "pointer_relative_x": 0.04,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 464,
+            "pointer_relative_x": 0.14,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 448,
+            "pointer_relative_x": 0.2,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 112,
+            "pointer_relative_x": 0.06,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 240,
+            "pointer_relative_x": 0.62,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 592,
+            "pointer_relative_x": 0.31,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 144,
+            "pointer_relative_x": 0.03,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 384,
+            "pointer_relative_x": 0.22,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 192,
+            "pointer_relative_x": 0.76,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 1168,
+            "pointer_relative_x": 0.92,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 1168,
+            "pointer_relative_x": 0.91,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 176,
+            "pointer_relative_x": 0.1,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 1136,
+            "pointer_relative_x": 0.99,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 144,
+            "pointer_relative_x": 0.11,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 208,
+            "pointer_relative_x": 0.07,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 624,
+            "pointer_relative_x": 0.32,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 368,
+            "pointer_relative_x": 0.25,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 368,
+            "pointer_relative_x": 0.18,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 48,
+            "pointer_relative_x": 0.11,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 16,
+            "pointer_relative_x": 0.97,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 128,
+            "pointer_relative_x": 0.22,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 720,
+            "pointer_relative_x": 0.94,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 528,
+            "pointer_relative_x": 0.03,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 80,
+            "pointer_relative_x": 0.09,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 128,
+            "pointer_relative_x": 0.28,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 2,
+            "pointer_y": 528,
+            "pointer_relative_x": 0.01,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 144,
+            "pointer_relative_x": 0.27,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 176,
+            "pointer_relative_x": 0.82,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 1280,
+            "pointer_relative_x": 0.16,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 416,
+            "pointer_relative_x": 0.03,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 784,
+            "pointer_relative_x": 0.92,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 2624,
+            "pointer_relative_x": 0.12,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 2544,
+            "pointer_relative_x": 0.18,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 16,
+            "pointer_relative_x": 0.24,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 3,
+            "pointer_y": 1184,
+            "pointer_relative_x": 0.94,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 128,
+            "pointer_relative_x": 0.54,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 1120,
+            "pointer_relative_x": 0.7,
+            "pointer_target_fixed": true
+        },
+        {
+            "count": 1,
+            "pointer_y": 192,
+            "pointer_relative_x": 0.07,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 672,
+            "pointer_relative_x": 0.99,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 176,
+            "pointer_relative_x": 0.07,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 224,
+            "pointer_relative_x": 0.3,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 256,
+            "pointer_relative_x": 0.3,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 96,
+            "pointer_relative_x": 0.61,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 496,
+            "pointer_relative_x": 0.08,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 192,
+            "pointer_relative_x": 0.11,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 304,
+            "pointer_relative_x": 0.15,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 928,
+            "pointer_relative_x": 0.84,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 336,
+            "pointer_relative_x": 0.11,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 208,
+            "pointer_relative_x": 0.16,
+            "pointer_target_fixed": false
+        },
+        {
+            "count": 1,
+            "pointer_y": 48,
+            "pointer_relative_x": 0.14,
+            "pointer_target_fixed": false
+        }
+    ]
+}
