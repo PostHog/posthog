@@ -138,7 +138,7 @@ class Command(BaseCommand):
                 prefix = match.group(1)
                 if prefix in prefixes:
                     duplicates.append((prefix, migration_name))
-                prefixes[id].append(migration_name)
+                prefixes[prefix].append(migration_name)
 
         # Check for conflicts
         errors = []
