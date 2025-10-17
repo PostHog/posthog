@@ -97,14 +97,10 @@ impl KafkaDeduplicatorService {
         // Create checkpoint manager and inject an exporter to enable uploads
         let checkpoint_config = CheckpointConfig {
             checkpoint_interval: config.checkpoint_interval(),
-            cleanup_interval: config.checkpoint_cleanup_interval(),
             local_checkpoint_dir: config.local_checkpoint_dir.clone(),
             s3_bucket: config.s3_bucket.clone().unwrap_or_default(),
             s3_key_prefix: config.s3_key_prefix.clone(),
-            full_upload_interval: config.checkpoint_full_upload_interval,
             aws_region: config.aws_region.clone(),
-            checkpoints_per_partition: config.checkpoints_per_partition,
-            max_checkpoint_retention_hours: config.max_checkpoint_retention_hours,
             max_concurrent_checkpoints: config.max_concurrent_checkpoints,
             checkpoint_gate_interval: config.checkpoint_gate_interval(),
             checkpoint_worker_shutdown_timeout: config.checkpoint_worker_shutdown_timeout(),
@@ -117,10 +113,7 @@ impl KafkaDeduplicatorService {
         // create exporter conditionally if S3 config is populated
         let exporter = if !config.aws_region.is_empty() && config.s3_bucket.is_some() {
             let uploader = Box::new(S3Uploader::new(checkpoint_config.clone()).await.unwrap());
-            Some(Arc::new(CheckpointExporter::new(
-                checkpoint_config.clone(),
-                uploader,
-            )))
+            Some(Arc::new(CheckpointExporter::new(uploader)))
         } else {
             None
         };

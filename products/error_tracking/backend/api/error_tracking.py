@@ -855,8 +855,8 @@ class SymbolSetUpload:
 
 class ErrorTrackingSymbolSetUploadSerializer(serializers.Serializer):
     chunk_id = serializers.CharField()
-    release_id = serializers.CharField()
-    content_hash = serializers.CharField()
+    release_id = serializers.CharField(allow_null=True, default=None)
+    content_hash = serializers.CharField(allow_null=True, default=None)
 
 
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -1021,6 +1021,13 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         chunk_ids: list[str] = request.data.get("chunk_ids") or []
         # Grab the release ID from the request json
         release_id: str | None = request.data.get("release_id", None)
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_upload_started",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id, "endpoint": "bulk_start_upload"},
+            groups=groups(self.team.organization, self.team),
+        )
 
         # Validate symbol_sets using the serializer
         symbol_sets: list[SymbolSetUpload] = []
@@ -1346,6 +1353,7 @@ def create_symbol_set(
         return symbol_set
 
 
+@posthoganalytics.scoped()
 def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,

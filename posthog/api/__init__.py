@@ -13,6 +13,7 @@ from posthog.warehouse.api import (
     data_warehouse,
     external_data_schema,
     external_data_source,
+    managed_viewset,
     modeling,
     query_tab_state,
     saved_query,
@@ -215,13 +216,12 @@ project_features_router = projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
+# Tasks endpoints
+project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
+project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
 
 # Agents endpoints
 projects_router.register(r"agents", tasks.AgentDefinitionViewSet, "project_agents", ["team_id"])
-
-# Task progress endpoints
-projects_router.register(r"task_progress", tasks.TaskProgressViewSet, "project_task_progress", ["team_id"])
 
 # Workflows endpoints
 projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
@@ -421,6 +421,12 @@ environments_router.register(
     r"warehouse_saved_query_drafts",
     saved_query_draft.DataWarehouseSavedQueryDraftViewSet,
     "environment_warehouse_saved_query_drafts",
+    ["team_id"],
+)
+environments_router.register(
+    r"managed_viewsets",
+    managed_viewset.DataWarehouseManagedViewSetViewSet,
+    "environment_managed_viewsets",
     ["team_id"],
 )
 

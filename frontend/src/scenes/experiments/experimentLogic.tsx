@@ -904,6 +904,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     const statsConfig = {
                         ...values.experiment?.stats_config,
                         ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES] && { timeseries: true }),
+                        ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_QUERY_BUILDER] && {
+                            use_new_query_builder: true,
+                        }),
                     }
 
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
