@@ -849,19 +849,54 @@ class TestTaskRun(TestCase):
         )
         self.assertEqual(str(run), "Run for Test Task - In Progress")
 
-    def test_append_log(self):
+    def test_append_log_to_empty(self):
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
         )
 
-        run.append_log("First line")
+        entries = [{"type": "info", "message": "First log entry"}]
+        run.append_log(entries)
         run.refresh_from_db()
-        self.assertEqual(run.log, "First line")
+        self.assertEqual(len(run.log), 1)
+        self.assertEqual(run.log[0]["type"], "info")
+        self.assertEqual(run.log[0]["message"], "First log entry")
 
-        run.append_log("Second line")
+    def test_append_log_multiple_entries(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        entries = [
+            {"type": "info", "message": "First entry"},
+            {"type": "warning", "message": "Second entry"},
+            {"type": "error", "message": "Third entry"},
+        ]
+        run.append_log(entries)
         run.refresh_from_db()
-        self.assertEqual(run.log, "First line\nSecond line")
+        self.assertEqual(len(run.log), 3)
+        self.assertEqual(run.log[0]["type"], "info")
+        self.assertEqual(run.log[1]["type"], "warning")
+        self.assertEqual(run.log[2]["type"], "error")
+
+    def test_append_log_to_existing(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            log=[{"type": "info", "message": "Existing entry"}],
+        )
+
+        new_entries = [
+            {"type": "success", "message": "New entry 1"},
+            {"type": "debug", "message": "New entry 2"},
+        ]
+        run.append_log(new_entries)
+        run.refresh_from_db()
+        self.assertEqual(len(run.log), 3)
+        self.assertEqual(run.log[0]["message"], "Existing entry")
+        self.assertEqual(run.log[1]["message"], "New entry 1")
+        self.assertEqual(run.log[2]["message"], "New entry 2")
 
     def test_mark_completed(self):
         run = TaskRun.objects.create(

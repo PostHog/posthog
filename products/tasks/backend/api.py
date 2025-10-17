@@ -23,6 +23,7 @@ from .serializers import (
     AgentDefinitionSerializer,
     AgentListResponseSerializer,
     ErrorResponseSerializer,
+    TaskRunAppendLogRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunProgressRequestSerializer,
     TaskSerializer,
@@ -362,6 +363,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "update_stage",
             "progress_run",
             "set_output",
+            "append_log",
         ]
     }
     http_method_names = ["get", "post", "patch", "head", "options"]
@@ -386,7 +388,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
             raise NotFound("Task ID is required")
-        task = Task.objects.get(id=cast(str, task_id), team=self.team)
+        task = Task.objects.get(id=task_id, team=self.team)
         serializer.save(team=self.team, task=task)
 
     def perform_update(self, serializer):
@@ -521,6 +523,28 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # TODO: Validate output data according to schema for the task type.
         task_run.output = output_data
         task_run.save(update_fields=["output", "updated_at"])
+
+        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        summary="Append log entries",
+        description="Append one or more log entries to the task run log array",
+        request=TaskRunAppendLogRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated log"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid log entries"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="append_log", required_scopes=["task:write"])
+    def append_log(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+
+        serializer = TaskRunAppendLogRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        entries = serializer.validated_data["entries"]
+        task_run.append_log(entries)
 
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 

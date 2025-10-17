@@ -554,7 +554,7 @@ class TaskRun(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.STARTED)
 
     # Claude Code output
-    log = models.TextField(blank=True, default="", help_text="Live output from Claude Code execution")
+    log = models.JSONField(blank=True, default=list, help_text="Live output from Claude Code execution")
     error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
 
     # This is a structured output of the run. This is used to store the PR URL, commit SHA, etc.
@@ -582,14 +582,12 @@ class TaskRun(models.Model):
     def __str__(self):
         return f"Run for {self.task.title} - {self.get_status_display()}"
 
-    def append_log(self, text: str):
-        """Append text to the log and save."""
-        if self.log:
-            self.log += "\n" + text
-        else:
-            self.log = text
-        self.updated_at = timezone.now()
-        self.save(update_fields=["log", "updated_at"])
+    def append_log(self, entries: list[dict]):
+        """Append log entries to the log array and save."""
+        if not self.log:
+            self.log = []
+        self.log.extend(entries)
+        self.save(update_fields=["log"])
 
     def mark_completed(self):
         """Mark the progress as completed."""
