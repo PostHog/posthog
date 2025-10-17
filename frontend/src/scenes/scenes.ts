@@ -421,9 +421,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.WebAnalyticsMarketing]: {
         projectBased: true,
-        name: 'Marketing',
+        name: 'Marketing settings',
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics/marketing',
+        description: 'Analyze your marketing analytics data to understand your marketing performance.',
+        iconType: 'marketing_settings',
     },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,

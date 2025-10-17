@@ -234,11 +234,20 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                             iconType: sceneConfigurations[Scene.IngestionWarnings].iconType || 'default_icon_type',
                         },
                     ]
+                } else if (tab === DataManagementTab.MarketingAnalytics) {
+                    return [
+                        {
+                            key: Scene.WebAnalyticsMarketing,
+                            name: sceneConfigurations[Scene.WebAnalyticsMarketing].name,
+                            path: urls.marketingAnalytics(),
+                            iconType: sceneConfigurations[Scene.WebAnalyticsMarketing].iconType || 'default_icon_type',
+                        },
+                    ]
                 }
                 return [
                     {
                         key: tab,
-                        name: capitalizeFirstLetter(tab === 'events' ? 'Event definitions' : tab),
+                        name: capitalizeFirstLetter(tab),
                         path: tabs[tab].url,
                         iconType: 'event_definition',
                     },
