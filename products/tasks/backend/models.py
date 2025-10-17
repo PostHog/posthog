@@ -4,7 +4,7 @@ from typing import Optional
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.db import models, transaction
+from django.db import models
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -13,9 +13,6 @@ from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDModel
-
-from products.tasks.backend.agents import get_agent_by_id
-from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowTemplate
 
 
 class Task(models.Model):
@@ -442,136 +439,17 @@ class TaskWorkflow(models.Model):
         ordering = ["name"]
 
     def __str__(self):
-        return f"{self.name} ({self.team.name})"
+        return "TaskWorkflow has been deprecated."
 
-    @property
-    def active_stages(self):
-        return self.stages.filter(is_archived=False)
+    def save(self, *args, **kwargs):
+        raise DeprecationWarning("TaskWorkflow has been deprecated.")
 
-    def migrate_tasks_to_workflow(self, target_workflow: "TaskWorkflow") -> int:
-        """Migrate all tasks from this workflow to another workflow. Returns number of tasks updated."""
-
-        if target_workflow.id == self.id:
-            return 0
-
-        if self.team_id != target_workflow.team_id:
-            raise ValueError("Source and target workflows must belong to the same team")
-
-        current_workflow_tasks_qs = self.tasks.all()
-
-        if not current_workflow_tasks_qs.exists():
-            return 0
-
-        # Prefetch target stages once; preserve deterministic fallback using stage position ordering
-        active_stages = list(target_workflow.stages.filter(is_archived=False).order_by("position"))
-
-        stages_by_key = {stage.key: stage for stage in active_stages}
-
-        fallback_stage = active_stages[0] if active_stages else None
-
-        updated_tasks = []
-
-        for task in current_workflow_tasks_qs:
-            if task.workflow_id != target_workflow.id:
-                task.workflow = target_workflow
-                updated_tasks.append(task)
-
-        # Update task runs to use matching stages from the target workflow
-        if len(active_stages) > 0:
-            task_runs = TaskRun.objects.filter(task__in=current_workflow_tasks_qs).select_related("current_stage")
-            updated_runs = []
-
-            for task_run in task_runs:
-                next_stage = None
-
-                if task_run.current_stage and task_run.current_stage.key in stages_by_key:
-                    next_stage = stages_by_key[task_run.current_stage.key]
-                else:
-                    next_stage = fallback_stage
-
-                if task_run.current_stage != next_stage:
-                    task_run.current_stage = next_stage
-                    updated_runs.append(task_run)
-
-            if len(updated_runs) > 0:
-                TaskRun.objects.bulk_update(updated_runs, ["current_stage"])
-
-        if len(updated_tasks) > 0:
-            Task.objects.bulk_update(updated_tasks, ["workflow"])
-
-        return len(updated_tasks)
-
-    def unassign_tasks(self):
-        tasks = self.tasks.all()
-
-        updated_tasks = []
-
-        for task in tasks:
-            task.workflow = None
-            updated_tasks.append(task)
-
-        # Clear current_stage from all task runs
-        TaskRun.objects.filter(task__in=tasks).update(current_stage=None)
-
-        Task.objects.bulk_update(updated_tasks, ["workflow"])
-
-    def deactivate_safely(self):
-        """Deactivate workflow and move tasks to team default."""
-
-        if not self.is_active:
-            return
-
-        if self.is_default:
-            raise ValueError("Cannot deactivate the default workflow")
-
-        default_workflow = TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
-
-        with transaction.atomic():
-            if default_workflow:
-                self.migrate_tasks_to_workflow(default_workflow)
-            else:
-                self.unassign_tasks()
-
-            self.is_active = False
-            self.save(update_fields=["is_active"])
+    def delete(self, *args, **kwargs):
+        raise DeprecationWarning("TaskWorkflow has been deprecated.")
 
     @classmethod
-    def from_template(cls, template: WorkflowTemplate, team: Team, *, is_default=True):
-        with transaction.atomic():
-            workflow = cls.objects.create(
-                team=team,
-                name=template.name,
-                description=template.description,
-                is_default=is_default,
-                is_active=True,
-            )
-
-            stages = [
-                WorkflowStage(
-                    key=stage.key,
-                    name=stage.name,
-                    position=idx,
-                    color=stage.color,
-                    is_manual_only=stage.is_manual_only,
-                    workflow=workflow,
-                )
-                for idx, stage in enumerate(template.stages)
-            ]
-
-            WorkflowStage.objects.bulk_create(stages)
-
-        return workflow
-
-    @classmethod
-    def create_default_workflow(cls, team: Team):
-        return TaskWorkflow.from_template(DEFAULT_WORKFLOW_TEMPLATE, team, is_default=True)
-
-    def can_delete(self):
-        """Check if this workflow can be safely deleted"""
-        if self.is_default:
-            return False, "Cannot delete the default workflow"
-
-        return True, ""
+    def _raise_deprecation_error(cls):
+        raise DeprecationWarning("TaskWorkflow has been deprecated.")
 
 
 class WorkflowStage(models.Model):
@@ -614,36 +492,17 @@ class WorkflowStage(models.Model):
         ordering = ["position"]
 
     def __str__(self):
-        return f"{self.workflow.name}: {self.name}"
+        return "WorkflowStage has been deprecated."
+
+    def save(self, *args, **kwargs):
+        raise DeprecationWarning("WorkflowStage has been deprecated.")
 
     def delete(self, *args, **kwargs):
-        """Override delete to handle task runs in this stage."""
+        raise DeprecationWarning("WorkflowStage has been deprecated.")
 
-        with transaction.atomic():
-            # Move task runs to fallback stage or first available stage
-            target_stage = self.fallback_stage or self.workflow.stages.exclude(id=self.id).first()
-
-            if target_stage:
-                TaskRun.objects.filter(current_stage=self).update(current_stage=target_stage)
-            else:
-                # No other stages available, clear stage from task runs
-                TaskRun.objects.filter(current_stage=self).update(current_stage=None)
-
-            super().delete(*args, **kwargs)
-
-    @property
-    def next_stage(self):
-        return self.workflow.stages.filter(position__gt=self.position, is_archived=False).order_by("position").first()
-
-    def archive(self):
-        self.is_archived = True
-        self.save(update_fields=["is_archived"])
-
-    @property
-    def agent_definition(self):
-        if hasattr(self, "agent_name") and self.agent_name:
-            return get_agent_by_id(self.agent_name)
-        return None
+    @classmethod
+    def _raise_deprecation_error(cls):
+        raise DeprecationWarning("WorkflowStage has been deprecated.")
 
 
 class TaskProgress(models.Model):
@@ -690,10 +549,7 @@ class TaskProgress(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self):
-        raise DeprecationWarning(
-            "TaskProgress has been renamed to TaskRun. Use TaskRun instead. "
-            "This model is deprecated and should not be used."
-        )
+        return f"TaskProgress has been deprecated. Use TaskRun instead."
 
     def save(self, *args, **kwargs):
         raise DeprecationWarning(
