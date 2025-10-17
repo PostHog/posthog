@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchPipelineBuilder, newBatchPipelineBuilder } from './batch-pipeline-builder'
 import { BatchPipelineUnwrapper } from './batch-pipeline-unwrapper'
 import { BatchPipeline } from './batch-pipeline.interface'
+import { BatchPipelineBuilder, newBatchPipelineBuilder } from './builders'
 import { Pipeline, PipelineWarning } from './pipeline.interface'
 import { PipelineResult, ok } from './results'
 import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'

@@ -1,8 +1,8 @@
-import { Pipeline } from './pipeline.interface'
-import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'
-import { StartPipeline } from './start-pipeline'
-import { StepPipeline } from './step-pipeline'
-import { ProcessingStep } from './steps'
+import { Pipeline } from '../pipeline.interface'
+import { RetryingPipeline, RetryingPipelineOptions } from '../retrying-pipeline'
+import { StartPipeline } from '../start-pipeline'
+import { StepPipeline } from '../step-pipeline'
+import { ProcessingStep } from '../steps'
 
 export class StartPipelineBuilder<T, C> {
     pipe<U>(step: ProcessingStep<T, U>): PipelineBuilder<T, U, C> {
@@ -28,8 +28,4 @@ export class PipelineBuilder<TInput, TOutput, C> {
     build(): Pipeline<TInput, TOutput, C> {
         return this.pipeline
     }
-}
-
-export function newPipelineBuilder<T, C>(): StartPipelineBuilder<T, C> {
-    return new StartPipelineBuilder<T, C>()
 }
