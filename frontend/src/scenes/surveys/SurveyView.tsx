@@ -248,6 +248,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 )}
                             </>
                         }
+                        saveOnBlur
                     />
                     <SceneDivider />
                     <LemonTabs
