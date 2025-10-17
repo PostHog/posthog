@@ -1060,9 +1060,12 @@ def sync_feature_flag_last_called() -> None:
 
         for flag in flags:
             new_timestamp = flag_updates.get((flag.team_id, flag.key))
-            if new_timestamp and (flag.last_called_at is None or flag.last_called_at < new_timestamp):
-                flag.last_called_at = new_timestamp
-                flags_to_update.append(flag)
+            if new_timestamp:
+                # Ensure timestamp from ClickHouse is timezone-aware before comparison
+                new_timestamp = new_timestamp if new_timestamp.tzinfo else timezone.make_aware(new_timestamp)
+                if flag.last_called_at is None or flag.last_called_at < new_timestamp:
+                    flag.last_called_at = new_timestamp
+                    flags_to_update.append(flag)
 
         # Perform bulk update
         updated_count = 0
