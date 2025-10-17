@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -76,7 +76,7 @@ export function AddIntegrationButton(): JSX.Element {
                 </div>
             }
         >
-            <LemonButton type="primary" size="small" icon={<IconPlus />} data-attr="add-integration">
+            <LemonButton type="primary" size="small" icon={<IconPlusSmall />} data-attr="add-integration">
                 Add integration
             </LemonButton>
         </LemonDropdown>

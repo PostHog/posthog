@@ -13,6 +13,7 @@ import {
     LemonTabs,
     LemonTag,
     Link,
+    Spinner,
 } from '@posthog/lemon-ui'
 
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
@@ -27,7 +28,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDuration } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { SceneExport } from 'scenes/sceneTypes'
+import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -37,8 +39,10 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
+import { EventType } from '~/types'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
@@ -133,9 +137,15 @@ function LLMAnalyticsDashboard(): JSX.Element {
 }
 
 function LLMAnalyticsGenerations(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setGenerationsQuery, setGenerationsColumns } =
-        useActions(llmAnalyticsLogic)
-    const { generationsQuery } = useValues(llmAnalyticsLogic)
+    const {
+        setDates,
+        setShouldFilterTestAccounts,
+        setPropertyFilters,
+        setGenerationsQuery,
+        setGenerationsColumns,
+        toggleGenerationExpanded,
+    } = useActions(llmAnalyticsLogic)
+    const { generationsQuery, expandedGenerationIds, loadedTraces } = useValues(llmAnalyticsLogic)
 
     return (
         <DataTable
@@ -160,22 +170,76 @@ function LLMAnalyticsGenerations(): JSX.Element {
             context={{
                 emptyStateHeading: 'There were no generations in this period',
                 emptyStateDetail: 'Try changing the date range or filters.',
+                expandable: {
+                    expandedRowRender: function renderExpandedGeneration({ result }: DataTableRow) {
+                        if (!Array.isArray(result)) {
+                            return null
+                        }
+
+                        const uuid = result[0] as string
+                        const traceId = result[1] as string
+                        const trace = loadedTraces[traceId]
+                        const event = trace?.events.find((e) => e.id === uuid)
+
+                        if (!trace) {
+                            return (
+                                <div className="p-4">
+                                    <Spinner />
+                                </div>
+                            )
+                        }
+
+                        if (!event) {
+                            return <div className="p-4">Event not found in trace</div>
+                        }
+
+                        // Convert LLMTraceEvent to EventType format for EventDetails
+                        const eventForDetails: EventType = {
+                            id: event.id,
+                            distinct_id: '',
+                            properties: event.properties,
+                            event: event.event,
+                            timestamp: event.createdAt,
+                            elements: [],
+                        }
+
+                        return (
+                            <div className="pt-2 px-4 pb-4">
+                                <EventDetails event={eventForDetails} />
+                            </div>
+                        )
+                    },
+                    rowExpandable: ({ result }: DataTableRow) =>
+                        !!result && Array.isArray(result) && !!result[0] && !!result[1],
+                    isRowExpanded: ({ result }: DataTableRow) =>
+                        Array.isArray(result) && !!result[0] && expandedGenerationIds.has(result[0] as string),
+                    onRowExpand: ({ result }: DataTableRow) => {
+                        if (Array.isArray(result) && result[0] && result[1]) {
+                            toggleGenerationExpanded(result[0] as string, result[1] as string)
+                        }
+                    },
+                    onRowCollapse: ({ result }: DataTableRow) => {
+                        if (Array.isArray(result) && result[0] && result[1]) {
+                            toggleGenerationExpanded(result[0] as string, result[1] as string)
+                        }
+                    },
+                    noIndent: true,
+                },
                 columns: {
                     uuid: {
                         title: 'ID',
                         render: ({ record, value }) => {
                             const traceId = (record as unknown[])[1]
+
                             if (!value) {
-                                return <></>
+                                return null
                             }
 
                             const visualValue = truncateValue(value)
 
-                            if (!traceId) {
-                                return <strong>{visualValue}</strong>
-                            }
-
-                            return (
+                            return !traceId ? (
+                                <strong>{visualValue}</strong>
+                            ) : (
                                 <strong>
                                     <Tooltip title={value as string}>
                                         <Link to={`/llm-analytics/traces/${traceId}?event=${value as string}`}>
@@ -235,7 +299,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                         title: 'Trace ID',
                         render: ({ value }) => {
                             if (!value) {
-                                return <></>
+                                return null
                             }
 
                             const visualValue = truncateValue(value)
@@ -530,10 +594,10 @@ export function LLMAnalyticsScene(): JSX.Element {
             <SceneContent>
                 {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
                 <SceneTitleSection
-                    name={sceneConfigurations['LLMAnalytics'].name}
-                    description={sceneConfigurations['LLMAnalytics'].description}
+                    name={sceneConfigurations[Scene.LLMAnalytics].name}
+                    description={sceneConfigurations[Scene.LLMAnalytics].description}
                     resourceType={{
-                        type: sceneConfigurations['LLMAnalytics'].iconType || 'default_icon_type',
+                        type: sceneConfigurations[Scene.LLMAnalytics].iconType || 'default_icon_type',
                     }}
                     actions={
                         <>

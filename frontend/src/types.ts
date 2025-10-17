@@ -46,6 +46,7 @@ import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages
 import type {
     CurrencyCode,
     DashboardFilter,
+    DataWarehouseManagedViewsetKind,
     DatabaseSchemaField,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
@@ -685,6 +686,7 @@ export interface TeamType extends TeamBasicType {
     default_evaluation_environments_enabled: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
+    managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
 }
 
@@ -863,6 +865,7 @@ export enum PropertyFilterType {
     Meta = 'meta',
     /** Event properties */
     Event = 'event',
+    InternalEvent = 'internal_event',
     EventMetadata = 'event_metadata',
     /** Person properties */
     Person = 'person',
@@ -4330,6 +4333,7 @@ export type Duration = {
 
 export enum EventDefinitionType {
     Event = 'event',
+    EventInternal = 'event_internal',
     EventCustom = 'event_custom',
     EventPostHog = 'event_posthog',
 }
@@ -4990,9 +4994,25 @@ export type BatchExportServiceRedshift = {
         schema: string
         table_name: string
         properties_data_type: boolean
+        mode: 'COPY' | 'INSERT'
+        authorization_mode: 'IAMRole' | 'Credentials'
+        copy_inputs: BatchExportServiceRedshiftCopyInputs | null
         exclude_events: string[]
         include_events: string[]
     }
+}
+
+export type BatchExportServiceRedshiftCopyInputs = {
+    s3_bucket: string
+    s3_key_prefix: string
+    region_name: string
+    bucket_credentials: AWSCredentials
+    authorization: string | AWSCredentials
+}
+
+export type AWSCredentials = {
+    aws_access_key_id: string
+    aws_secret_access_key: string
 }
 
 export type BatchExportServiceDatabricks = {
@@ -5876,6 +5896,14 @@ export interface DatasetItem {
     updated_at: string
     created_at: string
     deleted: boolean
+}
+
+// Managed viewset
+export interface DataWarehouseManagedViewsetSavedQuery {
+    id: string
+    created_at: string
+    created_by_id: string | null
+    name: string
 }
 
 // Session Summaries

@@ -71,7 +71,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Apply integration filter if present
             if self.query.integrationFilter and self.query.integrationFilter.integrationSourceIds:
                 selected_ids = self.query.integrationFilter.integrationSourceIds
-                [adapter.get_source_id() for adapter in valid_adapters]
                 valid_adapters = [adapter for adapter in valid_adapters if adapter.get_source_id() in selected_ids]
 
             return valid_adapters

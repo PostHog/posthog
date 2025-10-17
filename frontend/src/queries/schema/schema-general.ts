@@ -2493,6 +2493,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
+    | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
     | 'web_analytics'
@@ -2515,6 +2516,7 @@ export type FileSystemIconType =
     | 'action'
     | 'comment'
     | 'annotation'
+    | 'event'
     | 'event_definition'
     | 'property_definition'
     | 'ingestion_warning'
@@ -2533,6 +2535,8 @@ export type FileSystemIconType =
     | 'home'
     | 'apps'
     | 'live'
+    | 'chat'
+
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2547,6 +2551,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     category?: string
     /** Color of the icon */
     iconColor?: FileSystemIconColor
+    /** Match this with the a base scene key or a specific one */
+    sceneKey?: string
 }
 
 export interface PersistedFolder {
@@ -2557,6 +2563,8 @@ export interface PersistedFolder {
     created_at: string
     updated_at: string
 }
+
+export type DataWarehouseManagedViewsetKind = 'revenue_analytics'
 
 export type InsightQueryNode =
     | TrendsQuery
