@@ -990,7 +990,7 @@ class DatabricksConsumer(Consumer):
         )
 
         self.external_logger.info(
-            "File %d with %.2f MB bytes uploaded to Databricks volume '%s'",
+            "File %d with %.2f MB uploaded to Databricks volume '%s'",
             self.current_file_index,
             buffer_size / 1024 / 1024,
             self.volume_path,
