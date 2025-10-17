@@ -48,6 +48,12 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
     """Process a batch of actions with bytecode."""
     logger = LOGGER.bind()
 
+    # Basic validation
+    if not isinstance(inputs.days, int) or inputs.days < 0 or inputs.days > 365:
+        raise ValueError(f"Invalid days value: {inputs.days}")
+    if not isinstance(inputs.min_matches, int) or inputs.min_matches < 0:
+        raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
+
     # Only get actions that are not deleted and have bytecode
     # Only fetch the fields we need for efficiency
     queryset = Action.objects.filter(deleted=False, bytecode__isnull=False).only("id", "team_id", "steps_json")
@@ -63,7 +69,7 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
 
     # Process each action with heartbeat to keep activity alive
     with HeartbeaterSync(logger=logger):
-        for action in queryset:
+        for idx, action in enumerate(queryset, 1):
             # Extract event name from the first step in steps_json
             if not action.steps_json or len(action.steps_json) == 0:
                 continue
@@ -75,6 +81,10 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
             event_name = first_step.get("event")
             if not event_name:
                 continue
+
+            # Log progress periodically
+            if idx % 100 == 0:
+                logger.info(f"Processed {idx} actions so far")
 
             # Query ClickHouse for persons who performed event X at least N times over the last X days
             query = """
@@ -155,12 +165,12 @@ class ActionsWorkflow(PostHogWorkflow):
         result = await temporalio.workflow.execute_activity(
             process_actions_activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(minutes=10),
+            start_to_close_timeout=dt.timedelta(minutes=30),
+            heartbeat_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=3,
-                initial_interval=dt.timedelta(seconds=1),
-                maximum_interval=dt.timedelta(seconds=10),
-                backoff_coefficient=2,
+                initial_interval=dt.timedelta(seconds=5),
+                maximum_interval=dt.timedelta(seconds=30),
             ),
         )
 
