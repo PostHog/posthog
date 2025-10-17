@@ -13313,6 +13313,7 @@
                 "action",
                 "comment",
                 "annotation",
+                "event",
                 "event_definition",
                 "property_definition",
                 "ingestion_warning",
@@ -13330,7 +13331,8 @@
                 "team_activity",
                 "home",
                 "apps",
-                "live"
+                "live",
+                "chat"
             ],
             "type": "string"
         },
@@ -13380,6 +13382,10 @@
                 },
                 "ref": {
                     "description": "Object's ID or other unique reference",
+                    "type": "string"
+                },
+                "sceneKey": {
+                    "description": "Match this with the a base scene key or a specific one",
                     "type": "string"
                 },
                 "shortcut": {
@@ -18192,6 +18198,7 @@
             "enum": [
                 "meta",
                 "event",
+                "internal_event",
                 "event_metadata",
                 "person",
                 "element",
@@ -25809,6 +25816,7 @@
                 "data_warehouse_person_properties",
                 "elements",
                 "events",
+                "internal_events",
                 "event_properties",
                 "event_feature_flags",
                 "event_metadata",
