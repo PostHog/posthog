@@ -1,9 +1,8 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useState } from 'react'
 
-import { IconCheck, IconCircleDashed, IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCheck, IconCircleDashed, IconInfo, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -34,6 +33,7 @@ import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { isNumeric } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { isStringWithLength, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
@@ -198,7 +198,7 @@ function UrlConfigForm({
     isSubmitting: boolean
 }): JSX.Element {
     const { addUrlTrigger, addUrlBlocklist } = useActions(replayTriggersLogic)
-
+    const { urlTriggerInputValidationWarning, urlBlocklistInputValidationWarning } = useValues(replayTriggersLogic)
     return (
         <Form
             logic={replayTriggersLogic}
@@ -218,6 +218,12 @@ function UrlConfigForm({
                         <LemonInput autoFocus placeholder="Enter URL regex." data-attr="url-input" />
                     </LemonField>
                 </LemonLabel>
+                {type === 'trigger' && urlTriggerInputValidationWarning && (
+                    <span className="text-danger">{urlTriggerInputValidationWarning}</span>
+                )}
+                {type === 'blocklist' && urlBlocklistInputValidationWarning && (
+                    <span className="text-danger">{urlBlocklistInputValidationWarning}</span>
+                )}
             </div>
             <div className="flex justify-between gap-2 w-full">
                 <div>
@@ -266,6 +272,7 @@ function UrlConfigRow({
     editIndex,
     onEdit,
     onRemove,
+    checkUrlResult,
 }: {
     trigger: SessionReplayUrlTriggerConfig
     index: number
@@ -273,6 +280,7 @@ function UrlConfigRow({
     editIndex: number | null
     onEdit: (index: number) => void
     onRemove: (index: number) => void
+    checkUrlResult?: boolean
 }): JSX.Element {
     if (editIndex === index) {
         return (
@@ -283,10 +291,33 @@ function UrlConfigRow({
     }
 
     return (
-        <div className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}>
+        <div
+            className={cn('border rounded flex items-center p-2 pl-4 bg-surface-primary', {
+                'border-success': checkUrlResult === true,
+                'border-danger': checkUrlResult === false,
+            })}
+        >
             <span title={trigger.url} className="flex-1 truncate">
                 <span>{trigger.matching === 'regex' ? 'Matches regex: ' : ''}</span>
                 <span>{trigger.url}</span>
+                {checkUrlResult !== undefined && (
+                    <span
+                        className={cn('ml-2 text-xs', {
+                            'text-success': checkUrlResult === true,
+                            'text-danger': checkUrlResult === false,
+                        })}
+                    >
+                        {checkUrlResult ? (
+                            <>
+                                <IconCheck /> Matches
+                            </>
+                        ) : (
+                            <>
+                                <IconX /> No match
+                            </>
+                        )}
+                    </span>
+                )}
             </span>
             <div className="Actions flex deprecated-space-x-1 shrink-0">
                 <AccessControlAction
@@ -333,11 +364,17 @@ function UrlConfigSection({
     type,
     title,
     description,
+    checkUrl,
+    checkUrlResults,
+    setCheckUrl,
     ...props
 }: {
     type: 'trigger' | 'blocklist'
     title: string
     description: string
+    checkUrl: string
+    checkUrlResults: { [key: number]: boolean }
+    setCheckUrl: (url: string) => void
     isAddFormVisible: boolean
     config: SessionReplayUrlTriggerConfig[] | null
     editIndex: number | null
@@ -372,6 +409,30 @@ function UrlConfigSection({
             {props.isAddFormVisible && (
                 <UrlConfigForm type={type} onCancel={props.onCancel} isSubmitting={props.isSubmitting} />
             )}
+
+            {!props.isAddFormVisible && props.config && props.config.length > 0 && (
+                <div className="border rounded p-3 bg-surface-primary">
+                    <LemonLabel className="text-sm font-medium mb-2 block">
+                        Test a URL against these patterns:
+                    </LemonLabel>
+                    <LemonInput
+                        value={checkUrl}
+                        onChange={setCheckUrl}
+                        placeholder="Enter a URL to test (e.g., https://example.com/page)"
+                        data-attr="url-check-input"
+                        className="mb-2"
+                    />
+                    {checkUrl && (
+                        <div className="text-xs text-muted">
+                            {Object.values(checkUrlResults).some(Boolean) ? (
+                                <span className="text-success">✓ This URL matches at least one pattern</span>
+                            ) : (
+                                <span className="text-danger">✗ This URL doesn't match any patterns</span>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
             {props.config?.map((trigger, index) => (
                 <UrlConfigRow
                     key={`${trigger.url}-${trigger.matching}`}
@@ -381,6 +442,7 @@ function UrlConfigSection({
                     editIndex={props.editIndex}
                     onEdit={props.onEdit}
                     onRemove={props.onRemove}
+                    checkUrlResult={checkUrlResults[index]}
                 />
             ))}
         </div>
@@ -388,9 +450,15 @@ function UrlConfigSection({
 }
 
 function UrlTriggerOptions(): JSX.Element | null {
-    const { isAddUrlTriggerConfigFormVisible, urlTriggerConfig, editUrlTriggerIndex, isProposedUrlTriggerSubmitting } =
-        useValues(replayTriggersLogic)
-    const { newUrlTrigger, removeUrlTrigger, setEditUrlTriggerIndex, cancelProposingUrlTrigger } =
+    const {
+        isAddUrlTriggerConfigFormVisible,
+        urlTriggerConfig,
+        editUrlTriggerIndex,
+        isProposedUrlTriggerSubmitting,
+        checkUrlTrigger,
+        checkUrlTriggerResults,
+    } = useValues(replayTriggersLogic)
+    const { newUrlTrigger, removeUrlTrigger, setEditUrlTriggerIndex, cancelProposingUrlTrigger, setCheckUrlTrigger } =
         useActions(replayTriggersLogic)
 
     return (
@@ -398,6 +466,9 @@ function UrlTriggerOptions(): JSX.Element | null {
             type="trigger"
             title="Enable recordings when URL matches"
             description="Adding a URL trigger means recording will only be started when the user visits a page that matches the URL."
+            checkUrl={checkUrlTrigger}
+            checkUrlResults={checkUrlTriggerResults}
+            setCheckUrl={setCheckUrlTrigger}
             isAddFormVisible={isAddUrlTriggerConfigFormVisible}
             config={urlTriggerConfig}
             editIndex={editUrlTriggerIndex}
@@ -416,15 +487,25 @@ function UrlBlocklistOptions(): JSX.Element | null {
         urlBlocklistConfig,
         editUrlBlocklistIndex,
         isProposedUrlBlocklistSubmitting,
+        checkUrlBlocklist,
+        checkUrlBlocklistResults,
     } = useValues(replayTriggersLogic)
-    const { newUrlBlocklist, removeUrlBlocklist, setEditUrlBlocklistIndex, cancelProposingUrlBlocklist } =
-        useActions(replayTriggersLogic)
+    const {
+        newUrlBlocklist,
+        removeUrlBlocklist,
+        setEditUrlBlocklistIndex,
+        cancelProposingUrlBlocklist,
+        setCheckUrlBlocklist,
+    } = useActions(replayTriggersLogic)
 
     return (
         <UrlConfigSection
             type="blocklist"
             title="Pause recordings when the user visits a page that matches the URL"
             description="Used to pause recordings for part of a user journey"
+            checkUrl={checkUrlBlocklist}
+            checkUrlResults={checkUrlBlocklistResults}
+            setCheckUrl={setCheckUrlBlocklist}
             isAddFormVisible={isAddUrlBlocklistConfigFormVisible}
             config={urlBlocklistConfig}
             editIndex={editUrlBlocklistIndex}

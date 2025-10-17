@@ -225,7 +225,7 @@ export function BatchExportSceneContent({
                   key: 'logs',
                   content: (
                       <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} />}>
-                          <LogsViewer sourceType="batch_export" sourceId={id} instanceLabel="run" />
+                          <LogsViewer sourceType="batch_exports" sourceId={id} instanceLabel="run" />
                       </FlaggedFeature>
                   ),
               }

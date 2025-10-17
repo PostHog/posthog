@@ -11,6 +11,7 @@ from asgiref.sync import async_to_sync
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import UUIDModel
 
 from products.tasks.backend.agents import get_agent_by_id
@@ -402,6 +403,57 @@ class Task(models.Model):
     def _assign_task_number(self) -> None:
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
         self.task_number = (max_task_number if max_task_number is not None else -1) + 1
+
+    @staticmethod
+    def create_and_run(
+        *,
+        team: Team,
+        title: str,
+        description: str,
+        origin_product: "Task.OriginProduct",
+        user_id: int,  # Will be used to validate the feature flag and create a personal api key for interacting with PostHog.
+        repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+    ) -> "Task":
+        from products.tasks.backend.temporal.client import execute_task_processing_workflow
+
+        created_by = User.objects.get(id=user_id)
+
+        if not created_by:
+            raise ValueError(f"User {user_id} does not exist")
+
+        github_integration = Integration.objects.filter(team=team, kind="github").first()
+
+        if not github_integration:
+            raise ValueError(f"Team {team.id} does not have a GitHub integration")
+
+        repository_config = {}
+
+        if "/" in repository:
+            org, repo = repository.split("/", 1)
+            repository_config = {"organization": org, "repository": repo}
+        else:
+            raise ValueError(f"Repository must be in format 'organization/repository', got: {repository}")
+
+        task = Task.objects.create(
+            team=team,
+            title=title,
+            description=description,
+            origin_product=origin_product,
+            created_by=created_by,
+            github_integration=github_integration,
+            repository_config=repository_config,
+        )
+
+        if not task.effective_workflow:
+            raise ValueError(f"Task has no workflow configured. Team {team.id} needs a default workflow.")
+
+        execute_task_processing_workflow(
+            task_id=str(task.id),
+            team_id=task.team.id,
+            user_id=user_id,
+        )
+
+        return task
 
 
 class TaskProgress(models.Model):
