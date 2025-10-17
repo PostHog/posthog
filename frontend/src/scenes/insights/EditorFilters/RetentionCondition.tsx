@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Fragment } from 'react'
+import { Fragment, useEffect } from 'react'
 import { toast } from 'react-toastify'
 
 import { IconInfo } from '@posthog/icons'
@@ -26,36 +26,32 @@ const MAX_BRACKETS = 30
 const MAX_RANGE = 1000
 
 function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['insightProps'] }): JSX.Element {
-    const { retentionFilter } = useValues(retentionLogic(insightProps))
-    const { updateInsightFilter } = useActions(retentionLogic(insightProps))
-    const { period, retentionCustomBrackets } = retentionFilter || {}
+    const { retentionFilter, localCustomBrackets } = useValues(retentionLogic(insightProps))
+    const { updateInsightFilter, updateLocalCustomBracket, setLocalCustomBrackets } = useActions(
+        retentionLogic(insightProps)
+    )
+    const { period } = retentionFilter || {}
 
-    const brackets = [...(retentionCustomBrackets || []), '']
-
-    const setBracket = (index: number, value: number | undefined): void => {
-        const newBrackets = [...(retentionCustomBrackets || [])]
-        if (value === undefined) {
-            newBrackets.splice(index, 1)
-        } else {
-            newBrackets[index] = value
+    useEffect(() => {
+        if (retentionFilter?.retentionCustomBrackets) {
+            setLocalCustomBrackets([...(retentionFilter.retentionCustomBrackets || []), ''])
         }
-
-        if (newBrackets.length === 0) {
-            updateInsightFilter({ retentionCustomBrackets: undefined })
-        } else {
-            updateInsightFilter({ retentionCustomBrackets: newBrackets })
-        }
-    }
+    }, [retentionFilter?.retentionCustomBrackets])
 
     const getBracketLabel = (index: number): string => {
+        const numericBrackets = localCustomBrackets
+            .filter((b) => b !== '')
+            .map((b) => (typeof b === 'string' ? parseInt(b, 10) : b))
+            .filter((b): b is number => !isNaN(b) && b > 0)
+
         const unit = dateOptionPlurals[period || 'Day'].toLowerCase().slice(0, -1)
         let cumulativeTotal = 0
         for (let i = 0; i < index; i++) {
-            cumulativeTotal += retentionCustomBrackets?.[i] || 0
+            cumulativeTotal += numericBrackets[i] || 0
         }
 
         const start = cumulativeTotal
-        const end = cumulativeTotal + (retentionCustomBrackets?.[index] || 0) - 1
+        const end = cumulativeTotal + (numericBrackets[index] || 0) - 1
 
         if (start === end) {
             return `${unit} ${start}`
@@ -63,7 +59,10 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
         return `${unit} ${start}-${end}`
     }
 
-    const totalRange = (retentionCustomBrackets || []).reduce((acc: number, val: number) => acc + val, 0)
+    const totalRange = (retentionFilter?.retentionCustomBrackets || []).reduce(
+        (acc: number, val: number) => acc + val,
+        0
+    )
 
     return (
         <div className="flex flex-col gap-2">
@@ -81,7 +80,7 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
                     dropdownMatchSelectWidth={false}
                 />
             </div>
-            {brackets.map((bracket, index) => {
+            {localCustomBrackets.map((bracket, index) => {
                 if (index >= MAX_BRACKETS) {
                     return null
                 }
@@ -91,10 +90,10 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
                         <LemonInput
                             type="number"
                             className="w-20"
-                            value={bracket}
+                            value={typeof bracket === 'number' ? bracket : undefined}
                             min={1}
                             onChange={(value) => {
-                                setBracket(index, value)
+                                updateLocalCustomBracket(index, value)
                             }}
                         />
                         {bracket !== '' && <div>{getBracketLabel(index)}</div>}

@@ -47,12 +47,42 @@ export const retentionLogic = kea<retentionLogicType>([
     })),
     actions({
         setSelectedBreakdownValue: (value: string | number | boolean | null) => ({ value }),
+        setLocalCustomBrackets: (brackets: (string | number)[]) => ({ brackets }),
+        updateLocalCustomBracket: (index: number, value: number | undefined) => ({ index, value }),
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         updateBreakdownFilter: () => {
             // Reset selected breakdown value when breakdown filter changes
             // This prevents the dropdown from showing invalid cohort IDs
             actions.setSelectedBreakdownValue(null)
+        },
+        updateLocalCustomBracket: async (_, breakpoint) => {
+            await breakpoint(300)
+            const { localCustomBrackets, retentionFilter } = values
+            const numericBrackets = localCustomBrackets
+                .map((b) => (typeof b === 'string' ? parseInt(b, 10) : b))
+                .filter((b): b is number => !isNaN(Number(b)) && Number(b) > 0)
+
+            if (JSON.stringify(numericBrackets) !== JSON.stringify(retentionFilter?.retentionCustomBrackets || [])) {
+                actions.updateInsightFilter({
+                    retentionCustomBrackets: numericBrackets.length > 0 ? numericBrackets : undefined,
+                })
+            }
+        },
+        updateInsightFilter: ({ insightFilter }) => {
+            const retentionFilter = insightFilter as RetentionFilter
+            if (retentionFilter.retentionCustomBrackets !== undefined) {
+                const { localCustomBrackets } = values
+                const numericLocal = localCustomBrackets
+                    .map((b) => (typeof b === 'string' ? parseInt(b, 10) : b))
+                    .filter((b): b is number => !isNaN(Number(b)) && Number(b) > 0)
+
+                const incomingBrackets = retentionFilter.retentionCustomBrackets || []
+
+                if (JSON.stringify(numericLocal) !== JSON.stringify(incomingBrackets)) {
+                    actions.setLocalCustomBrackets([...incomingBrackets, ''])
+                }
+            }
         },
     })),
     reducers({
@@ -60,6 +90,18 @@ export const retentionLogic = kea<retentionLogicType>([
             null as string | number | boolean | null,
             {
                 setSelectedBreakdownValue: (_, { value }) => value,
+            },
+        ],
+        localCustomBrackets: [
+            [] as (string | number)[],
+            {
+                setLocalCustomBrackets: (_, { brackets }) => brackets,
+                updateLocalCustomBracket: (state, { index, value }) => {
+                    const newBrackets = [...state]
+                    newBrackets[index] = value ?? ''
+                    const filtered = newBrackets.filter((b) => b !== '')
+                    return [...filtered, '']
+                },
             },
         ],
     }),
@@ -121,7 +163,9 @@ export const retentionLogic = kea<retentionLogicType>([
                     return {}
                 }
 
-                const { totalIntervals = DEFAULT_RETENTION_TOTAL_INTERVALS, meanRetentionCalculation } = retentionFilter
+                const { meanRetentionCalculation } = retentionFilter
+                const numIntervals = results.length > 0 ? results[0].values.length : 0
+
                 const groupedByBreakdown: Record<string, ProcessedRetentionPayload[]> = {}
 
                 if (hasValidBreakdown) {
@@ -151,7 +195,7 @@ export const retentionLogic = kea<retentionLogicType>([
                         ? 'Overall'
                         : (breakdownRows[0]?.breakdown_value ?? null)
 
-                    for (let intervalIndex = 0; intervalIndex < totalIntervals; intervalIndex++) {
+                    for (let intervalIndex = 0; intervalIndex < numIntervals; intervalIndex++) {
                         const validRows = breakdownRows.filter(
                             (row) =>
                                 row.values[intervalIndex] && // Ensure data for this interval exists
