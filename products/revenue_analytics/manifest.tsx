@@ -29,6 +29,7 @@ export const manifest: ProductManifest = {
             href: urls.revenueAnalytics(),
             type: 'revenue',
             tags: ['beta'],
+            sceneKey: 'RevenueAnalytics',
         },
     ],
     fileSystemTypes: {

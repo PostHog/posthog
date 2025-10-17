@@ -19,6 +19,7 @@ export const manifest: ProductManifest = {
             iconType: 'web_analytics',
             iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
             href: urls.webAnalytics(),
+            sceneKey: 'WebAnalytics',
         },
     ],
     treeItemsMetadata: [

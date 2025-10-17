@@ -231,6 +231,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Heatmaps',
         iconType: 'heatmap',
+        description: 'Heatmaps are a way to visualize user behavior on your website.',
     },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
@@ -369,6 +370,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/session-replay',
         layout: 'app-full-scene-height',
         iconType: 'session_replay',
+        description:
+            'Replay recordings of user sessions to understand how users interact with your product or website.',
     },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
@@ -382,6 +385,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/cdp/sources',
         layout: 'app-raw-no-header',
         hideProjectNotice: true,
+        description: 'Write and execute SQL queries against your data warehouse',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -452,6 +456,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Embedded analytics',
         description: 'Define queries your application will use via the API and monitor their cost and usage.',
         layout: 'app-container',
+        iconType: 'endpoints',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     ...productConfiguration,

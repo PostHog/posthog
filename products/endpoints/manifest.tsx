@@ -15,6 +15,8 @@ export const manifest: ProductManifest = {
             activityScope: 'Endpoints',
             layout: 'app-container',
             defaultDocsPath: '/docs/endpoints',
+            iconType: 'endpoints',
+            description: 'Define queries your application will use via the API and monitor their cost and usage.',
         },
         EndpointsUsage: {
             import: () => import('./frontend/EndpointsUsage'),
@@ -22,6 +24,7 @@ export const manifest: ProductManifest = {
             name: 'Endpoints usage',
             activityScope: 'Endpoints',
             layout: 'app-container',
+            iconType: 'endpoints',
         },
     },
     routes: {
@@ -62,6 +65,7 @@ export const manifest: ProductManifest = {
             tags: ['alpha'],
             iconType: 'endpoints',
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
+            sceneKey: 'EndpointsScene',
         },
     ],
     treeItemsMetadata: [

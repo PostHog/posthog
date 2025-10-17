@@ -2546,6 +2546,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     category?: string
     /** Color of the icon */
     iconColor?: FileSystemIconColor
+    /** Match this with the a base scene key or a specific one */
+    sceneKey?: string
 }
 
 export interface PersistedFolder {

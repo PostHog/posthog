@@ -5,7 +5,8 @@ import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -37,10 +38,10 @@ export function EarlyAccessFeatures(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Early access features"
-                description="Allow your users to individually enable or disable features that are in public beta."
+                name={sceneConfigurations[Scene.EarlyAccessFeatures].name}
+                description={sceneConfigurations[Scene.EarlyAccessFeatures].description}
                 resourceType={{
-                    type: 'early_access_feature',
+                    type: sceneConfigurations[Scene.EarlyAccessFeatures].iconType || 'default_icon_type',
                 }}
                 actions={
                     <LemonButton size="small" type="primary" to={urls.earlyAccessFeature('new')}>
