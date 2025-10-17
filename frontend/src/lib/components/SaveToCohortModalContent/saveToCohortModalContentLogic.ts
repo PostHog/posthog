@@ -20,7 +20,7 @@ const COHORTS_PER_PAGE = 100
 export interface CohortFilters {
     search?: string
     page?: number
-    type: string
+    type: 'static' | 'dynamic'
 }
 
 const DEFAULT_COHORT_FILTERS: CohortFilters = {
