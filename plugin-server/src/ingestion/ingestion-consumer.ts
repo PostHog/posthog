@@ -42,10 +42,8 @@ import {
     createValidateEventUuidStep,
 } from './event-preprocessing'
 import { createEmitEventStep } from './event-processing/emit-event-step'
-import {
-    PreprocessedEventWithStores,
-    createEventPipelineRunnerV1Step,
-} from './event-processing/event-pipeline-runner-v1-step'
+import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
+import { createNormalizeProcessPersonFlagStep } from './event-processing/normalize-process-person-flag-step'
 import { newBatchPipelineBuilder } from './pipelines/batch-pipeline-builder'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
@@ -79,6 +77,11 @@ type PreprocessedEvent = {
     headers: EventHeaders
     event: IncomingEvent
     eventWithTeam: IncomingEventWithTeam
+}
+
+export interface PerDistinctIdPipelineInput extends IncomingEventWithTeam {
+    personsStoreForBatch: PersonsStoreForBatch
+    groupStoreForBatch: GroupStoreForBatch
 }
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -126,7 +129,7 @@ export class IngestionConsumer {
         PreprocessedEvent,
         { message: Message }
     >
-    private perDistinctIdPipeline!: BatchPipeline<PreprocessedEventWithStores, void, { message: Message; team: Team }>
+    private perDistinctIdPipeline!: BatchPipeline<PerDistinctIdPipelineInput, void, { message: Message; team: Team }>
 
     constructor(
         private hub: Hub,
@@ -295,7 +298,7 @@ export class IngestionConsumer {
         }
 
         this.perDistinctIdPipeline = newBatchPipelineBuilder<
-            PreprocessedEventWithStores,
+            PerDistinctIdPipelineInput,
             { message: Message; team: Team }
         >()
             .messageAware((builder) =>
@@ -304,12 +307,15 @@ export class IngestionConsumer {
                         b.sequentially((seq) =>
                             seq.retry(
                                 (retry) =>
-                                    retry.pipe(createEventPipelineRunnerV1Step(this.hub, this.hogTransformer)).pipe(
-                                        createEmitEventStep({
-                                            kafkaProducer: this.kafkaProducer!,
-                                            clickhouseJsonEventsTopic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                                        })
-                                    ),
+                                    retry
+                                        .pipe(createNormalizeProcessPersonFlagStep())
+                                        .pipe(createEventPipelineRunnerV1Step(this.hub, this.hogTransformer))
+                                        .pipe(
+                                            createEmitEventStep({
+                                                kafkaProducer: this.kafkaProducer!,
+                                                clickhouseJsonEventsTopic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                                            })
+                                        ),
                                 {
                                     tries: 3,
                                     sleepMs: 100,
@@ -577,7 +583,7 @@ export class IngestionConsumer {
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): Promise<void> {
-        const preprocessedEventsWithStores: PreprocessedEventWithStores[] = eventsForDistinctId.events.map(
+        const preprocessedEventsWithStores: PerDistinctIdPipelineInput[] = eventsForDistinctId.events.map(
             (incomingEvent) => {
                 // Track $set usage in events that aren't known to use it, before ingestion adds anything there
                 trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
