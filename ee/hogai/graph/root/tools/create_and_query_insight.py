@@ -1,16 +1,19 @@
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import uuid4
 
+from langchain_core.tools import InjectedToolCallId
 from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
 from posthog.schema import AssistantContextualTool, AssistantToolCallMessage, VisualizationMessage
 
+from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.types.base import AssistantState
 
 INSIGHT_TOOL_PROMPT = """
-Use this tool to spawn a subagent that will create a product analytics insight for a given description.
+Use this tool to create a product analytics insight for a given natural language description by spawning a subagent.
 The tool generates a query and returns formatted text results for a specific data question or iterates on a previous query. It only retrieves a single query per call. If the user asks for multiple insights, you need to decompose a query into multiple subqueries and call the tool for each subquery.
 
 Follow these guidelines when retrieving data:
@@ -114,6 +117,7 @@ Terminate if the error persists.
 
 
 class CreateAndQueryInsightToolArgs(BaseModel):
+    tool_call_id: Annotated[str, InjectedToolCallId, SkipJsonSchema]
     query_description: str = Field(
         description=(
             "A description of the query to generate, encapsulating the details of the user's request. "
@@ -132,8 +136,8 @@ class CreateAndQueryInsightTool(MaxTool):
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
     thinking_message: str = "Coming up with an insight"
 
-    async def _arun_impl(self, query_description: str, *, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        graph = await InsightsGraph(self._team, self._user).compile_full_graph()
+    async def _arun_impl(self, query_description: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
+        graph = InsightsGraph(self._team, self._user).compile_full_graph()
         new_state = self._state.model_copy(
             update={
                 "root_tool_call_id": tool_call_id,
@@ -141,8 +145,8 @@ class CreateAndQueryInsightTool(MaxTool):
             },
             deep=True,
         )
-        snapshot = await graph.ainvoke(new_state)
-        updated_state = AssistantState.model_validate(snapshot.values)
+        dict_state = await graph.ainvoke(new_state)
+        updated_state = AssistantState.model_validate(dict_state)
         maybe_viz_message, tool_call_message = updated_state.messages[-2:]
 
         if not isinstance(tool_call_message, AssistantToolCallMessage):
@@ -154,7 +158,7 @@ class CreateAndQueryInsightTool(MaxTool):
 
         # If the contextual tool is available, we're editing an insight.
         # Add the UI payload to the tool call message.
-        if AssistantContextualTool.CREATE_AND_QUERY_INSIGHT.value in self._context_manager.get_contextual_tools():
+        if self.is_editing_mode(self._context_manager):
             tool_call_message = AssistantToolCallMessage(
                 content=tool_call_message.content,
                 ui_payload={self.get_name(): maybe_viz_message.answer.model_dump(exclude_none=True)},
@@ -164,3 +168,10 @@ class CreateAndQueryInsightTool(MaxTool):
             )
 
         return "", ToolMessagesArtifact(messages=[maybe_viz_message, tool_call_message])
+
+    @classmethod
+    def is_editing_mode(cls, context_manager: AssistantContextManager) -> bool:
+        """
+        Determines if the tool is in editing mode.
+        """
+        return AssistantContextualTool.CREATE_AND_QUERY_INSIGHT.value in context_manager.get_contextual_tools()
