@@ -67,4 +67,4 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
         # Replicate Django's auto_now_add logic: set created_at only on creation
         if self._state.adding and self.created_at is None:
             self.created_at = timezone.now()
-        super().save(*args, **kwargs)
+        super().save_in_persons_db(*args, **kwargs)
