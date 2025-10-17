@@ -370,6 +370,7 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "task",
             "created_at",
             "updated_at",
             "completed_at",
