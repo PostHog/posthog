@@ -321,8 +321,11 @@ export function normalizeRole(rawRole: unknown, fallback: string): string {
  * @returns The normalized message.
  */
 export function normalizeMessage(output: unknown, defaultRole: string): CompatMessage[] {
-    // Handle new array-based content format (unified format with structured objects)
-    // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
+    // Early handler: Preserve role for messages with structured array content
+    // This catches messages with explicit roles BEFORE provider-specific handlers that might lose the role.
+    // Supports Vercel AI SDK types (reasoning, tool-call) and native Anthropic types (thinking, tool_use, tool_result).
+    // Without this, messages with these content types would fall through to handlers that don't preserve roles,
+    // causing assistant messages to incorrectly display as user messages (bug #39683).
     if (
         output &&
         typeof output === 'object' &&
@@ -340,11 +343,11 @@ export function normalizeMessage(output: unknown, defaultRole: string): CompatMe
                     item.type === 'function' ||
                     item.type === 'image' ||
                     item.type === 'output_text' ||
-                    item.type === 'reasoning' ||
-                    item.type === 'thinking' ||
-                    item.type === 'tool-call' ||
-                    item.type === 'tool_use' ||
-                    item.type === 'tool_result')
+                    item.type === 'reasoning' || // Vercel AI SDK format (from Anthropic's native 'thinking')
+                    item.type === 'thinking' || // Native Anthropic extended thinking
+                    item.type === 'tool-call' || // Vercel AI SDK format (from Anthropic's native 'tool_use')
+                    item.type === 'tool_use' || // Native Anthropic tool call
+                    item.type === 'tool_result') // Native Anthropic tool result
         )
     ) {
         return [
