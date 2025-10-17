@@ -1026,6 +1026,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             "error_tracking_symbol_set_upload_started",
             distinct_id=request.user.pk,
             properties={"team_id": self.team.id, "endpoint": "bulk_start_upload"},
+            groups=groups(self.team.organization, self.team),
         )
 
         # Validate symbol_sets using the serializer
