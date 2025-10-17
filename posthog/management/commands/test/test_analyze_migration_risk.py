@@ -1,8 +1,7 @@
 from io import StringIO
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from django.core.management import call_command
 from django.test import TestCase
 
 
@@ -13,8 +12,8 @@ class TestAnalyzeMigrationRisk(TestCase):
 
         command = Command()
 
-        with patch("django.db.migrations.autodetector.MigrationAutodetector") as mock_autodetector:
-            mock_autodetector.return_value.changes.return_value = {}
+        with patch("django.core.management.call_command"):
+            # No exception means no migrations needed
             result = command.check_missing_migrations()
 
         assert result == ""
@@ -25,17 +24,19 @@ class TestAnalyzeMigrationRisk(TestCase):
 
         command = Command()
 
-        # Create mock migration with operations
-        mock_migration = MagicMock()
-        mock_operation = MagicMock()
-        mock_operation.describe.return_value = "Remove field test_field from testmodel"
-        mock_migration.operations = [mock_operation]
+        def mock_makemigrations(*args, **kwargs):
+            # Simulate Django's output to stdout
+            import sys
 
-        with patch("django.db.migrations.autodetector.MigrationAutodetector") as mock_autodetector:
-            mock_autodetector.return_value.changes.return_value = {"posthog": [mock_migration]}
+            sys.stdout.write("Migrations for 'posthog':\n")
+            sys.stdout.write("  posthog/migrations/0001_test.py\n")
+            sys.stdout.write("    - Remove field test_field from testmodel\n")
+            raise SystemExit(1)
+
+        with patch("django.core.management.call_command", side_effect=mock_makemigrations):
             result = command.check_missing_migrations()
 
-        assert "MISSING MIGRATIONS DETECTED" in result
+        assert "**Summary:** ⚠️ Missing migrations detected" in result
         assert "makemigrations" in result
         assert "Remove field test_field from testmodel" in result
 
@@ -45,8 +46,8 @@ class TestAnalyzeMigrationRisk(TestCase):
 
         command = Command()
 
-        with patch("django.db.migrations.loader.MigrationLoader") as mock_loader:
-            mock_loader.side_effect = Exception("Database error")
+        with patch("django.core.management.call_command") as mock_call_command:
+            mock_call_command.side_effect = Exception("Database error")
             result = command.check_missing_migrations()
 
         assert result == ""
@@ -56,43 +57,58 @@ class TestAnalyzeMigrationRisk(TestCase):
         import sys
         from io import StringIO
 
+        from django.core.management import call_command as real_call_command
+
         # Capture stdout since the command uses print()
         captured_output = StringIO()
         old_stdout = sys.stdout
 
+        def selective_mock_call_command(command_name, *args, **kwargs):
+            if command_name == "makemigrations":
+                # Simulate Django's output to stdout
+                sys.stdout.write("Migrations for 'posthog':\n")
+                sys.stdout.write("  posthog/migrations/0001_test.py\n")
+                sys.stdout.write("    - Remove field test_field from testmodel\n")
+                raise SystemExit(1)
+            else:
+                # Call the real command for other commands
+                return real_call_command(command_name, *args, **kwargs)
+
         try:
             sys.stdout = captured_output
-
-            # Create mock migration with operations
-            mock_migration = MagicMock()
-            mock_operation = MagicMock()
-            mock_operation.describe.return_value = "Remove field test_field from testmodel"
-            mock_migration.operations = [mock_operation]
 
             with patch(
                 "posthog.management.commands.analyze_migration_risk.Command.get_unapplied_migrations"
             ) as mock_get:
                 mock_get.return_value = []
 
-                with patch("django.db.migrations.autodetector.MigrationAutodetector") as mock_autodetector:
-                    mock_autodetector.return_value.changes.return_value = {"posthog": [mock_migration]}
-                    call_command("analyze_migration_risk")
+                with patch("django.core.management.call_command", side_effect=selective_mock_call_command):
+                    real_call_command("analyze_migration_risk")
 
             output = captured_output.getvalue()
-            assert "MISSING MIGRATIONS DETECTED" in output
+            assert "**Summary:** ⚠️ Missing migrations detected" in output
         finally:
             sys.stdout = old_stdout
 
     def test_command_silent_when_no_migrations_and_no_missing(self):
         """Should output nothing when no migrations and no missing migrations."""
+        from django.core.management import call_command as real_call_command
+
         out = StringIO()
+
+        def selective_mock_call_command(command_name, *args, **kwargs):
+            if command_name == "makemigrations":
+                # No exception means no migrations needed
+                return
+            else:
+                # Call the real command for other commands
+                return real_call_command(command_name, *args, **kwargs)
 
         with patch("posthog.management.commands.analyze_migration_risk.Command.get_unapplied_migrations") as mock_get:
             mock_get.return_value = []
 
-            with patch("django.db.migrations.autodetector.MigrationAutodetector") as mock_autodetector:
-                mock_autodetector.return_value.changes.return_value = {}
-                call_command("analyze_migration_risk", stdout=out)
+            with patch("django.core.management.call_command", side_effect=selective_mock_call_command):
+                real_call_command("analyze_migration_risk", stdout=out)
 
         output = out.getvalue()
         assert output == ""

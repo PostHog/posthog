@@ -112,42 +112,38 @@ class Command(BaseCommand):
 
     def check_missing_migrations(self) -> str:
         """Check if there are model changes that need migrations."""
-        from django.apps import apps
-        from django.db import connection
-        from django.db.migrations.autodetector import MigrationAutodetector
-        from django.db.migrations.loader import MigrationLoader
-        from django.db.migrations.state import ProjectState
+        import sys
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        # Capture stdout/stderr
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        stdout_capture = StringIO()
+        stderr_capture = StringIO()
 
         try:
-            # Load migration graph
-            loader = MigrationLoader(connection, ignore_no_migrations=True)
+            sys.stdout = stdout_capture
+            sys.stderr = stderr_capture
 
-            # Detect changes
-            autodetector = MigrationAutodetector(
-                loader.project_state(),
-                ProjectState.from_apps(apps),
-            )
-            changes = autodetector.changes(graph=loader.graph)
-
-            if not changes:
-                return ""  # No missing migrations
-
-            # Format the detected changes
-            output_lines = ["⚠️  MISSING MIGRATIONS DETECTED\n"]
-            output_lines.append("Model changes have been detected that require new migrations:\n")
-
-            for app_label, app_migrations in changes.items():
-                output_lines.append(f"\nMigrations for '{app_label}':")
-                for migration in app_migrations:
-                    for operation in migration.operations:
-                        output_lines.append(f"  - {operation.describe()}")
-
-            output_lines.append("\nRun `python manage.py makemigrations` to create them.\n")
-            return "\n".join(output_lines)
-
+            try:
+                call_command("makemigrations", "--check", "--dry-run")
+                # Exit code 0 means no migrations needed
+                return ""
+            except SystemExit:
+                # Exit code 1 means migrations needed
+                output = stdout_capture.getvalue()
+                if output.strip():
+                    # Prepend Summary for CI workflow, keep Django's output as-is
+                    return f"**Summary:** ⚠️ Missing migrations detected\n\n{output}\n\nRun `python manage.py makemigrations` to create them.\n"
+                return ""
         except Exception:
-            # Ignore errors (e.g., can't connect to DB)
+            # Ignore other errors (e.g., can't connect to DB)
             return ""
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
     def print_report(self, results):
         """Print formatted risk report."""
