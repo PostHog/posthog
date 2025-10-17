@@ -82,7 +82,7 @@ class Command(BaseCommand):
             "--staff",
             action="store_true",
             default=True,
-            help="Wether the demo user should be a staff user (default: True)",
+            help="Whether the demo user should be a staff user (default: True)",
         )
         parser.add_argument(
             "--skip-materialization",
