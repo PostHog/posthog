@@ -24,7 +24,6 @@ import { webAnalyticsLogic } from './webAnalyticsLogic'
 export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
-        preAggregatedEnabled,
     } = useValues(webAnalyticsLogic)
     const { setDates } = useActions(webAnalyticsLogic)
 
@@ -49,7 +48,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
                     <WebAnalyticsCompareFilter />
 
-                    {!preAggregatedEnabled && <WebConversionGoal />}
+                    <WebConversionGoal />
                     <TableSortingIndicator />
 
                     <WebVitalsPercentileToggle />
