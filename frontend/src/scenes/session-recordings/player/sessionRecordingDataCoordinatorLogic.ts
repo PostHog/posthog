@@ -199,14 +199,16 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         end: [
             (s) => [s.snapshots, s.sessionPlayerMetaData],
             (snapshots, meta): Dayjs | null => {
-                const lastSnapshot = snapshots[snapshots.length - 1] || null
+                // Prioritize metadata end_time - this is the true end of the recording
+                // Only fall back to snapshot timestamp if metadata is unavailable
                 const eventEnd = meta?.end_time ? dayjs(meta.end_time) : null
-                const snapshotEnd = lastSnapshot ? dayjs(lastSnapshot.timestamp) : null
-
-                if (eventEnd && snapshotEnd) {
-                    return eventEnd.isAfter(snapshotEnd) ? eventEnd : snapshotEnd
+                if (eventEnd) {
+                    return eventEnd
                 }
-                return eventEnd || snapshotEnd
+
+                // Fallback: use last snapshot timestamp if no metadata
+                const lastSnapshot = snapshots[snapshots.length - 1] || null
+                return lastSnapshot ? dayjs(lastSnapshot.timestamp) : null
             },
         ],
 
@@ -304,13 +306,13 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         snapshotsInvalid: [
-            (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, s.start, p.sessionRecordingId, s.currentTeam],
+            (s, p) => [s.windowsHaveFullSnapshot, s.fullyLoaded, s.start, p.sessionRecordingId, s.currentTeam],
             (
+                windowsHaveFullSnapshot: Record<string, boolean>,
                 fullyLoaded: boolean,
                 start: Dayjs | null,
                 sessionRecordingId: SessionRecordingId,
-                currentTeam: TeamPublicType | TeamType | null,
-                windowsHaveFullSnapshot: Record<string, boolean>
+                currentTeam: TeamPublicType | TeamType | null
             ): boolean => {
                 if (!fullyLoaded || !start) {
                     return false
@@ -347,8 +349,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         hasMinimumPlayableData: [
-            (s) => [s.windowsHaveFullSnapshots, s.sessionPlayerMetaDataLoading],
-            (windowsHaveFullSnapshots: Record<string, boolean>, sessionPlayerMetaDataLoading: boolean): boolean => {
+            (s) => [s.windowsHaveFullSnapshot, s.sessionPlayerMetaDataLoading],
+            (windowsHaveFullSnapshot: Record<string, boolean>, sessionPlayerMetaDataLoading: boolean): boolean => {
                 // We can start playback if we have:
                 // 1. Metadata loaded
                 // 2. At least one window with a full snapshot
@@ -356,7 +358,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     return false
                 }
 
-                return Object.values(windowsHaveFullSnapshots).some((x) => x)
+                return Object.values(windowsHaveFullSnapshot).some((x) => x)
             },
         ],
 
@@ -393,6 +395,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         fullyLoaded: [
             (s) => [
                 s.snapshots,
+                s.segments,
                 s.sessionPlayerMetaDataLoading,
                 s.snapshotsLoading,
                 s.sessionEventsDataLoading,
@@ -401,19 +404,24 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             ],
             (
                 snapshots,
+                segments,
                 sessionPlayerMetaDataLoading,
                 snapshotsLoading,
                 sessionEventsDataLoading,
                 sessionCommentsLoading,
                 sessionNotebookCommentsLoading
             ): boolean => {
+                // Check if there's a buffer segment (unloaded data)
+                const hasBufferSegment = segments.some((segment) => segment.kind === 'buffer')
+
                 return (
                     !!snapshots?.length &&
                     !sessionPlayerMetaDataLoading &&
                     !snapshotsLoading &&
                     !sessionEventsDataLoading &&
                     !sessionCommentsLoading &&
-                    !sessionNotebookCommentsLoading
+                    !sessionNotebookCommentsLoading &&
+                    !hasBufferSegment
                 )
             },
         ],

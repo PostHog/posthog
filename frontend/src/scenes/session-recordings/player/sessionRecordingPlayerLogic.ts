@@ -1022,23 +1022,36 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return null
                 }
                 const recordingStart = sessionPlayerData.start.valueOf()
-                return recordingStart + currentPlayerTime + 120000
+                // Load 15 minutes ahead
+                return recordingStart + currentPlayerTime + 900000
             },
         ],
 
         shouldPauseLoading: [
-            (s) => [s.targetBufferTimestamp, s.latestLoadedTimestamp, s.currentPlayerState],
-            (targetBufferTimestamp, latestLoadedTimestamp, currentPlayerState): boolean => {
-                if (currentPlayerState === SessionPlayerState.PAUSE) {
-                    return false
-                }
-
+            (s) => [s.targetBufferTimestamp, s.latestLoadedTimestamp],
+            (targetBufferTimestamp, latestLoadedTimestamp): boolean => {
                 if (!targetBufferTimestamp || !latestLoadedTimestamp) {
                     return false
                 }
 
-                const bufferEdge = latestLoadedTimestamp - targetBufferTimestamp
-                return bufferEdge > 60000
+                // targetBufferTimestamp is where we want to buffer to (current + 15 minutes)
+                // latestLoadedTimestamp is the furthest we've loaded
+                // If we've loaded past our target, pause loading
+                const bufferAhead = latestLoadedTimestamp - targetBufferTimestamp
+                return bufferAhead > 0
+            },
+        ],
+
+        shouldResumeLoading: [
+            (s) => [s.targetBufferTimestamp, s.latestLoadedTimestamp],
+            (targetBufferTimestamp: number | null, latestLoadedTimestamp: number): boolean => {
+                if (!targetBufferTimestamp || !latestLoadedTimestamp) {
+                    return false
+                }
+
+                // Resume loading when we're within 5 minutes of the buffer target
+                const bufferAhead = latestLoadedTimestamp - targetBufferTimestamp
+                return bufferAhead < 300000
             },
         ],
     }),
@@ -1426,9 +1439,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
             values.player?.replayer?.pause()
 
+            // When paused, we continue loading in background unconditionally
+            // resumeLoading() will automatically trigger loading to continue
             if (!values.fullyLoaded) {
                 actions.resumeLoading()
-                actions.loadNextSnapshotSource()
             }
         },
         setEndReached: ({ reached }) => {
@@ -1478,6 +1492,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.player?.replayer?.pause()
                     actions.startBuffer()
                     actions.clearPlayerError()
+
+                    // When seeking forward into a buffer, aggressively load data to catch up
+                    // resumeLoading() will automatically trigger loading to continue
+                    if (!values.fullyLoaded) {
+                        actions.resumeLoading()
+                    }
                 }
             }
 
@@ -1594,7 +1614,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 cache.lastLoadingCheckSecond = values.currentPlayerTimeSeconds
                 if (values.shouldPauseLoading) {
                     actions.pauseLoading()
-                } else {
+                } else if (values.shouldResumeLoading) {
+                    // resumeLoading() will automatically trigger loading to continue
                     actions.resumeLoading()
                 }
             }

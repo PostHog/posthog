@@ -21,17 +21,27 @@ import { seekbarLogic } from './seekbarLogic'
 const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
     segment,
     durationMs,
+    fullyLoaded,
 }: {
     segment: RecordingSegment
     durationMs: number
+    fullyLoaded: boolean
 }): JSX.Element {
+    const getTitle = (): 'Active period' | 'Inactive period' | undefined => {
+        if (segment.kind === 'buffer') {
+            return undefined
+        }
+        return segment.isActive ? 'Active period' : 'Inactive period'
+    }
+
     return (
         <div
             className={clsx(
                 'PlayerSeekbar__segments__item',
-                segment.isActive && 'PlayerSeekbar__segments__item--active'
+                segment.isActive && 'PlayerSeekbar__segments__item--active',
+                segment.kind === 'buffer' && !fullyLoaded && 'PlayerSeekbar__segments__item--buffer-loading'
             )}
-            title={!segment.isActive ? 'Inactive period' : 'Active period'}
+            title={getTitle()}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: `${(100 * segment.durationMs) / durationMs}%`,
@@ -41,7 +51,7 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
 })
 
 function SeekbarSegments(): JSX.Element {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, fullyLoaded } = useValues(sessionRecordingPlayerLogic)
     const { segments, durationMs } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
     return (
         <div className="PlayerSeekbar__segments">
@@ -49,6 +59,7 @@ function SeekbarSegments(): JSX.Element {
                 <SeekbarSegment
                     segment={segment}
                     durationMs={durationMs}
+                    fullyLoaded={fullyLoaded}
                     key={`${segment.startTimestamp}-${segment.endTimestamp}-${segment.windowId}-${segment.kind}`}
                 />
             ))}
@@ -57,7 +68,7 @@ function SeekbarSegments(): JSX.Element {
 }
 
 export function Seekbar(): JSX.Element {
-    const { sessionRecordingId, logicProps, hasSnapshots } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, logicProps, hasSnapshots, fullyLoaded } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
     const { endTimeMs, thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(logicProps))
@@ -105,7 +116,12 @@ export function Seekbar(): JSX.Element {
                         style={{ width: `${Math.max(thumbLeftPos, 0)}px` }}
                     />
                     {/* eslint-disable-next-line react/forbid-dom-props */}
-                    <div className="PlayerSeekbar__bufferbar" style={{ width: `${bufferPercent}%` }} />
+                    <div
+                        className={clsx('PlayerSeekbar__bufferbar', {
+                            'PlayerSeekbar__bufferbar--loading': !fullyLoaded,
+                        })}
+                        style={{ width: `${bufferPercent}%` }}
+                    />
                     <div
                         className="PlayerSeekbar__thumb"
                         ref={thumbRef}

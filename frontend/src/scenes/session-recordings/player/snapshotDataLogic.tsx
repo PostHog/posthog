@@ -216,6 +216,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             actions.loadNextSnapshotSource()
         },
 
+        resumeLoading: () => {
+            // When loading is resumed, automatically continue loading if we have sources
+            if (values.snapshotSources && values.snapshotSources.length > 0) {
+                actions.loadNextSnapshotSource()
+            }
+        },
+
         loadNextSnapshotSource: () => {
             // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
             if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
@@ -233,7 +240,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     }) || []
 
                 if (nextSourcesToLoad.length > 0) {
-                    return actions.loadSnapshotsForSource(nextSourcesToLoad.slice(0, 15))
+                    const batch = nextSourcesToLoad.slice(0, 5)
+                    return actions.loadSnapshotsForSource(batch)
                 }
 
                 if (!props.blobV2PollingDisabled) {

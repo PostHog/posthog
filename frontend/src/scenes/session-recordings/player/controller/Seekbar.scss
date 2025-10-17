@@ -82,20 +82,21 @@
                 }
 
                 &--buffer {
-                    background-color: var(--color-border-tertiary);
-                    opacity: 0.7;
+                    background-color: var(--color-border-primary);
+                    opacity: 1;
                 }
 
                 &--buffer-loading {
+                    background-color: var(--color-border-primary);
                     background-image: repeating-linear-gradient(
                         45deg,
-                        var(--color-border-tertiary),
-                        var(--color-border-tertiary) 8px,
-                        var(--color-bg-surface-secondary) 8px,
-                        var(--color-bg-surface-secondary) 16px
+                        var(--color-border-primary),
+                        var(--color-border-primary) 10px,
+                        var(--color-bg-surface-secondary) 10px,
+                        var(--color-bg-surface-secondary) 20px
                     );
-                    background-size: 22px 22px;
-                    opacity: 0.8;
+                    background-size: 28px 28px;
+                    opacity: 1;
                     animation: PlayerSeekbar__loading-stripes 0.8s linear infinite;
                 }
             }
