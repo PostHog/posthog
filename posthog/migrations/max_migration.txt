@@ -1,1 +1,1 @@
-0885_fake_social_django_jsonfield_migrations
+0886_fake_social_django_jsonfield_migrations
