@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconApps, IconCheck, IconInfo, IconPerson } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { CommandInput } from 'lib/components/CommandInput'
+import { Command, CommandInput } from 'lib/components/CommandInput'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -85,6 +85,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     )
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
 
+    // State for selected commands (tags)
+    const [selectedCommands, setSelectedCommands] = useState<Command<NEW_TAB_COMMANDS>[]>([])
+
     // scroll it to view
     useEffect(() => {
         if (selectedItem) {
@@ -128,6 +131,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                             }}
                             placeholder="Search or type / to see commands..."
                             activeCommands={activeCommands}
+                            selectedCommands={selectedCommands}
+                            onSelectedCommandsChange={setSelectedCommands}
                             onCommandSelect={(command) => {
                                 if (command.value === 'all') {
                                     for (const commandItem of NEW_TAB_COMMANDS_ITEMS) {
@@ -140,7 +145,11 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                             }}
                         />
 
-                        <div className="mx-1.5">
+                        <div
+                            className={cn('mx-1.5', {
+                                'mt-[.5px]': newTabSceneData,
+                            })}
+                        >
                             <SearchHints
                                 search={search}
                                 filteredItemsGridLength={filteredItemsGrid.length}

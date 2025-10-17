@@ -1,11 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react'
 
-import { IconCheck } from '@posthog/icons'
-import { LemonInput } from '@posthog/lemon-ui'
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconCheck, IconX } from '@posthog/icons'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { TextInputPrimitive, textInputVariants } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
 export interface Command<T = string> {
@@ -40,6 +39,7 @@ export function CommandInput<T = string>({
     const [focusedIndex, setFocusedIndex] = useState(0)
     const inputRef = useRef<HTMLInputElement>(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
+    const [focusedTagIndex, setFocusedTagIndex] = useState<number | null>(null)
 
     useEffect(() => {
         setInputValue(value)
@@ -48,6 +48,11 @@ export function CommandInput<T = string>({
     const handleInputChange = (newValue: string): void => {
         setInputValue(newValue)
         onChange?.(newValue)
+
+        // Clear focused tag when user starts typing
+        if (focusedTagIndex !== null) {
+            setFocusedTagIndex(null)
+        }
 
         if (newValue.endsWith('/')) {
             setFilteredCommands(commands)
@@ -81,8 +86,14 @@ export function CommandInput<T = string>({
     }
 
     const removeCommand = (commandValue: string): void => {
+        const commandToRemove = selectedCommands.find((cmd) => cmd.value === commandValue)
         const newSelectedCommands = selectedCommands.filter((cmd) => cmd.value !== commandValue)
         onSelectedCommandsChange?.(newSelectedCommands)
+
+        // Notify parent component about the command removal
+        if (commandToRemove) {
+            onCommandSelect?.(commandToRemove)
+        }
     }
 
     const handleBlur = (): void => {
@@ -111,6 +122,38 @@ export function CommandInput<T = string>({
     }
 
     const handleKeyDown = (e: React.KeyboardEvent): void => {
+        // Handle escape key to clear focused tag or close dropdown
+        if (e.key === 'Escape') {
+            e.preventDefault()
+            if (focusedTagIndex !== null) {
+                // If a tag is focused, clear the focus
+                setFocusedTagIndex(null)
+                return
+            } else if (showDropdown) {
+                // If dropdown is open, close it
+                setShowDropdown(false)
+                if (inputValue === '/') {
+                    setInputValue('')
+                }
+                return
+            }
+        }
+
+        // Handle backspace for tag deletion regardless of dropdown state
+        if (e.key === 'Backspace' && selectedCommands.length > 0 && inputValue === '') {
+            e.preventDefault()
+            if (focusedTagIndex !== null) {
+                // If a tag is focused, delete it and clear focus
+                removeCommand(selectedCommands[focusedTagIndex].value as string)
+                setFocusedTagIndex(null)
+            } else {
+                // If no tag is focused, focus the last tag
+                setFocusedTagIndex(selectedCommands.length - 1)
+            }
+            return
+        }
+
+        // Handle dropdown navigation only when dropdown is showing
         if (!showDropdown) {
             return
         }
@@ -132,13 +175,6 @@ export function CommandInput<T = string>({
                     selectCommand(filteredCommands[focusedIndex])
                 }
                 break
-            case 'Escape':
-                e.preventDefault()
-                setShowDropdown(false)
-                if (inputValue === '/') {
-                    setInputValue('')
-                }
-                break
         }
     }
 
@@ -151,32 +187,58 @@ export function CommandInput<T = string>({
 
     return (
         <div className="relative w-full">
-            {/* Selected Commands Tags */}
-            {selectedCommands.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
-                    {selectedCommands.map((command) => (
-                        <LemonTag
-                            key={command.value as string}
-                            closable
-                            onClose={() => removeCommand(command.value as string)}
-                        >
-                            {command.displayName}
-                        </LemonTag>
-                    ))}
-                </div>
-            )}
+            <div
+                className={cn(
+                    textInputVariants({
+                        variant: 'default',
+                        size: 'default',
+                    }),
+                    'flex gap-0 focus-within:border-secondary p-0 items-center h-8'
+                )}
+            >
+                {selectedCommands.length > 0 && (
+                    <div className="flex flex-wrap gap-1 h-full py-1 pl-1">
+                        {selectedCommands.map((command, index) => (
+                            <div
+                                key={command.value as string}
+                                className={cn('flex items-center gap-0.5 text-xxs h-full border rounded-sm pl-1 pr-0', {
+                                    'border-danger bg-danger-highlight': focusedTagIndex === index,
+                                    'border-primary': focusedTagIndex !== index,
+                                })}
+                                onClick={() => inputRef.current?.focus()}
+                            >
+                                {command.displayName}
+                                <ButtonPrimitive
+                                    size="xxs"
+                                    className={cn('text-xxs h-full rounded-xs rounded-l-none', {
+                                        'bg-danger text-primary-alt': focusedTagIndex === index,
+                                        'hover:bg-bg-3000': focusedTagIndex !== index,
+                                    })}
+                                    onClick={() => {
+                                        removeCommand(command.value as string)
+                                    }}
+                                >
+                                    <IconX />
+                                </ButtonPrimitive>
+                            </div>
+                        ))}
+                    </div>
+                )}
 
-            {/* Input Field */}
-            <LemonInput
-                inputRef={inputRef}
-                value={inputValue}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                onBlur={handleBlur}
-                placeholder={placeholder}
-                autoComplete="off"
-                className="w-full"
-            />
+                {/* Input Field */}
+                <TextInputPrimitive
+                    ref={inputRef}
+                    value={inputValue}
+                    onChange={(e) => handleInputChange(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onBlur={handleBlur}
+                    placeholder={placeholder}
+                    autoComplete="off"
+                    className={cn('w-full border-none flex-1 h-full min-h-full', {
+                        'pl-1': selectedCommands.length > 0,
+                    })}
+                />
+            </div>
 
             {/* Commands Dropdown */}
             {showDropdown && filteredCommands.length > 0 && (
