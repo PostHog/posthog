@@ -55,7 +55,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
                 <SceneDivider />
                 <div className="flex flex-col items-center justify-center w-full grow">
                     <IconSidePanel className="text-3xl text-muted mb-2" />
-                    <h3 className="text-xl font-bold mb-1">Max is currently in the sidebar</h3>
+                    <h3 className="text-xl font-bold mb-1">This Max chat is currently in the sidebar</h3>
                     <p className="text-sm text-muted mb-2">You can navigate freely around the app, or…</p>
                     <LemonButton
                         type="secondary"
