@@ -1,4 +1,5 @@
 .cache/
 src/taxonomy/core-filter-definitions-by-group.json
+src/queries/validators.js
 dist/
 *LogicType.ts

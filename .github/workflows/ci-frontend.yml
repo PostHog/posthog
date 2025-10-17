@@ -200,8 +200,8 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
 
-            - name: Check if "schema.json" is up to date
-              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
+            - name: Check if schema.json and validators.js are up to date
+              run: pnpm --filter=@posthog/frontend schema:build && git diff --exit-code
 
             - name: Check if mobile replay "schema.json" is up to date
               run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
