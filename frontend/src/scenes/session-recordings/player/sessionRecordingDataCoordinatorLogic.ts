@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { objectsEqual } from 'lib/utils'
 
 import {
     RecordingSegment,
@@ -287,28 +288,34 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             },
         ],
 
+        windowsHaveFullSnapshot: [
+            (s) => [s.snapshotsByWindowId],
+            (snapshotsByWindowId: Record<string, eventWithTime[]>) => {
+                return Object.entries(snapshotsByWindowId).reduce((acc, [windowId, events]) => {
+                    acc[`window-id-${windowId}-has-full-snapshot`] = events.some(
+                        (event) => event.type === EventType.FullSnapshot
+                    )
+                    return acc
+                }, {})
+            },
+            {
+                resultEqualityCheck: objectsEqual,
+            },
+        ],
+
         snapshotsInvalid: [
             (s, p) => [s.snapshotsByWindowId, s.fullyLoaded, s.start, p.sessionRecordingId, s.currentTeam],
             (
-                snapshotsByWindowId: Record<string, eventWithTime[]>,
                 fullyLoaded: boolean,
                 start: Dayjs | null,
                 sessionRecordingId: SessionRecordingId,
-                currentTeam: TeamPublicType | TeamType | null
+                currentTeam: TeamPublicType | TeamType | null,
+                windowsHaveFullSnapshot: Record<string, boolean>
             ): boolean => {
                 if (!fullyLoaded || !start) {
                     return false
                 }
 
-                const windowsHaveFullSnapshot = Object.entries(snapshotsByWindowId).reduce(
-                    (acc, [windowId, events]) => {
-                        acc[`window-id-${windowId}-has-full-snapshot`] = events.some(
-                            (event) => event.type === EventType.FullSnapshot
-                        )
-                        return acc
-                    },
-                    {}
-                )
                 const anyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).some((x) => x)
                 const everyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).every((x) => x)
 
@@ -340,8 +347,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         hasMinimumPlayableData: [
-            (s) => [s.snapshotsByWindowId, s.sessionPlayerMetaDataLoading],
-            (snapshotsByWindowId: Record<string, eventWithTime[]>, sessionPlayerMetaDataLoading: boolean): boolean => {
+            (s) => [s.windowsHaveFullSnapshots, s.sessionPlayerMetaDataLoading],
+            (windowsHaveFullSnapshots: Record<string, boolean>, sessionPlayerMetaDataLoading: boolean): boolean => {
                 // We can start playback if we have:
                 // 1. Metadata loaded
                 // 2. At least one window with a full snapshot
@@ -349,11 +356,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     return false
                 }
 
-                const hasFullSnapshot = Object.values(snapshotsByWindowId).some((events) =>
-                    events.some((event) => event.type === EventType.FullSnapshot)
-                )
-
-                return hasFullSnapshot
+                return Object.values(windowsHaveFullSnapshots).some((x) => x)
             },
         ],
 
