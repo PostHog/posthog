@@ -83,7 +83,11 @@ def validated_request(request_serializer: type[serializers.Serializer], **extend
 
             serializer_class = response_serializers.get(status_code)
             if not serializer_class:
-                return Response(data, status=status_code)
+                raise ValueError(
+                    f"Response status code {status_code} not declared in responses parameter. "
+                    f"Declared status codes: {sorted(response_serializers.keys())}. "
+                    f"Add this status code to the @validated_request responses dict."
+                )
 
             context = getattr(self, "get_serializer_context", lambda: {})()
             serialized = serializer_class(data, context=context)
