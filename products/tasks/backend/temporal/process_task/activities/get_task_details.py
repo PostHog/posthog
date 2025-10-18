@@ -18,7 +18,6 @@ class TaskDetails:
     github_integration_id: int
     repository: str
     distinct_id: str
-    workflow_id: str
 
 
 @activity.defn
@@ -60,12 +59,6 @@ def get_task_details(task_id: str) -> TaskDetails:
 
     distinct_id = task.created_by.distinct_id or "process_task_workflow"
 
-    if not task.workflow_id:
-        raise TaskInvalidStateError(
-            f"Task {task_id} has no workflow configured",
-            {"task_id": task_id},
-        )
-
     log_with_activity_context(
         "Task details retrieved successfully",
         task_id=task_id,
@@ -80,5 +73,4 @@ def get_task_details(task_id: str) -> TaskDetails:
         github_integration_id=task.github_integration_id,
         repository=repository_full_name,
         distinct_id=distinct_id,
-        workflow_id=str(task.workflow_id),
     )
