@@ -46,7 +46,7 @@ class TestPrinter(BaseTest):
         self,
         query: str,
         context: Optional[HogQLContext] = None,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: Literal["hogql", "clickhouse", "duckdb"] = "clickhouse",
     ) -> str:
         node = parse_expr(query)
         context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -2844,3 +2844,47 @@ class TestPrinted(APIBaseTest):
             query=query,
         )
         assert query_response.results == [(6,)]
+
+    def test_duckdb_dialect_basic_operations(self):
+        """Test basic DuckDB dialect printing operations."""
+
+        # Test arithmetic operations
+        result = self._expr("1 + 2", dialect="duckdb")
+        self.assertEqual(result, "(1 + 2)")
+
+        result = self._expr("10 - 3", dialect="duckdb")
+        self.assertEqual(result, "(10 - 3)")
+
+        result = self._expr("4 * 5", dialect="duckdb")
+        self.assertEqual(result, "(4 * 5)")
+
+        result = self._expr("15 / 3", dialect="duckdb")
+        self.assertEqual(result, "(15 / 3)")
+
+        result = self._expr("17 % 5", dialect="duckdb")
+        self.assertEqual(result, "(17 % 5)")
+
+        # Test comparison operations
+        result = self._expr("'hello' = 'world'", dialect="duckdb")
+        self.assertEqual(result, "('hello' = 'world')")
+
+        result = self._expr("10 > 5", dialect="duckdb")
+        self.assertEqual(result, "(10 > 5)")
+
+        result = self._expr("'test' LIKE 't%'", dialect="duckdb")
+        self.assertEqual(result, "('test' LIKE 't%')")
+
+        # Test logical operations
+        result = self._expr("true AND false", dialect="duckdb")
+        self.assertEqual(result, "(1 AND 0)")
+
+        result = self._expr("true OR false", dialect="duckdb")
+        self.assertEqual(result, "(1 OR 0)")
+
+        result = self._expr("NOT true", dialect="duckdb")
+        self.assertEqual(result, "NOT (1)")
+
+        # Test identifier quoting
+        # This tests the _print_identifier method indirectly through field access
+        result = self._expr("user_id", dialect="duckdb")
+        self.assertIn("user_id", result)
