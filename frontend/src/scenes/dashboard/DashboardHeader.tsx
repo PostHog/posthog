@@ -44,6 +44,7 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
@@ -82,6 +83,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { newTab } = useActions(sceneLogic)
+    const { setScenePanelOpen } = useActions(sceneLayoutLogic)
 
     const { user } = useValues(userLogic)
 
@@ -332,6 +334,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         tile?.filters_overrides
                                     )
                                     newTab(url)
+                                    setScenePanelOpen(false)
                                 })
                             }}
                             menuItem
