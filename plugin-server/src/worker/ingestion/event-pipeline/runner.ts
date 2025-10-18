@@ -88,6 +88,7 @@ export class EventPipelineRunner {
     async runHeatmapPipelineSteps(
         normalizedEvent: PluginEvent,
         timestamp: DateTime,
+        team: Team,
         kafkaAcks: Promise<unknown>[],
         warnings: PipelineWarning[]
     ): Promise<EventPipelinePipelineResult> {
@@ -95,7 +96,7 @@ export class EventPipelineRunner {
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
-            [this, normalizedEvent, processPerson],
+            [this, normalizedEvent, processPerson, team],
             normalizedEvent.team_id,
             true,
             kafkaAcks,
@@ -143,7 +144,7 @@ export class EventPipelineRunner {
             }
             const kafkaAcks: Promise<void>[] = []
             const warnings: PipelineWarning[] = []
-            return await this.runHeatmapPipelineSteps(pluginEvent, timestamp, kafkaAcks, warnings)
+            return await this.runHeatmapPipelineSteps(pluginEvent, timestamp, team, kafkaAcks, warnings)
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 return dlq('Step error - non-retriable', error)
@@ -277,7 +278,7 @@ export class EventPipelineRunner {
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
-            [this, postPersonEvent, processPerson],
+            [this, postPersonEvent, processPerson, team],
             event.team_id,
             true,
             kafkaAcks,
