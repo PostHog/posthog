@@ -5009,6 +5009,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             )
 
+        # Create a non-stale flag (100% rollout but has multiple groups, with only 1 group that has 100% rollout)
+        with freeze_time("2024-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="filtered_flag_with_multiple_groups",
+                active=True,
+                filters={
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {"key": "email", "value": "test@example.com", "operator": "exact", "type": "person"}
+                            ],
+                        },
+                        {
+                            "properties": [
+                                {"key": "$browser_version", "value": ["136"], "operator": "exact", "type": "person"}
+                            ],
+                            "rollout_percentage": 50,
+                        },
+                    ]
+                },
+            )
         # Test filtering by stale status
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
         response = filtered_flags_list.json()
