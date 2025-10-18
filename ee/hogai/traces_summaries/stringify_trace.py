@@ -12,12 +12,32 @@ logger = structlog.get_logger(__name__)
 
 def stringify_message(message: dict[str, Any]) -> str:
     try:
-        message_content = message["content"]
-        message_type = message["type"]
+        # If LLM generated an asnwer - list a type of the answer
+        if message.get("answer"):
+            answer_kind = message["answer"]["kind"]
+            message_content = f"*AI displayed a {answer_kind}*"
+            message_type = "ai/answer"
+        # If it's a regular message - process as usual
+        else:
+            message_content = message["content"]
+            message_type = message["type"]
+        # If AI message - list what tools were called
+        if message_type == "ai":
+            tools_called = []
+            try:
+                for tc in message.get("tool_calls") or []:
+                    if tc.get("type") != "tool_call":
+                        continue
+                    tools_called.append(tc.get("name"))
+                if tools_called:
+                    tool_content = f"*AI called tools: {', '.join(tools_called)}*"
+                    message_content += f" {tool_content}" if message_content else tool_content
+            except Exception as e:
+                logger.exception(f"Error getting tools called for AI message ({e}):\n{message}")
         # Skip context messages
         if message_type == "context":
             return None
-        # Skip tool messages # TODO: Decide if I need them
+        # Skip tool messages
         if message_type == "tool":
             return None
         # Skip empty messages
