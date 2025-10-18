@@ -76,6 +76,18 @@ runs:
           id: aws-ecr
           uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2
 
+        - name: Docker metadata
+          id: meta
+          uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81 # v5
+          with:
+              images: |
+                  posthog/posthog
+                  ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud
+              labels: |
+                  org.opencontainers.image.title=PostHog
+                  org.opencontainers.image.description=PostHog - Open-source Product Analytics
+                  org.opencontainers.image.vendor=PostHog Inc.
+
         - name: Emit image tag
           id: emit
           shell: bash
@@ -96,6 +108,7 @@ runs:
               context: .
               buildx-fallback: false # buildx is so slow it's better to just fail
               tags: ${{ steps.emit.outputs.tag }}
+              labels: ${{ steps.meta.outputs.labels }}
               platforms: linux/amd64,linux/arm64
               build-args: COMMIT_HASH=${{ github.sha }}
               save: ${{ inputs.save }}
