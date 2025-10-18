@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown } from '@posthog/lemon-ui'
 
+import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 
 export function IntegrationFilter(): JSX.Element {
@@ -33,7 +35,7 @@ export function IntegrationFilter(): JSX.Element {
     }
 
     const formatSourceLabel = (source: { name: string; type: string; prefix?: string }): string => {
-        const prefix = source.prefix ? `${source.prefix} - ` : ''
+        const prefix = source.prefix ? `${source.prefix} - ` : 'default - '
         return `${prefix}${source.name}`
     }
 
@@ -48,6 +50,7 @@ export function IntegrationFilter(): JSX.Element {
         return `${selectedIds.length} integrations`
     }
 
+    // Don't show the filter if there are no available sources
     if (allAvailableSources.length === 0) {
         return <></>
     }
@@ -83,6 +86,7 @@ export function IntegrationFilter(): JSX.Element {
                                     checked={selectedIds.includes(source.id)}
                                     className="pointer-events-none"
                                 />
+                                <DataWarehouseSourceIcon type={source.name} size="xsmall" disableTooltip />
                                 <span>{formatSourceLabel(source)}</span>
                             </span>
                         </LemonButton>
