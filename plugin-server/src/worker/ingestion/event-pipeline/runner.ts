@@ -302,9 +302,10 @@ export class EventPipelineRunner {
             heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
         }
 
+        const historicalMigration = this.headers?.historical_migration ?? false
         const createResult = await this.runStep<RawKafkaEvent, typeof createEventStep>(
             createEventStep,
-            [this, preparedEventWithoutHeatmaps, person, processPerson],
+            [preparedEventWithoutHeatmaps, person, processPerson, historicalMigration],
             event.team_id,
             true,
             kafkaAcks,
