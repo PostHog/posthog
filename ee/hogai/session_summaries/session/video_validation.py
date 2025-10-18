@@ -79,6 +79,7 @@ class SessionSummaryVideoValidator:
         moments_input = self._prepare_moments_input(events_to_validate=events_to_validate)
         # Generate videos and ask LLM to describe them
         # Not using semaphore inside moments analyzer as a single session summary won't have many blocking exceptions to validate
+        # TODO: If exceptions are close to each other - generate and reuse a single video instead of multiple overlapping ones
         description_results = await self.moments_analyzer.analyze(
             moments_input=moments_input,
             expires_after_days=EXPIRES_AFTER_DAYS,
