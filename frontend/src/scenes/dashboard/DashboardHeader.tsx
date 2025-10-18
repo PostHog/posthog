@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
+import { IconGraph, IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
@@ -29,6 +29,7 @@ import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModa
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -73,12 +74,14 @@ export function DashboardHeader(): JSX.Element | null {
         textTileId,
     } = useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate, loadDashboard } = useActions(dashboardLogic)
-    const { asDashboardTemplate } = useValues(dashboardLogic)
+    const { asDashboardTemplate, effectiveEditBarFilters, effectiveDashboardVariableOverrides, tiles } =
+        useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
+    const { newTab } = useActions(sceneLogic)
 
     const { user } = useValues(userLogic)
 
@@ -314,6 +317,30 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
 
                     {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
+                    {dashboard && (
+                        <ButtonPrimitive
+                            onClick={() => {
+                                tiles.forEach((tile) => {
+                                    if (tile.insight?.short_id == null) {
+                                        return
+                                    }
+                                    const url = urls.insightView(
+                                        tile.insight.short_id,
+                                        dashboard.id,
+                                        effectiveDashboardVariableOverrides,
+                                        effectiveEditBarFilters,
+                                        tile?.filters_overrides
+                                    )
+                                    newTab(url)
+                                })
+                            }}
+                            menuItem
+                            data-attr="open-insights-in-new-posthog-tabs"
+                        >
+                            <IconGraph className="text-none" />
+                            Open insights in new Posthog tabs
+                        </ButtonPrimitive>
+                    )}
                 </ScenePanelActionsSection>
                 {dashboard && canEditDashboard && (
                     <>
