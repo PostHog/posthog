@@ -42,7 +42,44 @@ def self_capture_wrapper(func):
         return func
 
     async def inner(scope, receive, send):
-        if not getattr(inner, "debug_analytics_initialized", False):
+        if (
+            not getattr(inner, "local_write_db_prod_synced", False)
+            and settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG
+            and settings.LOG_IN_AS_USER_EMAIL
+        ):
+            from posthog.models import Organization, Project, Team, User
+
+            user: User = await User.objects.aget(email=settings.LOG_IN_AS_USER_EMAIL)
+            try:
+                await User.objects.using("default").acreate(email=settings.LOG_IN_AS_USER_EMAIL, id=user.id)  # At PyWaw
+            except Exception:
+                pass
+            try:
+                await Organization.objects.using("default").acreate(
+                    name=f"Placeholder for {settings.LOG_IN_AS_USER_EMAIL}", id=user.current_organization_id
+                )
+            except Exception:
+                pass
+            try:
+                await Project.objects.using("default").acreate(
+                    name=f"Placeholder for {settings.LOG_IN_AS_USER_EMAIL}",
+                    id=user.current_team_id,
+                    organization_id=user.current_organization_id,
+                )
+            except Exception:
+                pass
+            try:
+                await Team.objects.using("default").acreate(
+                    name=f"Placeholder for {settings.LOG_IN_AS_USER_EMAIL}",
+                    id=user.current_team_id,
+                    project_id=user.current_team_id,
+                    organization_id=user.current_organization_id,
+                )
+            except Exception:
+                pass
+            inner.local_write_db_prod_synced = True  # type: ignore
+
+        if not getattr(inner, "debug_analytics_initialized", False) and not settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
             from posthog.utils import initialize_self_capture_api_token
 
             await initialize_self_capture_api_token()
