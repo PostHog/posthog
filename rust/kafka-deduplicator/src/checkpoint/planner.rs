@@ -350,30 +350,30 @@ mod tests {
 
         let prev_local_attempt_dir = temp_dir
             .path()
-            .join(topic)
-            .join(partition.to_string())
+            .join(partition.topic())
+            .join(partition.partition_number().to_string())
             .join(&prev_checkpoint_id);
 
         std::fs::create_dir_all(&prev_local_attempt_dir).unwrap();
-        std::fs::write(prev_local_attempt_dir.join("file1.sst"), b"data1").unwrap();
-        std::fs::write(prev_local_attempt_dir.join("file2.sst"), b"data2").unwrap();
+        std::fs::write(prev_local_attempt_dir.join("00001.sst"), b"data1").unwrap();
+        std::fs::write(prev_local_attempt_dir.join("00002.sst"), b"data2").unwrap();
 
         let expected_prev_sst1 =
-            build_candidate_file(&prev_local_attempt_dir.join("file1.sst")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00001.sst")).unwrap();
         let expected_prev_sst2 =
-            build_candidate_file(&prev_local_attempt_dir.join("file2.sst")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00002.sst")).unwrap();
 
         let prev_remote_path =
             format!("{remote_bucket_namespace}/{topic}/{partition_number}/{prev_checkpoint_id}");
 
-        let prev_sst1_remote_path = format!("{prev_remote_path}/file1.sst");
+        let prev_sst1_remote_path = format!("{prev_remote_path}/00001.sst");
         prev_metadata.track_file(
             prev_sst1_remote_path.clone(),
             expected_prev_sst1.checksum.clone(),
             expected_prev_sst1.size,
         );
 
-        let prev_sst2_remote_path = format!("{prev_remote_path}/file2.sst");
+        let prev_sst2_remote_path = format!("{prev_remote_path}/00002.sst");
         prev_metadata.track_file(
             prev_sst2_remote_path.clone(),
             expected_prev_sst2.checksum.clone(),
@@ -393,11 +393,11 @@ mod tests {
 
         // Create test files we'd see in current checkpoint attempt
         std::fs::create_dir_all(&local_checkpoint_attempt_dir).unwrap();
-        std::fs::write(local_checkpoint_attempt_dir.join("file1.sst"), b"data1").unwrap();
-        std::fs::write(local_checkpoint_attempt_dir.join("file2.sst"), b"data2").unwrap();
-        std::fs::write(local_checkpoint_attempt_dir.join("file3.sst"), b"data3").unwrap();
+        std::fs::write(local_checkpoint_attempt_dir.join("00001.sst"), b"data1").unwrap();
+        std::fs::write(local_checkpoint_attempt_dir.join("00002.sst"), b"data2").unwrap();
+        std::fs::write(local_checkpoint_attempt_dir.join("00003.sst"), b"data3").unwrap();
         let expected_sst3 =
-            build_candidate_file(&local_checkpoint_attempt_dir.join("file3.sst")).unwrap();
+            build_candidate_file(&local_checkpoint_attempt_dir.join("00003.sst")).unwrap();
 
         let plan = plan_checkpoint(
             &local_checkpoint_attempt_dir,
@@ -416,7 +416,7 @@ mod tests {
         let got_sst3 = plan
             .files_to_upload
             .iter()
-            .find(|f| f.filename == "file3.sst")
+            .find(|f| f.filename == "00003.sst")
             .unwrap();
         assert_eq!(got_sst3, &expected_sst3);
 
@@ -446,9 +446,9 @@ mod tests {
         let current_attempt_remote_path =
             format!("{remote_bucket_namespace}/{topic}/{partition_number}/{checkpoint_id}");
 
-        let sst1_remote_path = format!("{prev_remote_path}/file1.sst");
-        let sst2_remote_path = format!("{prev_remote_path}/file2.sst");
-        let sst3_remote_path = format!("{current_attempt_remote_path}/file3.sst");
+        let sst1_remote_path = format!("{prev_remote_path}/00001.sst");
+        let sst2_remote_path = format!("{prev_remote_path}/00002.sst");
+        let sst3_remote_path = format!("{current_attempt_remote_path}/00003.sst");
 
         let sst1_file_meta = plan
             .info
@@ -514,22 +514,22 @@ mod tests {
 
         // Create test files that won't be changed in the next checkpoint attempt
         std::fs::create_dir_all(&prev_local_attempt_dir).unwrap();
-        std::fs::write(prev_local_attempt_dir.join("file1.sst"), b"data1").unwrap();
-        std::fs::write(prev_local_attempt_dir.join("file2.sst"), b"data2").unwrap();
-        std::fs::write(prev_local_attempt_dir.join("file3.sst"), b"data3").unwrap();
+        std::fs::write(prev_local_attempt_dir.join("00001.sst"), b"data1").unwrap();
+        std::fs::write(prev_local_attempt_dir.join("00002.sst"), b"data2").unwrap();
+        std::fs::write(prev_local_attempt_dir.join("00003.sst"), b"data3").unwrap();
 
         let expected_prev_sst1 =
-            build_candidate_file(&prev_local_attempt_dir.join("file1.sst")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00001.sst")).unwrap();
         let expected_prev_sst2 =
-            build_candidate_file(&prev_local_attempt_dir.join("file2.sst")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00002.sst")).unwrap();
         let expected_prev_sst3 =
-            build_candidate_file(&prev_local_attempt_dir.join("file3.sst")).unwrap();
+            build_candidate_file(&prev_local_attempt_dir.join("00003.sst")).unwrap();
 
         let prev_remote_path =
             format!("{remote_bucket_namespace}/{topic}/{partition_number}/{prev_checkpoint_id}",);
-        let prev_sst1_remote_path = format!("{prev_remote_path}/file1.sst");
-        let prev_sst2_remote_path = format!("{prev_remote_path}/file2.sst");
-        let prev_sst3_remote_path = format!("{prev_remote_path}/file3.sst");
+        let prev_sst1_remote_path = format!("{prev_remote_path}/00001.sst");
+        let prev_sst2_remote_path = format!("{prev_remote_path}/00002.sst");
+        let prev_sst3_remote_path = format!("{prev_remote_path}/00003.sst");
 
         prev_metadata.track_file(
             prev_sst1_remote_path.clone(),
@@ -561,9 +561,9 @@ mod tests {
         // Create test files from what would have been current
         // checkpoint attempt, identical to original attempt
         std::fs::create_dir_all(&local_checkpoint_attempt_dir).unwrap();
-        std::fs::write(local_checkpoint_attempt_dir.join("file1.sst"), b"data1").unwrap();
-        std::fs::write(local_checkpoint_attempt_dir.join("file2.sst"), b"data2").unwrap();
-        std::fs::write(local_checkpoint_attempt_dir.join("file3.sst"), b"data3").unwrap();
+        std::fs::write(local_checkpoint_attempt_dir.join("00001.sst"), b"data1").unwrap();
+        std::fs::write(local_checkpoint_attempt_dir.join("00002.sst"), b"data2").unwrap();
+        std::fs::write(local_checkpoint_attempt_dir.join("00003.sst"), b"data3").unwrap();
 
         let plan = plan_checkpoint(
             &local_checkpoint_attempt_dir,
@@ -668,8 +668,8 @@ mod tests {
 
         let prev_remote_path =
             format!("{remote_bucket_namespace}/{topic}/{partition_number}/{prev_checkpoint_id}",);
-        let prev_sst1_remote_path = format!("{prev_remote_path}/file1.sst");
-        let prev_sst2_remote_path = format!("{prev_remote_path}/file2.sst");
+        let prev_sst1_remote_path = format!("{prev_remote_path}/00001.sst");
+        let prev_sst2_remote_path = format!("{prev_remote_path}/00002.sst");
         let prev_manifest_remote_path = format!("{prev_remote_path}/MANIFEST-000000");
         let prev_options_remote_path = format!("{prev_remote_path}/OPTIONS-000000");
         let prev_current_remote_path = format!("{prev_remote_path}/CURRENT");
@@ -751,7 +751,7 @@ mod tests {
         )
         .unwrap();
 
-        // file3, 00001.log, and CURRENT should be uploaded
+        // 00003.sst, 00001.log, and CURRENT should be uploaded
         assert_eq!(plan.files_to_upload.len(), 3);
         assert!(plan
             .files_to_upload
