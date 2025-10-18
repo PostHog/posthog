@@ -336,9 +336,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return false
                 }
 
-                // Check if they are subscribed to another add-on that is not a legacy add-on
-                // This is because if they are on a legacy add-on, we want them to be able to move to a new add-on.
-                return parentProduct.addons.some((a: BillingProductV2AddonType) => a.subscribed && !a.legacy_product)
+                return parentProduct.addons.some((a: BillingProductV2AddonType) => a.subscribed)
             },
         ],
         customLimitUsd: [
@@ -667,9 +665,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             if (!upgradePlan || !currentPlatformAddon) {
                 return
             }
+            const currentPlanKey =
+                currentPlatformAddon.plans?.find((p) => p.current_plan)?.plan_key ||
+                currentPlatformAddon.plans?.[0]?.plan_key
             actions.switchFlatrateSubscriptionPlan({
                 from_product_key: String(currentPlatformAddon.type),
-                from_plan_key: String(currentPlatformAddon.plans?.[0]?.plan_key),
+                from_plan_key: String(currentPlanKey),
                 to_product_key: props.product.type,
                 to_plan_key: String(upgradePlan.plan_key),
             })
@@ -680,9 +681,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             if (!targetPlan || !currentPlatformAddon) {
                 return
             }
+            const currentPlanKey =
+                currentPlatformAddon.plans?.find((p) => p.current_plan)?.plan_key ||
+                currentPlatformAddon.plans?.[0]?.plan_key
             actions.switchFlatrateSubscriptionPlan({
                 from_product_key: String(currentPlatformAddon.type),
-                from_plan_key: String(currentPlatformAddon.plans?.[0]?.plan_key),
+                from_plan_key: String(currentPlanKey),
                 to_product_key: props.product.type,
                 to_plan_key: String(targetPlan.plan_key),
             })

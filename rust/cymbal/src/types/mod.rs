@@ -14,6 +14,7 @@ use crate::fingerprinting::{
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::issue_resolution::Issue;
+use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {
@@ -41,7 +42,7 @@ pub struct Exception {
     pub exception_id: Option<String>,
     #[serde(rename = "type")]
     pub exception_type: String,
-    #[serde(rename = "value")]
+    #[serde(rename = "value", default)]
     pub exception_message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mechanism: Option<Mechanism>,
@@ -421,6 +422,10 @@ impl Stacktrace {
             }
         }
 
+        if resolved_frames.iter().any(|f| f.suspicious) {
+            metrics::counter!(POSTHOG_SDK_EXCEPTION_RESOLVED).increment(1);
+        }
+
         Some(Stacktrace::Resolved {
             frames: resolved_frames,
         })
@@ -457,10 +462,7 @@ mod test {
             exception_list[0].exception_type,
             "UnhandledRejection".to_string()
         );
-        assert_eq!(
-            exception_list[0].exception_message,
-            "Unexpected usage".to_string()
-        );
+        assert_eq!(exception_list[0].exception_message, "Unexpected usage");
         let mechanism = exception_list[0].mechanism.as_ref().unwrap();
         assert_eq!(mechanism.handled, Some(false));
         assert_eq!(mechanism.mechanism_type, None);
@@ -513,12 +515,10 @@ mod test {
             }]
         }"#;
 
-        let props: Result<RawErrProps, Error> = serde_json::from_str(raw);
-        assert!(props.is_err());
-        assert_eq!(
-            props.unwrap_err().to_string(),
-            "missing field `value` at line 4 column 13"
-        );
+        // We support default values
+        let props: RawErrProps =
+            serde_json::from_str(raw).expect("Can deserialize with missing value");
+        assert_eq!(props.exception_list[0].exception_message, "");
 
         let raw: &'static str = r#"{
             "$exception_list": [{

@@ -251,6 +251,7 @@ mod tests {
             api_token: "test-token".to_string(),
             project_id: 1,
             uuid: Uuid::new_v4(),
+            organization_id: None,
             autocapture_opt_out: None,
             autocapture_exceptions_opt_in: None,
             autocapture_web_vitals_opt_in: None,

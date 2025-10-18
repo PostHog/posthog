@@ -52,7 +52,7 @@ from posthog.auth import (
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_updated, report_user_verified_email
+from posthog.event_usage import report_user_deleted_account, report_user_updated, report_user_verified_email
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
@@ -443,6 +443,10 @@ class UserViewSet(
             **super().get_serializer_context(),
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
+
+    def perform_destroy(self, user: User) -> None:
+        report_user_deleted_account(user)
+        super().perform_destroy(user)
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):

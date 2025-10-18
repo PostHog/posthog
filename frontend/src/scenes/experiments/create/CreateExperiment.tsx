@@ -16,9 +16,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import type { Experiment } from '~/types'
 
-import { MetricSourceModal } from '../Metrics/MetricSourceModal'
-import { MetricsReorderModal } from '../MetricsView/MetricsReorderModal'
 import { ExperimentTypePanel } from './ExperimentTypePanel'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
 import { VariantsPanel } from './VariantsPanel'
@@ -32,11 +31,21 @@ const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     )
 }
 
-export const CreateExperiment = (): JSX.Element => {
+type CreateExperimentProps = Partial<{
+    draftExperiment: Experiment
+}>
+
+/**
+ * temporary setup. We may want to put this behind a feature flag for testing.
+ */
+const SHOW_EXPERIMENT_TYPE_PANEL = false
+const SHOW_TARGETING_PANEL = false
+
+export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JSX.Element => {
     const { HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
 
-    const { experiment, experimentErrors } = useValues(createExperimentLogic)
-    const { setExperimentValue } = useActions(createExperimentLogic)
+    const { experiment, experimentErrors } = useValues(createExperimentLogic({ experiment: draftExperiment }))
+    const { setExperimentValue } = useActions(createExperimentLogic({ experiment: draftExperiment }))
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
 
@@ -101,16 +110,20 @@ export const CreateExperiment = (): JSX.Element => {
                         }}
                         className="bg-surface-primary"
                         panels={[
-                            {
-                                key: 'experiment-type',
-                                header: 'Experiment type',
-                                content: (
-                                    <ExperimentTypePanel
-                                        experiment={experiment}
-                                        setExperimentType={(type) => setExperimentValue('type', type)}
-                                    />
-                                ),
-                            },
+                            ...(SHOW_EXPERIMENT_TYPE_PANEL
+                                ? [
+                                      {
+                                          key: 'experiment-type',
+                                          header: 'Experiment type',
+                                          content: (
+                                              <ExperimentTypePanel
+                                                  experiment={experiment}
+                                                  setExperimentType={(type) => setExperimentValue('type', type)}
+                                              />
+                                          ),
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'experiment-variants',
                                 header: 'Feature flag & variants',
@@ -131,15 +144,19 @@ export const CreateExperiment = (): JSX.Element => {
                                     />
                                 ),
                             },
-                            {
-                                key: 'experiment-targeting',
-                                header: 'Targeting',
-                                content: (
-                                    <div className="p-4">
-                                        <span>Targeting Panel Goes Here</span>
-                                    </div>
-                                ),
-                            },
+                            ...(SHOW_TARGETING_PANEL
+                                ? [
+                                      {
+                                          key: 'experiment-targeting',
+                                          header: 'Targeting',
+                                          content: (
+                                              <div className="p-4">
+                                                  <span>Targeting Panel Goes Here</span>
+                                              </div>
+                                          ),
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'experiment-exposure',
                                 header: 'Exposure criteria',
@@ -169,12 +186,6 @@ export const CreateExperiment = (): JSX.Element => {
                     <span>Sidebar Checklist Goes Here</span>
                 </div>
             </div>
-
-            {/* Metric Modals */}
-            <MetricSourceModal isSecondary={false} />
-            <MetricSourceModal isSecondary={true} />
-            <MetricsReorderModal isSecondary={false} />
-            <MetricsReorderModal isSecondary={true} />
         </div>
     )
 }

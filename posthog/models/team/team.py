@@ -373,7 +373,9 @@ class Team(UUIDTClassicModel):
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
 
     # Web analytics
-    web_analytics_pre_aggregated_tables_enabled = models.BooleanField(default=False, null=True)
+    web_analytics_pre_aggregated_tables_enabled = field_access_control(
+        models.BooleanField(default=False, null=True), "web_analytics", "editor"
+    )
     web_analytics_pre_aggregated_tables_version = models.CharField(
         max_length=10, default="v2", null=True, choices=[("v1", "v1"), ("v2", "v2")]
     )
@@ -382,6 +384,12 @@ class Team(UUIDTClassicModel):
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_message = models.TextField(null=True, blank=True)
+    default_evaluation_environments_enabled = models.BooleanField(
+        null=True,
+        blank=True,
+        default=False,
+        help_text="Whether to automatically apply default evaluation environments to new feature flags",
+    )
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
@@ -396,7 +404,9 @@ class Team(UUIDTClassicModel):
     test_account_filters = models.JSONField(default=list)
     test_account_filters_default_checked = models.BooleanField(null=True, blank=True)
 
-    path_cleaning_filters = models.JSONField(default=list, null=True, blank=True)
+    path_cleaning_filters = field_access_control(
+        models.JSONField(default=list, null=True, blank=True), "web_analytics", "editor"
+    )
     timezone = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     data_attributes = models.JSONField(default=get_default_data_attributes)
     person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
