@@ -1,3 +1,4 @@
+import { DropdownMenuItem } from '@radix-ui/react-dropdown-menu'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -17,6 +18,7 @@ import {
 } from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
 import { NotebookListItemType, NotebookTarget } from 'scenes/notebooks/types'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -46,12 +48,13 @@ export function SceneNotebookMenuItems({
     const { resource } = notebookSelectButtonProps || {}
     const { createNotebook } = useActions(notebooksModel)
     const notebookResource = resource && typeof resource !== 'boolean' ? resource : null
-
+    const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const openAndAddToNotebook = (notebookShortId: string, exists: boolean): void => {
         const position = notebookSelectButtonProps?.resource ? 'end' : 'start'
         void openNotebook(notebookShortId, NotebookTarget.Popover, position, (theNotebookLogic) => {
             if (!exists && notebookSelectButtonProps?.resource) {
                 theNotebookLogic.actions.insertAfterLastNode([notebookSelectButtonProps.resource])
+                setScenePanelOpen(false)
             }
         })
     }
@@ -68,6 +71,7 @@ export function SceneNotebookMenuItems({
                 loadNotebooksContainingResource()
             }
         )
+        setScenePanelOpen(false)
     }
 
     useEffect(() => {
@@ -96,16 +100,18 @@ export function SceneNotebookMenuItems({
                             {({ disabledReason }) => (
                                 <Combobox.Group>
                                     <Combobox.Item asChild>
-                                        <ButtonPrimitive
-                                            menuItem
-                                            onClick={openNewNotebook}
-                                            data-attr={`${dataAttrKey}-new-notebook-button`}
-                                            disabled={!!disabledReason}
-                                            {...(disabledReason && { tooltip: disabledReason })}
-                                        >
-                                            <IconPlusSmall />
-                                            New notebook
-                                        </ButtonPrimitive>
+                                        <DropdownMenuItem>
+                                            <ButtonPrimitive
+                                                menuItem
+                                                onClick={openNewNotebook}
+                                                data-attr={`${dataAttrKey}-new-notebook-button`}
+                                                disabled={!!disabledReason}
+                                                {...(disabledReason && { tooltip: disabledReason })}
+                                            >
+                                                <IconPlusSmall />
+                                                New notebook
+                                            </ButtonPrimitive>
+                                        </DropdownMenuItem>
                                     </Combobox.Item>
                                 </Combobox.Group>
                             )}
@@ -113,16 +119,18 @@ export function SceneNotebookMenuItems({
 
                         <Combobox.Group value={['My scratchpad']}>
                             <Combobox.Item asChild>
-                                <ButtonPrimitive
-                                    menuItem
-                                    onClick={() => {
-                                        openAndAddToNotebook('scratchpad', false)
-                                    }}
-                                    data-attr={`${dataAttrKey}-my-scratchpad-dropdown-menu-item`}
-                                >
-                                    <IconNotebook />
-                                    My scratchpad
-                                </ButtonPrimitive>
+                                <DropdownMenuItem>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => {
+                                            openAndAddToNotebook('scratchpad', false)
+                                        }}
+                                        data-attr={`${dataAttrKey}-my-scratchpad-dropdown-menu-item`}
+                                    >
+                                        <IconNotebook />
+                                        My scratchpad
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
                             </Combobox.Item>
                         </Combobox.Group>
 
@@ -156,17 +164,22 @@ export function SceneNotebookMenuItems({
                                                     notebook && (
                                                         <Combobox.Group value={[notebook.title ?? '']}>
                                                             <Combobox.Item key={notebook.short_id} asChild>
-                                                                <ButtonPrimitive
-                                                                    menuItem
-                                                                    onClick={() => {
-                                                                        openAndAddToNotebook(notebook.short_id, true)
-                                                                    }}
-                                                                    data-attr={`${dataAttrKey}-continue-in-notebook-dropdown-menu-item`}
-                                                                >
-                                                                    <IconNotebook />
-                                                                    {notebook.title ||
-                                                                        `Untitled (${notebook.short_id})`}
-                                                                </ButtonPrimitive>
+                                                                <DropdownMenuItem>
+                                                                    <ButtonPrimitive
+                                                                        menuItem
+                                                                        onClick={() => {
+                                                                            openAndAddToNotebook(
+                                                                                notebook.short_id,
+                                                                                true
+                                                                            )
+                                                                        }}
+                                                                        data-attr={`${dataAttrKey}-continue-in-notebook-dropdown-menu-item`}
+                                                                    >
+                                                                        <IconNotebook />
+                                                                        {notebook.title ||
+                                                                            `Untitled (${notebook.short_id})`}
+                                                                    </ButtonPrimitive>
+                                                                </DropdownMenuItem>
                                                             </Combobox.Item>
                                                         </Combobox.Group>
                                                     )
@@ -190,17 +203,22 @@ export function SceneNotebookMenuItems({
                                                     notebook && (
                                                         <Combobox.Group value={[notebook.title ?? '']}>
                                                             <Combobox.Item key={notebook.short_id} asChild>
-                                                                <ButtonPrimitive
-                                                                    menuItem
-                                                                    onClick={() => {
-                                                                        openAndAddToNotebook(notebook.short_id, false)
-                                                                    }}
-                                                                    data-attr={`${dataAttrKey}-add-to-notebook-dropdown-menu-item`}
-                                                                >
-                                                                    <IconNotebook />
-                                                                    {notebook.title ||
-                                                                        `Untitled (${notebook.short_id})`}
-                                                                </ButtonPrimitive>
+                                                                <DropdownMenuItem>
+                                                                    <ButtonPrimitive
+                                                                        menuItem
+                                                                        onClick={() => {
+                                                                            openAndAddToNotebook(
+                                                                                notebook.short_id,
+                                                                                false
+                                                                            )
+                                                                        }}
+                                                                        data-attr={`${dataAttrKey}-add-to-notebook-dropdown-menu-item`}
+                                                                    >
+                                                                        <IconNotebook />
+                                                                        {notebook.title ||
+                                                                            `Untitled (${notebook.short_id})`}
+                                                                    </ButtonPrimitive>
+                                                                </DropdownMenuItem>
                                                             </Combobox.Item>
                                                         </Combobox.Group>
                                                     )
