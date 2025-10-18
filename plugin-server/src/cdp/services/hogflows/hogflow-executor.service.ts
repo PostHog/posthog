@@ -41,6 +41,7 @@ export function createHogFlowInvocation(
         state: {
             event: globals.event,
             actionStepCount: 0,
+            variables: {},
         },
         teamId: hogFlow.team_id,
         functionId: hogFlow.id, // TODO: Include version?
@@ -322,6 +323,10 @@ export class HogFlowExecutorService {
                     hogExecutorOptions: options?.hogExecutorOptions,
                 })
 
+                if (handlerResult.output) {
+                    this.trackActionOutput(result, currentAction, handlerResult.output)
+                }
+
                 if (handlerResult.finished) {
                     result.finished = true
                     // Special case for exit - we just track a success metric
@@ -339,6 +344,7 @@ export class HogFlowExecutorService {
                 // Add logs and metric specifically for this action
                 this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
                 this.trackActionMetric(result, currentAction, 'failed')
+                this.trackActionOutput(result, currentAction, err)
 
                 throw err
             }
@@ -470,5 +476,39 @@ export class HogFlowExecutorService {
             metric_name: metricName,
             count: 1,
         })
+    }
+
+    private trackActionOutput(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        action: HogFlowAction,
+        output: object | Error
+    ): void {
+        if (!result.invocation.state.globals.actions) {
+            // This will only happen with in-progress invocations right after this change goes out initially
+            result.invocation.state.globals.actions = {}
+        }
+
+        // Check that result to be stored is below 1kb
+        const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
+        if (resultSize > 1024) {
+            this.log(
+                result,
+                'warn',
+                `Action result for $action/${action.id} is larger than 1KB, this result will not be stored and won't be available in subsequent actions.`
+            )
+            return
+        }
+
+        result.invocation.state.globals.actions[`$action/${action.id}`] = {
+            result: output,
+            error: output instanceof Error,
+        }
+        this.log(
+            result,
+            'debug',
+            `Stored action result in $action/${action.id} global variable: ${JSON.stringify({
+                result: output,
+            })}`
+        )
     }
 }

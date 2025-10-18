@@ -15,6 +15,8 @@ export const template: HogFunctionTemplate = {
     if (not res.success) {
         throw Error(f'Email failed to send: {res.error}')
     }
+
+    return { success: true }
     `,
     code_language: 'hog',
 
