@@ -22,7 +22,7 @@ jobs:
                   package_json_file: posthog/package.json
 
             - name: Set up Node.js
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@v5
               with:
                   node-version: 22.17.1
                   cache: pnpm
