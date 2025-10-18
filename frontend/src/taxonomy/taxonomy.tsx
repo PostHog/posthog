@@ -130,6 +130,13 @@ export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
     $pageleave: ['$current_url', 'title', '$referrer'],
     $groupidentify: ['$group_type', '$group_key', '$group_set'],
     $screen: ['$screen_name'],
+    $product_signal: [
+        '$product_signal_type',
+        '$product_signal_severity',
+        '$product_signal_title',
+        '$product_signal_source',
+        '$product_signal_description',
+    ],
     $web_vitals: [
         '$web_vitals_FCP_value',
         '$web_vitals_CLS_value',
