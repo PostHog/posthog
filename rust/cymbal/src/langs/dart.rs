@@ -10,7 +10,7 @@ use crate::{
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawDartFrame {
     pub filename: Option<String>,
-    pub function: String,
+    pub function: Option<String>,
     pub lineno: Option<u32>,
     pub colno: Option<u32>,
     pub module: String,
@@ -29,7 +29,7 @@ impl RawDartFrame {
         if let Some(package) = &self.package {
             hasher.update(package.as_bytes());
         }
-        hasher.update(self.function.as_bytes());
+        hasher.update(self.function.clone().unwrap_or_default().as_bytes());
         hasher.update(self.lineno.unwrap_or_default().to_be_bytes());
         hasher.update(self.colno.unwrap_or_default().to_be_bytes());
         hasher.update(self.module.as_bytes());
@@ -41,12 +41,12 @@ impl From<&RawDartFrame> for Frame {
     fn from(raw: &RawDartFrame) -> Self {
         let mut f = Frame {
             raw_id: FrameId::placeholder(),
-            mangled_name: raw.function.clone(),
+            mangled_name: raw.function.clone().unwrap_or_default(),
             line: raw.lineno,
             column: raw.colno,
             source: Some(raw.abs_path.clone()),
             in_app: raw.meta.in_app,
-            resolved_name: Some(raw.function.clone()), // Assuming no obfuscation for now
+            resolved_name: Some(raw.function.clone().unwrap_or_default()), // Assuming no obfuscation for now
             lang: "dart".to_string(),
             resolved: true,
             resolve_failure: None,
