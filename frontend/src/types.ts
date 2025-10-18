@@ -4767,6 +4767,13 @@ export interface DataWarehouseViewLink {
     configuration?: DataWarehouseViewLinkConfiguration
 }
 
+export interface DataWarehouseViewLinkValidation {
+    is_valid: boolean
+    msg: string | null
+    hogql: string | null
+    results: any[]
+}
+
 export interface QueryTabState {
     id: string
     state: Record<string, any>
