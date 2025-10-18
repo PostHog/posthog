@@ -5,6 +5,8 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import tiktoken
 import structlog
 
 csv.field_size_limit(sys.maxsize)
@@ -20,7 +22,9 @@ class TraceMessagesStringifier:
     def stringify_trace_messages(self) -> list[str] | None:
         stringified_messages: list[str] = []
         # Iterate input first, output next
-        for message in self.input_state["messages"] + self.output_state["messages"]:
+        # TODO: Decide if to use input state messages, or output is enough # self.input_state["messages"] +
+        # Should be clear when combining conversations (right now I work with parts)
+        for message in self.output_state["messages"]:
             stringified_message = self._stringify_message(message)
             # Skip empty messages
             if not stringified_message:
@@ -40,14 +44,15 @@ class TraceMessagesStringifier:
         return stringified_messages
 
     @staticmethod
-    def _stringify_answer(message: dict[str, Any]) -> str:
+    def _stringify_answer(message: dict[str, Any]) -> str | None:
         answer_kind = message["answer"]["kind"]
         message_content = f"*AI displayed a {answer_kind}*"
-        message_type = "ai/answer"
-        return f"{message_type}: {message_content}"
+        if not message_content:
+            return None
+        return f"ai/answer: {message_content}"
 
     @staticmethod
-    def _stringify_ai_message(message: dict[str, Any]) -> str:
+    def _stringify_ai_message(message: dict[str, Any]) -> str | None:
         message_content = message["content"]
         tools_called = []
         for tc in message.get("tool_calls") or []:
@@ -57,6 +62,8 @@ class TraceMessagesStringifier:
         if tools_called:
             tool_content = f"*AI called tools: {', '.join(tools_called)}*"
             message_content += f" {tool_content}" if message_content else tool_content
+        if not message_content:
+            return None
         return f"ai: {message_content}"
 
     @staticmethod
@@ -132,22 +139,41 @@ if __name__ == "__main__":
     base_path = Path("/Users/woutut/Documents/Code/posthog/playground/traces-summarization")
     base_assets_path = base_path / "assets"
     base_output_path = base_path / "output"
-    # base_stringified_messages_path = base_path / "stringified_messages"
     # Ensure directories exist
     base_path.mkdir(parents=True, exist_ok=True)
     base_assets_path.mkdir(parents=True, exist_ok=True)
     base_output_path.mkdir(parents=True, exist_ok=True)
-    # Load and stringify traces
+    # Prepare for stats collection
     traces_loader = TracesLoader(base_assets_path)
     traces_count = 0
-    skipped_traces_count = 0
+    context_skipped_traces_count = 0
+    size_skipped_traces_count = 0
+    # Calculate tokens
+    token_counts: list[int] = []
+    filtered_token_counts: list[int] = []
+    traces_with_heavy_token_count: list[tuple[str, int]] = []
+    traces_with_light_token_count: list[tuple[str, int]] = []
+    token_encoder = tiktoken.encoding_for_model("gpt-4o")
+    # Load and stringify traces
     for trace_id, input_state, output_state in traces_loader.load_traces():
         traces_count += 1
         stringifier = TraceMessagesStringifier(trace_id=trace_id, input_state=input_state, output_state=output_state)
         stringified_messages = stringifier.stringify_trace_messages()
         if not stringified_messages:
-            skipped_traces_count += 1
+            context_skipped_traces_count += 1
             continue
+        stringified_messages_str = "\n\n".join(stringified_messages)
+        # Calculate the number of tokens in the stringified messages
+        num_tokens = len(token_encoder.encode(stringified_messages_str))
+        token_counts.append(num_tokens)
+        if num_tokens > 5000:
+            traces_with_heavy_token_count.append((trace_id, num_tokens))
+            # Skip heavy traces as they usually rely on a heavy amount of context, which is not the expected use case
+            size_skipped_traces_count += 1
+            continue
+        if num_tokens < 100:
+            traces_with_light_token_count.append((trace_id, num_tokens))
+        filtered_token_counts.append(num_tokens)
         # Create directory for the trace files within assets
         trace_dir_path = base_output_path / trace_id
         trace_dir_path.mkdir(parents=True, exist_ok=True)
@@ -159,8 +185,43 @@ if __name__ == "__main__":
             json.dump(output_state, f, indent=4)
         # Write stringified messages to file
         with open(trace_dir_path / f"{trace_id}_stringified_messages.txt", "w") as f:
-            f.write("\n\n".join(stringified_messages))
-        # break
+            f.write(stringified_messages_str)
+    # Sort token counts
+    traces_with_heavy_token_count.sort(key=lambda x: x[1], reverse=True)  # Heavy - from largest to smallest
+    traces_with_light_token_count.sort(key=lambda x: x[1])  # Light - from smallest to largest
+    # Base stats
     logger.info(f"Staring traces count: {traces_count}")
-    logger.info(f"Skipped traces count: {skipped_traces_count}")
-    logger.info(f"Final traces count: {traces_count - skipped_traces_count}")
+    logger.info(f"Context skipped traces count: {context_skipped_traces_count}")
+    logger.info(f"Size skipped traces count: {size_skipped_traces_count}")
+    logger.info(f"Final traces count: {traces_count - context_skipped_traces_count - size_skipped_traces_count}")
+    # Token stats
+    logger.info("*" * 50)
+    logger.info("*" * 50)
+    logger.info("*" * 50)
+    logger.info("Base token stats")
+    token_stats = np.array(token_counts)
+    logger.info(f"Average token count: {token_stats.mean()}")
+    logger.info(f"Median token count: {np.median(token_stats)}")
+    logger.info(f"90th percentile token count: {np.percentile(token_stats, 90)}")
+    logger.info(f"95th percentile token count: {np.percentile(token_stats, 95)}")
+    logger.info(f"99th percentile token count: {np.percentile(token_stats, 99)}")
+    logger.info(f"Min token count: {token_stats.min()}")
+    logger.info(f"Max token count: {token_stats.max()}")
+    logger.info("*" * 50)
+    logger.info(f"Traces with heavy token count: {len(traces_with_heavy_token_count)}")
+    logger.info(f"Traces with heavy token count: {traces_with_heavy_token_count}")
+    logger.info("*" * 50)
+    logger.info(f"Traces with light token count: {len(traces_with_light_token_count)}")
+    logger.info(f"Traces with light token count: {traces_with_light_token_count}")
+    logger.info("*" * 50)
+    logger.info("*" * 50)
+    logger.info("*" * 50)
+    logger.info("Filtered token stats")
+    filtered_token_stats = np.array(filtered_token_counts)
+    logger.info(f"Average filtered token count: {filtered_token_stats.mean()}")
+    logger.info(f"Median filtered token count: {np.median(filtered_token_stats)}")
+    logger.info(f"90th percentile filtered token count: {np.percentile(filtered_token_stats, 90)}")
+    logger.info(f"95th percentile filtered token count: {np.percentile(filtered_token_stats, 95)}")
+    logger.info(f"99th percentile filtered token count: {np.percentile(filtered_token_stats, 99)}")
+    logger.info(f"Min filtered token count: {filtered_token_stats.min()}")
+    logger.info(f"Max filtered token count: {filtered_token_stats.max()}")
