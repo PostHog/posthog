@@ -339,6 +339,9 @@ export function DashboardHeader(): JSX.Element | null {
                             }}
                             menuItem
                             data-attr="open-insights-in-new-posthog-tabs"
+                            disabledReasons={{
+                                'Dashboard has no insights': dashboard.tiles.length === 0,
+                            }}
                         >
                             <IconGraph />
                             Open insights in new Posthog tabs
