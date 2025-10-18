@@ -518,18 +518,19 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         .all(|k| !k.ends_with(".sst")));
 
     // Verify exported files contain expected RocksDB non-SST files
-    // For now, we always upload the latest CURRENT, MANIFEST, OPTIONS,
-    // and .log (WAL) files. With checksums, we can disambiguate better
+    // For now, we always upload the latest CURRENT, but
+    // but this attempt, we don't upload new MANIFEST, OPTIONS,
+    // or .log (WAL) files because the checksums will not be different
     assert!(next_remote_checkpoint_files
         .keys()
         .any(|k| k.ends_with("CURRENT")));
     assert!(next_remote_checkpoint_files
         .keys()
-        .any(|k| k.contains("MANIFEST")));
+        .any(|k| !k.contains("MANIFEST")));
     assert!(next_remote_checkpoint_files
         .keys()
-        .any(|k| k.contains("OPTIONS")));
+        .any(|k| !k.contains("OPTIONS")));
     assert!(next_remote_checkpoint_files
         .keys()
-        .any(|k| k.ends_with(".log")));
+        .any(|k| !k.ends_with(".log")));
 }
