@@ -8,6 +8,6 @@
   SELECT person_id 
   FROM person_distinct_ids 
   WHERE ilike(distinct_id, '%SEARCHSTRING%')))) ORDER BY id ASC 
-  LIMIT 50000
+  LIMIT 100000
   '''
 # ---
