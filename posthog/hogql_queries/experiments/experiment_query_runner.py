@@ -585,6 +585,7 @@ class ExperimentQueryRunner(QueryRunner):
                 metric=self.metric,
                 control_variant=control_variant,
                 test_variants=test_variants,
+                stats_config=self.experiment.stats_config,
             )
         else:
             # We default to bayesian
@@ -592,6 +593,7 @@ class ExperimentQueryRunner(QueryRunner):
                 metric=self.metric,
                 control_variant=control_variant,
                 test_variants=test_variants,
+                stats_config=self.experiment.stats_config,
             )
 
     def _add_missing_variants(self, variants: list[ExperimentStatsBase]):
