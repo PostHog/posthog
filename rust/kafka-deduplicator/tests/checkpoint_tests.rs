@@ -456,7 +456,10 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
     // Verify exported files contain expected RocksDB checkpoint files, including SSTs
     assert!(orig_remote_checkpoint_files
         .keys()
-        .any(|k| k.ends_with(".sst")));
+        .any(|k| k.ends_with("00001.sst")));
+    assert!(orig_remote_checkpoint_files
+        .keys()
+        .any(|k| k.ends_with("00002.sst")));
     assert!(orig_remote_checkpoint_files
         .keys()
         .any(|k| k.ends_with("CURRENT")));
