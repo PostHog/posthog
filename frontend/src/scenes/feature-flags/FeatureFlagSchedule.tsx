@@ -29,6 +29,7 @@ import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
 import { groupFilters } from './FeatureFlags'
 import { featureFlagLogic, validateFeatureFlagKey, variantKeyToIndexFeatureFlagPayloads } from './featureFlagLogic'
+import { createScheduleReleaseConditionsLogicKey } from './featureFlagUtils'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
@@ -264,14 +265,15 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 </div>
                             </>
                         )}
-                        {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
-                            <FeatureFlagReleaseConditions
-                                id={`schedule-release-conditions-${featureFlag.id}`}
-                                filters={scheduleFilters}
-                                onChange={(value, errors) => setSchedulePayload(value, null, errors, null, null)}
-                                hideMatchOptions
-                            />
-                        )}
+                        {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition &&
+                            featureFlag.id != null && (
+                                <FeatureFlagReleaseConditions
+                                    id={createScheduleReleaseConditionsLogicKey(featureFlag.id)}
+                                    filters={scheduleFilters}
+                                    onChange={(value, errors) => setSchedulePayload(value, null, errors, null, null)}
+                                    hideMatchOptions
+                                />
+                            )}
                         {scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
                             featureFlags[FEATURE_FLAGS.SCHEDULE_FEATURE_FLAG_VARIANTS_UPDATE] &&
                             (() => {
