@@ -377,9 +377,10 @@ describe('EventPipelineRunner', () => {
             })
 
             it('runs the expected steps for heatmap_data', async () => {
-                await runner.runEventPipeline(heatmapEvent, team)
+                const timestamp = DateTime.now()
+                await runner.runHeatmapPipeline(heatmapEvent, timestamp, team)
 
-                expect(runner.steps).toEqual(['normalizeEventStep', 'prepareEventStep', 'extractHeatmapDataStep'])
+                expect(runner.steps).toEqual(['prepareEventStep', 'extractHeatmapDataStep'])
             })
         })
     })

@@ -45,10 +45,12 @@ import {
     createValidateEventUuidStep,
     createValidateHistoricalMigrationStep,
 } from './event-preprocessing'
+import { createDisablePersonProcessingStep } from './event-processing/disable-person-processing-step'
 import { createEmitEventStep } from './event-processing/emit-event-step'
 import { createEventPipelineRunnerHeatmapStep } from './event-processing/event-pipeline-runner-heatmap-step'
 import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
 import { createHandleClientIngestionWarningStep } from './event-processing/handle-client-ingestion-warning-step'
+import { createNormalizeEventStep } from './event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from './event-processing/normalize-process-person-flag-step'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
@@ -345,13 +347,16 @@ export class IngestionConsumer {
                                             (branches) => {
                                                 branches
                                                     .branch('heatmap', (b) =>
-                                                        b.pipe(
-                                                            createEventPipelineRunnerHeatmapStep(
-                                                                this.hub,
-                                                                this.hogTransformer,
-                                                                this.personsStore
+                                                        b
+                                                            .pipe(createDisablePersonProcessingStep())
+                                                            .pipe(createNormalizeEventStep(this.hub))
+                                                            .pipe(
+                                                                createEventPipelineRunnerHeatmapStep(
+                                                                    this.hub,
+                                                                    this.hogTransformer,
+                                                                    this.personsStore
+                                                                )
                                                             )
-                                                        )
                                                     )
                                                     .branch('event', (b) =>
                                                         b.pipe(

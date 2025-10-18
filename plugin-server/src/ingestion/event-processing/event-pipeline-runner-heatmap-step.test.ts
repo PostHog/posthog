@@ -1,4 +1,4 @@
-import { Message } from 'node-rdkafka'
+import { DateTime } from 'luxon'
 import { v4 } from 'uuid'
 
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
@@ -9,7 +9,7 @@ import { EventPipelineResult, EventPipelineRunner } from '../../worker/ingestion
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResultType, dlq, drop, ok } from '../pipelines/results'
-import { HeatmapPipelineRunnerInput, createEventPipelineRunnerHeatmapStep } from './event-pipeline-runner-heatmap-step'
+import { createEventPipelineRunnerHeatmapStep } from './event-pipeline-runner-heatmap-step'
 
 jest.mock('../../worker/ingestion/event-pipeline/runner', () => ({
     EventPipelineRunner: jest.fn(),
@@ -77,7 +77,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
     let mockPersonsStore: PersonsStore
     let mockGroupStore: GroupStoreForBatch
     let mockEventPipelineRunner: jest.Mocked<EventPipelineRunner>
-    let mockMessage: Message
     let mockEvent: PipelineEvent
     let mockTeam: Team
     let mockHeaders: EventHeaders
@@ -89,15 +88,6 @@ describe('event-pipeline-runner-heatmap-step', () => {
         mockHogTransformer = {} as HogTransformerService
         mockPersonsStore = {} as PersonsStore
         mockGroupStore = {} as GroupStoreForBatch
-
-        mockMessage = {
-            value: Buffer.from('test message'),
-            key: Buffer.from('test key'),
-            headers: {},
-            partition: 0,
-            offset: 123,
-            timestamp: Date.now(),
-        } as Message
 
         mockEvent = {
             uuid: v4(),
@@ -120,14 +110,15 @@ describe('event-pipeline-runner-heatmap-step', () => {
     })
 
     it('should create EventPipelineRunner and call runHeatmapPipeline', async () => {
+        const mockTimestamp = DateTime.now()
         const mockResult = ok({ lastStep: 'extractHeatmapDataStep', eventToEmit: createTestRawKafkaEvent() })
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
         const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer, mockPersonsStore)
 
-        const input: HeatmapPipelineRunnerInput = {
-            message: mockMessage,
-            event: mockEvent,
+        const input = {
+            normalizedEvent: mockEvent,
+            timestamp: mockTimestamp,
             team: mockTeam,
             headers: mockHeaders,
             groupStoreForBatch: mockGroupStore,
@@ -143,20 +134,21 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockGroupStore,
             mockHeaders
         )
-        expect(mockEventPipelineRunner.runHeatmapPipeline).toHaveBeenCalledWith(mockEvent, mockTeam)
+        expect(mockEventPipelineRunner.runHeatmapPipeline).toHaveBeenCalledWith(mockEvent, mockTimestamp, mockTeam)
         expect(result).toEqual(mockResult)
         expect(result.type).toBe(PipelineResultType.OK)
     })
 
     it('should pass through drop results from runHeatmapPipeline', async () => {
+        const mockTimestamp = DateTime.now()
         const mockResult = drop<EventPipelineResult>('heatmap_processing_failed')
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
         const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer, mockPersonsStore)
 
-        const input: HeatmapPipelineRunnerInput = {
-            message: mockMessage,
-            event: mockEvent,
+        const input = {
+            normalizedEvent: mockEvent,
+            timestamp: mockTimestamp,
             team: mockTeam,
             headers: mockHeaders,
             groupStoreForBatch: mockGroupStore,
@@ -169,15 +161,16 @@ describe('event-pipeline-runner-heatmap-step', () => {
     })
 
     it('should pass through DLQ results from runHeatmapPipeline', async () => {
+        const mockTimestamp = DateTime.now()
         const mockError = new Error('Heatmap processing error')
         const mockResult = dlq<EventPipelineResult>('heatmap_error', mockError)
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
         const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer, mockPersonsStore)
 
-        const input: HeatmapPipelineRunnerInput = {
-            message: mockMessage,
-            event: mockEvent,
+        const input = {
+            normalizedEvent: mockEvent,
+            timestamp: mockTimestamp,
             team: mockTeam,
             headers: mockHeaders,
             groupStoreForBatch: mockGroupStore,
@@ -190,6 +183,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
     })
 
     it('should use the correct headers when processing', async () => {
+        const mockTimestamp = DateTime.now()
         const customHeaders = createTestEventHeaders({ force_disable_person_processing: true })
 
         const mockResult = ok({ lastStep: 'extractHeatmapDataStep', eventToEmit: createTestRawKafkaEvent() })
@@ -197,9 +191,9 @@ describe('event-pipeline-runner-heatmap-step', () => {
 
         const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer, mockPersonsStore)
 
-        const input: HeatmapPipelineRunnerInput = {
-            message: mockMessage,
-            event: mockEvent,
+        const input = {
+            normalizedEvent: mockEvent,
+            timestamp: mockTimestamp,
             team: mockTeam,
             headers: customHeaders,
             groupStoreForBatch: mockGroupStore,

@@ -91,30 +91,17 @@ export class EventPipelineRunner {
      * // TODO move this out into its own pipeline runner when splitting the deployment
      */
     async runHeatmapPipelineSteps(
-        event: PluginEvent,
+        normalizedEvent: PluginEvent,
+        timestamp: DateTime,
         kafkaAcks: Promise<unknown>[],
         warnings: PipelineWarning[]
     ): Promise<EventPipelinePipelineResult> {
         const processPerson = false
 
-        const normalizeResult = await this.runStep<[PluginEvent, DateTime], typeof normalizeEventStep>(
-            normalizeEventStep,
-            [event, processPerson],
-            event.team_id,
-            true,
-            kafkaAcks,
-            warnings
-        )
-        if (!isOkResult(normalizeResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return normalizeResult
-        }
-        const [normalizedEvent] = normalizeResult.value
-
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
             prepareEventStep,
             [this, normalizedEvent, processPerson],
-            event.team_id,
+            normalizedEvent.team_id,
             true,
             kafkaAcks,
             warnings
@@ -125,10 +112,14 @@ export class EventPipelineRunner {
         }
         const preparedEvent = prepareResult.value
 
-        const extractResult = await this.runStep<
-            [PreIngestionEvent, Promise<unknown>[]],
-            typeof extractHeatmapDataStep
-        >(extractHeatmapDataStep, [this, preparedEvent], event.team_id, true, kafkaAcks, warnings)
+        const extractResult = await this.runStep<[PreIngestionEvent, Promise<unknown>[]], typeof extractHeatmapDataStep>(
+            extractHeatmapDataStep,
+            [this, preparedEvent],
+            normalizedEvent.team_id,
+            true,
+            kafkaAcks,
+            warnings
+        )
         if (!isOkResult(extractResult)) {
             // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
             return extractResult
@@ -143,17 +134,21 @@ export class EventPipelineRunner {
         return ok(result, kafkaAcks, warnings)
     }
 
-    async runHeatmapPipeline(event: PipelineEvent, team: Team): Promise<EventPipelinePipelineResult> {
-        this.originalEvent = event
+    async runHeatmapPipeline(
+        normalizedEvent: PipelineEvent,
+        timestamp: DateTime,
+        team: Team
+    ): Promise<EventPipelinePipelineResult> {
+        this.originalEvent = normalizedEvent
 
         try {
             const pluginEvent: PluginEvent = {
-                ...event,
+                ...normalizedEvent,
                 team_id: team.id,
             }
             const kafkaAcks: Promise<void>[] = []
             const warnings: PipelineWarning[] = []
-            return await this.runHeatmapPipelineSteps(pluginEvent, kafkaAcks, warnings)
+            return await this.runHeatmapPipelineSteps(pluginEvent, timestamp, kafkaAcks, warnings)
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 return dlq('Step error - non-retriable', error)
