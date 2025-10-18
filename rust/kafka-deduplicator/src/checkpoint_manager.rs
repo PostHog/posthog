@@ -174,7 +174,7 @@ impl CheckpointManager {
                                     }
                                     CheckpointStatus::InProgress => {
                                         debug!(partition = partition_tag, "Checkpoint manager: checkpoint already in progress, skipping");
-                                        break 'inner;
+                                        continue 'inner;
                                     }
                                     CheckpointStatus::Wait => {
                                         debug!(partition = partition_tag, "Checkpoint manager: max in-flight checkpoints reached, waiting for open slot");
@@ -193,6 +193,7 @@ impl CheckpointManager {
                             let worker_cancel_token = cancel_submit_loop_token.child_token();
                             let attempt_timestamp = Utc::now();
                             let worker_local_base_dir = Path::new(&submit_loop_config.local_checkpoint_dir);
+                            let worker_full_upload_interval = submit_loop_config.checkpoint_full_upload_interval;
                             let worker_remote_namespace = submit_loop_config.s3_key_prefix.clone();
                             let worker_partition = partition.clone();
 
@@ -238,15 +239,33 @@ impl CheckpointManager {
                                     }
                                 };
 
-                                // Get previous checkpoint state (counter and metadata) for this partition
+                                // Get previous checkpoint state (counter and metadata) for this partition.
                                 let (counter, prev_metadata) = worker_checkpoint_state
                                     .get(&partition)
                                     .map(|entry| (entry.0, Some(entry.1.clone())))
                                     .unwrap_or((0, None));
 
+                                // Determine if we should perform a full or incremental checkpoint.
+                                // Supply CheckpointWorker::checkpoint_partition with last successful
+                                // checkpoint attempt on this partition to perform and incremental
+                                let mut incremental_or_full: Option<&CheckpointMetadata> = prev_metadata.as_ref();
+                                if worker_full_upload_interval == 0 || counter % worker_full_upload_interval == 0 {
+                                    info!(
+                                        partition = partition_tag,
+                                        full_upload_interval = worker_full_upload_interval,
+                                        current_index = counter,
+                                        "Checkpoint worker thread: performing full checkpoint");
+                                    incremental_or_full = None;
+                                } else {
+                                    info!(
+                                        partition = partition_tag,
+                                        full_upload_interval = worker_full_upload_interval,
+                                        current_index = counter,
+                                        "Checkpoint worker thread: performing incremental checkpoint");
+                                }
 
                                 // Execute checkpoint operation with previous metadata for deduplication
-                                let result = worker.checkpoint_partition(&target_store, prev_metadata.as_ref()).await;
+                                let result = worker.checkpoint_partition(&target_store, incremental_or_full).await;
 
                                 // handle releasing locks and reporting outcome
                                 let status = match &result {
