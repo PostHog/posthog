@@ -13,6 +13,7 @@ import {
     IconDatabase,
     IconDecisionTree,
     IconExternal,
+    IconFeatures,
     IconFlask,
     IconFunnels,
     IconGraph,
@@ -78,6 +79,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     marketing_settings: {
         icon: <IconMegaphone />,
+    },
+    managed_viewsets: {
+        icon: <IconDatabase />,
     },
     web_analytics: {
         icon: <IconPieChart />,
@@ -167,6 +171,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     annotation: {
         icon: <IconNotification />,
     },
+    event: {
+        icon: <IconApps />,
+    },
     event_definition: {
         icon: <IconApps />,
     },
@@ -225,6 +232,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     live: {
         icon: <IconLive />,
+    },
+    chat: {
+        icon: <IconFeatures />,
     },
 }
 
@@ -354,24 +364,28 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         category: 'Definitions',
         iconType: 'event_definition',
         href: urls.eventDefinitions(),
+        sceneKey: 'EventDefinition',
     },
     {
         path: 'Property definitions',
         category: 'Definitions',
         iconType: 'property_definition',
         href: urls.propertyDefinitions(),
+        sceneKey: 'PropertyDefinition',
     },
     {
         path: 'Annotations',
         category: 'Metadata',
         iconType: 'annotation',
         href: urls.annotations(),
+        sceneKey: 'Annotations',
     },
     {
         path: 'Comments',
         category: 'Metadata',
         iconType: 'comment',
         href: urls.comments(),
+        sceneKey: 'Comments',
     },
     {
         path: 'Ingestion warnings',
@@ -379,6 +393,7 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         iconType: 'ingestion_warning',
         href: urls.ingestionWarnings(),
         flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
+        sceneKey: 'IngestionWarnings',
     },
     {
         path: `Sources`,
@@ -386,6 +401,7 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         type: 'hog_function/source',
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('sources'),
+        sceneKey: 'DataPipelines',
     } as FileSystemImport,
     {
         path: `Transformations`,
@@ -393,6 +409,7 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         type: 'hog_function/transformation',
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('transformations'),
+        sceneKey: 'DataPipelines',
     } as FileSystemImport,
     {
         path: `Destinations`,
@@ -400,7 +417,15 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         type: 'hog_function/destination',
         iconType: 'data_pipeline_metadata',
         href: urls.dataPipelines('destinations'),
+        sceneKey: 'DataPipelines',
     } as FileSystemImport,
+    {
+        path: 'Managed viewsets',
+        category: 'Unreleased',
+        iconType: 'managed_viewsets',
+        href: urls.dataWarehouseManagedViewsets(),
+        flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
+    },
 ]
 
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
@@ -413,6 +438,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconType: 'dashboard' as FileSystemIconType,
             iconColor: ['var(--color-product-dashboards-light)'] as FileSystemIconColor,
             href: urls.dashboards(),
+            sceneKey: 'Dashboards',
         },
         {
             path: 'Notebooks',
@@ -420,6 +446,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             type: 'notebook',
             iconType: 'notebook' as FileSystemIconType,
             href: urls.notebooks(),
+            sceneKey: 'Notebooks',
         },
         {
             path: `Data pipelines`,
@@ -428,6 +455,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconType: 'data_pipeline' as FileSystemIconType,
             iconColor: ['var(--color-product-data-pipeline-light)'] as FileSystemIconColor,
             href: urls.dataPipelines(),
+            sceneKey: 'DataPipelines',
         } as FileSystemImport,
         {
             path: `SQL editor`,
@@ -436,6 +464,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             iconType: 'sql_editor' as FileSystemIconType,
             iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
             href: urls.sqlEditor(),
+            sceneKey: 'SQLEditor',
         } as FileSystemImport,
         {
             path: 'Heatmaps',
@@ -447,6 +476,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             ] as FileSystemIconColor,
             href: urls.heatmaps(),
             tags: ['beta'],
+            sceneKey: 'Heatmaps',
         } as FileSystemImport,
     ].sort((a, b) => {
         if (a.visualOrder === -1) {

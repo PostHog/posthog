@@ -80,8 +80,12 @@ QUERY_RETRY_BACKOFF = 2
 USAGE_REPORT_TASK_KWARGS = {
     "queue": CeleryQueue.USAGE_REPORTS.value,
     "ignore_result": True,
+    "acks_late": True,
+    "reject_on_worker_lost": True,
     "autoretry_for": (Exception,),
-    "retry_backoff": True,
+    "retry_backoff": 300,  # 5min
+    "retry_backoff_max": 1800,  # 30min
+    "expires": 14400,  # 4h
 }
 
 

@@ -930,6 +930,199 @@ def background_delete_model_task(
         raise
 
 
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=120,
+    max_retries=3,
+)
+def sync_feature_flag_last_called() -> None:
+    """
+    Sync last_called_at timestamps from ClickHouse $feature_flag_called events to PostgreSQL.
+
+    This task:
+    1. Uses Redis locking to prevent concurrent executions
+    2. Gets the last sync timestamp from Redis checkpoint
+    3. Queries ClickHouse for flag usage since last sync
+    4. Bulk updates PostgreSQL with latest timestamps
+    5. Updates the sync checkpoint in Redis
+
+    Concurrency Control:
+    - Uses Redis cache lock to prevent overlapping runs
+    - Lock timeout matches schedule interval (1800s = 30 minutes)
+    - Task expires after 1800 seconds if queued but not started (via scheduled.py)
+    - No time limits - task runs until complete
+
+    Configuration (via settings.feature_flags):
+    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_BATCH_SIZE: Bulk update batch size (default: 1000)
+    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT: Max ClickHouse results (default: 100000)
+    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: Fallback lookback period (default: 1)
+    """
+    from datetime import datetime, timedelta
+
+    from django.core.cache import cache
+
+    from posthog.clickhouse.client import sync_execute
+    from posthog.exceptions_capture import capture_exception
+    from posthog.models.feature_flag.feature_flag import FeatureFlag
+
+    FEATURE_FLAG_LAST_CALLED_SYNC_KEY = "posthog:feature_flag_last_called_sync:last_timestamp"
+    LOCK_KEY = "posthog:feature_flag_last_called_sync:lock"
+    LOCK_TIMEOUT = 1800  # 30 minutes = schedule interval (prevents concurrent execution)
+
+    # Attempt to acquire lock
+    if not cache.add(LOCK_KEY, "locked", timeout=LOCK_TIMEOUT):
+        logger.info("Feature flag sync already running, skipping")
+        return
+
+    start_time = timezone.now()
+
+    try:
+        redis_client = get_client()
+
+        # Get last sync timestamp from Redis or use lookback
+        try:
+            last_sync_str = redis_client.get(FEATURE_FLAG_LAST_CALLED_SYNC_KEY)
+            if last_sync_str:
+                parsed_timestamp = datetime.fromisoformat(last_sync_str.decode())
+                # Ensure timezone-aware to avoid comparison issues with timezone.now()
+                last_sync_timestamp = (
+                    parsed_timestamp if parsed_timestamp.tzinfo else timezone.make_aware(parsed_timestamp)
+                )
+            else:
+                last_sync_timestamp = timezone.now() - timedelta(
+                    days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
+                )
+        except Exception as e:
+            logger.warning("Failed to get or parse last sync timestamp", error=str(e))
+            last_sync_timestamp = timezone.now() - timedelta(
+                days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
+            )
+
+        current_sync_timestamp = timezone.now()
+
+        logger.info(
+            "Starting feature flag sync",
+            last_sync_timestamp=last_sync_timestamp.isoformat(),
+            current_sync_timestamp=current_sync_timestamp.isoformat(),
+        )
+
+        # Query ClickHouse for flag usage since last sync
+        # Limit for insurance against large datasets and memory issues during a surge
+        result = sync_execute(
+            """
+            SELECT
+                team_id,
+                JSONExtractString(properties, '$feature_flag') as flag_key,
+                max(timestamp) as last_called_at,
+                count() as call_count
+            FROM events
+            PREWHERE event = '$feature_flag_called'
+            WHERE timestamp > %(last_sync_timestamp)s
+              AND timestamp <= %(current_sync_timestamp)s
+              AND JSONExtractString(properties, '$feature_flag') != ''
+            GROUP BY team_id, flag_key
+            ORDER BY last_called_at DESC
+            LIMIT %(limit)s
+            """,
+            {
+                "last_sync_timestamp": last_sync_timestamp,
+                "current_sync_timestamp": current_sync_timestamp,
+                "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
+            },
+        )
+
+        if not result:
+            # Update checkpoint even if no results
+            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
+            logger.info(
+                "Feature flag sync completed with no events",
+                duration_seconds=(timezone.now() - start_time).total_seconds(),
+            )
+            return
+
+        # Collect flags for bulk update
+        flags_to_update = []
+
+        # Get latest timestamp for checkpoint, fallback to current if all None
+        checkpoint_timestamp = max((row[2] for row in result if row[2]), default=current_sync_timestamp)
+
+        # Build lookup map of (team_id, key) -> timestamp from ClickHouse results
+        flag_updates = {(row[0], row[1]): row[2] for row in result}
+
+        # Batch fetch all relevant flags in a single query
+        team_ids = list({row[0] for row in result})
+        flag_keys = list({row[1] for row in result})
+
+        flags = FeatureFlag.objects.filter(team_id__in=team_ids, key__in=flag_keys)
+
+        for flag in flags:
+            new_timestamp = flag_updates.get((flag.team_id, flag.key))
+            if new_timestamp:
+                # Ensure timestamp from ClickHouse is timezone-aware before comparison
+                new_timestamp = new_timestamp if new_timestamp.tzinfo else timezone.make_aware(new_timestamp)
+                if flag.last_called_at is None or flag.last_called_at < new_timestamp:
+                    flag.last_called_at = new_timestamp
+                    flags_to_update.append(flag)
+
+        # Perform bulk update
+        updated_count = 0
+        if flags_to_update:
+            try:
+                FeatureFlag.objects.bulk_update(
+                    flags_to_update,
+                    ["last_called_at"],
+                    batch_size=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_BATCH_SIZE,
+                )
+                updated_count = len(flags_to_update)
+            except Exception as e:
+                capture_exception(
+                    e,
+                    additional_properties={
+                        "feature": "feature_flags",
+                        "task": "sync_feature_flag_last_called",
+                        "flags_count": len(flags_to_update),
+                    },
+                )
+                raise
+
+        # Store checkpoint for next sync using the latest timestamp from results
+        redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
+
+        duration = (timezone.now() - start_time).total_seconds()
+
+        logger.info(
+            "Feature flag sync completed",
+            updated_count=updated_count,
+            processed_events=sum(row[3] for row in result),
+            clickhouse_results=len(result),
+            duration_seconds=duration,
+        )
+
+        # Alert if approaching schedule interval (25 min warning threshold)
+        if duration > 1500:
+            logger.warning(
+                "Feature flag sync taking longer than expected",
+                duration_seconds=duration,
+                updated_count=updated_count,
+                processed_events=sum(row[3] for row in result),
+                recommendation="Consider reducing FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT or optimizing query",
+            )
+
+    except Exception as e:
+        duration = (timezone.now() - start_time).total_seconds()
+        logger.exception("Feature flag sync failed", error=e, duration_seconds=duration)
+        capture_exception(
+            e, additional_properties={"feature": "feature_flags", "task": "sync_feature_flag_last_called"}
+        )
+        raise
+    finally:
+        # Always release the lock
+        cache.delete(LOCK_KEY)
+
+
 @shared_task(ignore_result=True, time_limit=7200)
 def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14) -> None:
     """

@@ -3,11 +3,8 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointConfig {
-    /// How often to trigger a checkpoint
+    /// How often to trigger a checkpoint attempt for all locally-hosted partition stores
     pub checkpoint_interval: Duration,
-
-    /// How often to cleanup local checkpoints
-    pub cleanup_interval: Duration,
 
     /// Base directory for local checkpoints
     pub local_checkpoint_dir: String,
@@ -15,21 +12,11 @@ pub struct CheckpointConfig {
     /// S3 bucket for checkpoint uploads
     pub s3_bucket: String,
 
-    /// S3 key prefix for checkpoints
+    /// S3 key prefix (bucket namespace) for checkpoints attempts
     pub s3_key_prefix: String,
-
-    // how often should we perform a full checkpoint vs. incremental.
-    // if 0, then we will always do full checkpoints
-    pub full_upload_interval: u32,
 
     /// AWS region for S3
     pub aws_region: String,
-
-    /// Maximum number of local checkpoint attempts to keep around *per partition*
-    pub checkpoints_per_partition: usize,
-
-    /// Maximum number of hours any local checkpoint attempt should be retained
-    pub max_checkpoint_retention_hours: u32,
 
     /// Maximum number of concurrent checkpoint attempts to perform on a single node.
     /// NOTE: checkpoint attempts are unique to a given partition; no two for the same
@@ -53,14 +40,10 @@ impl Default for CheckpointConfig {
             // NOTE! production & local dev defaults can be overridden in top-level config.rs
             // or env vars; assume these defaults are only applied as-is in unit tests and CI
             checkpoint_interval: Duration::from_secs(300), // 5 minutes (TBD)
-            cleanup_interval: Duration::from_secs(1320),   // 22 minutes (TBD)
             local_checkpoint_dir: "./checkpoints".to_string(),
             s3_bucket: "".to_string(),
             s3_key_prefix: "deduplication-checkpoints".to_string(),
-            full_upload_interval: 0, // TODO: always full checkpoints until we impl incremental
             aws_region: "us-east-1".to_string(),
-            checkpoints_per_partition: 5,
-            max_checkpoint_retention_hours: 2,
             max_concurrent_checkpoints: 3,
             checkpoint_gate_interval: Duration::from_millis(200),
             checkpoint_worker_shutdown_timeout: Duration::from_secs(10),
