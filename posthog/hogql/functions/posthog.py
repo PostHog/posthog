@@ -5,8 +5,8 @@ from .core import HogQLFunctionMeta
 HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
-    "recording_button": HogQLFunctionMeta("recording_button", 1, 2),
-    "explain_csp_report": HogQLFunctionMeta("explain_csp_report", 1, 1),
+    "recordingButton": HogQLFunctionMeta("recordingButton", 1, 2),
+    "explainCSPReport": HogQLFunctionMeta("explainCSPReport", 1, 1),
     # Allow case-insensitive matching since people might not know "SemVer" is the right capitalization
     "sortablesemver": HogQLFunctionMeta(
         "arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull({}), '(\\d+(\\.\\d+)+)')))",
@@ -15,13 +15,13 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         case_sensitive=False,
         signatures=[((StringType(),), ArrayType(item_type=IntegerType()))],
     ),
-    "embed_text": HogQLFunctionMeta("embed_text", 1, 2),
+    "embedText": HogQLFunctionMeta("embedText", 1, 2),
     # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
-    "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
-    "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
-    "hogql_lookupPaidMediumType": HogQLFunctionMeta("hogql_lookupPaidMediumType", 1, 1),
-    "hogql_lookupOrganicSourceType": HogQLFunctionMeta("hogql_lookupOrganicSourceType", 1, 1),
-    "hogql_lookupOrganicMediumType": HogQLFunctionMeta("hogql_lookupOrganicMediumType", 1, 1),
+    "lookupDomainType": HogQLFunctionMeta("lookupDomainType", 1, 1),
+    "lookupPaidSourceType": HogQLFunctionMeta("lookupPaidSourceType", 1, 1),
+    "lookupPaidMediumType": HogQLFunctionMeta("lookupPaidMediumType", 1, 1),
+    "lookupOrganicSourceType": HogQLFunctionMeta("lookupOrganicSourceType", 1, 1),
+    "lookupOrganicMediumType": HogQLFunctionMeta("lookupOrganicMediumType", 1, 1),
     # posthog/models/exchange_rate/sql.py
     # convertCurrency(from_currency, to_currency, amount, timestamp?)
     "convertCurrency": HogQLFunctionMeta(
