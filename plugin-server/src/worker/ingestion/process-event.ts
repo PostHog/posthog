@@ -3,10 +3,8 @@ import { Counter, Summary } from 'prom-client'
 
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import {
     Element,
-    GroupTypeIndex,
     Hub,
     ISOTimestamp,
     Person,
@@ -18,7 +16,6 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
-import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
@@ -51,14 +48,10 @@ const updateEventNamesAndPropertiesMsSummary = new Summary({
 })
 
 export class EventsProcessor {
-    private db: DB
-    private kafkaProducer: KafkaProducerWrapper
     private teamManager: TeamManager
     private groupTypeManager: GroupTypeManager
 
     constructor(private hub: Hub) {
-        this.db = hub.db
-        this.kafkaProducer = hub.kafkaProducer
         this.teamManager = hub.teamManager
         this.groupTypeManager = hub.groupTypeManager
     }
@@ -66,7 +59,7 @@ export class EventsProcessor {
     public async processEvent(
         distinctId: string,
         data: PluginEvent,
-        teamId: number,
+        team: Team,
         timestamp: DateTime,
         eventUuid: string,
         processPerson: boolean,
@@ -82,11 +75,6 @@ export class EventsProcessor {
         try {
             // We know `normalizeEvent` has been called here.
             const properties: Properties = data.properties!
-
-            const team = await this.teamManager.getTeam(teamId)
-            if (!team) {
-                throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
-            }
 
             const captureTimeout = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', {
                 eventUuid,
@@ -185,17 +173,6 @@ export class EventsProcessor {
             teamId: team.id,
             projectId: team.project_id,
         }
-    }
-
-    getGroupIdentifiers(properties: Properties): GroupId[] {
-        const res: GroupId[] = []
-        for (let groupTypeIndex = 0; groupTypeIndex < MAX_GROUP_TYPES_PER_TEAM; ++groupTypeIndex) {
-            const key = `$group_${groupTypeIndex}`
-            if (key in properties) {
-                res.push([groupTypeIndex as GroupTypeIndex, properties[key]])
-            }
-        }
-        return res
     }
 
     createEvent(

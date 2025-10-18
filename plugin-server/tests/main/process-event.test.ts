@@ -28,7 +28,6 @@ import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { fetchDistinctIdValues, fetchPersons } from '../../src/worker/ingestion/persons/repositories/test-helpers'
-import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
@@ -80,7 +79,6 @@ describe('processEvent', () => {
     let team: Team
     let hub: Hub
     let personRepository: PostgresPersonRepository
-    let eventsProcessor: EventsProcessor
     let now = DateTime.utc()
 
     async function processEvent(
@@ -160,7 +158,6 @@ describe('processEvent', () => {
 
         personRepository = new PostgresPersonRepository(hub.db.postgres)
 
-        eventsProcessor = new EventsProcessor(hub)
         team = await getFirstTeam(hub)
         now = DateTime.utc()
 
@@ -278,28 +275,6 @@ describe('processEvent', () => {
     const alias = async (hub: Hub, alias: string, distinctId: string) => {
         await capture(hub, '$create_alias', { alias, disinct_id: distinctId })
     }
-
-    test('capture bad team', async () => {
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
-            hub.db,
-            hub.groupRepository,
-            hub.clickhouseGroupRepository
-        )
-        await expect(
-            eventsProcessor.processEvent(
-                'asdfasdfasdf',
-                {
-                    event: '$pageview',
-                    properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
-                } as any as PluginEvent,
-                1337,
-                now,
-                new UUIDT().toString(),
-                false,
-                groupStoreForBatch
-            )
-        ).rejects.toThrow("No team found with ID 1337. Can't ingest event.")
-    })
 
     test('ip none', async () => {
         await createPerson(hub, team, ['asdfasdfasdf'])
