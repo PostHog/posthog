@@ -1,18 +1,25 @@
-ARTICLES_QUERY = """
-query PaginatedArticles($n: Int!, $cursor: String) {
-    articles(first: $n, after: $cursor) {
-        nodes {
-            author {
+ARTICLES_SORTKEY = "UPDATED_AT"
+
+ARTICLES_QUERY = f"""
+query PaginatedArticles($pageSize: Int!, $cursor: String, $query: String) {{
+    articles(
+        first: $pageSize, after: $cursor, sortKey: {ARTICLES_SORTKEY},
+        reverse: true, query: $query
+    ) {{
+        nodes {{
+            author {{
                 name
-            }
-            blog {
+            }}
+            blog {{
                 handle
                 id
                 tags
                 title
-            }
+            }}
             body
-            commentsCount
+            commentsCount(limit: null) {{
+                count
+            }}
             createdAt
             handle
             id
@@ -23,10 +30,10 @@ query PaginatedArticles($n: Int!, $cursor: String) {
             templateSuffix
             title
             updatedAt
-        }
-        pageInfo {
+        }}
+        pageInfo {{
             hasNextPage
             endCursor
-        }
-    }
-}"""
+        }}
+    }}
+}}"""

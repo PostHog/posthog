@@ -28,12 +28,11 @@ MAILING_ADDRESS_FRAGMENT = """{
 }"""
 
 MONEY_V2_FRAGMENT = """{
-    presentmentMoney {
-        amount
-        currencyCode
-    }
-    shopMoney {
-        amount
-        currencyCode
-    }
+    amount
+    currencyCode
 }"""
+
+MONEY_BAG_FRAGMENT = f"""{{
+    presentmentMoney {MONEY_V2_FRAGMENT}
+    shopMoney {MONEY_V2_FRAGMENT}
+}}"""
