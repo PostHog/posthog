@@ -7,10 +7,11 @@ import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipeli
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { dataWarehouseSourceSceneLogicType } from './DataWarehouseSourceSceneType'
 import { Schemas } from './source/Schemas'
@@ -73,6 +74,20 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
                         iconType: 'data_pipeline',
                     },
                 ]
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [(_, props) => props],
+            (props): SidePanelSceneContext | null => {
+                const cleanId = props.id.replace('self-managed-', '').replace('managed-', '')
+                return cleanId
+                    ? {
+                          activity_scope: ActivityScope.DATA_WAREHOUSE_SOURCE,
+                          activity_item_id: cleanId,
+                          access_control_resource: 'external_data_source',
+                          access_control_resource_id: cleanId,
+                      }
+                    : null
             },
         ],
     }),

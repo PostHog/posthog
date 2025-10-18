@@ -25,6 +25,8 @@ from posthog.models.activity_logging.external_data_utils import (
 )
 from posthog.models.signals import model_activity_signal
 from posthog.models.user import User
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer, SimpleExternalDataSchemaSerializer
@@ -97,7 +99,7 @@ class ExternalDataJobSerializers(serializers.ModelSerializer):
         ).data
 
 
-class ExternalDataSourceSerializers(serializers.ModelSerializer):
+class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
@@ -125,6 +127,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schemas",
             "job_inputs",
             "revenue_analytics_config",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -137,6 +140,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schemas",
             "prefix",
             "revenue_analytics_config",
+            "user_access_level",
         ]
 
     """
@@ -303,12 +307,12 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
-class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete External data Sources.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "external_data_source"
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
     filter_backends = [filters.SearchFilter]
