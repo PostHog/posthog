@@ -143,6 +143,30 @@ export class EventPipelineRunner {
         return ok(result, kafkaAcks, warnings)
     }
 
+    async runHeatmapPipeline(event: PipelineEvent, team: Team): Promise<EventPipelinePipelineResult> {
+        this.originalEvent = event
+
+        try {
+            const pluginEvent: PluginEvent = {
+                ...event,
+                team_id: team.id,
+            }
+            const kafkaAcks: Promise<void>[] = []
+            const warnings: PipelineWarning[] = []
+            return await this.runHeatmapPipelineSteps(pluginEvent, kafkaAcks, warnings)
+        } catch (error) {
+            if (error instanceof StepErrorNoRetry) {
+                return dlq('Step error - non-retriable', error)
+            } else {
+                captureException(error, {
+                    tags: { pipeline_step: 'outside' },
+                    extra: { originalEvent: this.originalEvent },
+                })
+                throw error
+            }
+        }
+    }
+
     async runEventPipeline(
         event: PipelineEvent,
         team: Team,
@@ -180,10 +204,6 @@ export class EventPipelineRunner {
     ): Promise<EventPipelinePipelineResult> {
         const kafkaAcks: Promise<unknown>[] = []
         const warnings: PipelineWarning[] = []
-
-        if (event.event === '$$heatmap') {
-            return await this.runHeatmapPipelineSteps(event, kafkaAcks, warnings)
-        }
 
         const dropOldResult = await this.runStep<PluginEvent | null, typeof dropOldEventsStep>(
             dropOldEventsStep,
