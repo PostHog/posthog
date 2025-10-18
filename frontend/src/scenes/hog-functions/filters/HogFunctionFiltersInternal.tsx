@@ -53,6 +53,29 @@ export const getInternalEventFilterOptions = (contextId: HogFunctionConfiguratio
     }
 }
 
+export const getInternalEventPropertyFilterOptions = (contextId: HogFunctionConfigurationContextId): string[] => {
+    switch (contextId) {
+        case 'activity-log':
+            return [
+                'id',
+                'unread',
+                'organization_id',
+                'was_impersonated',
+                'is_system',
+                'activity',
+                'item_id',
+                'scope',
+                'detail.name',
+                'detail.changes',
+                'created_at',
+            ]
+        case 'error-tracking':
+            return ['$exception_types', '$exception_values', '$exception_sources', '$exception_functions']
+    }
+
+    return []
+}
+
 const getSimpleFilterValue = (value?: CyclotronJobFiltersType): string | undefined => {
     return value?.events?.[0]?.id
 }
