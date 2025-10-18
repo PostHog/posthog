@@ -341,6 +341,31 @@ export function DashboardHeader(): JSX.Element | null {
                             Open insights in new Posthog tabs
                         </ButtonPrimitive>
                     )}
+                    {dashboard && (
+                        <ButtonPrimitive
+                            onClick={() => {
+                                tiles.forEach((tile) => {
+                                    if (tile.insight?.short_id == null) {
+                                        return
+                                    }
+                                    const url = urls.insightView(
+                                        tile.insight.short_id,
+                                        dashboard.id,
+                                        effectiveDashboardVariableOverrides,
+                                        effectiveEditBarFilters,
+                                        tile?.filters_overrides
+                                    )
+
+                                    window.open(url, '_blank')
+                                })
+                            }}
+                            menuItem
+                            data-attr="open-insights-in-new-browser-tabs"
+                        >
+                            <IconGraph />
+                            Open insights in new browser tabs
+                        </ButtonPrimitive>
+                    )}
                 </ScenePanelActionsSection>
                 {dashboard && canEditDashboard && (
                     <>
