@@ -472,6 +472,21 @@ class RootTeamMixin(models.Model):
             self.team = self.team.parent_team  # type: ignore
         super().save(*args, **kwargs)
 
+    def save_in_persons_db(self, *args, **kwargs) -> None:
+        """
+        If the model is stored in persons db, referencing the foreign key will raise an error.
+        Reference the actual table column instead and query `team` manually.
+        """
+        team_id: Optional[int] = getattr(self, "team_id", None)
+        if team_id:
+            from posthog.models import Team
+
+            team = Team.objects.get(id=team_id)
+            if hasattr(team, "parent_team") and team.parent_team:
+                self.team_id = team.parent_team.id
+
+        super().save(*args, **kwargs)
+
 
 def convert_funnel_query(legacy_metric):
     # Extract and simplify series
