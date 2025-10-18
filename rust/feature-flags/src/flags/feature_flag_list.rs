@@ -186,6 +186,54 @@ impl FeatureFlagList {
 
         Ok(())
     }
+
+    /// Returns disabled feature flag keys from postgres given a project_id
+    /// This is used specifically for the evaluation_reasons endpoint to match Python behavior
+    pub async fn fetch_disabled_flags_from_pg(
+        client: PostgresReader,
+        project_id: i64,
+    ) -> Result<Vec<String>, FlagError> {
+        let mut conn = client.get_connection().await.map_err(|e| {
+            tracing::error!(
+                "Failed to get database connection for project {} when fetching disabled flags: {}",
+                project_id,
+                e
+            );
+            FlagError::DatabaseUnavailable
+        })?;
+
+        let query = r#"
+            SELECT f.key
+              FROM posthog_featureflag AS f
+              JOIN posthog_team AS t ON (f.team_id = t.id)
+            WHERE t.project_id = $1
+              AND f.deleted = false
+              AND f.active = false
+        "#;
+
+        let rows: Vec<(String,)> = sqlx::query_as(query)
+            .bind(project_id)
+            .fetch_all(&mut *conn)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to fetch disabled flags from database for project {}: {}",
+                    project_id,
+                    e
+                );
+                FlagError::Internal(format!("Database query error: {e}"))
+            })?;
+
+        let disabled_flag_keys: Vec<String> = rows.into_iter().map(|(key,)| key).collect();
+
+        tracing::debug!(
+            "Successfully fetched {} disabled flags from database for project {}",
+            disabled_flag_keys.len(),
+            project_id
+        );
+
+        Ok(disabled_flag_keys)
+    }
 }
 
 #[cfg(test)]
