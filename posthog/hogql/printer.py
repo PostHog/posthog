@@ -51,6 +51,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import Visitor, clone_expr
 
@@ -149,6 +150,10 @@ def prepare_ast_for_printing(
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
+
+    if context.modifiers.optimizeProjections:
+        with context.timings.measure("projection_pushdown"):
+            node = pushdown_projections(node, context)
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
