@@ -309,7 +309,7 @@ export class EventPipelineRunner {
 
         const createResult = await this.runStep<RawKafkaEvent, typeof createEventStep>(
             createEventStep,
-            [this, preparedEventWithoutHeatmaps, person, processPerson],
+            [preparedEventWithoutHeatmaps, person, processPerson],
             event.team_id,
             true,
             kafkaAcks,
