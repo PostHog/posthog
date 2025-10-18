@@ -165,15 +165,14 @@ def _expr_to_compare_op(
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.IS_NOT_SET:
-        exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=expr,
-                right=ast.Constant(value=None),
-            )
-        ]
-
         if is_json_field:
+            exprs: list[ast.Expr] = [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=expr,
+                    right=ast.Constant(value=None),
+                )
+            ]
             if not isinstance(expr, ast.Field):
                 raise Exception(f"Requires a Field expression")
 
@@ -187,8 +186,13 @@ def _expr_to_compare_op(
                     )
                 )
             )
-
-        return ast.Or(exprs=exprs)
+            return ast.Or(exprs=exprs)
+        else:
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=expr,
+                right=ast.Constant(value=None),
+            )
     elif operator == PropertyOperator.ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.ILike,
@@ -479,8 +483,13 @@ def property_to_expr(
             chain = ["session"]
         elif property.type == "session" and scope == "session":
             chain = ["sessions"]
-        elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
+        elif property.type in ["recording", "data_warehouse", "log_entry"]:
             chain = []
+        elif property.type == "event_metadata":
+            if GROUP_KEY_PATTERN.match(property.key) is not None:
+                chain = ["properties"]
+            else:
+                chain = []
         elif property.type == "log":
             chain = ["attributes"]
         elif property.type == "revenue_analytics":
@@ -579,9 +588,8 @@ def property_to_expr(
             operator=operator,
             team=team,
             property=property,
-            is_json_field=property.type != "session",
+            is_json_field=property.type != "session" and property.type != "event_metadata",
         )
-
         if is_exception_string_array_property:
             return parse_expr(
                 "arrayExists(v -> {expr}, {key})",
