@@ -1,4 +1,5 @@
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
@@ -11,6 +12,8 @@ import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
 import { DurableObjectCache } from '@/lib/utils/cache/DurableObjectCache'
 import { hash } from '@/lib/utils/helper-functions'
+import { getPromptsFromContext, registerPrompts } from '@/prompts'
+import { registerResources } from '@/resources'
 import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 
@@ -22,7 +25,7 @@ const INSTRUCTIONS = `
 
 type RequestProperties = {
     userHash: string
-    apiToken: string
+    apiToken?: string
     sessionId?: string
     features?: string[]
 }
@@ -54,10 +57,6 @@ export class MyMCP extends McpAgent<Env> {
     }
 
     get cache() {
-        if (!this.requestProperties.userHash) {
-            throw new Error('User hash is required to use the cache')
-        }
-
         if (!this._cache) {
             this._cache = new DurableObjectCache<State>(
                 this.requestProperties.userHash,
@@ -77,6 +76,10 @@ export class MyMCP extends McpAgent<Env> {
     }
 
     async detectRegion(): Promise<CloudRegion | undefined> {
+        if (!this.requestProperties.apiToken) {
+            throw new Error('Authentication required: API token is required to detect region')
+        }
+
         const usClient = new ApiClient({
             apiToken: this.requestProperties.apiToken,
             baseUrl: 'https://us.posthog.com',
@@ -120,6 +123,10 @@ export class MyMCP extends McpAgent<Env> {
     }
 
     async api() {
+        if (!this.requestProperties.apiToken) {
+            throw new Error('Authentication required: API token is required to use the API')
+        }
+
         if (!this._api) {
             const baseUrl = await this.getBaseUrl()
             this._api = new ApiClient({
@@ -233,6 +240,10 @@ export class MyMCP extends McpAgent<Env> {
     }
 
     async getContext(): Promise<Context> {
+        if (!this.requestProperties.apiToken) {
+            throw new Error('Authentication required: API token is required to create context')
+        }
+
         const api = await this.api()
         return {
             api,
@@ -244,14 +255,30 @@ export class MyMCP extends McpAgent<Env> {
     }
 
     async init() {
-        const context = await this.getContext()
+        // Always register prompts and resources - they don't need authentication
+        const dummyContext = {} as Context
+        const prompts = await getPromptsFromContext(dummyContext)
+        registerPrompts(this.server, dummyContext, prompts)
+        registerResources(this.server, dummyContext)
 
-        // Get features from request properties if available
-        const features = this.requestProperties.features
-        const allTools = await getToolsFromContext(context, features)
+        // Only register tools if authenticated
+        if (this.requestProperties.apiToken) {
+            const context = await this.getContext()
+            const features = this.requestProperties.features
+            const allTools = await getToolsFromContext(context, features)
 
-        for (const tool of allTools) {
-            this.registerTool(tool, async (params) => tool.handler(context, params))
+            for (const tool of allTools) {
+                this.registerTool(tool, async (params) => tool.handler(context, params))
+            }
+        } else {
+            // For unauthenticated requests, set up an empty tools handler
+            // This ensures tools/list returns an empty array instead of "Method not found"
+            this.server.server.registerCapabilities({
+                tools: {},
+            })
+            this.server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+                tools: [],
+            }))
         }
     }
 }
@@ -272,30 +299,24 @@ export default {
         }
 
         const token = request.headers.get('Authorization')?.split(' ')[1]
-
         const sessionId = url.searchParams.get('sessionId')
 
-        if (!token) {
+        // Validate token if provided
+        if (token && !token.startsWith('phx_')) {
             return new Response(
-                `No token provided, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
+                `Invalid token format. Please provide a valid API token starting with 'phx_'. View the documentation for more information: ${MCP_DOCS_URL}`,
                 {
                     status: 401,
                 }
             )
         }
 
-        if (!token.startsWith('phx_')) {
-            return new Response(
-                `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
-                {
-                    status: 401,
-                }
-            )
-        }
-
+        // Set up context props - auth is now optional
+        // We allow the MCP to initialize even without a valid token so that
+        // prompts and resources are still available
         ctx.props = {
-            apiToken: token,
-            userHash: hash(token),
+            apiToken: token?.startsWith('phx_') ? token : undefined,
+            userHash: token?.startsWith('phx_') ? hash(token) : 'anonymous',
             sessionId: sessionId || undefined,
         }
 
