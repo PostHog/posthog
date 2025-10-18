@@ -28,6 +28,7 @@ import {
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
+import { startEvaluationScheduler } from './main/ingestion-queues/evaluation-scheduler'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
@@ -167,6 +168,10 @@ export class PluginServer {
 
             if (capabilities.processAsyncWebhooksHandlers) {
                 serviceLoaders.push(() => startAsyncWebhooksHandlerConsumer(hub))
+            }
+
+            if (capabilities.evaluationScheduler) {
+                serviceLoaders.push(() => startEvaluationScheduler(hub))
             }
 
             if (capabilities.sessionRecordingBlobIngestionV2) {
