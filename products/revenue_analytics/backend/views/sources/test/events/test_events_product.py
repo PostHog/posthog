@@ -14,8 +14,12 @@ class TestProductEventsBuilder(EventsSourceBaseTest):
         # Test purchase event (no productProperty)
         handle = SourceHandle(type="events", team=self.team, event=self.events[0])
         query = build(handle)
-        key = f"{self.PURCHASE_EVENT_NAME}.no_property"
-        self.assertBuiltQueryStructure(query, key, "revenue_analytics.events.purchase")
+        self.assertBuiltQueryStructure(
+            query,
+            self.PURCHASE_EVENT_NAME,
+            "revenue_analytics.events.purchase",
+            expected_test_comments="no_property",
+        )
 
         query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
@@ -23,10 +27,9 @@ class TestProductEventsBuilder(EventsSourceBaseTest):
         # Test subscription_charge event (has productProperty)
         handle = SourceHandle(type="events", team=self.team, event=self.events[1])
         query = build(handle)
-        key = self.SUBSCRIPTION_CHARGE_EVENT_NAME
         self.assertBuiltQueryStructure(
             query,
-            key,
+            self.SUBSCRIPTION_CHARGE_EVENT_NAME,
             "revenue_analytics.events.subscription_charge",
         )
 
