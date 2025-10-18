@@ -10,43 +10,87 @@ csv.field_size_limit(sys.maxsize)
 logger = structlog.get_logger(__name__)
 
 
-def stringify_message(message: dict[str, Any]) -> str:
-    try:
-        # If LLM generated an asnwer - list a type of the answer
-        if message.get("answer"):
-            answer_kind = message["answer"]["kind"]
-            message_content = f"*AI displayed a {answer_kind}*"
-            message_type = "ai/answer"
-        # If it's a regular message - process as usual
-        else:
-            message_content = message["content"]
-            message_type = message["type"]
-        # If AI message - list what tools were called
-        if message_type == "ai":
-            tools_called = []
-            try:
-                for tc in message.get("tool_calls") or []:
-                    if tc.get("type") != "tool_call":
-                        continue
-                    tools_called.append(tc.get("name"))
-                if tools_called:
-                    tool_content = f"*AI called tools: {', '.join(tools_called)}*"
-                    message_content += f" {tool_content}" if message_content else tool_content
-            except Exception as e:
-                logger.exception(f"Error getting tools called for AI message ({e}):\n{message}")
-        # Skip context messages
-        if message_type == "context":
-            return None
-        # Skip tool messages
-        if message_type == "tool":
-            return None
-        # Skip empty messages
+class TraceMessagesStringifier:
+    def __init__(self, input_state: list[dict[str, Any]], output_state: list[dict[str, Any]]):
+        self.input_state: list[dict[str, Any]] = input_state
+        self.output_state: list[dict[str, Any]] = output_state
+
+    def stringify_trace_messages(self) -> list[str]:
+        stringified_messages: list[str] = []
+        # Iterate input first, output next
+        for message in self.input_state["messages"] + self.output_state["messages"]:
+            stringified_message = self._stringify_message(message)
+            # Skip empty messages
+            if not stringified_message:
+                continue
+            # Check that the previous message isn't identical
+            if stringified_messages and stringified_messages[-1] == stringified_message:
+                continue
+            stringified_messages.append(stringified_message)
+        return stringified_messages
+
+    @staticmethod
+    def _stringify_answer(message: dict[str, Any]) -> str:
+        answer_kind = message["answer"]["kind"]
+        message_content = f"*AI displayed a {answer_kind}*"
+        message_type = "ai/answer"
+        return f"{message_type}: {message_content}"
+
+    @staticmethod
+    def _stringify_ai_message(message: dict[str, Any]) -> str:
+        message_content = message["content"]
+        tools_called = []
+        for tc in message.get("tool_calls") or []:
+            if tc.get("type") != "tool_call":
+                continue
+            tools_called.append(tc.get("name"))
+        if tools_called:
+            tool_content = f"*AI called tools: {', '.join(tools_called)}*"
+            message_content += f" {tool_content}" if message_content else tool_content
+        return f"ai: {message_content}"
+
+    @staticmethod
+    def _stringify_tool_message(message: dict[str, Any]) -> str | None:
+        # Keep navigation messages
+        if message.get("ui_payload") and message.get("ui_payload").get("navigate"):
+            return f"ai/navigation: *{message['content']}*"
+        # TODO: Decide how to catch errors as they aren't marked as errors in the trace
+        return None
+
+    @staticmethod
+    def _stringify_human_message(message: dict[str, Any]) -> str | None:
+        message_content = message["content"]
         if not message_content:
             return None
-        return f"{message_type}: {message_content}"
-    except Exception as e:
-        logger.exception(f"Error stringifying message ({e}):\n{message}")
-        return None
+        return f"human: {message_content}"
+
+    def _stringify_message(self, message: dict[str, Any]) -> str | None:
+        try:
+            # Answers
+            if message.get("answer"):
+                return self._stringify_answer(message)
+            # Messages
+            message_type = message["type"]
+            if message_type == "ai":
+                return self._stringify_ai_message(message)
+            if message_type == "human":
+                return self._stringify_human_message(message)
+            if message_type == "context":  # Skip context messages
+                return None
+            if message_type == "tool":  # Decide if to keep tool messages
+                return self._stringify_tool_message(message)
+            # Ignore other message types
+        except Exception as e:
+            logger.exception(f"Error stringifying message ({e}):\n{message}")
+            return None
+
+    # def stringify_message(self, message: dict[str, Any]) -> str:
+    #     try:
+    #         # If LLM generated an asnwer - list a type of the answer
+    #         if message.get("answer"):
+    #             answer_kind = message["answer"]["kind"]
+    #             message_content = f"*AI displayed a {answer_kind}*"
+    #             message_type = "ai/answer"
 
 
 if __name__ == "__main__":
@@ -73,18 +117,9 @@ if __name__ == "__main__":
         json.dump(base_output_state, f, indent=4)
     with open(base_input_state_file_path, "w") as f:
         json.dump(base_input_state, f, indent=4)
-    # Stringify the messages
-    stringified_messages: list[str] = []
-    # Iterate input first, output next
-    for message in base_input_state["messages"] + base_output_state["messages"]:
-        stringified_message = stringify_message(message)
-        # Skip empty messages
-        if not stringified_message:
-            continue
-        # Check that the previous message isn't identical
-        if stringified_messages and stringified_messages[-1] == stringified_message:
-            continue
-        stringified_messages.append(stringified_message)
+    # Stringify messages
+    stringifier = TraceMessagesStringifier(input_state=base_input_state, output_state=base_output_state)
+    strinfied_trace_messages = stringifier.stringify_trace_messages()
     # Write to file
     with open(base_stringified_messages_file_path, "w") as f:
-        f.write("\n\n".join(stringified_messages))
+        f.write("\n\n".join(strinfied_trace_messages))
