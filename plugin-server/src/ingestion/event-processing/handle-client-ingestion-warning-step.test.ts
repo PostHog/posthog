@@ -119,8 +119,8 @@ describe('handleClientIngestionWarningStep', () => {
         })
     })
 
-    describe('regular events', () => {
-        it('passes through regular events unchanged', async () => {
+    describe('non-client ingestion warning events', () => {
+        it('DLQs regular events', async () => {
             const input: EventPipelineRunnerInput = {
                 ...baseInput,
                 event: {
@@ -131,14 +131,15 @@ describe('handleClientIngestionWarningStep', () => {
 
             const result = await handleStep(input)
 
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                expect(result.value).toEqual(input)
+            expect(result.type).toBe(PipelineResultType.DLQ)
+            if (result.type === PipelineResultType.DLQ) {
+                expect(result.reason).toBe('unexpected_event_type')
+                expect(result.error).toBeInstanceOf(Error)
+                expect((result.error as Error).message).toBe('Expected $$client_ingestion_warning, got $pageview')
             }
-            expect(result.warnings).toHaveLength(0)
         })
 
-        it('passes through $identify events', async () => {
+        it('DLQs $identify events', async () => {
             const input: EventPipelineRunnerInput = {
                 ...baseInput,
                 event: {
@@ -149,13 +150,15 @@ describe('handleClientIngestionWarningStep', () => {
 
             const result = await handleStep(input)
 
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                expect(result.value).toEqual(input)
+            expect(result.type).toBe(PipelineResultType.DLQ)
+            if (result.type === PipelineResultType.DLQ) {
+                expect(result.reason).toBe('unexpected_event_type')
+                expect(result.error).toBeInstanceOf(Error)
+                expect((result.error as Error).message).toBe('Expected $$client_ingestion_warning, got $identify')
             }
         })
 
-        it('passes through custom events', async () => {
+        it('DLQs custom events', async () => {
             const input: EventPipelineRunnerInput = {
                 ...baseInput,
                 event: {
@@ -166,7 +169,12 @@ describe('handleClientIngestionWarningStep', () => {
 
             const result = await handleStep(input)
 
-            expect(result.type).toBe(PipelineResultType.OK)
+            expect(result.type).toBe(PipelineResultType.DLQ)
+            if (result.type === PipelineResultType.DLQ) {
+                expect(result.reason).toBe('unexpected_event_type')
+                expect(result.error).toBeInstanceOf(Error)
+                expect((result.error as Error).message).toBe('Expected $$client_ingestion_warning, got custom_event')
+            }
         })
     })
 })

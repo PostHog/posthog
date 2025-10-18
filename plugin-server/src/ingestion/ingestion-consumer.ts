@@ -340,12 +340,25 @@ export class IngestionConsumer {
                             seq.retry(
                                 (retry) =>
                                     retry
-                                        .pipe(createNormalizeProcessPersonFlagStep())
-                                        .pipe(createHandleClientIngestionWarningStep())
-                                        .branching<'heatmap' | 'event', EventPipelineResult>(
-                                            (input) => (input.event.event === '$$heatmap' ? 'heatmap' : 'event'),
+                                        .branching<
+                                            'client_ingestion_warning' | 'heatmap' | 'event',
+                                            EventPipelineResult
+                                        >(
+                                            (input) => {
+                                                switch (input.event.event) {
+                                                    case '$$client_ingestion_warning':
+                                                        return 'client_ingestion_warning'
+                                                    case '$$heatmap':
+                                                        return 'heatmap'
+                                                    default:
+                                                        return 'event'
+                                                }
+                                            },
                                             (branches) => {
                                                 branches
+                                                    .branch('client_ingestion_warning', (b) =>
+                                                        b.pipe(createHandleClientIngestionWarningStep())
+                                                    )
                                                     .branch('heatmap', (b) =>
                                                         b
                                                             .pipe(createDisablePersonProcessingStep())
@@ -359,13 +372,15 @@ export class IngestionConsumer {
                                                             )
                                                     )
                                                     .branch('event', (b) =>
-                                                        b.pipe(
-                                                            createEventPipelineRunnerV1Step(
-                                                                this.hub,
-                                                                this.hogTransformer,
-                                                                this.personsStore
+                                                        b
+                                                            .pipe(createNormalizeProcessPersonFlagStep())
+                                                            .pipe(
+                                                                createEventPipelineRunnerV1Step(
+                                                                    this.hub,
+                                                                    this.hogTransformer,
+                                                                    this.personsStore
+                                                                )
                                                             )
-                                                        )
                                                     )
                                             }
                                         )
