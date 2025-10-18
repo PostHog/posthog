@@ -52,7 +52,7 @@ export const PlayerCommentModal = (): JSX.Element => {
                     <div>
                         <LemonField name="content">
                             <LemonRichContentEditor
-                                placeholder="Comment on this recording?"
+                                placeholder="Comment on this recording? Use @ to mention team members"
                                 data-attr="create-recording-comment-input"
                                 onPressCmdEnter={submitRecordingComment}
                                 initialContent={recordingComment.richContent}
@@ -63,6 +63,7 @@ export const PlayerCommentModal = (): JSX.Element => {
                                         setRichContent(richContentEditor.getJSON())
                                     }
                                 }}
+                                minRows={3}
                             />
                         </LemonField>
                     </div>
