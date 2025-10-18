@@ -341,7 +341,7 @@ export function DashboardHeader(): JSX.Element | null {
                             data-attr="open-insights-in-new-posthog-tabs"
                             disabledReasons={{
                                 'Cannot open insights when editing dashboard': dashboardMode === DashboardMode.Edit,
-                                'Dashboard has no insights': dashboard.tiles.length === 0,
+                                'Dashboard has no insights': tiles.length === 0,
                             }}
                         >
                             <IconGraph />
