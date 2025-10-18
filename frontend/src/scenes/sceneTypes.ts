@@ -73,6 +73,8 @@ export enum Scene {
     LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
+    EmailMFAWaiting = 'EmailMFAWaiting',
+    EmailMFAVerify = 'EmailMFAVerify',
     Max = 'Max',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     NewTab = 'NewTab',
