@@ -1,6 +1,7 @@
 import csv
 import sys
 import json
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
@@ -11,11 +12,12 @@ logger = structlog.get_logger(__name__)
 
 
 class TraceMessagesStringifier:
-    def __init__(self, input_state: list[dict[str, Any]], output_state: list[dict[str, Any]]):
+    def __init__(self, trace_id: str, input_state: list[dict[str, Any]], output_state: list[dict[str, Any]]):
+        self.trace_id: str = trace_id
         self.input_state: list[dict[str, Any]] = input_state
         self.output_state: list[dict[str, Any]] = output_state
 
-    def stringify_trace_messages(self) -> list[str]:
+    def stringify_trace_messages(self) -> list[str] | None:
         stringified_messages: list[str] = []
         # Iterate input first, output next
         for message in self.input_state["messages"] + self.output_state["messages"]:
@@ -27,6 +29,14 @@ class TraceMessagesStringifier:
             if stringified_messages and stringified_messages[-1] == stringified_message:
                 continue
             stringified_messages.append(stringified_message)
+        # If human didn't respond to any AI messages (no interaction), skip the trace
+        no_interaction_found = True
+        for i, message in enumerate(stringified_messages):
+            if message.startswith("human:") and i > 0 and stringified_messages[i - 1].startswith("ai:"):
+                no_interaction_found = False
+                break
+        if no_interaction_found:
+            return None
         return stringified_messages
 
     @staticmethod
@@ -84,42 +94,73 @@ class TraceMessagesStringifier:
             logger.exception(f"Error stringifying message ({e}):\n{message}")
             return None
 
-    # def stringify_message(self, message: dict[str, Any]) -> str:
-    #     try:
-    #         # If LLM generated an asnwer - list a type of the answer
-    #         if message.get("answer"):
-    #             answer_kind = message["answer"]["kind"]
-    #             message_content = f"*AI displayed a {answer_kind}*"
-    #             message_type = "ai/answer"
+
+class TracesLoader:
+    def __init__(self, traces_dir_path: Path):
+        self.traces_dir_path = traces_dir_path
+
+    def load_traces(self) -> Generator[tuple[str, dict[str, Any], dict[str, Any]], None, None]:
+        # Iterate over CSV files in the traces directory
+        for csv_file_path in self.traces_dir_path.glob("*.csv"):
+            yield from self._load_traces_from_csv(csv_file_path)
+
+    def _load_traces_from_csv(
+        self, csv_file_path: Path
+    ) -> Generator[tuple[str, dict[str, Any], dict[str, Any]], None, None]:
+        """Load traces from a CSV file and yield trace IDs, input states, and output states."""
+        with open(csv_file_path) as f:
+            reader = csv.reader(f)
+            # Skip the headers
+            next(reader)
+            for row in reader:
+                trace_id = row[0]
+                input_state_raw = row[-3]
+                if not input_state_raw:
+                    # Skip traces without input state
+                    # TODO: Update later to include the whole conversation
+                    continue
+                input_state = json.loads(input_state_raw)
+                output_state_raw = row[-2]
+                if not output_state_raw:
+                    # Skip traces without output state
+                    continue
+                output_state = json.loads(output_state_raw)
+                yield trace_id, input_state, output_state
 
 
 if __name__ == "__main__":
-    # Get data for the trace from the CSV and load into JSON
-    base_assets_path = "/Users/woutut/Documents/Code/posthog/playground/traces-summarization/"
-    base_trace_id = "6e4c8620-1a34-4d4d-948a-515062b5b941"
-    base_trace_file_path = Path(base_assets_path, f"{base_trace_id}.csv")
-    base_output_state_file_path = Path(base_assets_path, f"{base_trace_id}_output_state.json")
-    base_input_state_file_path = Path(base_assets_path, f"{base_trace_id}_input_state.json")
-    base_stringified_messages_file_path = Path(base_assets_path, f"{base_trace_id}_stringified_messages.txt")
-    base_output_state = base_input_state = None
-    with open(
-        base_trace_file_path,
-    ) as f:
-        reader = csv.reader(f)
-        # Skip the headers
-        next(reader)
-        for row in reader:
-            base_output_state = json.loads(row[-2])
-            base_input_state = json.loads(row[-3])
-            # Working with the first row, for now
-            break
-    with open(base_output_state_file_path, "w") as f:
-        json.dump(base_output_state, f, indent=4)
-    with open(base_input_state_file_path, "w") as f:
-        json.dump(base_input_state, f, indent=4)
-    # Stringify messages
-    stringifier = TraceMessagesStringifier(input_state=base_input_state, output_state=base_output_state)
-    strinfied_trace_messages = stringifier.stringify_trace_messages()
-    # Write to file
-    with open(base_stringified_messages_file_path, "w") as f:
-        f.write("\n\n".join(strinfied_trace_messages))
+    base_path = Path("/Users/woutut/Documents/Code/posthog/playground/traces-summarization")
+    base_assets_path = base_path / "assets"
+    base_output_path = base_path / "output"
+    # base_stringified_messages_path = base_path / "stringified_messages"
+    # Ensure directories exist
+    base_path.mkdir(parents=True, exist_ok=True)
+    base_assets_path.mkdir(parents=True, exist_ok=True)
+    base_output_path.mkdir(parents=True, exist_ok=True)
+    # Load and stringify traces
+    traces_loader = TracesLoader(base_assets_path)
+    traces_count = 0
+    skipped_traces_count = 0
+    for trace_id, input_state, output_state in traces_loader.load_traces():
+        traces_count += 1
+        stringifier = TraceMessagesStringifier(trace_id=trace_id, input_state=input_state, output_state=output_state)
+        stringified_messages = stringifier.stringify_trace_messages()
+        if not stringified_messages:
+            skipped_traces_count += 1
+            continue
+        # Create directory for the trace files within assets
+        trace_dir_path = base_output_path / trace_id
+        trace_dir_path.mkdir(parents=True, exist_ok=True)
+        # Write input state to file
+        with open(trace_dir_path / f"{trace_id}_input_state.json", "w") as f:
+            json.dump(input_state, f, indent=4)
+        # Write output state to file
+        with open(trace_dir_path / f"{trace_id}_output_state.json", "w") as f:
+            json.dump(output_state, f, indent=4)
+        # Write stringified messages to file
+        with open(trace_dir_path / f"{trace_id}_stringified_messages.txt", "w") as f:
+            f.write("\n\n".join(stringified_messages))
+        # break
+    logger.info(f"Staring traces count: {traces_count}")
+    logger.info(f"Skipped traces count: {skipped_traces_count}")
+    logger.info(f"Final traces count: {traces_count - skipped_traces_count}")
