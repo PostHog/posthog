@@ -163,7 +163,9 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     onFiltersChange={setFilters}
                     onPinnedChange={onPinnedChange}
                     pinnedRecordings={pinnedRecordings ?? []}
-                    canMixFiltersAndPinned={dayjs(playlist.created_at).isBefore('2025-03-11')}
+                    canMixFiltersAndPinned={
+                        playlist.created_at ? dayjs(playlist.created_at).isBefore('2025-03-11') : false
+                    }
                     updateSearchParams={true}
                     type="collection"
                     isSynthetic={playlist.is_synthetic}

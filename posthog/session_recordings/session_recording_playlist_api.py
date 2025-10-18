@@ -1,5 +1,6 @@
 import json
 import builtins
+from datetime import UTC
 from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
@@ -69,9 +70,9 @@ def create_synthetic_playlist_instance(synthetic_def, team: Team, user: User) ->
         deleted=False,
         filters={},  # Synthetic playlists don't use traditional filters
         type=synthetic_def.type,
-        created_at=now(),
+        created_at=None,
         created_by=None,
-        last_modified_at=now(),
+        last_modified_at=None,
         last_modified_by=None,
     )
     # Mark it as synthetic so we can identify it later
@@ -453,8 +454,8 @@ class SessionRecordingPlaylistViewSet(
 
         for key in filters:
             request_value = filters[key]
-            if key == "user":
-                # Synthetic playlists don't have a created_by, filter them out if user filter is set
+            if key == "user" or key == "created_by":
+                # Synthetic playlists don't have a created_by, filter them out if user/created_by filter is set
                 filtered = []
             elif key == "type":
                 if request_value == SessionRecordingPlaylist.PlaylistType.FILTERS:
@@ -481,6 +482,8 @@ class SessionRecordingPlaylistViewSet(
         self, request: request.Request, playlists: builtins.list[SessionRecordingPlaylist]
     ) -> builtins.list[SessionRecordingPlaylist]:
         """Apply ordering to a mixed list of DB and synthetic playlists"""
+        from datetime import datetime
+
         order = request.GET.get("order", "-last_modified_at")
 
         # Define sorting key function
@@ -488,11 +491,13 @@ class SessionRecordingPlaylistViewSet(
             if order == "name" or order == "-name":
                 return (playlist.name or playlist.derived_name or "").lower()
             elif order == "last_modified_at" or order == "-last_modified_at":
-                return playlist.last_modified_at
+                # For synthetic playlists (None), use a very old date so they appear last when descending
+                return playlist.last_modified_at or datetime.min.replace(tzinfo=UTC)
             elif order == "created_at" or order == "-created_at":
-                return playlist.created_at
+                # For synthetic playlists (None), use a very old date so they appear last when descending
+                return playlist.created_at or datetime.min.replace(tzinfo=UTC)
             else:
-                return playlist.last_modified_at
+                return playlist.last_modified_at or datetime.min.replace(tzinfo=UTC)
 
         # Sort the list
         reverse = order.startswith("-")

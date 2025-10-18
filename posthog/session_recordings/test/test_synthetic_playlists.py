@@ -41,6 +41,8 @@ class TestSyntheticPlaylists(APIBaseTest):
         assert playlist["type"] == "collection"
         assert playlist["created_by"] is None
         assert playlist["last_modified_by"] is None
+        assert playlist["created_at"] is None
+        assert playlist["last_modified_at"] is None
 
     def test_synthetic_playlist_watch_history_content(self) -> None:
         """Watch history synthetic playlist should contain watched recordings"""
@@ -161,6 +163,19 @@ class TestSyntheticPlaylists(APIBaseTest):
     def test_pinned_filter_excludes_synthetic_playlists(self) -> None:
         """Filtering by pinned should exclude synthetic playlists (they're never pinned)"""
         response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists?pinned=true")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        # No synthetic playlists should be included
+        synthetic_short_ids = [p["short_id"] for p in results if p["short_id"].startswith("synthetic-")]
+        assert len(synthetic_short_ids) == 0
+
+    def test_created_by_filter_excludes_synthetic_playlists(self) -> None:
+        """Filtering by created_by should exclude synthetic playlists (they have no creator)"""
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists?created_by={self.user.id}"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
