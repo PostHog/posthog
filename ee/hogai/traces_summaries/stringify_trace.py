@@ -186,6 +186,7 @@ if __name__ == "__main__":
         # Write stringified messages to file
         with open(trace_dir_path / f"{trace_id}_stringified_messages.txt", "w") as f:
             f.write(stringified_messages_str)
+
     # Sort token counts
     traces_with_heavy_token_count.sort(key=lambda x: x[1], reverse=True)  # Heavy - from largest to smallest
     traces_with_light_token_count.sort(key=lambda x: x[1])  # Light - from smallest to largest
