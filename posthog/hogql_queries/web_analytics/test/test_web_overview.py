@@ -30,7 +30,7 @@ from posthog.schema import (
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
@@ -1058,14 +1058,14 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             enable_select_queries=True,
             modifiers=HogQLQueryModifiers(convertToProjectTimezone=True),
         )
-        sql_with_tz = print_ast(hogql_query, context=context_with_tz, dialect="clickhouse")
+        sql_with_tz, _ = prepare_and_print_ast(hogql_query, context=context_with_tz, dialect="clickhouse")
 
         context_utc = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         )
-        sql_utc = print_ast(hogql_query, context=context_utc, dialect="clickhouse")
+        sql_utc, _ = prepare_and_print_ast(hogql_query, context=context_utc, dialect="clickhouse")
 
         assert "web_pre_aggregated_bounces.period_bucket, toDateTime64(" in sql_utc
         assert "toTimeZone(web_pre_aggregated_bounces.period_bucket," not in sql_utc
@@ -1093,7 +1093,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         )
 
-        sql_utc = print_ast(hogql_query, context=context_utc, dialect="clickhouse")
+        sql_utc, _ = prepare_and_print_ast(hogql_query, context=context_utc, dialect="clickhouse")
 
         assert "web_pre_aggregated_bounces.period_bucket, toDateTime64(" in sql_utc
         assert "toTimeZone(web_pre_aggregated_bounces.period_bucket, " not in sql_utc

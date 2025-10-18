@@ -7,7 +7,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 from posthog.schema import CompareFilter, DateRange, WebOverviewQuery
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.transforms.state_aggregations import (
     transform_query_to_state_aggregations,
     wrap_state_query_in_merge_query,
@@ -78,7 +78,7 @@ class TestWebOverviewStateTransform(ClickhouseTestMixin, APIBaseTest):
 
             # Execute original query
             context_original = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
-            original_sql = print_ast(original_query_ast, context=context_original, dialect="clickhouse")
+            original_sql, _ = prepare_and_print_ast(original_query_ast, context=context_original, dialect="clickhouse")
             original_result = sync_execute(original_sql, context_original.values)
 
             # Full transformation (agg -> state -> merge)
@@ -87,7 +87,9 @@ class TestWebOverviewStateTransform(ClickhouseTestMixin, APIBaseTest):
 
             # Execute transformed query
             context_transformed = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
-            transformed_sql = print_ast(wrapper_query_ast, context=context_transformed, dialect="clickhouse")
+            transformed_sql, _ = prepare_and_print_ast(
+                wrapper_query_ast, context=context_transformed, dialect="clickhouse"
+            )
             transformed_result = sync_execute(transformed_sql, context_transformed.values)
 
             return original_result, transformed_result

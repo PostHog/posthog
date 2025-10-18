@@ -11,7 +11,14 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
-from posthog.schema import DateRange, EventPropertyFilter, HogQLFilters, QueryTiming, SessionPropertyFilter
+from posthog.schema import (
+    DateRange,
+    EventPropertyFilter,
+    HogQLFilters,
+    HogQLQueryModifiers,
+    QueryTiming,
+    SessionPropertyFilter,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
@@ -1728,3 +1735,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal(amount),)])
+
+    def test_metadata_handles_lazy_joins(self):
+        query = "SELECT events.session.id from events"
+        response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(debug=True))
+        assert response and response.metadata and response.metadata.ch_table_names
+        assert any("sessions" in name for name in response.metadata.ch_table_names)

@@ -14699,6 +14699,12 @@
         "HogQLMetadataResponse": {
             "additionalProperties": false,
             "properties": {
+                "ch_table_names": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "errors": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -18865,6 +18871,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "ch_table_names": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
                         "errors": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"

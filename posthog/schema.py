@@ -4417,6 +4417,7 @@ class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ch_table_names: Optional[list[str]] = None
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
@@ -9324,6 +9325,7 @@ class HogQLMetadataResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ch_table_names: Optional[list[str]] = None
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
