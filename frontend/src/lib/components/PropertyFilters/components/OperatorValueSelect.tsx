@@ -35,6 +35,7 @@ export interface OperatorValueSelectProps {
     placeholder?: string
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
+    onApply?: () => void
     operatorSelectProps?: Partial<Omit<LemonSelectProps<any>, 'onChange'>>
     eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
@@ -92,6 +93,7 @@ export function OperatorValueSelect({
     placeholder,
     endpoint,
     onChange,
+    onApply,
     operatorSelectProps,
     propertyDefinitions = [],
     eventNames = [],
@@ -240,6 +242,7 @@ export function OperatorValueSelect({
 
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
+                        onApply={onApply}
                         // open automatically only if new filter
                         autoFocus={!isMobile() && value === null}
                         addRelativeDateTimeOptions={addRelativeDateTimeOptions}
