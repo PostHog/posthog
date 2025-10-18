@@ -5082,6 +5082,51 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             )
 
+        # Create a multivariate flag with rollout <100% should not be stale
+        with freeze_time("2023-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="low_rollout",
+                active=True,
+                filters={
+                    "groups": [{"rollout_percentage": 90, "properties": [], "variant": "test"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "test", "rollout_percentage": 50},
+                            {"key": "test2", "rollout_percentage": 50},
+                        ],
+                        "release_percentage": 100,
+                    },
+                },
+            )
+
+        # Create a multivariate flag with rollout 100% but has properties filter, should not be stale
+        with freeze_time("2023-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="with_properties",
+                active=True,
+                filters={
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "person"}
+                            ],
+                            "variant": "test",
+                        }
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "test", "rollout_percentage": 50},
+                            {"key": "test2", "rollout_percentage": 50},
+                        ],
+                        "release_percentage": 100,
+                    },
+                },
+            )
         # Test filtering by stale status
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
         response = filtered_flags_list.json()
