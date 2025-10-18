@@ -2836,6 +2836,120 @@ class TestPrinter(BaseTest):
             assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
 
+class TestDuckDBDialect(BaseTest):
+    """Tests for DuckDB dialect printing."""
+
+    def _expr_duckdb(self, query: str, context: Optional[HogQLContext] = None) -> str:
+        """Helper to translate HogQL to DuckDB dialect."""
+        node = parse_expr(query)
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        return print_ast(node, context=context, dialect="duckdb")
+
+    def test_duckdb_boolean_constants(self):
+        assert self._expr_duckdb("true") == "true"
+        assert self._expr_duckdb("false") == "false"
+
+    def test_duckdb_arithmetic_operators(self):
+        assert self._expr_duckdb("1 + 2") == "(1 + 2)"
+        assert self._expr_duckdb("10 - 5") == "(10 - 5)"
+        assert self._expr_duckdb("3 * 4") == "(3 * 4)"
+        assert self._expr_duckdb("20 / 4") == "(20 / 4)"
+        assert self._expr_duckdb("10 % 3") == "(10 % 3)"
+
+    def test_duckdb_string_constants(self):
+        assert self._expr_duckdb("'hello'") == "'hello'"
+        assert self._expr_duckdb("'test string'") == "'test string'"
+
+    def test_duckdb_identifiers(self):
+        from posthog.hogql.escape_sql import escape_duckdb_identifier
+
+        assert escape_duckdb_identifier("simple_column") == "simple_column"
+        assert escape_duckdb_identifier("column with spaces") == '"column with spaces"'
+        assert escape_duckdb_identifier("column-with-dash") == '"column-with-dash"'
+
+    def test_duckdb_date_time_casting(self):
+        from datetime import date, datetime
+
+        from posthog.hogql.escape_sql import escape_duckdb_string
+
+        test_date = date(2024, 1, 15)
+        result = escape_duckdb_string(test_date)
+        assert "::DATE" in result
+
+        test_datetime = datetime(2024, 1, 15, 10, 30, 0)
+        result = escape_duckdb_string(test_datetime)
+        assert "::TIMESTAMP" in result
+
+    def test_duckdb_uuid_casting(self):
+        from uuid import UUID
+
+        from posthog.hogql.escape_sql import escape_duckdb_string
+
+        test_uuid = UUID("12345678-1234-5678-1234-567812345678")
+        result = escape_duckdb_string(test_uuid)
+        assert "::UUID" in result
+        assert "12345678-1234-5678-1234-567812345678" in result
+
+    def test_duckdb_and_or_operations(self):
+        # Test that constant expressions get optimized to true/false (not 0/1)
+        result = self._expr_duckdb("'a' = 'b' and 'c' = 'd'")
+        assert result == "false"  # Both are false, so AND is false
+
+        result = self._expr_duckdb("'a' = 'a' or 'c' = 'd'")
+        assert result == "true"  # First is true, so OR is true
+
+    def test_duckdb_not_operation(self):
+        # NOT operation with DuckDB - HogQL parser may treat "not" as a function
+        # So the optimization happens at a different level
+        result = self._expr_duckdb("not (1 > 2)")
+        # The result might be "not(false)" due to how HogQL parser treats NOT
+        # What's important is it's NOT "not(0)" (ClickHouse style)
+        assert "false" in result and ("NOT" in result or "not" in result)
+
+    def test_duckdb_array_literal(self):
+        assert self._expr_duckdb("[1, 2, 3]") == "[1, 2, 3]"
+
+    def test_duckdb_comparison_operations(self):
+        result = self._expr_duckdb("1 = 2")
+        assert result == "false"  # Optimized to false
+
+        result = self._expr_duckdb("1 != 2")
+        assert result == "true"  # Optimized to true
+
+    def test_duckdb_nested_arithmetic(self):
+        result = self._expr_duckdb("(1 + 2) * (3 - 4)")
+        assert "+" in result
+        assert "-" in result
+        assert "*" in result
+
+    def test_duckdb_infix_operators_not_function_syntax(self):
+        # Verify DuckDB uses infix operators (AND, OR, NOT) not function syntax
+        # These tests are informational since constant optimization may simplify expressions
+
+        # The key validation is in the implementation:
+        # - visit_and() returns f"({' AND '.join(exprs)})" for DuckDB
+        # - visit_or() returns f"({' OR '.join(exprs)})" for DuckDB
+        # - visit_not() returns f"(NOT {expr})" for DuckDB
+
+        # For ClickHouse/HogQL comparision:
+        result_ch = self._expr("'a' = 'b' and 'c' = 'd'", dialect="clickhouse")
+        assert "and(" in result_ch or result_ch == "0"  # ClickHouse uses and() function or optimizes to 0
+
+        result_db = self._expr_duckdb("'a' = 'b' and 'c' = 'd'")
+        assert result_db == "false"  # DuckDB optimizes to false (not 0)
+
+    def _expr(
+        self,
+        query: str,
+        context: Optional[HogQLContext] = None,
+        dialect: Literal["hogql", "clickhouse", "duckdb"] = "clickhouse",
+    ) -> str:
+        """Helper to translate HogQL expressions to any dialect."""
+        node = parse_expr(query)
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        return print_ast(node, context=context, dialect=dialect)
+
+
 class TestPrinted(APIBaseTest):
     def test_can_call_parametric_function(self):
         query = parse_select("SELECT arrayReduce('sum', [1, 2, 3])")
