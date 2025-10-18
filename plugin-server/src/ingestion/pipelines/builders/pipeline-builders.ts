@@ -17,6 +17,18 @@ export class StartPipelineBuilder<T, C> {
         const innerPipeline = callback(new StartPipelineBuilder<T, C>()).build()
         return new PipelineBuilder(new RetryingPipeline(innerPipeline, options))
     }
+
+    branching<TBranch extends string, U>(
+        decisionFn: BranchDecisionFn<T, TBranch>,
+        callback: (builder: BranchingPipelineBuilder<T, T, U, C, TBranch>) => void
+    ): PipelineBuilder<T, U, C> {
+        const branchingBuilder = new BranchingPipelineBuilder<T, T, U, C, TBranch>(
+            decisionFn,
+            new StartPipeline<T, C>()
+        )
+        callback(branchingBuilder)
+        return new PipelineBuilder(branchingBuilder.build())
+    }
 }
 
 export class PipelineBuilder<TInput, TOutput, C> {
