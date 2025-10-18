@@ -63,7 +63,7 @@ export { ChartDisplayCategory }
  * This file acts as the source of truth for:
  *
  * - frontend/src/queries/schema.json
- *   - generated from typescript via "pnpm --filter=@posthog/frontend run schema:build:json"
+ *   - generated from typescript via "pnpm --filter=@posthog/frontend run schema:build"
  *
  * - posthog/schema.py
  *   - generated from json the above json via "pnpm -w run schema:build:python"
