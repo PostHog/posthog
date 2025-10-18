@@ -340,7 +340,7 @@ export function DashboardHeader(): JSX.Element | null {
                             menuItem
                             data-attr="open-insights-in-new-posthog-tabs"
                         >
-                            <IconGraph className="text-none" />
+                            <IconGraph />
                             Open insights in new Posthog tabs
                         </ButtonPrimitive>
                     )}
