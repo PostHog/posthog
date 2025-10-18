@@ -11,6 +11,7 @@ import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItemIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -112,18 +113,20 @@ function ShowDropDownMenu({ children }: { children: React.ReactNode }): JSX.Elem
         <DropdownMenu>
             <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
             <DropdownMenuContent>
-                <DropdownMenuCheckboxItem checked={showAllFrames} onCheckedChange={setShowAllFrames} asChild>
-                    <ButtonPrimitive menuItem size="sm">
-                        <DropdownMenuItemIndicator intent="checkbox" />
-                        All frames
-                    </ButtonPrimitive>
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem checked={showAsText} onCheckedChange={setShowAsText} asChild>
-                    <ButtonPrimitive menuItem size="sm">
-                        <DropdownMenuItemIndicator intent="checkbox" />
-                        As text
-                    </ButtonPrimitive>
-                </DropdownMenuCheckboxItem>
+                <DropdownMenuGroup>
+                    <DropdownMenuCheckboxItem checked={showAllFrames} onCheckedChange={setShowAllFrames} asChild>
+                        <ButtonPrimitive menuItem size="sm">
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            All frames
+                        </ButtonPrimitive>
+                    </DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem checked={showAsText} onCheckedChange={setShowAsText} asChild>
+                        <ButtonPrimitive menuItem size="sm">
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            As text
+                        </ButtonPrimitive>
+                    </DropdownMenuCheckboxItem>
+                </DropdownMenuGroup>
             </DropdownMenuContent>
         </DropdownMenu>
     )

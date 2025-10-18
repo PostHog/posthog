@@ -13,7 +13,25 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
+    @classmethod
+    def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
+        """Meta Ads campaigns typically use 'meta' as the UTM source"""
+        return {
+            "meta": [
+                "meta",
+                "facebook",
+                "instagram",
+                "messenger",
+                "fb",
+                "whatsapp",
+                "audience_network",
+                "facebook_marketplace",
+                "threads",
+            ]
+        }
+
     def get_source_type(self) -> str:
+        """Return unique identifier for this source type"""
         return "MetaAds"
 
     def validate(self) -> ValidationResult:
@@ -40,9 +58,6 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
     def _get_campaign_name_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
         return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "name"])])
-
-    def _get_source_name_field(self) -> ast.Expr:
-        return ast.Call(name="toString", args=[ast.Constant(value="meta")])
 
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name

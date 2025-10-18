@@ -258,7 +258,7 @@ class TestUserAPI(APIBaseTest):
         self.assertNotEqual(user.uuid, 1)
         self.assertEqual(user.first_name, "Cooper")
         self.assertEqual(user.anonymize_data, True)
-        self.assertDictContainsSubset({"plugin_disabled": False}, user.notification_settings)
+        self.assertLessEqual({"plugin_disabled": False}.items(), user.notification_settings.items())
         self.assertEqual(user.has_seen_product_intro_for, {"feature_flags": True})
         self.assertEqual(user.role_at_organization, "engineering")
 
@@ -995,9 +995,9 @@ class TestUserAPI(APIBaseTest):
         for _ in range(7):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertDictContainsSubset(
-            {"attr": None, "code": "throttled", "type": "throttled_error"},
-            response.json(),
+        self.assertLessEqual(
+            {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+            response.json().items(),
         )
 
         # Password was not changed
@@ -1520,9 +1520,9 @@ class TestEmailVerificationAPI(APIBaseTest):
             else:
                 # Fourth request should fail
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-                self.assertDictContainsSubset(
-                    {"attr": None, "code": "throttled", "type": "throttled_error"},
-                    response.json(),
+                self.assertLessEqual(
+                    {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+                    response.json().items(),
                 )
 
         # Three emails should be sent, fourth should not
