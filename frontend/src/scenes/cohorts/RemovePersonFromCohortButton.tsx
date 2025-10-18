@@ -14,7 +14,6 @@ export interface PersonDisplayNameType {
 
 interface RemovePersonFromCohortButtonProps {
     person: PersonDisplayNameType
-    cohortId: number
 }
 
 export function RemovePersonFromCohortButton({ person }: RemovePersonFromCohortButtonProps): JSX.Element {
