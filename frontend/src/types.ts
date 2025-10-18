@@ -5837,7 +5837,7 @@ export interface DataWarehouseActivityRecord {
     id: string
     type: string
     name: string | null
-    status: string
+    status: ExternalDataJobStatus
     rows: number
     created_at: string
     finished_at: string | null
@@ -5852,6 +5852,37 @@ export interface DataWarehouseDashboardDataSource {
     lastSync: string | null
     rowCount: number | null
     url: string
+}
+
+export interface DataWarehouseJobStatsRequestPayload {
+    days: 1 | 7 | 30
+}
+
+export interface DataWarehouseJobStats {
+    days: number
+    cutoff_time: string
+    total_jobs: number
+    successful_jobs: number
+    failed_jobs: number
+    external_data_jobs: {
+        total: number
+        running: number
+        successful: number
+        failed: number
+    }
+    modeling_jobs: {
+        total: number
+        running: number
+        successful: number
+        failed: number
+    }
+    breakdown: Record<
+        string,
+        {
+            successful: number
+            failed: number
+        }
+    >
 }
 
 export enum OnboardingStepKey {

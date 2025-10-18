@@ -72,6 +72,8 @@ import {
     DataColorThemeModel,
     DataModelingJob,
     DataWarehouseActivityRecord,
+    DataWarehouseJobStats,
+    DataWarehouseJobStatsRequestPayload,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
@@ -3680,6 +3682,16 @@ const api = {
                 .dataWarehouse()
                 .withAction('recent_activity')
                 .withQueryString({ limit: options?.limit, offset: options?.offset })
+                .get(options)
+        },
+
+        async jobStats(
+            options?: ApiMethodOptions & DataWarehouseJobStatsRequestPayload
+        ): Promise<DataWarehouseJobStats> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('job_stats')
+                .withQueryString({ days: options?.days })
                 .get(options)
         },
     },
