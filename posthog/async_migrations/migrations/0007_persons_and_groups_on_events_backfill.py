@@ -5,6 +5,7 @@ from typing import Union
 from django.conf import settings
 
 import structlog
+from clickhouse_driver.errors import ServerException
 
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
@@ -117,25 +118,31 @@ class Migration(AsyncMigrationDefinition):
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
-        # we don't check groupX_created_at columns as they are 0 by default
-        rows_to_backfill_check = sync_execute(
-            """
-            SELECT 1
-            FROM events
-            WHERE
-                empty(person_id) OR
-                person_created_at = toDateTime(0) OR
-                person_properties = '' OR
-                group0_properties = '' OR
-                group1_properties = '' OR
-                group2_properties = '' OR
-                group3_properties = '' OR
-                group4_properties = ''
-            LIMIT 1
-            """
-        )
+        try:
+            # we don't check groupX_created_at columns as they are 0 by default
+            rows_to_backfill_check = sync_execute(
+                """
+                SELECT 1
+                FROM events
+                WHERE
+                    empty(person_id) OR
+                    person_created_at = toDateTime(0) OR
+                    person_properties = '' OR
+                    group0_properties = '' OR
+                    group1_properties = '' OR
+                    group2_properties = '' OR
+                    group3_properties = '' OR
+                    group4_properties = ''
+                LIMIT 1
+                """
+            )
 
-        return len(rows_to_backfill_check) > 0
+            return len(rows_to_backfill_check) > 0
+        except ServerException as e:
+            # If the events table doesn't exist yet, no migration is required
+            if "Unknown table" in str(e):
+                return False
+            raise
 
     @cached_property
     def operations(self):
