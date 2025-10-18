@@ -9,6 +9,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from infi.clickhouse_orm import Database
+from infi.clickhouse_orm.database import ServerError
 from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
 
@@ -116,7 +117,13 @@ class Command(BaseCommand):
                 break
 
     def get_applied_migrations(self, database):
-        return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)
+        try:
+            return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)
+        except ServerError as e:
+            # If the migrations table doesn't exist yet, no migrations have been applied
+            if "Unknown table" in str(e):
+                return set()
+            raise
 
     def _check_duplicate_prefixes(self, database):
         """Check for duplicate migration prefixes among unapplied migrations and against applied migrations."""
