@@ -334,8 +334,8 @@ export function DashboardHeader(): JSX.Element | null {
                                         tile?.filters_overrides
                                     )
                                     newTab(url)
-                                    setScenePanelOpen(false)
                                 })
+                                setScenePanelOpen(false)
                             }}
                             menuItem
                             data-attr="open-insights-in-new-posthog-tabs"
