@@ -290,6 +290,19 @@ def test_table_from_py_list_with_ipv6_address():
     )
 
 
+def test_table_from_py_list_with_string_like_dates():
+    table = table_from_py_list([{"column": "2024-01-01T00:00:00"}])
+
+    assert table.equals(pa.table({"column": [parser.parse("2024-01-01T00:00:00")]}))
+    assert table.schema.equals(
+        pa.schema(
+            [
+                ("column", pa.timestamp("us")),
+            ]
+        )
+    )
+
+
 def test_normalize_table_column_names_prevents_collisions():
     # Create a table with columns that would collide when normalized
     table = pa.table({"foo___bar": ["value1"], "foo_bar": ["value2"], "another___field": ["value3"]})
