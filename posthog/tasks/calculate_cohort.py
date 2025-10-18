@@ -362,7 +362,7 @@ def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int)
     get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id, batchsize=10_000)
 
 
-@shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.DEFAULT.value)
+@shared_task(ignore_result=True, max_retries=2)
 def collect_cohort_query_stats(
     tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: str, query: str
 ) -> None:
