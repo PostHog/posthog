@@ -340,6 +340,7 @@ export function DashboardHeader(): JSX.Element | null {
                             menuItem
                             data-attr="open-insights-in-new-posthog-tabs"
                             disabledReasons={{
+                                'Cannot open insights when editing dashboard': dashboardMode === DashboardMode.Edit,
                                 'Dashboard has no insights': dashboard.tiles.length === 0,
                             }}
                         >
