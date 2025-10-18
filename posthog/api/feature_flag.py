@@ -1058,6 +1058,7 @@ class FeatureFlagViewSet(
                                     )
                                     AND (filters->'multivariate' IS NOT NULL AND jsonb_array_length(filters->'multivariate'->'variants') > 0)
                                 )
+                                OR (filters IS NULL OR filters = '{}'::jsonb)
                             )
                             """
                         ]
