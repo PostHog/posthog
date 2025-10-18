@@ -41,6 +41,31 @@ export const scene: SceneExport<SessionRecordingsPlaylistLogicProps> = {
     settingSectionId: 'environment-replay',
 }
 
+function PlaylistSceneLoadingSkeleton(): JSX.Element {
+    return (
+        <div className="gap-y-4 mt-6">
+            <LemonSkeleton className="h-10 w-1/4" />
+            <LemonSkeleton className="h-4 w-1/3" />
+            <LemonSkeleton className="h-4 w-1/4" />
+
+            <div className="flex justify-between mt-4">
+                <LemonSkeleton.Button />
+                <div className="flex gap-4">
+                    <LemonSkeleton.Button />
+                    <LemonSkeleton.Button />
+                </div>
+            </div>
+
+            <div className="flex justify-between gap-4 mt-8">
+                <div className="gap-y-8 w-1/4">
+                    <LemonSkeleton className="h-10" repeat={10} />
+                </div>
+                <div className="flex-1" />
+            </div>
+        </div>
+    )
+}
+
 export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { playlist, playlistLoading, pinnedRecordings, hasChanges } = useValues(sessionRecordingsPlaylistSceneLogic)
     const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist, onPinnedChange } = useActions(
@@ -59,28 +84,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     }, [playlist, playlistLoading])
 
     if (playlistLoading) {
-        return (
-            <div className="deprecated-space-y-4 mt-6">
-                <LemonSkeleton className="h-10 w-1/4" />
-                <LemonSkeleton className="h-4 w-1/3" />
-                <LemonSkeleton className="h-4 w-1/4" />
-
-                <div className="flex justify-between mt-4">
-                    <LemonSkeleton.Button />
-                    <div className="flex gap-4">
-                        <LemonSkeleton.Button />
-                        <LemonSkeleton.Button />
-                    </div>
-                </div>
-
-                <div className="flex justify-between gap-4 mt-8">
-                    <div className="deprecated-space-y-8 w-1/4">
-                        <LemonSkeleton className="h-10" repeat={10} />
-                    </div>
-                    <div className="flex-1" />
-                </div>
-            </div>
-        )
+        return <PlaylistSceneLoadingSkeleton />
     }
 
     if (!playlist) {
@@ -150,7 +154,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
 
                 <SessionRecordingsPlaylist
                     logicKey={playlist.short_id}
-                    // backwards compatibilty for legacy filters
+                    // backwards compatibility for legacy filters
                     filters={
                         playlist.filters && isUniversalFilters(playlist.filters)
                             ? playlist.filters
@@ -162,6 +166,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     canMixFiltersAndPinned={dayjs(playlist.created_at).isBefore('2025-03-11')}
                     updateSearchParams={true}
                     type="collection"
+                    isSynthetic={playlist.is_synthetic}
+                    description={playlist.description}
                 />
             </SceneContent>
         </div>

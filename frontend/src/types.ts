@@ -1617,6 +1617,8 @@ export interface SessionRecordingPlaylistType {
      */
     recordings_counts?: PlaylistRecordingsCounts
     type: 'filters' | 'collection'
+    /** Whether this playlist is a synthetic (virtual) playlist that's computed on-demand */
+    is_synthetic?: boolean
     _create_in_folder?: string | null
 }
 

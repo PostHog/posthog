@@ -25,6 +25,8 @@ export function SessionRecordingsPlaylist({
     showContent = true,
     canMixFiltersAndPinned = true,
     type = 'filters',
+    isSynthetic = false,
+    description,
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
@@ -38,6 +40,8 @@ export function SessionRecordingsPlaylist({
      */
     canMixFiltersAndPinned?: boolean
     type?: 'filters' | 'collection'
+    isSynthetic?: boolean
+    description?: string
 }): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
@@ -138,7 +142,13 @@ export function SessionRecordingsPlaylist({
                             maybeLoadSessionRecordings('older')
                         }
                     }}
-                    listEmptyState={type === 'collection' ? <CollectionEmptyState /> : <ListEmptyState />}
+                    listEmptyState={
+                        type === 'collection' ? (
+                            <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
+                        ) : (
+                            <ListEmptyState />
+                        )
+                    }
                     onSelect={(item) => setSelectedRecordingId(item.id)}
                     activeItemId={activeSessionRecordingId}
                     content={({ activeItem }) =>
@@ -206,7 +216,13 @@ const ListEmptyState = (): JSX.Element => {
     )
 }
 
-const CollectionEmptyState = (): JSX.Element => {
+const CollectionEmptyState = ({
+    isSynthetic,
+    description,
+}: {
+    isSynthetic?: boolean
+    description?: string
+}): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
@@ -215,6 +231,11 @@ const CollectionEmptyState = (): JSX.Element => {
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+            ) : isSynthetic ? (
+                <div className="flex flex-col gap-2">
+                    <h3 className="title text-secondary mb-0">No recordings yet</h3>
+                    <p>{description || 'This collection is automatically populated based on criteria.'}</p>
+                </div>
             ) : (
                 <div className="flex flex-col gap-2">
                     <h3 className="title text-secondary mb-0">No recordings in this collection</h3>

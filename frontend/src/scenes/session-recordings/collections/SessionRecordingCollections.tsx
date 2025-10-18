@@ -84,7 +84,7 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
                 <div className="flex items-center justify-start w-full h-full">
                     <Tooltip title={tooltip}>
                         {hasResults ? (
-                            <span className="flex items-center deprecated-space-x-1">
+                            <span className="flex items-center gap-x-1 cursor-help">
                                 <LemonBadge.Number
                                     status={unwatchedPinnedCount ? 'primary' : 'muted'}
                                     className="text-xs cursor-pointer"
@@ -119,7 +119,11 @@ export function SessionRecordingCollections(): JSX.Element {
         {
             width: 0,
             dataIndex: 'pinned',
-            render: function Render(pinned, { short_id }) {
+            render: function Render(pinned, playlist) {
+                // Don't show pin button for synthetic playlists
+                if (playlist.is_synthetic) {
+                    return null
+                }
                 return (
                     <AccessControlAction
                         resourceType={AccessControlResourceType.SessionRecording}
@@ -127,7 +131,7 @@ export function SessionRecordingCollections(): JSX.Element {
                     >
                         <LemonButton
                             size="small"
-                            onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
+                            onClick={() => updatePlaylist(playlist.short_id, { pinned: !pinned })}
                             icon={pinned ? <IconPinFilled /> : <IconPin />}
                         />
                     </AccessControlAction>
@@ -162,6 +166,10 @@ export function SessionRecordingCollections(): JSX.Element {
         {
             width: 0,
             render: function Render(_, playlist) {
+                // Don't show actions menu for synthetic playlists
+                if (playlist.is_synthetic) {
+                    return null
+                }
                 return (
                     <More
                         overlay={

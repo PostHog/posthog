@@ -1,4 +1,5 @@
 import json
+import builtins
 from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
@@ -35,11 +36,48 @@ from posthog.session_recordings.session_recording_api import (
     list_recordings_response,
     query_as_params_to_dict,
 )
+from posthog.session_recordings.synthetic_playlists import SYNTHETIC_PLAYLISTS, get_synthetic_playlist
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
 
 PLAYLIST_COUNT_REDIS_PREFIX = "@posthog/replay/playlist_filters_match_count/"
+
+
+def create_synthetic_playlist_instance(synthetic_def, team: Team, user: User) -> SessionRecordingPlaylist:
+    """
+    Create an in-memory SessionRecordingPlaylist instance for a synthetic playlist.
+    This instance is not saved to the database.
+    """
+    from posthog.session_recordings.synthetic_playlists import SyntheticPlaylistDefinition
+
+    if not isinstance(synthetic_def, SyntheticPlaylistDefinition):
+        raise ValueError("synthetic_def must be a SyntheticPlaylistDefinition")
+
+    # Generate a unique negative ID based on the short_id hash
+    # This ensures each synthetic playlist has a consistent, unique ID
+    synthetic_id = -1 * (hash(synthetic_def.short_id) % 1000000)
+
+    # Create an unsaved instance with all the necessary fields
+    instance = SessionRecordingPlaylist(
+        id=synthetic_id,
+        short_id=synthetic_def.short_id,
+        name=synthetic_def.name,
+        description=synthetic_def.description,
+        team=team,
+        pinned=False,
+        deleted=False,
+        filters={},  # Synthetic playlists don't use traditional filters
+        type=synthetic_def.type,
+        created_at=now(),
+        created_by=None,
+        last_modified_at=now(),
+        last_modified_by=None,
+    )
+    # Mark it as synthetic so we can identify it later
+    instance._is_synthetic = True  # type: ignore
+    instance._synthetic_metadata = synthetic_def.metadata  # type: ignore
+    return instance
 
 
 def count_pinned_recordings(playlist: SessionRecordingPlaylist, user: User, team: Team) -> dict[str, int | bool | None]:
@@ -85,6 +123,32 @@ def count_saved_filters(playlist: SessionRecordingPlaylist, user: User, team: Te
     }
 
 
+def count_synthetic_playlist(
+    playlist: SessionRecordingPlaylist, user: User, team: Team
+) -> dict[str, int | bool | None]:
+    """Count recordings in a synthetic playlist by calling its get_session_ids function"""
+    synthetic_def = get_synthetic_playlist(playlist.short_id)
+    if not synthetic_def:
+        return {
+            "count": None,
+            "has_more": None,
+            "watched_count": None,
+            "increased": None,
+            "last_refreshed_at": None,
+        }
+
+    session_ids = synthetic_def.get_session_ids(team, user)
+    count = len(session_ids)
+
+    return {
+        "count": count if count > 0 else None,
+        "has_more": False,  # We don't paginate synthetic playlists (yet)
+        "watched_count": len(current_user_viewed(session_ids, user, team)) if session_ids else 0,
+        "increased": None,  # We don't track historical changes for synthetic playlists
+        "last_refreshed_at": None,
+    }
+
+
 def log_playlist_activity(
     activity: str,
     playlist: SessionRecordingPlaylist,
@@ -119,6 +183,7 @@ def log_playlist_activity(
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     recordings_counts = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    is_synthetic = serializers.SerializerMethodField()
 
     class Meta:
         model = SessionRecordingPlaylist
@@ -137,6 +202,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             "last_modified_by",
             "recordings_counts",
             "type",
+            "is_synthetic",
             "_create_in_folder",
         ]
         read_only_fields = [
@@ -149,10 +215,15 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             "last_modified_by",
             "recordings_counts",
             "type",
+            "is_synthetic",
         ]
 
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+
+    def get_is_synthetic(self, playlist: SessionRecordingPlaylist) -> bool:
+        """Return whether this is a synthetic playlist"""
+        return getattr(playlist, "_is_synthetic", False)
 
     def get_recordings_counts(self, playlist: SessionRecordingPlaylist) -> dict[str, dict[str, int | bool | None]]:
         recordings_counts: dict[str, dict[str, int | bool | None]] = {
@@ -173,11 +244,15 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             user = self.context["request"].user
             team = self.context["get_team"]()
 
-            recordings_counts["collection"] = count_pinned_recordings(playlist, user, team)
+            # Handle synthetic playlists differently
+            if getattr(playlist, "_is_synthetic", False):
+                recordings_counts["collection"] = count_synthetic_playlist(playlist, user, team)
+            else:
+                recordings_counts["collection"] = count_pinned_recordings(playlist, user, team)
 
-            # we only return saved filters if there are no pinned recordings
-            if recordings_counts["collection"]["count"] is None or recordings_counts["collection"]["count"] == 0:
-                recordings_counts["saved_filters"] = count_saved_filters(playlist, user, team)
+                # we only return saved filters if there are no pinned recordings
+                if recordings_counts["collection"]["count"] is None or recordings_counts["collection"]["count"] == 0:
+                    recordings_counts["saved_filters"] = count_saved_filters(playlist, user, team)
 
         except Exception as e:
             posthoganalytics.capture_exception(e)
@@ -267,6 +342,60 @@ class SessionRecordingPlaylistViewSet(
     filterset_fields = ["short_id", "created_by"]
     lookup_field = "short_id"
 
+    def safely_get_object(self, queryset: QuerySet) -> SessionRecordingPlaylist:
+        """Override to handle synthetic playlists in retrieve actions"""
+        lookup_value = self.kwargs.get(self.lookup_field)
+
+        # Check if this is a synthetic playlist
+        if lookup_value and lookup_value.startswith("synthetic-"):
+            synthetic_def = get_synthetic_playlist(lookup_value)
+            if synthetic_def:
+                return create_synthetic_playlist_instance(synthetic_def, self.team, cast(User, self.request.user))
+
+        # Fall back to normal DB lookup
+        return super().safely_get_object(queryset)
+
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """Override list to include synthetic playlists"""
+        # Get regular DB playlists
+        queryset = self.safely_get_queryset(self.get_queryset())
+
+        # Get the total count of DB playlists before pagination
+        db_count = queryset.count()
+
+        # Apply pagination to DB playlists
+        page = self.paginate_queryset(queryset)
+
+        # Create synthetic playlist instances
+        synthetic_instances = [
+            create_synthetic_playlist_instance(sp, self.team, cast(User, request.user)) for sp in SYNTHETIC_PLAYLISTS
+        ]
+
+        # Filter synthetic playlists based on request filters
+        filtered_synthetics = self._filter_synthetic_playlists(request, synthetic_instances)
+
+        # Combine DB and synthetic playlists
+        if page is not None:
+            combined = list(page) + filtered_synthetics
+        else:
+            combined = list(queryset) + filtered_synthetics
+
+        # Apply ordering to the combined list
+        combined = self._order_playlists(request, combined)
+
+        serializer = self.get_serializer(combined, many=True)
+
+        # Calculate total count including synthetic playlists
+        total_count = db_count + len(filtered_synthetics)
+
+        if page is not None:
+            # Manually construct paginated response with correct count
+            paginated_response = self.get_paginated_response(serializer.data)
+            # Override the count with the total including synthetic playlists
+            paginated_response.data["count"] = total_count
+            return paginated_response
+        return response.Response({"count": total_count, "next": None, "previous": None, "results": serializer.data})
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
             # Soft-deleted insights can be brought back with a PATCH request
@@ -315,16 +444,83 @@ class SessionRecordingPlaylistViewSet(
                 queryset = queryset.filter(playlist_items__recording_id=request.GET["session_recording_id"])
         return queryset
 
+    def _filter_synthetic_playlists(
+        self, request: request.Request, playlists: builtins.list[SessionRecordingPlaylist]
+    ) -> builtins.list[SessionRecordingPlaylist]:
+        """Apply request filters to synthetic playlists"""
+        filters = request.GET.dict()
+        filtered = playlists
+
+        for key in filters:
+            request_value = filters[key]
+            if key == "user":
+                # Synthetic playlists don't have a created_by, filter them out if user filter is set
+                filtered = []
+            elif key == "type":
+                if request_value == SessionRecordingPlaylist.PlaylistType.FILTERS:
+                    # Synthetic playlists are collections, so exclude them when filtering for filters type
+                    filtered = []
+                elif request_value == SessionRecordingPlaylist.PlaylistType.COLLECTION:
+                    # Keep all synthetic playlists (they're all collection type)
+                    pass
+            elif key == "pinned":
+                # Synthetic playlists are never pinned, so exclude them
+                filtered = []
+            elif key == "search":
+                search_term = request_value.lower()
+                filtered = [
+                    p
+                    for p in filtered
+                    if search_term in (p.name or "").lower() or search_term in (p.description or "").lower()
+                ]
+            # date_from, date_to, and session_recording_id don't apply to synthetic playlists
+
+        return filtered
+
+    def _order_playlists(
+        self, request: request.Request, playlists: builtins.list[SessionRecordingPlaylist]
+    ) -> builtins.list[SessionRecordingPlaylist]:
+        """Apply ordering to a mixed list of DB and synthetic playlists"""
+        order = request.GET.get("order", "-last_modified_at")
+
+        # Define sorting key function
+        def get_sort_key(playlist: SessionRecordingPlaylist):
+            if order == "name" or order == "-name":
+                return (playlist.name or playlist.derived_name or "").lower()
+            elif order == "last_modified_at" or order == "-last_modified_at":
+                return playlist.last_modified_at
+            elif order == "created_at" or order == "-created_at":
+                return playlist.created_at
+            else:
+                return playlist.last_modified_at
+
+        # Sort the list
+        reverse = order.startswith("-")
+        try:
+            return sorted(playlists, key=get_sort_key, reverse=reverse)
+        except Exception:
+            # If sorting fails, just return the original list
+            return playlists
+
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
     @action(methods=["GET"], detail=True, url_path="recordings")
     def recordings(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         playlist = self.get_object()
-        playlist_items = list(
-            SessionRecordingPlaylistItem.objects.filter(playlist=playlist)
-            .exclude(deleted=True)
-            .order_by("-created_at")
-            .values_list("recording_id", flat=True)
-        )
+
+        # Handle synthetic playlists differently
+        if getattr(playlist, "_is_synthetic", False):
+            synthetic_def = get_synthetic_playlist(playlist.short_id)
+            if synthetic_def:
+                playlist_items = synthetic_def.get_session_ids(self.team, cast(User, request.user))
+            else:
+                playlist_items = []
+        else:
+            playlist_items = list(
+                SessionRecordingPlaylistItem.objects.filter(playlist=playlist)
+                .exclude(deleted=True)
+                .order_by("-created_at")
+                .values_list("recording_id", flat=True)
+            )
 
         # For collections, create a minimal query with only session_ids
         if playlist.type == SessionRecordingPlaylist.PlaylistType.COLLECTION:
