@@ -522,34 +522,43 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             from django.db import connections
 
             persons_connection = connections[READ_DB_FOR_PERSONS]
-            cursor = persons_connection.cursor()
-            for batch_index, batch in batch_iterator:
-                current_batch_index = batch_index
-                persons_query = (
-                    Person.objects.db_manager(READ_DB_FOR_PERSONS)
-                    .filter(team_id=team_id)
-                    .filter(uuid__in=batch)
-                    .exclude(cohort__id=self.id)
-                )
-                if insert_in_clickhouse:
-                    insert_static_cohort(
-                        list(persons_query.values_list("uuid", flat=True)),
-                        self.pk,
-                        team_id=team_id,
+            with persons_connection.cursor() as cursor:
+                for batch_index, batch in batch_iterator:
+                    current_batch_index = batch_index
+                    persons_query = (
+                        Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                        .filter(team_id=team_id)
+                        .filter(uuid__in=batch)
+                        .exclude(cohort__id=self.id)
                     )
-                sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
-                query = UPDATE_QUERY.format(
-                    cohort_id=self.pk,
-                    values_query=sql.replace(
-                        'FROM "posthog_person"',
-                        f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"',
-                        1,
-                    ),
-                )
-                cursor.execute(query, params)
+                    if insert_in_clickhouse:
+                        insert_static_cohort(
+                            list(persons_query.values_list("uuid", flat=True)),
+                            self.pk,
+                            team_id=team_id,
+                        )
+                    sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
+                    query = UPDATE_QUERY.format(
+                        cohort_id=self.pk,
+                        values_query=sql.replace(
+                            'FROM "posthog_person"',
+                            f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"',
+                            1,
+                        ),
+                    )
+                    cursor.execute(query, params)
+
+            # Commit the transaction after all batches are processed
+            persons_connection.commit()
 
         except Exception as err:
             processing_error = err
+            # Rollback the transaction on error
+            try:
+                persons_connection.rollback()
+            except Exception:
+                # Ignore rollback errors, focus on the original error
+                pass
             if settings.DEBUG:
                 raise
             # Add batch index context to the exception
