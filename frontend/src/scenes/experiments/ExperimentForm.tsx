@@ -60,22 +60,24 @@ const ExperimentFormFields = (): JSX.Element => {
 
     return (
         <SceneContent>
-            <SceneTitleSection
-                name={experiment.name}
-                description={null}
-                resourceType={{
-                    type: 'experiment',
-                }}
-                canEdit={userHasAccess(
-                    AccessControlResourceType.Experiment,
-                    AccessControlLevel.Editor,
-                    experiment.user_access_level
-                )}
-                onNameChange={(name) => {
-                    setExperiment({ name })
-                }}
-                forceEdit={formMode === 'create'}
-            />
+            <LemonField name="name">
+                <SceneTitleSection
+                    name={experiment.name}
+                    description={null}
+                    resourceType={{
+                        type: 'experiment',
+                    }}
+                    canEdit={userHasAccess(
+                        AccessControlResourceType.Experiment,
+                        AccessControlLevel.Editor,
+                        experiment.user_access_level
+                    )}
+                    onNameChange={(name) => {
+                        setExperiment({ name })
+                    }}
+                    forceEdit={formMode === 'create'}
+                />
+            </LemonField>
             <SceneDivider />
 
             {hasPrimaryMetricSet && formMode !== 'duplicate' && (
@@ -103,7 +105,8 @@ const ExperimentFormFields = (): JSX.Element => {
                             <LemonButton
                                 type="secondary"
                                 size="xsmall"
-                                onClick={() => {
+                                onClick={(e) => {
+                                    e.preventDefault()
                                     reportExperimentFeatureFlagModalOpened()
                                     setShowFeatureFlagSelector(true)
                                 }}
