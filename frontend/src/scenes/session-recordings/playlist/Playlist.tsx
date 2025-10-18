@@ -146,13 +146,13 @@ export function Playlist({
     return (
         <>
             <div
-                className={clsx('w-full gap-2 h-full', {
+                className={clsx('w-full gap-2 grow', {
                     'flex flex-col xl:flex-row order-last': !showCinemaMode,
                 })}
             >
                 <div
                     className={clsx('Playlist w-full min-w-96', {
-                        'h-full min-h-96 lg:min-w-[560px] order-first xl:order-none': !showCinemaMode,
+                        'lg:min-w-[560px] order-first xl:order-none': !showCinemaMode,
                         'order-first mb-2': showCinemaMode,
                         'Playlist--wide': size !== 'small',
                         'Playlist--embedded': embedded,
