@@ -16,8 +16,9 @@ class TestProjectionPushdown(BaseTest):
         modifiers = HogQLQueryModifiers(optimizeProjections=False)  # Disable automatic optimization
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
         query = parse_select(query_str)
-        query = prepare_ast_for_printing(query, context, dialect="hogql")
-        optimized = pushdown_projections(query, context)
+        prepared = prepare_ast_for_printing(query, context, dialect="hogql")
+        assert prepared is not None
+        optimized = pushdown_projections(prepared, context)
         return optimized
 
     def test_simple_pushdown(self):
@@ -161,3 +162,148 @@ class TestProjectionPushdown(BaseTest):
         assert "event" in column_names
         assert "distinct_id" in column_names
         assert "$session_id" in column_names, f"Got columns: {column_names}"
+
+    def test_multiple_joins_with_mixed_columns(self):
+        """Complex query with multiple JOINs and mixed SELECT/WHERE demands"""
+        optimized = self._optimize("""
+            SELECT e.event, e2.event as event2
+            FROM (SELECT * FROM events) AS e
+            LEFT JOIN (SELECT * FROM events) AS e2 ON e2.distinct_id = e.distinct_id
+            WHERE e.timestamp > '2024-01-01'
+            ORDER BY e.created_at
+        """)
+
+        # First events subquery should have: event, distinct_id (JOIN), timestamp (WHERE), created_at (ORDER BY)
+        events_query = optimized.select_from.table
+        events_cols = {self._col_name(col) for col in events_query.select}
+        assert events_cols >= {"event", "distinct_id", "timestamp", "created_at"}
+
+        # Second events subquery should have: event (SELECT) and distinct_id (JOIN constraint)
+        events2_query = optimized.select_from.next_join.table
+        events2_cols = {self._col_name(col) for col in events2_query.select}
+        assert events2_cols >= {"event", "distinct_id"}
+
+    def test_deeply_nested_with_multiple_demands(self):
+        """4 levels deep with demands at each level"""
+        optimized = self._optimize("""
+            SELECT event FROM (
+                SELECT event, distinct_id FROM (
+                    SELECT event, distinct_id, timestamp FROM (
+                        SELECT * FROM events
+                    ) AS l3
+                    WHERE timestamp > '2024-01-01'
+                ) AS l2
+                WHERE distinct_id = 'user1'
+            ) AS l1
+        """)
+
+        # Level 1: event, distinct_id
+        l1 = optimized.select_from.table
+        l1_cols = {self._col_name(col) for col in l1.select}
+        assert l1_cols == {"event", "distinct_id"}
+
+        # Level 2: event, distinct_id, timestamp
+        l2 = l1.select_from.table
+        l2_cols = {self._col_name(col) for col in l2.select}
+        assert l2_cols == {"event", "distinct_id", "timestamp"}
+
+        # Level 3: Only event, distinct_id, timestamp (pruned from asterisk)
+        l3 = l2.select_from.table
+        l3_cols = {self._col_name(col) for col in l3.select}
+        assert l3_cols == {"event", "distinct_id", "timestamp"}
+
+    def test_mixed_asterisk_and_explicit_columns(self):
+        """Query with both SELECT *, col1, col2 pattern"""
+        optimized = self._optimize("""
+            SELECT event FROM (
+                SELECT distinct_id, *, timestamp FROM events
+            ) AS sub
+        """)
+
+        # Should keep distinct_id and timestamp (explicit) plus event (demanded from asterisk)
+        inner_query = optimized.select_from.table
+        column_names = {self._col_name(col) for col in inner_query.select}
+        assert "event" in column_names
+        assert "distinct_id" in column_names
+        assert "timestamp" in column_names
+
+    def test_group_by_and_having_demands(self):
+        """Ensure GROUP BY and HAVING columns are preserved"""
+        optimized = self._optimize("""
+            SELECT event, count() as cnt
+            FROM (SELECT * FROM events) AS sub
+            GROUP BY event, distinct_id
+            HAVING count() > 10 AND timestamp > '2024-01-01'
+        """)
+
+        # Should include event (SELECT + GROUP BY), distinct_id (GROUP BY), timestamp (HAVING)
+        inner_query = optimized.select_from.table
+        column_names = {self._col_name(col) for col in inner_query.select}
+        assert column_names >= {"event", "distinct_id", "timestamp"}
+
+    def test_subquery_in_join_with_demands(self):
+        """Nested subqueries in both sides of JOIN"""
+        optimized = self._optimize("""
+            SELECT e1.event, e2.timestamp
+            FROM (
+                SELECT * FROM (SELECT * FROM events) AS inner_e1
+            ) AS e1
+            LEFT JOIN (
+                SELECT * FROM (SELECT * FROM events) AS inner_e2
+            ) AS e2 ON e2.distinct_id = e1.distinct_id
+            WHERE e1.properties != '{}'
+        """)
+
+        # Outer e1 subquery
+        outer_e1 = optimized.select_from.table
+        outer_e1_cols = {self._col_name(col) for col in outer_e1.select}
+        assert outer_e1_cols >= {"event", "distinct_id", "properties"}
+
+        # Inner e1 subquery should have same demands propagated
+        inner_e1 = outer_e1.select_from.table
+        inner_e1_cols = {self._col_name(col) for col in inner_e1.select}
+        assert inner_e1_cols >= {"event", "distinct_id", "properties"}
+
+        # Outer e2 subquery
+        outer_e2 = optimized.select_from.next_join.table
+        outer_e2_cols = {self._col_name(col) for col in outer_e2.select}
+        assert outer_e2_cols >= {"timestamp", "distinct_id"}
+
+        # Inner e2 subquery
+        inner_e2 = outer_e2.select_from.table
+        inner_e2_cols = {self._col_name(col) for col in inner_e2.select}
+        assert inner_e2_cols >= {"timestamp", "distinct_id"}
+
+    def test_union_subqueries_with_asterisk(self):
+        """Subqueries that will be used in UNION ALL should preserve structure"""
+        # Note: This tests that explicit columns aren't pruned even if from asterisk
+        optimized = self._optimize("""
+            SELECT event, distinct_id FROM (
+                SELECT * FROM events WHERE event = 'click'
+            ) AS sub
+        """)
+
+        inner_query = optimized.select_from.table
+        column_names = {self._col_name(col) for col in inner_query.select}
+        # Should only have event and distinct_id from asterisk
+        assert "event" in column_names
+        assert "distinct_id" in column_names
+
+    def test_cte_with_asterisk_pushdown(self):
+        """CTEs with asterisk should have projection pushdown applied after CTE inlining"""
+        optimized = self._optimize("""
+            WITH events_cte AS (
+                SELECT * FROM events
+            )
+            SELECT event, distinct_id FROM events_cte
+            WHERE timestamp > '2024-01-01'
+        """)
+
+        # After CTE inlining, the CTE becomes a subquery
+        # The subquery should only have the columns we actually need
+        assert optimized.select_from is not None
+        subquery = optimized.select_from.table
+        column_names = {self._col_name(col) for col in subquery.select}
+        assert column_names >= {"event", "distinct_id", "timestamp"}
+        # Verify columns have from_asterisk marker
+        assert any(getattr(col, "from_asterisk", False) for col in subquery.select)
