@@ -243,8 +243,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         return value
                     }
 
-                    value.set(update.parent_tool_call_id, [...currentValue, update.content])
-                    return value
+                    const newMap = new Map(value)
+                    newMap.set(update.parent_tool_call_id, [...currentValue, update.content])
+                    return newMap
                 },
             },
         ],
