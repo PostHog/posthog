@@ -325,4 +325,5 @@ export const TEAMS_AND_COMPANIES = {
     Logos: ['IconLogomark', 'IconGithub', 'IconLinear', 'IconRedux'],
     ErrorTracking: ['IconIssue'],
     LLMAnalytics: ['IconLlmAnalytics', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
+    PostHogAI: ['IconBrain'],
 }
