@@ -124,9 +124,8 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         passiveDescription: 'Navigated to a different page',
     },
     create_and_query_insight: {
-        name: 'Edit the insight',
-        description: "Edit the insight you're viewing",
-        product: Scene.Insight,
+        name: 'Query data',
+        description: 'Query data by creating insights and SQL queries',
         icon: iconForType('product_analytics'),
         activeDescription: 'Creating an insight...', // This is not correct, we currently don't have a division between creating and editing an insight
         passiveDescription: 'Created an insight',
@@ -237,8 +236,10 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         passiveDescription: 'Fixed SQL',
     },
     edit_current_insight: {
-        name: 'Edit the insight you are viewing',
+        name: 'Edit the insight',
+        description: "Edit the insight you're viewing",
         icon: iconForType('product_analytics'),
+        product: Scene.Insight,
         activeDescription: 'Editing the insight you are viewing...',
         passiveDescription: 'Edited the insight you are viewing',
     },

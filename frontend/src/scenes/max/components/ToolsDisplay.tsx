@@ -66,7 +66,7 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
                             // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
                             <em className="relative inline-flex items-center gap-1" key={tool.identifier}>
                                 <span className="flex text-sm">
-                                    {getToolDefinition(tool.name)?.icon || <IconWrench />}
+                                    {getToolDefinition(tool.identifier)?.icon || <IconWrench />}
                                 </span>
                                 {tool.name}
                             </em>
@@ -172,7 +172,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                         if (toolDef?.kinds) {
                             tools.push(...Object.values(toolDef.kinds))
                         } else {
-                            tools.push(tool)
+                            tools.push({ name: toolDef?.name, description: toolDef?.description, icon: toolDef?.icon })
                         }
                         return tools
                     },
@@ -204,7 +204,6 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                 .reduce(
                     (acc, [_, tool]) => {
                         if (!tool.product) {
-                            console.warn(`Unexpected: Global Max tool ${tool.name} appears not to be registered`)
                             return acc
                         }
                         if (!acc[tool.product]) {
