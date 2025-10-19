@@ -135,7 +135,7 @@ if __name__ == "__main__":
         # Skip summaries without issues
         if summary.strip(".").strip(" ").lower() == "no issues found":
             continue
-        _clean_up_summary_before_embedding(trace_id=trace_id, summary=summary, log_diff=False)
+        summary = _clean_up_summary_before_embedding(trace_id=trace_id, summary=summary, log_diff=False)
         # Check if embeddings file already exists
         summary_embeddings_file_path = dir_path / f"{trace_id}_summary_embeddings.npy"
         if summary_embeddings_file_path.exists():
