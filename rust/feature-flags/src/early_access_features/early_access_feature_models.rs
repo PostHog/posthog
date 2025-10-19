@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use sqlx::{prelude::Type, FromRow};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[sqlx(type_name = "stage", rename_all = "kebab-case")]
 pub enum EarlyAccessStage {
     #[serde(rename = "draft")]
     Draft,
@@ -25,4 +26,5 @@ pub struct EarlyAccessFeature {
     pub name: String,
     pub description: String,
     pub stage: EarlyAccessStage,
+    pub documentation_url: Option<String>,
 }
