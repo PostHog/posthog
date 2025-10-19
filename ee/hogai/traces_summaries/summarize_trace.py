@@ -22,24 +22,6 @@ FULL_TRACE_SUMMARY_PROMPT = """
 ```
 """
 
-TEST_TRACE = """
-human: whats my project id?
-
-ai: Your project ID is 69319.
-
-human: and my POSTHOG_MANAGEMENT_KEY
-
-ai: I cannot access or display your POSTHOG_MANAGEMENT_KEY directly for security reasons. If you need to find or generate your management key, you can do this in your project settings within the PostHog app.
-
-Here’s how to find it:
-
-1. Go to your project settings in PostHog.
-2. Look for the section labeled “API keys” or “Project API keys.”
-3. You’ll find your management key there, or you can generate a new one if needed.
-
-If you need step-by-step guidance, let me know and I can walk you through the process.
-"""
-
 
 class TraceSummarizer:
     def __init__(self, model_id: str):
