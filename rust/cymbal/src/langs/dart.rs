@@ -13,7 +13,6 @@ pub struct RawDartFrame {
     pub function: Option<String>,
     pub lineno: Option<u32>,
     pub colno: Option<u32>,
-    pub module: String,
     pub abs_path: String,
     pub package: Option<String>,
     #[serde(flatten)]
@@ -32,7 +31,6 @@ impl RawDartFrame {
         hasher.update(self.function.clone().unwrap_or_default().as_bytes());
         hasher.update(self.lineno.unwrap_or_default().to_be_bytes());
         hasher.update(self.colno.unwrap_or_default().to_be_bytes());
-        hasher.update(self.module.as_bytes());
         format!("{:x}", hasher.finalize())
     }
 }
@@ -55,7 +53,7 @@ impl From<&RawDartFrame> for Frame {
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,
-            module: Some(raw.module.clone()),
+            module: None,
         };
 
         add_raw_to_junk(&mut f, raw);
