@@ -817,9 +817,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
-  WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+  INNER JOIN "posthog_cohort" ON ("posthog_cohortpeople"."cohort_id" = "posthog_cohort"."id")
+  WHERE ("posthog_cohort"."team_id" = 99999
+         AND "posthog_cohortpeople"."cohort_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.24
@@ -1185,9 +1185,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
-  WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+  INNER JOIN "posthog_cohort" ON ("posthog_cohortpeople"."cohort_id" = "posthog_cohort"."id")
+  WHERE ("posthog_cohort"."team_id" = 99999
+         AND "posthog_cohortpeople"."cohort_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_iterator.7
@@ -1423,9 +1423,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
-  WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+  INNER JOIN "posthog_cohort" ON ("posthog_cohortpeople"."cohort_id" = "posthog_cohort"."id")
+  WHERE ("posthog_cohort"."team_id" = 99999
+         AND "posthog_cohortpeople"."cohort_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too.13
@@ -2535,9 +2535,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
-  WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+  INNER JOIN "posthog_cohort" ON ("posthog_cohortpeople"."cohort_id" = "posthog_cohort"."id")
+  WHERE ("posthog_cohort"."team_id" = 99999
+         AND "posthog_cohortpeople"."cohort_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.3
@@ -3043,9 +3043,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
-  WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+  INNER JOIN "posthog_cohort" ON ("posthog_cohortpeople"."cohort_id" = "posthog_cohort"."id")
+  WHERE ("posthog_cohort"."team_id" = 99999
+         AND "posthog_cohortpeople"."cohort_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_default_person_properties_adjustment.8
@@ -3205,9 +3205,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
-  WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+  INNER JOIN "posthog_cohort" ON ("posthog_cohortpeople"."cohort_id" = "posthog_cohort"."id")
+  WHERE ("posthog_cohort"."team_id" = 99999
+         AND "posthog_cohortpeople"."cohort_id" = 99999)
   '''
 # ---
 # name: TestCohortGenerationForFeatureFlag.test_creating_static_cohort_with_experience_continuity_flag.11
@@ -4101,9 +4101,9 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_cohortpeople"
-  INNER JOIN "posthog_person" ON ("posthog_cohortpeople"."person_id" = "posthog_person"."id")
-  WHERE ("posthog_cohortpeople"."cohort_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
+  INNER JOIN "posthog_cohort" ON ("posthog_cohortpeople"."cohort_id" = "posthog_cohort"."id")
+  WHERE ("posthog_cohort"."team_id" = 99999
+         AND "posthog_cohortpeople"."cohort_id" = 99999)
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.2
