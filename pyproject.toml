@@ -32,7 +32,7 @@ dependencies = [
     "deltalake==0.25.2",
     "dj-database-url==0.5.0",
     "django~=4.2.17",
-    "django-axes==5.9.0",
+    "django-axes[ipware]==8.0.0",
     "django-cors-headers~=4.8.0",
     "django-deprecate-fields==0.1.1",
     "django-extensions~=4.1.0",
@@ -170,6 +170,8 @@ dependencies = [
     "databricks-sql-connector~=4.1.3",
     "databricks-sdk~=0.67.0",
     "litellm>=1.77.7",
+    "free-email-domains>=1.0.1",
+    "disposable-email-domains>=0.0.140",
 ]
 
 [dependency-groups]
@@ -196,6 +198,7 @@ dev = [
     "mypy~=1.18.2",
     "mypy-baseline~=0.7.3",
     "mypy-extensions~=1.1.0",
+    "ty==0.0.1a22",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.10.15",
@@ -342,3 +345,24 @@ python_version = "3.12"
 [tool.mypy-baseline]
 sort_baseline = true
 ignore_categories = ["note"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+exclude = [
+    "bin/**",
+    "gunicorn.config.py",
+    "manage.py",
+    "posthog/hogql/grammar/**",
+]
+
+[tool.ty.rules]
+# Import resolution - ty can't always find all modules/stubs
+unresolved-import = "ignore"
+
+# Django-related rules - ty doesn't support Django's metaprogramming yet
+# See: https://github.com/astral-sh/ty/issues/291
+unresolved-attribute = "ignore"  # Django model fields, relationships, auto-generated attributes
+invalid-argument-type = "ignore"  # Django querysets, managers, form fields
+invalid-base = "ignore"  # Django model metaclasses (e.g., models.Model)

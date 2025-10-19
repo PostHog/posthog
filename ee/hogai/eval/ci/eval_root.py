@@ -477,8 +477,8 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="How do I delete events from PostHog?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "delete captured events"},
                     id="call_doc_search_36",
                 ),
             ),
