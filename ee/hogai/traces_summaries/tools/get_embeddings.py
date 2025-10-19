@@ -34,10 +34,7 @@ def failed_get_embeddings(
     wait=wait_fixed(1) + wait_random(0, 3),
     retry_error_callback=failed_get_embeddings,
 )
-async def get_embeddings(
-    client: httpx.AsyncClient,
-    embeddings_input: list[str],
-) -> list[list[float]]:
+async def get_embeddings(client: httpx.AsyncClient, embeddings_input: list[str], label: str = "") -> list[list[float]]:
     input_data = {"input": embeddings_input, "model": EMBEDDINGS_MODEL}
     try:
         raw_response = await client.post(
@@ -55,12 +52,15 @@ async def get_embeddings(
         raise RetryableException(message)
     embeddings = jmespath.search("data[].embedding", response)
     if not embeddings:
-        message = f"Couldn't get embeddings ({embeddings_input}), no embeddings returned ({response.json()}). Retrying."
+        message = (
+            f"Couldn't get embeddings ({embeddings_input}, {label}), no embeddings returned ({response}). Retrying."
+        )
         logger.exception(message)
         raise RetryableException(message)
     if len(embeddings) != len(embeddings_input):
         message = (
-            f"Got {len(embeddings)} embeddings for {len(embeddings_input)} " f"inputs ({embeddings_input}). Retrying."
+            f"Got {len(embeddings)} embeddings for {len(embeddings_input)} "
+            f"inputs ({embeddings_input}, {label}). Retrying."
         )
         logger.exception(message)
         raise RetryableException(message)

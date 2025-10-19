@@ -97,6 +97,7 @@ if __name__ == "__main__":
         response_times_ms.append(response_time)
         token_counts.append(len(token_encoder.encode(summary)))
         logger.info(summary)
+        # TODO: Check for the size of the generated summary, as in some very rare cases the summary could be extremely large (50+ tokens)
         # Store generatedsummary in file
         with open(summary_file_path, "w") as f:
             f.write(summary)
