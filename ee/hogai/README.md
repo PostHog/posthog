@@ -38,7 +38,7 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
 
 
     class YourTool(MaxTool):
-        name: str = "your_tool_name"  # Must match a value in AssistantContextualTool enum
+        name: str = "your_tool_name"  # Must match a value in AssistantTool enum
         description: str = "What this tool does"
         thinking_message: str = "What to show while tool is working"
         context_prompt_template: str = "Context about the tool state: {context_var}"
@@ -58,7 +58,7 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
             return "Tool execution completed", response
     ```
 
-3. Add your tool name to the `AssistantContextualTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
+3. Add your tool name to the `AssistantTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
 
 4. Define tool metadata in `TOOL_DEFINITIONS` in `frontend/src/scenes/max/max-constants.tsx`:
 
@@ -86,7 +86,7 @@ import { MaxTool } from 'scenes/max/MaxTool'
 function YourComponent() {
     return (
         <MaxTool
-            name="your_tool_name" // Must match backend tool name - enforced by the AssistantContextualTool enum
+            name="your_tool_name" // Must match backend tool name - enforced by the AssistantTool enum
             displayName="Human-friendly name"
             context={{
                 // Context data passed to backend - can be empty if there truly is no context

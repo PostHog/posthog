@@ -1,16 +1,15 @@
 from typing import Literal, cast
-from uuid import uuid4
 
 from langchain_core.messages import AIMessage as LangchainAIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, HumanMessage
+from posthog.schema import HumanMessage
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.onboarding.prompts import DEEP_RESEARCH_ONBOARDING_PROMPT
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
-from ee.hogai.utils.helpers import extract_content_from_ai_message
+from ee.hogai.utils.helpers import normalize_ai_message
 from ee.hogai.utils.types.composed import MaxNodeName
 
 
@@ -60,13 +59,11 @@ class DeepResearchOnboardingNode(DeepResearchNode):
             {},
             config,
         )
-        response = cast(LangchainAIMessage, response)
+        message = normalize_ai_message(cast(LangchainAIMessage, response))
         response_id = response.response_metadata["id"]
 
-        content = extract_content_from_ai_message(response)
-
         return PartialDeepResearchState(
-            messages=[AssistantMessage(content=content, id=str(uuid4()))],
+            messages=[message],
             previous_response_id=response_id,
             current_run_notebooks=[],  # Reset current run notebooks on new run
         )

@@ -5,7 +5,9 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import {
+    IconAI,
     IconCheck,
+    IconChevronRight,
     IconCollapse,
     IconExpand,
     IconEye,
@@ -17,6 +19,7 @@ import {
     IconThumbsUp,
     IconThumbsUpFilled,
     IconWarning,
+    IconWrench,
     IconX,
 } from '@posthog/icons'
 import {
@@ -26,7 +29,6 @@ import {
     LemonDialog,
     LemonInput,
     LemonSkeleton,
-    ProfilePicture,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -52,14 +54,14 @@ import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
+    AssistantToolCall,
     AssistantToolCallMessage,
+    TaskExecutionStatus as ExecutionStatus,
     FailureMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
-    PlanningMessage,
+    PlanningStep,
     PlanningStepStatus,
-    TaskExecutionMessage,
-    TaskExecutionStatus,
     VisualizationItem,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
@@ -69,6 +71,7 @@ import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
+import { getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -82,11 +85,9 @@ import {
     isHumanMessage,
     isMultiVisualizationMessage,
     isNotebookUpdateMessage,
-    isPlanningMessage,
-    isReasoningMessage,
-    isTaskExecutionMessage,
     isVisualizationMessage,
 } from './utils'
+import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -152,39 +153,37 @@ function MessageGroupContainer({
     )
 }
 
+// Enhanced tool call with completion status and planning flag
+export interface EnhancedToolCall extends AssistantToolCall {
+    status: ExecutionStatus
+    isLastPlanningMessage?: boolean
+    updates?: string[]
+}
+
 interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
     streamingActive: boolean
 }
 
-function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: MessageGroupProps): JSX.Element {
-    const { user } = useValues(userLogic)
+function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
     const { editInsightToolRegistered } = useValues(maxGlobalLogic)
+    const { threadLoading } = useValues(maxThreadLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
 
     return (
         <MessageGroupContainer groupType={groupType}>
-            <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
-                <ProfilePicture
-                    user={
-                        groupType === 'human'
-                            ? { ...user, hedgehog_config: undefined }
-                            : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
-                    }
-                    size="lg"
-                    className="hidden @md/thread:flex mt-1 border"
-                />
-            </Tooltip>
             <div
                 className={clsx(
-                    'flex flex-col gap-1.5 min-w-0 w-full',
+                    'flex flex-col min-w-0 w-full [&>*+*]:mt-2',
                     groupType === 'human' ? 'items-end' : 'items-start'
                 )}
             >
                 {messages.map((message, messageIndex) => {
                     const key = message.id || messageIndex
+                    const isLastMessage = messageIndex === messages.length - 1
+
                     if (isHumanMessage(message)) {
                         const maybeCommand = MAX_SLASH_COMMANDS.find(
                             (cmd) => cmd.name === message.content.split(' ', 1)[0]
@@ -228,16 +227,78 @@ function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: Mess
                                 )}
                             </MessageTemplate>
                         )
-                    } else if (
-                        isAssistantMessage(message) ||
-                        isAssistantToolCallMessage(message) ||
-                        isFailureMessage(message)
-                    ) {
+                    } else if (isAssistantMessage(message)) {
+                        // Render thinking/reasoning if present
+                        const isMessageComplete =
+                            !!(message.content.length > 0 || (message.tool_calls && message.tool_calls.length > 0)) ||
+                            messageIndex < messages.length - 1
+                        let thinkingElement = null
+                        if (message.meta?.thinking && message.meta.thinking.length > 0) {
+                            thinkingElement = (
+                                <ReasoningAnswer
+                                    key={`${key}-thinking`}
+                                    thinking={message.meta.thinking}
+                                    id={message.id || messageIndex.toString()}
+                                    completed={isMessageComplete}
+                                    showCompletionIcon={false}
+                                />
+                            )
+                        }
+
+                        // Render tool calls if present (tool_calls are enhanced with status by threadGrouped selector)
+                        const toolCallElements =
+                            message.tool_calls && message.tool_calls.length > 0 ? (
+                                <ToolCallsAnswer
+                                    key={`${key}-tools`}
+                                    toolCalls={message.tool_calls as EnhancedToolCall[]}
+                                />
+                            ) : null
+
+                        // Render main text content
+                        const textElement = message.content ? (
+                            <TextAnswer key={`${key}-text`} message={message} withActions={false} />
+                        ) : null
+
+                        // Compute actions separately to render after tool calls
+                        const retriable = !!(isLastMessage && isFinalGroup)
+                        const actionsElement = (() => {
+                            if (threadLoading) {
+                                return null
+                            }
+                            if (message.status !== 'completed') {
+                                return null
+                            }
+                            if (message.content.length === 0) {
+                                return null
+                            }
+
+                            if (isLastMessage) {
+                                // Message has been interrupted with a form
+                                if (message.meta?.form?.options && isFinalGroup) {
+                                    return <AssistantMessageForm key={`${key}-form`} form={message.meta.form} />
+                                }
+
+                                // Show answer actions if the assistant's response is complete at this point
+                                return <SuccessActions key={`${key}-actions`} retriable={retriable} />
+                            }
+
+                            return null
+                        })()
+
+                        return (
+                            <div key={key} className="flex flex-col gap-2">
+                                {thinkingElement}
+                                {textElement}
+                                {toolCallElements}
+                                {actionsElement}
+                            </div>
+                        )
+                    } else if (isAssistantToolCallMessage(message) || isFailureMessage(message)) {
                         return (
                             <TextAnswer
                                 key={key}
                                 message={message}
-                                interactable={messageIndex === messages.length - 1}
+                                interactable={isLastMessage}
                                 isFinalGroup={isFinalGroup}
                             />
                         )
@@ -252,45 +313,8 @@ function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: Mess
                         )
                     } else if (isMultiVisualizationMessage(message)) {
                         return <MultiVisualizationAnswer key={key} message={message} />
-                    } else if (isReasoningMessage(message)) {
-                        return (
-                            <MessageTemplate key={key} type="ai">
-                                <div className="flex items-center gap-2">
-                                    {messageIndex < messages.length - 1 ? (
-                                        <IconCheck className="size-4 m-0.5 animate-[scale-in_0.3s_ease-out]" />
-                                    ) : streamingActive ? (
-                                        <img
-                                            src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                            className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
-                                        />
-                                    ) : (
-                                        <IconX className="size-4 m-0.5" />
-                                    )}
-                                    <span className="font-medium">
-                                        {message.content}…
-                                        {messageIndex < messages.length - 1
-                                            ? ' Done.'
-                                            : !streamingActive
-                                              ? ' Canceled.'
-                                              : ''}
-                                    </span>
-                                </div>
-                                {message.substeps?.map((substep, substepIndex) => (
-                                    <MarkdownMessage
-                                        key={substepIndex}
-                                        id={message.id || messageIndex.toString()}
-                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
-                                        content={substep}
-                                    />
-                                ))}
-                            </MessageTemplate>
-                        )
                     } else if (isNotebookUpdateMessage(message)) {
                         return <NotebookUpdateAnswer key={key} message={message} />
-                    } else if (isPlanningMessage(message)) {
-                        return <PlanningAnswer key={key} message={message} />
-                    } else if (isTaskExecutionMessage(message)) {
-                        return <TaskExecutionAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
                 })}
@@ -327,12 +351,13 @@ interface MessageTemplateProps {
     action?: React.ReactNode
     className?: string
     boxClassName?: string
+    wrapperClassName?: string
     children?: React.ReactNode
     header?: React.ReactNode
 }
 
 const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, action, header },
+    { type, children, className, boxClassName, wrapperClassName, action, header },
     ref
 ) {
     return (
@@ -344,18 +369,20 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
             )}
             ref={ref}
         >
-            {header}
-            {children && (
-                <div
-                    className={twMerge(
-                        'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
-                        type === 'human' && 'font-medium',
-                        boxClassName
-                    )}
-                >
-                    {children}
-                </div>
-            )}
+            <div className={twMerge('max-w-full', wrapperClassName)}>
+                {header}
+                {children && (
+                    <div
+                        className={twMerge(
+                            'border py-2 px-3 rounded-lg bg-surface-primary',
+                            type === 'human' && 'font-medium',
+                            boxClassName
+                        )}
+                    >
+                        {children}
+                    </div>
+                )}
+            </div>
             {action}
         </div>
     )
@@ -365,40 +392,43 @@ interface TextAnswerProps {
     message: (AssistantMessage | FailureMessage | AssistantToolCallMessage) & ThreadMessage
     interactable?: boolean
     isFinalGroup?: boolean
+    withActions?: boolean
 }
 
 const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function TextAnswer(
-    { message, interactable, isFinalGroup },
+    { message, interactable, isFinalGroup, withActions = true },
     ref
 ) {
     const retriable = !!(interactable && isFinalGroup)
 
-    const action = (() => {
-        if (message.status !== 'completed' && !isFailureMessage(message)) {
-            return null
-        }
+    const action = withActions
+        ? (() => {
+              if (message.status !== 'completed' && !isFailureMessage(message)) {
+                  return null
+              }
 
-        // Don't show retry button when rate-limited
-        if (
-            isFailureMessage(message) &&
-            !message.content?.includes('usage limit') && // Don't show retry button when rate-limited
-            retriable
-        ) {
-            return <RetriableFailureActions />
-        }
+              // Don't show retry button when rate-limited
+              if (
+                  isFailureMessage(message) &&
+                  !message.content?.includes('usage limit') && // Don't show retry button when rate-limited
+                  retriable
+              ) {
+                  return <RetriableFailureActions />
+              }
 
-        if (isAssistantMessage(message) && interactable) {
-            // Message has been interrupted with a form
-            if (message.meta?.form?.options && isFinalGroup) {
-                return <AssistantMessageForm form={message.meta.form} />
-            }
+              if (isAssistantMessage(message) && interactable) {
+                  // Message has been interrupted with a form
+                  if (message.meta?.form?.options && isFinalGroup) {
+                      return <AssistantMessageForm form={message.meta.form} />
+                  }
 
-            // Show answer actions if the assistant's response is complete at this point
-            return <SuccessActions retriable={retriable} />
-        }
+                  // Show answer actions if the assistant's response is complete at this point
+                  return <SuccessActions retriable={retriable} />
+              }
 
-        return null
-    })()
+              return null
+          })()
+        : null
 
     return (
         <MessageTemplate
@@ -537,132 +567,322 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
 }
 
 interface PlanningAnswerProps {
-    message: PlanningMessage
+    toolCall: EnhancedToolCall
+    isLastPlanningMessage?: boolean
 }
 
-function PlanningAnswer({ message }: PlanningAnswerProps): JSX.Element {
+function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnswerProps): JSX.Element {
+    const [isExpanded, setIsExpanded] = useState(isLastPlanningMessage)
+
+    useEffect(() => {
+        setIsExpanded(isLastPlanningMessage)
+    }, [isLastPlanningMessage])
+
+    // Extract planning steps from tool call args
+    // Assuming args has a 'todos' field with array of {content: string, status: string, activeForm: string}
+    const steps: PlanningStep[] = Array.isArray(toolCall.args.todos)
+        ? (toolCall.args.todos as Array<{ content: string; status: string; activeForm: string }>).map((todo) => ({
+              description: todo.content,
+              status: todo.status as PlanningStepStatus,
+          }))
+        : []
+
+    const completedCount = steps.filter((step) => step.status === 'completed').length
+    const totalCount = steps.length
+    const hasMultipleSteps = steps.length > 1
+
     return (
-        <MessageTemplate type="ai">
-            <div className="space-y-2">
-                <h4 className="m-0 text-xs font-semibold">TO-DOs</h4>
-                <div className="space-y-1.5 mt-1">
-                    {message.steps.map((step, index) => (
-                        <LemonCheckbox
-                            key={index}
-                            size="xsmall"
-                            defaultChecked={step.status === PlanningStepStatus.Completed}
-                            disabled={true}
-                            label={
-                                step.description +
-                                (step.status === PlanningStepStatus.InProgress ? ' (in progress)' : '')
-                            }
-                            labelClassName={clsx(
-                                'cursor-default! text-xs',
-                                step.status === PlanningStepStatus.Completed && 'text-muted line-through',
-                                step.status === PlanningStepStatus.InProgress && 'font-semibold'
-                            )}
-                        />
-                    ))}
+        <div className="flex flex-col">
+            <div className="flex items-center">
+                <div className="relative flex-shrink-0 flex items-start justify-center size-7 h-full">
+                    <div className="p-1 flex items-center justify-center">
+                        <IconNotebook />
+                    </div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <span>Planning</span>
+                    <span className="text-muted">
+                        ({completedCount}/{totalCount})
+                    </span>
+                    {hasMultipleSteps && (
+                        <button
+                            onClick={() => setIsExpanded(!isExpanded)}
+                            className="cursor-pointer inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0"
+                            aria-label={isExpanded ? 'Collapse plan' : 'Expand plan'}
+                        >
+                            <span className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+                                <IconChevronRight />
+                            </span>
+                        </button>
+                    )}
                 </div>
             </div>
-        </MessageTemplate>
+            {isExpanded && (
+                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-[calc(0.775rem)]">
+                    {steps.map((step, index) => {
+                        const isCompleted = step.status === 'completed'
+                        const isInProgress = step.status === 'in_progress'
+
+                        return (
+                            <div key={index} className="flex items-start gap-2 animate-fade-in">
+                                <span className="flex-shrink-0">
+                                    <LemonCheckbox checked={isCompleted} disabled size="xsmall" />
+                                </span>
+                                <span
+                                    className={clsx(
+                                        'leading-relaxed',
+                                        isCompleted && 'text-muted line-through',
+                                        isInProgress && 'font-medium'
+                                    )}
+                                >
+                                    {step.description}
+                                    {isInProgress && <span className="text-muted ml-1">(in progress)</span>}
+                                </span>
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
+        </div>
     )
 }
 
-interface TaskExecutionAnswerProps {
-    message: TaskExecutionMessage
-}
+function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Element {
+    const isTextContent = typeof children === 'string'
 
-function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element {
-    const completedCount = message.tasks.filter((t) => t.status === TaskExecutionStatus.Completed).length
-    const totalCount = message.tasks.length
+    if (isTextContent) {
+        return (
+            <span
+                className="bg-clip-text text-transparent"
+                style={{
+                    backgroundImage:
+                        'linear-gradient(in oklch 90deg, var(--text-3000), var(--muted-3000), var(--trace-3000), var(--muted-3000), var(--text-3000))',
+                    backgroundSize: '200% 100%',
+                    animation: 'shimmer 3s linear infinite',
+                }}
+            >
+                {children}
+            </span>
+        )
+    }
 
     return (
-        <MessageTemplate type="ai">
-            <div className="flex flex-col gap-2 pb-2">
-                <div className="flex items-center justify-between">
-                    <h4 className="m-0 text-xs font-semibold">Tasks</h4>
-                    <span className="text-xs text-muted">
-                        {completedCount}/{totalCount}
-                    </span>
-                </div>
+        <span
+            className="inline-flex"
+            style={{
+                animation: 'shimmer-opacity 3s linear infinite',
+            }}
+        >
+            {children}
+        </span>
+    )
+}
 
-                <div className="flex flex-col gap-2">
-                    {message.tasks.map((task, index) => (
-                        <div
-                            key={index}
-                            className={clsx(
-                                'flex items-center gap-2 rounded transition-all duration-300 py-1',
-                                task.status === TaskExecutionStatus.InProgress && 'bg-accent-highlight-primary/20',
-                                task.status === TaskExecutionStatus.Completed && 'opacity-60'
+function handleThreeDots(content: string, isInProgress: boolean): string {
+    if (!content.endsWith('...') && !content.endsWith('…') && !content.endsWith('.') && isInProgress) {
+        return content + '...'
+    } else if ((content.endsWith('...') || content.endsWith('…')) && !isInProgress) {
+        return content.replace(/[…]/g, '').replace(/[.]/g, '')
+    }
+    return content
+}
+
+function AssistantActionComponent({
+    id,
+    content,
+    substeps,
+    state,
+    icon,
+    animate = true,
+    showCompletionIcon = true,
+}: {
+    id: string
+    content: string
+    substeps: string[]
+    state: ExecutionStatus
+    icon?: React.ReactNode
+    animate?: boolean
+    showCompletionIcon?: boolean
+}): JSX.Element {
+    const isPending = state === 'pending'
+    const isCompleted = state === 'completed'
+    const isInProgress = state === 'in_progress'
+    const isFailed = state === 'failed'
+    const showChevron = substeps.length > 0 ? (showCompletionIcon ? isPending || isInProgress : true) : false
+    const [isExpanded, setIsExpanded] = useState(showChevron)
+
+    useEffect(() => {
+        if (showChevron) {
+            setIsExpanded(!(isCompleted || isFailed))
+        }
+    }, [showChevron, isCompleted, isFailed])
+
+    let markdownContent = <MarkdownMessage id={id} content={content} />
+
+    return (
+        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1">
+            <div
+                className={clsx(
+                    'transition-all duration-500 flex items-center',
+                    (isPending || isFailed) && 'text-muted',
+                    !isInProgress && !isPending && !isFailed && 'text-default'
+                )}
+            >
+                {icon && (
+                    <div className="relative flex-shrink-0 flex items-start justify-center size-7 h-full">
+                        <div className="p-1 flex items-center justify-center">
+                            {isInProgress && animate ? (
+                                <ShimmeringContent>{icon}</ShimmeringContent>
+                            ) : (
+                                <span className="inline-flex">{icon}</span>
                             )}
-                        >
-                            <div className="flex-shrink-0 flex items-center justify-center size-7">
-                                {task.status === TaskExecutionStatus.Completed && (
-                                    <IconCheck className="text-success size-3.5" />
-                                )}
-                                {task.status === TaskExecutionStatus.InProgress && (
-                                    <div className="size-3 rounded-full bg-border animate-pulse" />
-                                )}
-                                {task.status === TaskExecutionStatus.Pending && (
-                                    <div className="size-3 rounded-full bg-border" />
-                                )}
-                                {task.status === TaskExecutionStatus.Failed && (
-                                    <IconX className="text-danger size-3.5" />
-                                )}
-                            </div>
-
-                            <div className="flex-1 min-w-0">
-                                <div
-                                    className={clsx(
-                                        'text-xs transition-all duration-300',
-                                        task.status === TaskExecutionStatus.Pending && 'text-muted',
-                                        task.status === TaskExecutionStatus.InProgress &&
-                                            'font-semibold text-primary animate-pulse',
-                                        task.status === TaskExecutionStatus.Completed && 'text-muted-alt line-through',
-                                        task.status === TaskExecutionStatus.Failed && 'text-danger'
-                                    )}
-                                >
-                                    {task.description}
-                                </div>
-
-                                {task.prompt && (
-                                    <div
-                                        className={clsx(
-                                            'text-xs mt-0.5 transition-all duration-300',
-                                            task.status === TaskExecutionStatus.InProgress
-                                                ? 'text-muted-alt animate-pulse'
-                                                : 'text-muted',
-                                            task.status === TaskExecutionStatus.Completed && 'line-through opacity-50'
-                                        )}
-                                    >
-                                        {task.prompt}
-                                    </div>
-                                )}
-
-                                {task.progress_text && task.status !== TaskExecutionStatus.Pending && (
-                                    <div
-                                        className={`text-xs mt-0.5 font-medium ${
-                                            task.status === TaskExecutionStatus.InProgress
-                                                ? 'text-primary-alt animate-pulse'
-                                                : task.status === TaskExecutionStatus.Completed
-                                                  ? 'text-success'
-                                                  : 'text-danger'
-                                        }`}
-                                    >
-                                        <MarkdownMessage
-                                            id={index.toString()}
-                                            className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
-                                            content={task.progress_text}
-                                        />
-                                    </div>
-                                )}
-                            </div>
                         </div>
-                    ))}
+                    </div>
+                )}
+                <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
+                    <div>
+                        {isInProgress && animate ? (
+                            <ShimmeringContent>{markdownContent}</ShimmeringContent>
+                        ) : (
+                            markdownContent
+                        )}
+                    </div>
+                    {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
+                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
+                    {showChevron && (
+                        <div className="relative flex-shrink-0 flex items-start justify-center h-full pt-0.5">
+                            <button
+                                onClick={() => setIsExpanded(!isExpanded)}
+                                className="cursor-pointer inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0"
+                                aria-label={isExpanded ? 'Collapse history' : 'Expand history'}
+                            >
+                                <span className={clsx('transform transition-transform', isExpanded && 'rotate-90')}>
+                                    <IconChevronRight />
+                                </span>
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
-        </MessageTemplate>
+            {isExpanded && substeps && substeps.length > 0 && (
+                <div
+                    className={clsx(
+                        'space-y-1 border-l-2 border-border-secondary',
+                        icon && 'pl-3.5 ml-[calc(0.775rem)]'
+                    )}
+                >
+                    {substeps.map((substep, substepIndex) => {
+                        const isCurrentSubstep = substepIndex === substeps.length - 1
+                        const isCompletedSubstep = substepIndex < substeps.length - 1 || isCompleted
+
+                        return (
+                            <div
+                                key={substepIndex}
+                                className="animate-fade-in"
+                                style={{
+                                    animationDelay: `${substepIndex * 50}ms`,
+                                }}
+                            >
+                                <MarkdownMessage
+                                    id={id}
+                                    className={clsx(
+                                        'leading-relaxed',
+                                        isFailed && 'text-danger',
+                                        !isFailed && isCompletedSubstep && 'text-muted',
+                                        !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
+                                    )}
+                                    content={handleThreeDots(substep ?? '', true)}
+                                />
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
+        </div>
+    )
+}
+
+interface ReasoningAnswerProps {
+    thinking: Record<string, unknown>[]
+    completed: boolean
+    id: string
+    showCompletionIcon?: boolean
+}
+
+function ReasoningAnswer({ thinking, completed, id, showCompletionIcon = true }: ReasoningAnswerProps): JSX.Element {
+    const content =
+        thinking.length > 0 && 'thinking' in thinking[0] ? String(thinking[0].thinking) : getRandomThinkingMessage()
+
+    return (
+        <AssistantActionComponent
+            id={id}
+            content={completed ? 'Thought' : content}
+            substeps={completed ? [content] : []}
+            state={completed ? ExecutionStatus.Completed : ExecutionStatus.InProgress}
+            icon={<IconAI />}
+            animate={true}
+            showCompletionIcon={showCompletionIcon}
+        />
+    )
+}
+
+interface ToolCallsAnswerProps {
+    toolCalls: EnhancedToolCall[]
+}
+
+function ToolCallsAnswer({ toolCalls }: ToolCallsAnswerProps): JSX.Element {
+    // Separate todo_write tool calls from regular tool calls
+    const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
+    const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
+
+    return (
+        <>
+            {/* Render planning messages for todo_write tool calls */}
+            {todoWriteToolCalls.map((toolCall) => {
+                if (!toolCall.args.todos || (toolCall.args.todos as any[]).length === 0) {
+                    return null
+                }
+                return (
+                    <PlanningAnswer
+                        key={toolCall.id}
+                        toolCall={toolCall}
+                        isLastPlanningMessage={toolCall.isLastPlanningMessage}
+                    />
+                )
+            })}
+
+            {/* Render tool execution for regular tool calls */}
+            {regularToolCalls.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                    {regularToolCalls.map((toolCall) => {
+                        const commentary = toolCall.args.commentary as string
+                        const updates = toolCall.updates ?? []
+                        const definition = getToolDefinition(toolCall.name)
+                        let description =
+                            toolCall.status === 'completed'
+                                ? definition?.passiveDescription
+                                : definition?.activeDescription
+                        if (!description) {
+                            description = `Executing ${toolCall.name}`
+                        }
+                        if (commentary) {
+                            description = commentary
+                        }
+                        return (
+                            <AssistantActionComponent
+                                key={toolCall.id}
+                                id={toolCall.id}
+                                content={description}
+                                substeps={updates}
+                                state={toolCall.status}
+                                icon={definition?.icon || <IconWrench />}
+                                showCompletionIcon={true}
+                            />
+                        )
+                    })}
+                </div>
+            )}
+        </>
     )
 }
 
@@ -1072,7 +1292,6 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         type="tertiary"
                         size="xsmall"
                         tooltip="View trace in LLM analytics"
-                        targetBlank
                     />
                 )}
             </div>

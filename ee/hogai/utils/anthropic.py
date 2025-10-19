@@ -1,50 +1,12 @@
 from collections.abc import Sequence
 from typing import Any, cast
-from uuid import uuid4
 
 from langchain_core import messages
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import BaseMessage
 
-from posthog.schema import (
-    AssistantMessage,
-    AssistantMessageMetadata,
-    AssistantToolCall,
-    AssistantToolCallMessage,
-    ContextMessage,
-    FailureMessage,
-    HumanMessage,
-)
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, ContextMessage, FailureMessage, HumanMessage
 
 from ee.hogai.utils.types.base import AssistantMessageUnion
-
-
-def normalize_ai_anthropic_message(message: AIMessage) -> AssistantMessage:
-    message_id = str(uuid4())
-    tool_calls = [
-        AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"])
-        for tool_call in message.tool_calls
-    ]
-    if isinstance(message.content, str):
-        return AssistantMessage(content=message.content, id=message_id, tool_calls=tool_calls)
-
-    turns: list[str] = []
-    thinking: list[dict[str, Any]] = []
-
-    for content in message.content:
-        if isinstance(content, str):
-            turns.append(content)
-        if isinstance(content, dict) and "type" in content:
-            if content["type"] == "text":
-                turns.append(content["text"])
-            if content["type"] in ("thinking", "redacted_thinking"):
-                thinking.append(content)
-
-    return AssistantMessage(
-        content="\n".join(turns),
-        id=message_id,
-        tool_calls=tool_calls,
-        meta=AssistantMessageMetadata(thinking=thinking) if thinking else None,
-    )
 
 
 def get_thinking_from_assistant_message(message: AssistantMessage) -> list[dict[str, Any]]:
@@ -97,7 +59,9 @@ def convert_assistant_message_to_anthropic_message(
     # Append associated tool call messages.
     for tool_call in tool_calls:
         tool_call_id = tool_call["id"]
-        result_message = tool_result_map[tool_call_id]
+        result_message = tool_result_map.get(tool_call_id)
+        if result_message is None:
+            continue
         history.append(
             messages.HumanMessage(
                 content=[{"type": "tool_result", "tool_use_id": tool_call_id, "content": result_message.content}],

@@ -2,7 +2,14 @@ from datetime import datetime
 from textwrap import dedent
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 
 from posthog.models import Action
 from posthog.models.group.util import create_group
@@ -71,6 +78,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 properties={"id": i},
                 team=self.team,
             )
+        flush_persons_and_events()
 
     def test_retrieve_entity_properties(self):
         toolkit = DummyToolkit(self.team)
@@ -224,6 +232,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             properties={},
             team=self.team,
         )
+        flush_persons_and_events()
 
         toolkit = DummyToolkit(self.team)
         self.assertEqual(

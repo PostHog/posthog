@@ -56,8 +56,10 @@ class NavigateTool(MaxTool):
         user: User,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
     ) -> Self:
-        context_manager = AssistantContextManager(team, user, config)
+        if context_manager is None:
+            context_manager = AssistantContextManager(team, user, config)
         tool_context = context_manager.get_contextual_tools().get("navigate", {})
         tool_description = format_prompt_string(NAVIGATION_TOOL_PROMPT, **tool_context)
         return cls(

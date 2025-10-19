@@ -50,7 +50,7 @@ class HogFunctionFiltersOutput(BaseModel):
 
 
 class CreateHogTransformationFunctionTool(MaxTool):
-    name: str = "create_hog_transformation_function"  # Must match a value in AssistantContextualTool enum
+    name: str = "create_hog_transformation_function"  # Must match a value in AssistantTool enum
     description: str = "Write or edit the hog code to create your desired function and apply it to the current editor"
     thinking_message: str = "Creating your desired function"
     args_schema: type[BaseModel] = CreateHogTransformationFunctionArgs
@@ -129,7 +129,7 @@ class CreateHogTransformationFunctionTool(MaxTool):
 
 
 class CreateHogFunctionFiltersTool(MaxTool):
-    name: str = "create_hog_function_filters"  # Must match a value in AssistantContextualTool enum
+    name: str = "create_hog_function_filters"  # Must match a value in AssistantTool enum
     description: str = (
         "Create or edit filters for hog functions to specify which events and properties trigger the function"
     )

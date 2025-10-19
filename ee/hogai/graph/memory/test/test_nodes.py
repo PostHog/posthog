@@ -80,6 +80,7 @@ class TestMemoryInitializerContextMixin(ClickhouseTestMixin, BaseTest):
             team=self.team,
             properties={"$host": "us.posthog.com"},
         )
+        flush_persons_and_events()
 
         mixin = self.get_mixin()
         self.assertEqual(
@@ -115,6 +116,7 @@ class TestMemoryInitializerContextMixin(ClickhouseTestMixin, BaseTest):
             team=self.team,
             properties={"$app_namespace": "com.posthog.app"},
         )
+        flush_persons_and_events()
 
         mixin = self.get_mixin()
         self.assertEqual(
@@ -274,6 +276,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             model_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
 
             self._set_up_pageview_events()
+            flush_persons_and_events()
             node = MemoryInitializerNode(team=self.team, user=self.user)
 
             new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
@@ -288,8 +291,6 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             core_memory = CoreMemory.objects.get(team=self.team)
             self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.PENDING)
 
-        flush_persons_and_events()
-
     def test_run_with_app_bundle_id_initialization(self):
         with (
             patch.object(MemoryInitializerNode, "_model") as model_mock,
@@ -301,6 +302,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
             model_mock.return_value = RunnableLambda(lambda _: "PostHog mobile app description.")
 
             self._set_up_app_bundle_id_events()
+            flush_persons_and_events()
             node = MemoryInitializerNode(team=self.team, user=self.user)
 
             new_state = node.run(AssistantState(messages=[HumanMessage(content="Hello")]), {})
@@ -314,8 +316,6 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
 
             core_memory = CoreMemory.objects.get(team=self.team)
             self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.PENDING)
-
-        flush_persons_and_events()
 
     def test_memory_onboarding_runs_when_init_with_completed_memory(self):
         """Test that when /init is used and core memory is completed, the graph DOES run MemoryOnboardingNode"""
