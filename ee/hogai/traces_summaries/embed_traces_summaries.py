@@ -1,4 +1,5 @@
 import asyncio
+from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +42,50 @@ async def _process_embedding_tasks(tasks: list[TraceSummaryEmbeddingTask]) -> No
         await asyncio.gather(*processing_tasks)
 
 
+def _clean_up_summary_before_embedding(summary: str) -> str:
+    """Remove repetitive phrases and excessive formatting to make embeddings more accurate."""
+    original_summary = copy(summary)
+    # Remove words that don't add value
+    no_value_words = ["several"]
+    for word in no_value_words:
+        summary = summary.replace(f" {word} ", " ")  # Ensure to replace full words only
+    # Remove excessive prefixes
+    excessive_prefixes = ["The user experienced"]
+    for prefix in excessive_prefixes:
+        while True:
+            # Remove all occurrences
+            prefix_index = summary.find(prefix)
+            if prefix_index == -1:
+                # Not found
+                break
+            # Make next symbol uppercase (assuming space after prefix)
+            prefix_next_char_index = prefix_index + len(prefix) + 1
+            if prefix_next_char_index < len(summary):  # Apply if within bounds
+                summary = (
+                    summary[:prefix_next_char_index]
+                    + summary[prefix_next_char_index].upper()
+                    + summary[prefix_next_char_index + 1 :]
+                )
+            # Remove prefix
+            summary = summary[prefix_index + len(prefix) :]
+    # Remove excessive formatting
+    excessive_formatting = ["**"]
+    for formatting in excessive_formatting:
+        while True:
+            # Remove all occurrences
+            formatting_index = summary.find(formatting)
+            if formatting_index == -1:
+                break
+            # Remove formatting
+            summary = summary[:formatting_index] + summary[formatting_index + len(formatting) :]
+    # Log differences, if any
+    if summary != original_summary:
+        logger.info("*" * 50)
+        logger.info(f"Old summary: {original_summary}")
+        logger.info(f"New summary: {summary}")
+    return summary
+
+
 if __name__ == "__main__":
     stringified_traces_dir_path = Path("/Users/woutut/Documents/Code/posthog/playground/traces-summarization/output/")
     # Iterate over directories in stringified_traces_dir_path
@@ -58,6 +103,8 @@ if __name__ == "__main__":
             raise ValueError(f"Summary file ({summary_file_path}) not found for trace {trace_id}")
         with open(summary_file_path) as f:
             summary = f.read()
+        _clean_up_summary_before_embedding(summary=summary)
+        break
         # Skip summaries without issues
         if summary.strip(".").strip(" ").lower() == "no issues found":
             continue
@@ -80,5 +127,5 @@ if __name__ == "__main__":
             embeddings_output_file_path=summary_embeddings_file_path,
         )
         tasks.append(task)
-    # Generate embeddings
-    asyncio.run(_process_embedding_tasks(tasks=tasks))
+    # # Generate embeddings
+    # asyncio.run(_process_embedding_tasks(tasks=tasks))
