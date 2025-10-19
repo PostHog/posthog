@@ -1,1 +1,2 @@
 pub mod early_access_feature_models;
+pub mod early_access_feature_cache_manager;
