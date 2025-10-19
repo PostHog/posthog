@@ -712,9 +712,7 @@ function AssistantActionComponent({
     const [isExpanded, setIsExpanded] = useState(showChevron)
 
     useEffect(() => {
-        if (showChevron) {
-            setIsExpanded(!(isCompleted || isFailed))
-        }
+        setIsExpanded(showChevron ? !(isCompleted || isFailed) : false)
     }, [showChevron, isCompleted, isFailed])
 
     let markdownContent = <MarkdownMessage id={id} content={content} />
