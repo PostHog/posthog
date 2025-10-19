@@ -171,7 +171,7 @@ export function Playlist({
                 </div>
                 <div
                     className={clsx('flex flex-col min-w-60', {
-                        'xl:max-w-80 xl:min-w-80 order-first mt-2': !showCinemaMode,
+                        'xl:max-w-80 xl:min-w-80 order-first': !showCinemaMode,
                     })}
                 >
                     {filterActions && (
