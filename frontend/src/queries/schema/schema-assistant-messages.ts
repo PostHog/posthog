@@ -52,11 +52,12 @@ export enum AssistantMessageType {
     Notebook = 'ai/notebook',
     Planning = 'ai/planning',
     TaskExecution = 'ai/task_execution',
+    Update = 'ai/update',
 }
 
 export interface BaseAssistantMessage {
     id?: string
-    visible?: boolean
+    parent_tool_call_id?: string
 }
 
 export interface HumanMessage extends BaseAssistantMessage {
@@ -98,6 +99,9 @@ export interface AssistantMessage extends BaseAssistantMessage {
 }
 
 export interface ReasoningMessage extends BaseAssistantMessage {
+    /**
+     * @deprecated The model should not be used
+     */
     type: AssistantMessageType.Reasoning
     content: string
     substeps?: string[]
@@ -105,6 +109,13 @@ export interface ReasoningMessage extends BaseAssistantMessage {
 
 export interface ContextMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Context
+    content: string
+}
+
+export interface UpdateMessage {
+    type: AssistantMessageType.Update
+    id: string
+    parent_tool_call_id: string
     content: string
 }
 
@@ -165,11 +176,17 @@ export enum PlanningStepStatus {
 }
 
 export interface PlanningStep {
+    /**
+     * @deprecated The class should not be used
+     */
     description: string
     status: PlanningStepStatus
 }
 
 export interface PlanningMessage extends BaseAssistantMessage {
+    /**
+     * @deprecated The class should not be used
+     */
     type: AssistantMessageType.Planning
     steps: PlanningStep[]
 }
@@ -182,6 +199,9 @@ export enum TaskExecutionStatus {
 }
 
 export interface TaskExecutionItem {
+    /**
+     * @deprecated The class should not be used
+     */
     id: string
     description: string
     prompt: string
@@ -192,6 +212,9 @@ export interface TaskExecutionItem {
 }
 
 export interface TaskExecutionMessage extends BaseAssistantMessage {
+    /**
+     * @deprecated The class should not be used
+     */
     type: AssistantMessageType.TaskExecution
     tasks: TaskExecutionItem[]
 }
@@ -212,7 +235,8 @@ export type RootAssistantMessage =
     | NotebookUpdateMessage
     | PlanningMessage
     | TaskExecutionMessage
-    | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
+    | AssistantToolCallMessage
+    | UpdateMessage
 
 export enum AssistantEventType {
     Status = 'status',
@@ -241,7 +265,7 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     tool_call_id: string
 }
 
-export type AssistantContextualTool =
+export type AssistantTool =
     | 'search_session_recordings'
     | 'generate_hogql_query'
     | 'fix_hogql_query'
@@ -252,13 +276,12 @@ export type AssistantContextualTool =
     | 'create_hog_function_inputs'
     | 'create_message_template'
     | 'navigate'
+    | 'edit_current_insight'
     | 'filter_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
-    | 'search_docs'
-    | 'search_insights'
     | 'session_summarization'
     | 'create_dashboard'
     | 'edit_current_dashboard'
