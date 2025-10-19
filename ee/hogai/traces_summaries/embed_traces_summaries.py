@@ -43,7 +43,6 @@ async def _process_embedding_tasks(tasks: list[TraceSummaryEmbeddingTask]) -> No
 
 if __name__ == "__main__":
     stringified_traces_dir_path = Path("/Users/woutut/Documents/Code/posthog/playground/traces-summarization/output/")
-    client = httpx.AsyncClient()
     # Iterate over directories in stringified_traces_dir_path
     traces_dirs = list(stringified_traces_dir_path.iterdir())
     tasks = []
