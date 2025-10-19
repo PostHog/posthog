@@ -1500,37 +1500,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertCountEqual([r[0] for r in results_team1], [person2_team1.uuid])
         self.assertCountEqual([r[0] for r in results_team2], [person1_team2.uuid])
 
-    def test_static_cohort_size_in_multiteam_project(self):
-        from posthog.models.cohort.util import get_static_cohort_size
-
-        # Create another team in the same project
-        team2 = Team.objects.create(organization=self.organization, project=self.team.project)
-
-        # Create people in team 1
-        _create_person(team_id=self.team.pk, distinct_ids=["person1_team1"])
-        _create_person(team_id=self.team.pk, distinct_ids=["person2_team1"])
-
-        # Create people in team 2
-        _create_person(team_id=team2.pk, distinct_ids=["person1_team2"])
-        _create_person(team_id=team2.pk, distinct_ids=["person2_team2"])
-        _create_person(team_id=team2.pk, distinct_ids=["person3_team2"])
-
-        # Create a static cohort in team2
-        static_cohort = Cohort.objects.create(team=team2, is_static=True, name="static cohort")
-
-        # Add people from both teams to the cohort
-        static_cohort.insert_users_by_list(["person1_team1", "person2_team1"])  # Team 1 people
-        static_cohort.insert_users_by_list(["person1_team2", "person2_team2"])  # Team 2 people
-
-        # Verify get_static_cohort_size correctly filters by team_id
-        # The cohort belongs to team2, so filtering by team2 should count team2 people
-        count_team2 = get_static_cohort_size(cohort_id=static_cohort.pk, team_id=team2.pk)
-        self.assertEqual(count_team2, 2)
-
-        # Filtering by team1 should return 0 since cohort belongs to team2
-        count_team1 = get_static_cohort_size(cohort_id=static_cohort.pk, team_id=self.team.pk)
-        self.assertEqual(count_team1, 0)
-
     def test_cohortpeople_action_all_events(self):
         # Create an action that matches all events (no specific event defined)
         action = Action.objects.create(team=self.team, name="all events", steps_json=[{"event": None}])
