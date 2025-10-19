@@ -396,7 +396,7 @@ class AssistantContextManager(AssistantContextMixin):
 
         contextual_tools_prompt = [
             f"<{tool_name}>\n"
-            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_context_prompt_injection(tool_context)}\n"  # type: ignore
+            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user, tool_call_id="").format_context_prompt_injection(tool_context)}\n"  # type: ignore
             f"</{tool_name}>"
             for tool_name, tool_context in self.get_contextual_tools().items()
             if get_contextual_tool_class(tool_name) is not None
@@ -414,8 +414,6 @@ class AssistantContextManager(AssistantContextMixin):
     def _inject_context_messages(
         self, state: BaseStateWithMessages, context_prompts: list[str]
     ) -> list[AssistantMessageUnion]:
-        context_messages = [
-            ContextMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts
-        ]
+        context_messages = [ContextMessage(content=prompt, id=str(uuid4())) for prompt in context_prompts]
         # Insert context messages right before the start message
         return insert_messages_before_start(state.messages, context_messages, start_id=state.start_id)

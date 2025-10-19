@@ -122,11 +122,9 @@ class InkeepResponse(BaseModel):
 
 class SearchTool(MaxTool):
     name: Literal["search"] = "search"
-    thinking_message: str = "Searching for information"
     description: str = SEARCH_TOOL_PROMPT
     context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
-    show_tool_call_message: bool = False
 
     @staticmethod
     def _get_fts_entities(include_insight_fts: bool) -> list[str]:

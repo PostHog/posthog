@@ -44,7 +44,6 @@ def get_team_survey_config(team: Team) -> dict[str, Any]:
 class CreateSurveyTool(MaxTool):
     name: str = "create_survey"
     description: str = "Create and optionally launch a survey based on natural language instructions"
-    thinking_message: str = "Creating your survey"
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
 
@@ -53,7 +52,7 @@ class CreateSurveyTool(MaxTool):
         Create a survey from natural language instructions.
         """
 
-        graph = FeatureFlagLookupGraph(team=self._team, user=self._user)
+        graph = FeatureFlagLookupGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
 
         graph_context = {
             "change": f"Create a survey based on these instructions: {instructions}",
@@ -287,10 +286,11 @@ class SurveyLookupToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyA
 class FeatureFlagLookupGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[SurveyCreationSchema]]):
     """Graph for feature flag lookup operations."""
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, tool_call_id: str):
         super().__init__(
             team,
             user,
+            tool_call_id,
             loop_node_class=SurveyLoopNode,
             tools_node_class=SurveyLookupToolsNode,
             toolkit_class=SurveyToolkit,
@@ -340,7 +340,6 @@ class SurveyAnalysisTool(MaxTool):
     description: str = (
         "Analyze survey responses to extract themes, sentiment, and actionable insights from open-ended questions"
     )
-    thinking_message: str = "Analyzing your survey responses"
     context_prompt_template: str = (
         "You have access to a survey analysis tool that can analyze open-ended responses to identify themes, sentiment, and actionable insights. "
         "When users ask about analyzing survey responses, summarizing feedback, finding patterns in responses, or extracting insights from survey data, "
