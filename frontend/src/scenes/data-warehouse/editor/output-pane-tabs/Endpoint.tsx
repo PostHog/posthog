@@ -54,7 +54,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
             return
         }
 
-        if (!isUpdateMode && !endpointName?.trim()) {
+        if (!isUpdateMode && !endpointName) {
             lemonToast.error('You need to name your endpoint.')
             return
         }
@@ -87,7 +87,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
             })
         } else {
             createEndpoint({
-                name: endpointName,
+                name: endpointName || undefined,
                 description: endpointDescription || undefined,
                 query: queryPayload,
             })
