@@ -110,7 +110,7 @@ if __name__ == "__main__":
 
     # List interesting cases with not a lot of occurences, but high confidence
     # Issues are sorted by confidendce by default, so we can take the first ones
-    interesting_cases_limit = 5
+    interesting_cases_limit = 10
     interesting_cases_section = _organize_issues_section(
         named_clusters={key: value for key, value in input_named_clusters.items() if len(value.suggestions) <= 5},
         limit=interesting_cases_limit,
@@ -123,8 +123,9 @@ if __name__ == "__main__":
     # if len(cluster.suggestions) < 4:
     #     continue
 
-    # # Add stats on how many topics left
-    # report += "\n\n"
-    # report += f"*To check another {topics_limit - topics_mentioned} issues, ask Alex for the full JSON file.*"
+    # Add stats on how many topics left
+    report += "\n\n"
+    report += "---\n"
+    report += f"*To check another {len(input_named_clusters) - interesting_cases_limit - heavy_cases_limit} issues, ask Alex for the full JSON file.*"
     with open(input_groups_dir_path / "report_25.md", "w") as f:
         f.write(report)
