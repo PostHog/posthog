@@ -1,3 +1,4 @@
+import json
 import math
 import uuid
 from dataclasses import dataclass
@@ -43,18 +44,17 @@ EMBEDDINGS_CLUSTERING_ITERATIONS: int = 5
 # How many times to try to group when trying to decrease the tail (too large, loose suggestions)
 EMBEDDINGS_CLUSTERING_MAX_TAIL_ITERATIONS: int = 1
 # Expected minimal number of suggestions per group when grouping embeddings
-EXPECTED_SUGGESTIONS_PER_EMBEDDINGS_GROUP: int = 15  # Increasing from default 5
+EXPECTED_SUGGESTIONS_PER_EMBEDDINGS_GROUP: int = 25  # Increasing from default 5
 # Max suggestions per group to avoid large loosely-related groups
-MAX_SUGGESTIONS_PER_EMBEDDINGS_GROUP: int = 50
+MAX_SUGGESTIONS_PER_EMBEDDINGS_GROUP: int = 100
 # How to decrease the distance between embeddings to group them with each iteration,
 # to increase the number of groups and improve the user experience
 EMBEDDINGS_CLUSTERING_DISTANCE_DECREASE: float = 0.01
 
 
-# Results
-# Chunks of 1000, 0.72 threshold, 15-sized groups: 506/1000 singles, avg distance: 0.74
+# Results (1000-items run)
 
-# Experiment #1 (just KMeans, guessing the number of clusters)
+# 15-sized groups:
 # 2025-10-19 15:20:25 [info     ] INPUT
 # 2025-10-19 15:20:25 [info     ] Clustering chunk size: 1000
 # 2025-10-19 15:20:25 [info     ] Clustering distance: 0.72
@@ -64,7 +64,7 @@ EMBEDDINGS_CLUSTERING_DISTANCE_DECREASE: float = 0.01
 # 2025-10-19 15:20:25 [info     ] Singles count: 506
 # 2025-10-19 15:20:25 [info     ] Avg distance: 0.7435714285714285
 
-# Experiment #2 (just KMeans, guessing the number of clusters)
+# 25-sized groups:
 # 2025-10-19 15:17:40 [info     ] INPUT
 # 2025-10-19 15:17:40 [info     ] Clustering chunk size: 1000
 # 2025-10-19 15:17:40 [info     ] Clustering distance: 0.72
@@ -74,8 +74,41 @@ EMBEDDINGS_CLUSTERING_DISTANCE_DECREASE: float = 0.01
 # 2025-10-19 15:17:40 [info     ] Singles count: 598
 # 2025-10-19 15:17:40 [info     ] Avg distance: 0.720625
 
+# 50-sized groups:
+# 2025-10-19 18:03:19 [info     ] INPUT
+# 2025-10-19 18:03:19 [info     ] Clustering chunk size: 1000
+# 2025-10-19 18:03:19 [info     ] Clustering distance: 0.72
+# 2025-10-19 18:03:19 [info     ] Expected suggestions per embeddings group: 50
+# 2025-10-19 18:03:19 [info     ] CLUSTERING RESULTS
+# 2025-10-19 18:03:19 [info     ] Groups count: 7
+# 2025-10-19 18:03:19 [info     ] Singles count: 907
+# 2025-10-19 18:03:19 [info     ] Avg distance: 0.7099999999999999
 
-class Clusterizer:
+# Results (6636-items run in 1000 chunks)
+
+# 15-sized groups:
+# 2025-10-19 18:27:09 [info     ] INPUT
+# 2025-10-19 18:27:09 [info     ] Clustering chunk size: 1000
+# 2025-10-19 18:27:09 [info     ] Clustering distance: 0.72
+# 2025-10-19 18:27:09 [info     ] Expected suggestions per embeddings group: 15
+# 2025-10-19 18:27:09 [info     ] CLUSTERING RESULTS
+# 2025-10-19 18:27:09 [info     ] Groups count: 582
+# 2025-10-19 18:27:09 [info     ] Singles count: 1088
+# 2025-10-19 18:27:09 [info     ] Avg distance: 0.7607044673539523
+
+# 25-sized groups:
+# 2025-10-19 20:04:56 [info     ] INPUT
+# 2025-10-19 20:04:56 [info     ] Clustering chunk size: 1000
+# 2025-10-19 20:04:56 [info     ] Clustering distance: 0.72
+# 2025-10-19 20:04:56 [info     ] Expected suggestions per embeddings group: 25
+# 2025-10-19 20:04:56 [info     ] CLUSTERING RESULTS
+# 2025-10-19 20:04:56 [info     ] Groups count: 329
+# 2025-10-19 20:04:56 [info     ] Singles count: 1960
+# 2025-10-19 20:04:56 [info     ] Avg distance: 0.7536778115501521
+# 2025-10-19 20:04:58 [info     ]
+
+
+class KmeansClusterizer:
     @classmethod
     def clusterize_suggestions(
         cls,
@@ -163,19 +196,6 @@ class Clusterizer:
             iteration=iteration + 1,
             clustering_distance=max_tail_clustering_distance,
             clustering_iterations=EMBEDDINGS_CLUSTERING_MAX_TAIL_ITERATIONS,
-        )
-
-    @staticmethod
-    def sort_relevant_groups(
-        relevant_groups: dict[str, RelevantSuggestionsGroup],
-    ) -> dict[str, RelevantSuggestionsGroup]:
-        # Sort relevant groups by the average distance, keep the groups with the best distance first
-        return dict(
-            sorted(  # type: ignore
-                relevant_groups.items(),
-                key=lambda item: item[1].avg_distance,  # type: ignore
-                reverse=True,
-            )
         )
 
     @classmethod
@@ -349,8 +369,8 @@ class Clusterizer:
                         distances.append(_cosine_similarity(emb, l_emb))
             # Round to 2 symbols after the dot
             if not distances:
-                # TODO: Remove after testing
-                logger.info("")
+                # TODO: Add some proper logging
+                continue
             avg_distance = round(sum(distances) / len(distances), 2)
             # Groups that aren't close enough move to singles
             if avg_distance < avg_distance_threshold:
@@ -374,20 +394,17 @@ class Clusterizer:
 
 if __name__ == "__main__":
     stringified_traces_dir_path = Path("/Users/woutut/Documents/Code/posthog/playground/traces-summarization/output/")
+    groups_dir_path = Path("/Users/woutut/Documents/Code/posthog/playground/traces-summarization/groups/")
     # Iterate over directories in stringified_traces_dir_path
     traces_dirs = list(stringified_traces_dir_path.iterdir())
     # Preparing the data, while keeping the order, to be able to match summaries with their embeddings
     input_embedded_suggestions: list[str] = []
     input_embeddings: list[list[float]] = []
-    # TODO: Remove limit after testing
-    traces_limit = 1000
-    traces_processed_count = 0
+    summaries_to_trace_ids_mapping: dict[str, str] = {}
     # Generate summaries for stringified traces
     for dir_path in traces_dirs:
         if not dir_path.is_dir():
             continue
-        if traces_processed_count >= traces_limit:
-            break
         trace_id = dir_path.name
         # Get stringified trace summary
         summary_file_name = f"{trace_id}_summary.txt"
@@ -412,22 +429,36 @@ if __name__ == "__main__":
         summary_embeddings: list[list[float]] = summary_embeddings_np.tolist()
         input_embedded_suggestions.append(summary)
         input_embeddings.append(summary_embeddings[0])  # Each npy file includes embeddings for a single summary only
-        traces_processed_count += 1
-    logger.info(f"Input embedded suggestions count: {len(input_embedded_suggestions)}")
-    logger.info(f"Input embeddings count: {len(input_embeddings)}")
-    # Clusterize suggestions
-    groups, singles = Clusterizer.clusterize_suggestions(
-        embedded_suggestions=input_embedded_suggestions,
-        embeddings=input_embeddings,
-        max_tail_size=int(len(input_embeddings) * EMBEDDINGS_CLUSTERING_MAX_TAIL_PERCENTAGE),
+        # Update mapping to link summaries with their trace IDs later
+        summaries_to_trace_ids_mapping[summary] = trace_id
+    # Store mapping
+    mapping_file_path = (
+        groups_dir_path / f"summaries_to_trace_ids_mapping_{EXPECTED_SUGGESTIONS_PER_EMBEDDINGS_GROUP}.json"
     )
-    # TODO: Remove after testing
-    logger.info("INPUT")
-    logger.info(f"Clustering chunk size: {EMBEDDINGS_CLUSTERING_CHUNK_SIZE}")
-    logger.info(f"Clustering distance: {EMBEDDINGS_CLUSTERING_DISTANCE}")
-    logger.info(f"Expected suggestions per embeddings group: {EXPECTED_SUGGESTIONS_PER_EMBEDDINGS_GROUP}")
-    logger.info("CLUSTERING RESULTS")
-    logger.info(f"Groups count: {len(groups)}")
-    logger.info(f"Singles count: {len(singles.suggestions)}")
-    logger.info(f"Avg distance: {sum([x.avg_distance for x in groups.values()])/len(groups.values())}")
-    logger.info("")
+    with open(mapping_file_path, "w") as f:
+        json.dump(summaries_to_trace_ids_mapping, f)
+    # logger.info(f"Input embedded suggestions count: {len(input_embedded_suggestions)}")
+    # logger.info(f"Input embeddings count: {len(input_embeddings)}")
+    # # Clusterize suggestions
+    # groups, singles = KmeansClusterizer.clusterize_suggestions(
+    #     embedded_suggestions=input_embedded_suggestions,
+    #     embeddings=input_embeddings,
+    #     max_tail_size=int(len(input_embeddings) * EMBEDDINGS_CLUSTERING_MAX_TAIL_PERCENTAGE),
+    # )
+    # # TODO: Remove after testing
+    # logger.info("INPUT")
+    # logger.info(f"Clustering chunk size: {EMBEDDINGS_CLUSTERING_CHUNK_SIZE}")
+    # logger.info(f"Clustering distance: {EMBEDDINGS_CLUSTERING_DISTANCE}")
+    # logger.info(f"Expected suggestions per embeddings group: {EXPECTED_SUGGESTIONS_PER_EMBEDDINGS_GROUP}")
+    # logger.info("CLUSTERING RESULTS")
+    # logger.info(f"Groups count: {len(groups)}")
+    # logger.info(f"Singles count: {len(singles.suggestions)}")
+    # logger.info(f"Avg distance: {sum([x.avg_distance for x in groups.values()])/len(groups.values())}")
+    # # Store results
+    # groups_file_path = groups_dir_path / f"groups_{EXPECTED_SUGGESTIONS_PER_EMBEDDINGS_GROUP}_all.json"
+    # singles_file_path = groups_dir_path / f"singles_{EXPECTED_SUGGESTIONS_PER_EMBEDDINGS_GROUP}_all.json"
+    # with open(groups_file_path, "w") as f:
+    #     json.dump({key: asdict(value) for key, value in groups.items()}, f)
+    # with open(singles_file_path, "w") as f:
+    #     json.dump(asdict(singles), f)
+    # logger.info("")
