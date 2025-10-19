@@ -171,6 +171,7 @@ if __name__ == "__main__":
             # Skip heavy traces as they usually rely on a heavy amount of context, which is not the expected use case
             size_skipped_traces_count += 1
             continue
+        # TODO: Don't generate summaries for traces that are already light
         if num_tokens < 100:
             traces_with_light_token_count.append((trace_id, num_tokens))
         filtered_token_counts.append(num_tokens)

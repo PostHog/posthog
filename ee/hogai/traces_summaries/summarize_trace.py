@@ -1,9 +1,14 @@
 import os
+import time
 from pathlib import Path
+
+import numpy as np
+import tiktoken
+import structlog
 from google import genai
 from google.genai.types import GenerateContentConfig
-import tiktoken
-import numpy as np
+
+logger = structlog.get_logger(__name__)
 
 FULL_TRACE_SUMMARY_PROMPT = """
 - Analyze this conversation between the user and the PostHog AI assistant
@@ -53,8 +58,8 @@ class TraceSummarizer:
             model=self.model_id, contents=message, config=GenerateContentConfig(**config_kwargs)
         )
         response_text = response.text
-        if "No issues found" in response_text:
-            print("Original 'no issues' text:", response_text)
+        if "No issues found" in response_text and response_text != "No issues found":
+            logger.info(f"Original 'no issues' text: {response_text}")
             # Ensure to avoid additional comments when no issues found
             return "No issues found"
         return response_text
@@ -71,6 +76,8 @@ if __name__ == "__main__":
     # Calculate token count
     token_encoder = tiktoken.encoding_for_model("gpt-4o")
     token_counts: list[int] = []
+    # Calculate response times
+    response_times_ms: list[int] = []
     # Generate summaries for stringified traces
     for dir_path in traces_dirs:
         if not dir_path.is_dir():
@@ -84,13 +91,13 @@ if __name__ == "__main__":
                 f"Stringified messages file ({stringified_messages_file_path}) not found for trace {trace_id}"
             )
         # Load stringified trace
-        with open(stringified_messages_file_path, "r") as f:
+        with open(stringified_messages_file_path) as f:
             trace_messages_str = f.read()
         # Check if summary file already exists
         summary_file_path = dir_path / f"{trace_id}_summary.txt"
         if summary_file_path.exists():
             # Check that it's not empty
-            with open(summary_file_path, "r") as f:
+            with open(summary_file_path) as f:
                 summary = f.read()
                 if not summary:
                     raise ValueError(f"Summary file ({summary_file_path}) is empty for trace {trace_id}")
@@ -99,23 +106,40 @@ if __name__ == "__main__":
             traces_processed_count += 1
             continue
         # Summarize trace
-        print("*" * 50)
-        print(f"Summary for trace {trace_id}:")
-        summary = summarizer.generate_trace_summary(trace_messages_str)
+        logger.info("*" * 50)
+        logger.info(f"Summary for trace {trace_id}:")
+        start_time = time.time()
+        summary = summarizer.generate_trace_summary(trace_messages_str)  # Call LLM
+        end_time = time.time()
+        response_time = round((end_time - start_time) * 1000)
+        response_times_ms.append(response_time)
         token_counts.append(len(token_encoder.encode(summary)))
-        print(summary)
+        logger.info(summary)
         # Store generatedsummary in file
         with open(summary_file_path, "w") as f:
             f.write(summary)
         traces_processed_count += 1
-        print(f"Processed {traces_processed_count}/{len(traces_dirs)} traces")
+        logger.info(f"Processed {traces_processed_count}/{len(traces_dirs)} traces")
     # Calculate token stats
     token_stats = np.array(token_counts)
-    print("Stringified traces summaries token stats:")
-    print(f"Average token count: {token_stats.mean()}")
-    print(f"Median token count: {np.median(token_stats)}")
-    print(f"90th percentile token count: {np.percentile(token_stats, 90)}")
-    print(f"95th percentile token count: {np.percentile(token_stats, 95)}")
-    print(f"99th percentile token count: {np.percentile(token_stats, 99)}")
-    print(f"Min token count: {token_stats.min()}")
-    print(f"Max token count: {token_stats.max()}")
+    logger.info("Stringified traces summaries token stats:")
+    logger.info(f"Average token count: {token_stats.mean()}")
+    logger.info(f"Median token count: {np.median(token_stats)}")
+    logger.info(f"90th percentile token count: {np.percentile(token_stats, 90)}")
+    logger.info(f"95th percentile token count: {np.percentile(token_stats, 95)}")
+    logger.info(f"99th percentile token count: {np.percentile(token_stats, 99)}")
+    logger.info(f"Min token count: {token_stats.min()}")
+    logger.info(f"Max token count: {token_stats.max()}")
+    # Calculate response time stats
+    response_times_ms_stats = np.array(response_times_ms)
+    logger.info("*" * 50)
+    logger.info("*" * 50)
+    logger.info("*" * 50)
+    logger.info("Response time stats:")
+    logger.info(f"Average response time: {response_times_ms_stats.mean()}")
+    logger.info(f"Median response time: {np.median(response_times_ms_stats)}")
+    logger.info(f"90th percentile response time: {np.percentile(response_times_ms_stats, 90)}")
+    logger.info(f"95th percentile response time: {np.percentile(response_times_ms_stats, 95)}")
+    logger.info(f"99th percentile response time: {np.percentile(response_times_ms_stats, 99)}")
+    logger.info(f"Min response time: {response_times_ms_stats.min()}")
+    logger.info(f"Max response time: {response_times_ms_stats.max()}")
