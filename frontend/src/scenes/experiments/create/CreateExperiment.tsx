@@ -21,6 +21,7 @@ import type { Experiment } from '~/types'
 import { ExperimentTypePanel } from './ExperimentTypePanel'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
 import { MetricsPanel } from './MetricsPanel/MetricsPanel'
+import { SidePanel } from './SidePanel'
 import { VariantsPanel } from './VariantsPanel'
 import { createExperimentLogic } from './createExperimentLogic'
 
@@ -257,9 +258,7 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
             </Form>
             {/* Sidebar Checklist */}
             <div className="h-full">
-                <div className="sticky top-16">
-                    <span>Sidebar Checklist Goes Here</span>
-                </div>
+                <SidePanel experiment={experiment} onSelectPanel={setSelectedPanel} />
             </div>
         </div>
     )
