@@ -35,7 +35,12 @@ from posthog.warehouse.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.models import (
+    DataWarehouseManagedViewSet,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from posthog.warehouse.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from posthog.warehouse.types import ExternalDataSourceType
 
@@ -468,6 +473,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
 
+        if new_source_model.revenue_analytics_config_safe.enabled:
+            managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+                team=self.team,
+                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            )
+            managed_viewset.sync_views()
+
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
     def prefix_required(self, source_type: str) -> bool:
@@ -656,6 +668,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         config_serializer = ExternalDataSourceRevenueAnalyticsConfigSerializer(config, data=request.data, partial=True)
         config_serializer.is_valid(raise_exception=True)
         config_serializer.save()
+
+        if config.enabled:
+            managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+                team=self.team,
+                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            )
+            managed_viewset.sync_views()
+        else:
+            try:
+                managed_viewset = DataWarehouseManagedViewSet.objects.get(
+                    team=self.team,
+                    kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+                )
+                managed_viewset.delete_with_views()
+
+            except DataWarehouseManagedViewSet.DoesNotExist:
+                pass
 
         # Return the full external data source with updated config
         source_serializer = self.get_serializer(external_data_source, context=self.get_serializer_context())

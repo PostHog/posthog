@@ -45,7 +45,7 @@ export function useMaxTool({
     const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
-    const { setActiveGroup } = useActions(maxLogic)
+    const { setActiveGroup } = useActions(maxLogic({ tabId: 'sidepanel' }))
 
     const definition = getToolDefinition(identifier)
     const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG')

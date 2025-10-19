@@ -9525,6 +9525,10 @@
             "required": ["table_name", "timestamp_field", "distinct_id_field", "id_field"],
             "type": "object"
         },
+        "DataWarehouseManagedViewsetKind": {
+            "const": "revenue_analytics",
+            "type": "string"
+        },
         "DataWarehouseNode": {
             "additionalProperties": false,
             "properties": {
@@ -13306,6 +13310,7 @@
                 "revenue_analytics",
                 "revenue_analytics_metadata",
                 "marketing_settings",
+                "managed_viewsets",
                 "endpoints",
                 "sql_editor",
                 "web_analytics",
@@ -13328,6 +13333,7 @@
                 "action",
                 "comment",
                 "annotation",
+                "event",
                 "event_definition",
                 "property_definition",
                 "ingestion_warning",
@@ -13345,7 +13351,8 @@
                 "team_activity",
                 "home",
                 "apps",
-                "live"
+                "live",
+                "chat"
             ],
             "type": "string"
         },
@@ -13395,6 +13402,10 @@
                 },
                 "ref": {
                     "description": "Object's ID or other unique reference",
+                    "type": "string"
+                },
+                "sceneKey": {
+                    "description": "Match this with the a base scene key or a specific one",
                     "type": "string"
                 },
                 "shortcut": {
@@ -15917,6 +15928,19 @@
             },
             "type": "object"
         },
+        "IntegrationFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "integrationSourceIds": {
+                    "description": "Selected integration source IDs to filter by (e.g., table IDs or source map IDs)",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "IntegrationKind": {
             "enum": [
                 "slack",
@@ -16529,6 +16553,10 @@
                 "includeRevenue": {
                     "type": "boolean"
                 },
+                "integrationFilter": {
+                    "$ref": "#/definitions/IntegrationFilter",
+                    "description": "Filter by integration IDs"
+                },
                 "kind": {
                     "const": "MarketingAnalyticsAggregatedQuery",
                     "type": "string"
@@ -16756,6 +16784,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "integrationFilter": {
+                    "$ref": "#/definitions/IntegrationFilter",
+                    "description": "Filter by integration type"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsTableQuery",

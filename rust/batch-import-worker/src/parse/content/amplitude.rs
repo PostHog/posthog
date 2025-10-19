@@ -24,7 +24,10 @@ pub struct ChangedGroup {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AmplitudeData {
     pub path: Option<String>,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_flexible_bool"
+    )]
     pub user_properties_updated: bool,
     #[serde(rename = "group_first_event", default)]
     pub group_first_event: HashMap<String, Value>,
@@ -75,6 +78,10 @@ pub struct AmplitudeEvent {
     pub groups: HashMap<String, Vec<String>>,
     pub idfa: Option<String>,
     pub ip_address: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_flexible_option_bool"
+    )]
     pub is_attribution_event: Option<bool>,
     pub language: Option<String>,
     pub library: Option<String>,
@@ -83,6 +90,10 @@ pub struct AmplitudeEvent {
     pub os_name: Option<String>,
     pub os_version: Option<String>,
     pub partner_id: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_flexible_option_bool"
+    )]
     pub paying: Option<bool>,
     #[serde(default)]
     pub plan: HashMap<String, Value>,
@@ -1813,6 +1824,106 @@ mod tests {
             data.properties.get("$import_job_id"),
             Some(&json!(test_job_id.to_string()))
         );
+    }
+
+    #[test]
+    fn test_user_properties_updated_string_bool() {
+        // Test that user_properties_updated accepts string "true"
+        let json = r#"{
+            "data": {
+                "user_properties_updated": "true"
+            }
+        }"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert!(event.data.user_properties_updated);
+
+        // Test that user_properties_updated accepts string "false"
+        let json = r#"{
+            "data": {
+                "user_properties_updated": "false"
+            }
+        }"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert!(!event.data.user_properties_updated);
+
+        // Test with actual boolean
+        let json = r#"{
+            "data": {
+                "user_properties_updated": true
+            }
+        }"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert!(event.data.user_properties_updated);
+
+        // Test with string "1"
+        let json = r#"{
+            "data": {
+                "user_properties_updated": "1"
+            }
+        }"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert!(event.data.user_properties_updated);
+    }
+
+    #[test]
+    fn test_is_attribution_event_string_bool() {
+        // Test with string "true"
+        let json = r#"{"is_attribution_event": "true"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, Some(true));
+
+        // Test with string "false"
+        let json = r#"{"is_attribution_event": "false"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, Some(false));
+
+        // Test with string "1"
+        let json = r#"{"is_attribution_event": "1"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, Some(true));
+
+        // Test with actual boolean
+        let json = r#"{"is_attribution_event": true}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, Some(true));
+
+        // Test with null
+        let json = r#"{"is_attribution_event": null}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, None);
+
+        // Test with missing field
+        let json = r#"{}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.is_attribution_event, None);
+    }
+
+    #[test]
+    fn test_paying_string_bool() {
+        // Test with string "true"
+        let json = r#"{"paying": "true"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, Some(true));
+
+        // Test with string "0"
+        let json = r#"{"paying": "0"}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, Some(false));
+
+        // Test with integer
+        let json = r#"{"paying": 1}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, Some(true));
+
+        // Test with actual boolean
+        let json = r#"{"paying": false}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, Some(false));
+
+        // Test with missing field
+        let json = r#"{}"#;
+        let event: AmplitudeEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.paying, None);
     }
 
     #[test]

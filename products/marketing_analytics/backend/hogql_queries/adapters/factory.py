@@ -64,6 +64,19 @@ class MarketingSourceFactory:
         "MetaAds": "_create_metaads_config",
     }
 
+    @classmethod
+    def get_all_source_identifier_mappings(cls) -> dict[str, list[str]]:
+        """
+        Collect source identifier mappings from all registered adapters.
+        Returns a combined dictionary of {primary_source: [all_utm_sources]}.
+        """
+        combined_mappings: dict[str, list[str]] = {}
+        for adapter_class in cls._adapter_registry.values():
+            mapping = adapter_class.get_source_identifier_mapping()
+            if mapping:
+                combined_mappings.update(mapping)
+        return combined_mappings
+
     def __init__(self, context: QueryContext):
         self.context = context
         self.logger = logger.bind(team_id=self.context.team.pk if self.context.team else None)
@@ -271,11 +284,15 @@ class MarketingSourceFactory:
                 if not source_map:
                     continue
 
+                # For non-native: use schema ID to match frontend (table.schema?.id || table.source?.id || table.id)
+                schema = table.externaldataschema_set.first()
+                source_id = str(schema.id) if schema else str(table.id)
+
                 config = ExternalConfig(
                     table=table,
                     source_map=source_map,
                     source_type=source.source_type,
-                    source_id=str(source.id),
+                    source_id=source_id,
                     schema_name=self._get_table_schema_name(table),
                 )
                 adapters.append(adapter_class(config=config, context=self.context))
