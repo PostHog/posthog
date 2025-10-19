@@ -420,7 +420,12 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
 
 
 def get_static_cohort_size(*, cohort_id: int, team_id: int) -> int:
-    count = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id).count()
+    # First check if cohort belongs to the team (cohort is in default DB)
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return 0
+
+    # Then count cohortpeople (in persons DB, no cross-DB join)
+    count = CohortPeople.objects.filter(cohort_id=cohort_id).count()
 
     return count
 

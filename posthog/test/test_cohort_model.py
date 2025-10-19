@@ -339,6 +339,29 @@ class TestCohort(BaseTest):
         assert cohort_person_uuids == set(uuids)
         assert cohort.is_calculating is False
 
+    def test_static_cohort_size_validates_team(self):
+        from posthog.models.cohort.util import get_static_cohort_size
+
+        # Create another team in the same organization (different project)
+        team2 = Team.objects.create(organization=self.organization)
+
+        # Create people in both teams
+        Person.objects.create(team=self.team, distinct_ids=["person1_team1"])
+        Person.objects.create(team=self.team, distinct_ids=["person2_team1"])
+        Person.objects.create(team=team2, distinct_ids=["person1_team2"])
+
+        # Create a static cohort in team1
+        cohort = Cohort.objects.create(team=self.team, is_static=True, name="test cohort")
+        cohort.insert_users_by_list(["person1_team1", "person2_team1"])
+
+        # Count should work for the correct team
+        count_correct = get_static_cohort_size(cohort_id=cohort.pk, team_id=self.team.pk)
+        assert count_correct == 2
+
+        # Count should be 0 for a different team (validates team ownership)
+        count_wrong_team = get_static_cohort_size(cohort_id=cohort.pk, team_id=team2.pk)
+        assert count_wrong_team == 0
+
     def test_insert_users_by_list_avoids_duplicates_with_batching(self):
         """Test that batching with duplicates works correctly - people already in cohort are not re-inserted."""
         # Create people with distinct IDs
