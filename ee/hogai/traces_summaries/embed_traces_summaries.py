@@ -1,4 +1,6 @@
+import re
 import asyncio
+import difflib
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,7 +8,10 @@ from pathlib import Path
 import httpx
 import numpy as np
 import structlog
+from rich.console import Console
 from tools.get_embeddings import get_embeddings
+
+console = Console()
 
 logger = structlog.get_logger(__name__)
 
@@ -42,13 +47,36 @@ async def _process_embedding_tasks(tasks: list[TraceSummaryEmbeddingTask]) -> No
         await asyncio.gather(*processing_tasks)
 
 
-def _clean_up_summary_before_embedding(summary: str) -> str:
+def _log_diff(trace_id: str, original_summary: str, summary: str) -> None:
+    logger.info(
+        f"Summary cleaned up for trace {trace_id}",
+        changes_made=original_summary != summary,
+        old_length=len(original_summary),
+        new_length=len(summary),
+    )
+    logger.info(f"Original summary:\n{original_summary}")
+    logger.info(f"Cleaned summary:\n{summary}")
+    # Character-level diff for precise changes
+    console.print("[bold]Changes:[/bold]")
+    matcher = difflib.SequenceMatcher(None, original_summary, summary)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "delete":
+            console.print(f"[red]Removed: '{original_summary[i1:i2]}'[/red]")
+        elif tag == "insert":
+            console.print(f"[green]Added: '{summary[j1:j2]}'[/green]")
+        elif tag == "replace":
+            console.print(f"[red]Removed: '{original_summary[i1:i2]}'[/red]")
+            console.print(f"[green]Added: '{summary[j1:j2]}'[/green]")
+    console.print("=" * 50 + "\n")
+
+
+def _clean_up_summary_before_embedding(trace_id: str, summary: str, log_diff: bool = False) -> str:
     """Remove repetitive phrases and excessive formatting to make embeddings more accurate."""
     original_summary = copy(summary)
-    # Remove words that don't add value
-    no_value_words = ["several"]
-    for word in no_value_words:
-        summary = summary.replace(f" {word} ", " ")  # Ensure to replace full words only
+    # Remove parts that don't add value
+    no_value_parts = ["several", "during the interaction", "explicitly"]
+    for part in no_value_parts:
+        summary = summary.replace(part, " ")
     # Remove excessive prefixes
     excessive_prefixes = ["The user experienced"]
     for prefix in excessive_prefixes:
@@ -58,16 +86,11 @@ def _clean_up_summary_before_embedding(summary: str) -> str:
             if prefix_index == -1:
                 # Not found
                 break
-            # Make next symbol uppercase (assuming space after prefix)
-            prefix_next_char_index = prefix_index + len(prefix) + 1
-            if prefix_next_char_index < len(summary):  # Apply if within bounds
-                summary = (
-                    summary[:prefix_next_char_index]
-                    + summary[prefix_next_char_index].upper()
-                    + summary[prefix_next_char_index + 1 :]
-                )
             # Remove prefix
-            summary = summary[prefix_index + len(prefix) :]
+            summary = summary[:prefix_index] + summary[prefix_index + len(prefix) :]
+    # Remove narrative words (one word before comma at the start of the sentence)
+    narrative_regex = r"(^|\n|\.\"\s|\.\s)([A-Z]\w+, )"
+    summary = re.sub(narrative_regex, lambda m: m.group(1), summary)
     # Remove excessive formatting
     excessive_formatting = ["**"]
     for formatting in excessive_formatting:
@@ -78,11 +101,17 @@ def _clean_up_summary_before_embedding(summary: str) -> str:
                 break
             # Remove formatting
             summary = summary[:formatting_index] + summary[formatting_index + len(formatting) :]
-    # Log differences, if any
-    if summary != original_summary:
-        logger.info("*" * 50)
-        logger.info(f"Old summary: {original_summary}")
-        logger.info(f"New summary: {summary}")
+    # Strip, just in case
+    summary = summary.strip()
+    # Replace the symbols after dot + space, newline + space, or start + space with uppercase if they are lowercase
+    summary = re.sub(r"(\.\s|\n\s|\.\"\s|^)([a-z])", lambda m: m.group(1) + m.group(2).upper(), summary)
+    if len(summary) / len(original_summary) <= 0.8:
+        # Force log diff if drastic difference
+        log_diff = True
+    if summary == original_summary or not log_diff:
+        return summary
+    # Log differences, if any, whhen asked explicitly
+    _log_diff(trace_id=trace_id, original_summary=original_summary, summary=summary)
     return summary
 
 
@@ -103,11 +132,10 @@ if __name__ == "__main__":
             raise ValueError(f"Summary file ({summary_file_path}) not found for trace {trace_id}")
         with open(summary_file_path) as f:
             summary = f.read()
-        _clean_up_summary_before_embedding(summary=summary)
-        break
         # Skip summaries without issues
         if summary.strip(".").strip(" ").lower() == "no issues found":
             continue
+        _clean_up_summary_before_embedding(trace_id=trace_id, summary=summary, log_diff=False)
         # Check if embeddings file already exists
         summary_embeddings_file_path = dir_path / f"{trace_id}_summary_embeddings.npy"
         if summary_embeddings_file_path.exists():
@@ -127,5 +155,5 @@ if __name__ == "__main__":
             embeddings_output_file_path=summary_embeddings_file_path,
         )
         tasks.append(task)
-    # # Generate embeddings
-    # asyncio.run(_process_embedding_tasks(tasks=tasks))
+    # Generate embeddings
+    asyncio.run(_process_embedding_tasks(tasks=tasks))
