@@ -36,18 +36,43 @@ EMBEDDINGS_CLUSTERING_MAX_TAIL_PERCENTAGE: float = 0.50
 # Split embeddings into chunks to speed up clustering
 EMBEDDINGS_CLUSTERING_CHUNK_SIZE: int = 1000  # Increasing from default 25
 # Expected average distance between embeddings to group them
-EMBEDDINGS_CLUSTERING_DISTANCE: float = 0.8  # Lowering from the default 0.95
+# TODO: Technically, it should be called similarity, not distance, need to rename later
+EMBEDDINGS_CLUSTERING_DISTANCE: float = 0.72  # Lowering from the default 0.95
 # How many times to try to group until to stop
 EMBEDDINGS_CLUSTERING_ITERATIONS: int = 5
 # How many times to try to group when trying to decrease the tail (too large, loose suggestions)
 EMBEDDINGS_CLUSTERING_MAX_TAIL_ITERATIONS: int = 1
 # Expected minimal number of suggestions per group when grouping embeddings
-EXPECTED_SUGGESTIONS_PER_EMBEDDINGS_GROUP: int = 10  # Increasing from default 5
+EXPECTED_SUGGESTIONS_PER_EMBEDDINGS_GROUP: int = 15  # Increasing from default 5
 # Max suggestions per group to avoid large loosely-related groups
 MAX_SUGGESTIONS_PER_EMBEDDINGS_GROUP: int = 50
 # How to decrease the distance between embeddings to group them with each iteration,
 # to increase the number of groups and improve the user experience
 EMBEDDINGS_CLUSTERING_DISTANCE_DECREASE: float = 0.01
+
+
+# Results
+# Chunks of 1000, 0.72 threshold, 15-sized groups: 506/1000 singles, avg distance: 0.74
+
+# Experiment #1 (just KMeans, guessing the number of clusters)
+# 2025-10-19 15:20:25 [info     ] INPUT
+# 2025-10-19 15:20:25 [info     ] Clustering chunk size: 1000
+# 2025-10-19 15:20:25 [info     ] Clustering distance: 0.72
+# 2025-10-19 15:20:25 [info     ] Expected suggestions per embeddings group: 15
+# 2025-10-19 15:20:25 [info     ] CLUSTERING RESULTS
+# 2025-10-19 15:20:25 [info     ] Groups count: 70
+# 2025-10-19 15:20:25 [info     ] Singles count: 506
+# 2025-10-19 15:20:25 [info     ] Avg distance: 0.7435714285714285
+
+# Experiment #2 (just KMeans, guessing the number of clusters)
+# 2025-10-19 15:17:40 [info     ] INPUT
+# 2025-10-19 15:17:40 [info     ] Clustering chunk size: 1000
+# 2025-10-19 15:17:40 [info     ] Clustering distance: 0.72
+# 2025-10-19 15:17:40 [info     ] Expected suggestions per embeddings group: 25
+# 2025-10-19 15:17:40 [info     ] CLUSTERING RESULTS
+# 2025-10-19 15:17:40 [info     ] Groups count: 32
+# 2025-10-19 15:17:40 [info     ] Singles count: 598
+# 2025-10-19 15:17:40 [info     ] Avg distance: 0.720625
 
 
 class Clusterizer:
@@ -397,4 +422,12 @@ if __name__ == "__main__":
         max_tail_size=int(len(input_embeddings) * EMBEDDINGS_CLUSTERING_MAX_TAIL_PERCENTAGE),
     )
     # TODO: Remove after testing
+    logger.info("INPUT")
+    logger.info(f"Clustering chunk size: {EMBEDDINGS_CLUSTERING_CHUNK_SIZE}")
+    logger.info(f"Clustering distance: {EMBEDDINGS_CLUSTERING_DISTANCE}")
+    logger.info(f"Expected suggestions per embeddings group: {EXPECTED_SUGGESTIONS_PER_EMBEDDINGS_GROUP}")
+    logger.info("CLUSTERING RESULTS")
+    logger.info(f"Groups count: {len(groups)}")
+    logger.info(f"Singles count: {len(singles.suggestions)}")
+    logger.info(f"Avg distance: {sum([x.avg_distance for x in groups.values()])/len(groups.values())}")
     logger.info("")
