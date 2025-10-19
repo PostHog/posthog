@@ -27,8 +27,6 @@ class SuggestionsCluster:
     embeddings: list[list[float]]
 
 
-# How many embeddings to process at once, when grouping suggestions
-EMBEDDINGS_CHUNK_SIZE: int = 1000
 # How many times max to re-group singles to increase group count
 EMBEDDINGS_CLUSTERING_MAX_RECURSION: int = 3
 # How many additional recursions allowed if the tail is too large (loose suggestions)
@@ -38,13 +36,13 @@ EMBEDDINGS_CLUSTERING_MAX_TAIL_PERCENTAGE: float = 0.50
 # Split embeddings into chunks to speed up clustering
 EMBEDDINGS_CLUSTERING_CHUNK_SIZE: int = 1000  # Increasing from default 25
 # Expected average distance between embeddings to group them
-EMBEDDINGS_CLUSTERING_DISTANCE: float = 0.9  # Lowering from the default 0.95
+EMBEDDINGS_CLUSTERING_DISTANCE: float = 0.8  # Lowering from the default 0.95
 # How many times to try to group until to stop
 EMBEDDINGS_CLUSTERING_ITERATIONS: int = 5
 # How many times to try to group when trying to decrease the tail (too large, loose suggestions)
 EMBEDDINGS_CLUSTERING_MAX_TAIL_ITERATIONS: int = 1
 # Expected minimal number of suggestions per group when grouping embeddings
-EXPECTED_SUGGESTIONS_PER_EMBEDDINGS_GROUP: int = 25  # Increasing from default 5
+EXPECTED_SUGGESTIONS_PER_EMBEDDINGS_GROUP: int = 10  # Increasing from default 5
 # Max suggestions per group to avoid large loosely-related groups
 MAX_SUGGESTIONS_PER_EMBEDDINGS_GROUP: int = 50
 # How to decrease the distance between embeddings to group them with each iteration,
@@ -164,7 +162,7 @@ class Clusterizer:
         clustering_distance: float,
         clustering_iterations: int,
     ) -> tuple[list[dict[str, RelevantSuggestionsGroup]], list[SuggestionsCluster]]:
-        # Split suggestions into smaller groups based on embeddings
+        # Split suggestions into large chunks, and then search for groups within each chunk
         n_clusters = math.ceil(len(embeddings) / EMBEDDINGS_CLUSTERING_CHUNK_SIZE)
         if n_clusters == 1:
             # If it's a single cluster - create it manually
@@ -356,10 +354,15 @@ if __name__ == "__main__":
     # Preparing the data, while keeping the order, to be able to match summaries with their embeddings
     input_embedded_suggestions: list[str] = []
     input_embeddings: list[list[float]] = []
+    # TODO: Remove limit after testing
+    traces_limit = 1000
+    traces_processed_count = 0
     # Generate summaries for stringified traces
     for dir_path in traces_dirs:
         if not dir_path.is_dir():
             continue
+        if traces_processed_count >= traces_limit:
+            break
         trace_id = dir_path.name
         # Get stringified trace summary
         summary_file_name = f"{trace_id}_summary.txt"
@@ -384,6 +387,7 @@ if __name__ == "__main__":
         summary_embeddings: list[list[float]] = summary_embeddings_np.tolist()
         input_embedded_suggestions.append(summary)
         input_embeddings.append(summary_embeddings[0])  # Each npy file includes embeddings for a single summary only
+        traces_processed_count += 1
     logger.info(f"Input embedded suggestions count: {len(input_embedded_suggestions)}")
     logger.info(f"Input embeddings count: {len(input_embeddings)}")
     # Clusterize suggestions
