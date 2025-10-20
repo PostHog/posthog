@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>PostHog render_query demo</title>
+        <style>
+            body {
+                font-family: sans-serif;
+                margin: 0;
+                padding: 2rem;
+                background: #f5f5f5;
+            }
+
+            iframe {
+                width: 100%;
+                min-height: 420px;
+                border: 1px solid #ddd;
+                border-radius: 12px;
+                background: white;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>render_query iframe demo</h1>
+        <p>
+            The frame below expects a query payload via <code>postMessage</code>. Paste this file into a dev server and point the
+            <code>src</code> at a running PostHog instance to experiment.
+        </p>
+        <iframe id="posthog-render-query" src="http://localhost:8000/render_query"></iframe>
+        <script type="module">
+            const frame = document.getElementById('posthog-render-query')
+
+            frame.addEventListener('load', () => {
+                const query = {
+                    kind: 'DataTableNode',
+                    source: {
+                        kind: 'EventsQuery',
+                        select: ['count()'],
+                        limit: 5,
+                    },
+                }
+
+                frame.contentWindow.postMessage({
+                    query,
+                    cachedResults: {
+                        query,
+                        columns: [
+                            { key: 'count()', label: 'Total events' },
+                        ],
+                        results: [[123]],
+                    },
+                })
+            })
+        </script>
+    </body>
+</html>

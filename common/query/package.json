@@ -1,0 +1,32 @@
+{
+    "name": "@posthog/query",
+    "version": "0.0.1",
+    "description": "Shared PostHog query rendering components",
+    "private": true,
+    "license": "MIT",
+    "exports": {
+        ".": {
+            "types": "./src/index.d.ts",
+            "import": "./src/index.ts",
+            "require": "./src/index.ts"
+        },
+        "./render-query-app": {
+            "types": "./src/render-query-app.d.ts",
+            "import": "./src/render-query-app.ts",
+            "require": "./src/render-query-app.ts"
+        }
+    },
+    "types": "./src/index.d.ts",
+    "files": [
+        "src",
+        "README.md",
+        "examples"
+    ],
+    "peerDependencies": {
+        "react": ">=17",
+        "react-dom": ">=17"
+    },
+    "scripts": {
+        "build": "DEBUG=0 node ./build.mjs"
+    }
+}

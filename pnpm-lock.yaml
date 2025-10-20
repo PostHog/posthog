@@ -525,6 +525,9 @@ importers:
       '@posthog/products-workflows':
         specifier: workspace:*
         version: link:../products/workflows
+      '@posthog/query':
+        specifier: workspace:*
+        version: link:../common/query
       '@posthog/rrweb':
         specifier: 0.0.26
         version: 0.0.26

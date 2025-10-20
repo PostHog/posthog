@@ -1,6 +1,7 @@
 packages:
     - '.'
     - common/esbuilder
+    - common/query
     - common/hogvm/typescript
     - common/plugin_transpiler
     - common/storybook
