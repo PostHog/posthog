@@ -31,7 +31,7 @@ export function SegmentCard({ segment, outcome, keyActions, hasFailures }: Segme
                         <span className="font-semibold text-sm">{segment.name}</span>
                         {hasFailures && (
                             <span className="text-xs text-danger bg-danger-highlight px-1.5 py-0.5 rounded">
-                                {segment.meta?.failure_count} {pluralize(segment.meta?.failure_count || 0, 'issue')}
+                                {pluralize(segment.meta?.failure_count || 0, 'issue')}
                             </span>
                         )}
                     </div>
