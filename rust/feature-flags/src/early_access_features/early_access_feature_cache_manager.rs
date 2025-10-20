@@ -1,11 +1,15 @@
+use crate::api::errors::FlagError;
 use crate::early_access_features::early_access_feature_models::EarlyAccessFeature;
+use crate::metrics::consts::{
+    DB_EARLY_ACCESS_FEATURE_ERRORS_COUNTER, DB_EARLY_ACCESS_FEATURE_READS_COUNTER,
+    EARLY_ACCESS_FEATURE_CACHE_HIT_COUNTER,
+};
 use common_database::PostgresReader;
 use common_types::ProjectId;
 use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-
 
 #[derive(Clone)]
 pub struct EarlyAccessFeatureCacheManager {
@@ -14,7 +18,7 @@ pub struct EarlyAccessFeatureCacheManager {
     fetch_lock: Arc<Mutex<()>>,
 }
 
-impl EarlyAccessFeatureCacheManager{
+impl EarlyAccessFeatureCacheManager {
     pub fn new(
         reader: PostgresReader,
         max_capacity: Option<u64>,
@@ -30,5 +34,72 @@ impl EarlyAccessFeatureCacheManager{
             cache,
             fetch_lock: Arc::new(Mutex::new(())),
         }
+    }
+    pub async fn get_early_access_features(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<EarlyAccessFeature>, FlagError> {
+        if let Some(cached_early_access_features) = self.cache.get(&project_id).await {
+            common_metrics::inc(EARLY_ACCESS_FEATURE_CACHE_HIT_COUNTER, &[], 1);
+            return Ok(cached_early_access_features.clone());
+        }
+
+        // Attempt to fetch from DB
+        match EarlyAccessFeature::list_from_pg(self.reader.clone(), project_id).await {
+            Ok(fetched_early_access_features) => {
+                common_metrics::inc(DB_EARLY_ACCESS_FEATURE_READS_COUNTER, &[], 1);
+                self.cache
+                    .insert(project_id, fetched_early_access_features.clone())
+                    .await;
+                Ok(fetched_early_access_features)
+            }
+            Err(e) => {
+                common_metrics::inc(DB_EARLY_ACCESS_FEATURE_ERRORS_COUNTER, &[], 1);
+                Err(e)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::test_utils::TestContext;
+    use tokio::time::{sleep, Duration};
+
+    #[tokio::test]
+    async fn test_cache_expiry() -> Result<(), anyhow::Error> {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await?;
+
+        let _early_access_feature = context.insert_early_access_feature(team.id, None, "flag".to_string()).await?;
+
+        // Initialize Cache with a short TTL for testing
+        let early_access_feature_cache = EarlyAccessFeatureCacheManager::new(
+            context.non_persons_reader.clone(),
+            Some(100),
+            Some(1),
+        );
+
+        let early_access_features = early_access_feature_cache
+            .get_early_access_features(team.project_id)
+            .await?;
+        assert_eq!(early_access_features.len(), 1);
+        assert_eq!(early_access_features[0].team_id, Some(team.id));
+
+        let cached_early_access_features =
+            early_access_feature_cache.cache.get(&team.project_id).await;
+
+        assert!(cached_early_access_features.is_some());
+
+        // Wait for TTL to expire
+        sleep(Duration::from_secs(2)).await;
+
+        let cached_early_access_features =
+            early_access_feature_cache.cache.get(&team.project_id).await;
+
+        assert!(cached_early_access_features.is_none());
+
+        Ok(())
     }
 }

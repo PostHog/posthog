@@ -2,7 +2,7 @@ use crate::{
     api::types::FlagValue,
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
-    early_access_features::early_access_feature_models::{EarlyAccessFeature, EarlyAccessStage},
+    early_access_features::early_access_feature_models::EarlyAccessFeature,
     flags::flag_models::{
         FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
     },
@@ -786,60 +786,60 @@ pub fn create_test_flag_that_depends_on_flag(
 }
 
 pub fn create_test_early_access_feature(
-    id: Option<i32>,
+    feature_flag_id: i32,
     team_id: Option<TeamId>,
     name: Option<String>,
     description: Option<String>,
-    stage: Option<EarlyAccessStage>,
+    stage: Option<String>,
     documentation_url: Option<String>,
 ) -> EarlyAccessFeature {
-    let flag = create_test_flag(
-        None,
-        Some(team_id.unwrap_or(1)),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    );
     return EarlyAccessFeature {
-        id: id.unwrap_or((1)),
+        id: uuid::Uuid::new_v4(),
         team_id: Some(team_id.unwrap_or(1)),
-        feature_flag_id: Some(flag.id),
+        feature_flag_id: Some(feature_flag_id),
         name: name.unwrap_or("Test Early Access Feature".to_string()),
         description: description.unwrap_or("description".to_string()),
-        stage: stage.unwrap_or(EarlyAccessStage::Concept),
-        documentation_url: documentation_url,
+        stage: stage.unwrap_or("concept".to_string()),
+        documentation_url: documentation_url.unwrap_or("".to_string()),
     };
 }
 
 pub async fn insert_early_access_feature_for_team_in_pg(
     client: Arc<dyn Client + Send + Sync>,
     team_id: i32,
-    stage: Option<EarlyAccessStage>,
+    feature_flag_id: i32,
+    stage: Option<String>,
 ) -> Result<EarlyAccessFeature, Error> {
-    let early_access_feature =
-        create_test_early_access_feature(None, Some(team_id), None, None, stage, None);
+    let early_access_feature = create_test_early_access_feature(
+        feature_flag_id,
+        Some(team_id),
+        None,
+        None,
+        stage,
+        None,
+    );
     let mut conn = client.get_connection().await?;
-    let row: (i32,) = sqlx::query_as(
+    let row: (Uuid,) = sqlx::query_as(
         r#"
     INSERT INTO posthog_earlyaccessfeature
     (
+        id,
         team_id,
         feature_flag_id,
         name,
         description,
         stage,
         documentation_url,
+        created_at
     )
     VALUES
     (
-        $1, $2, $3, $4, $5, $6
+        $1, $2, $3, $4, $5, $6, $7,'2024-06-17 14:40:49.298579+00:00'
     )
     RETURNING id
 "#,
     )
+    .bind(uuid::Uuid::new_v4())
     .bind(&early_access_feature.team_id) // <- $1
     .bind(&early_access_feature.feature_flag_id) // <- $2
     .bind(&early_access_feature.name) // <- $3
@@ -1339,9 +1339,30 @@ impl TestContext {
     pub async fn insert_early_access_feature(
         &self,
         team_id: i32,
-        stage: Option<EarlyAccessStage>,
+        stage: Option<String>,
+        feature_flag_key: String,
     ) -> Result<EarlyAccessFeature, Error> {
-        insert_early_access_feature_for_team_in_pg(self.non_persons_writer.clone(), team_id, stage)
-            .await
+        let flag = FeatureFlagRow {
+            id: 1,
+            team_id: team_id,
+            name: Some("Test Flag".to_string()),
+            key: feature_flag_key,
+            filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 0}]}),
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
+        };
+        let inserted_flag =
+            insert_flag_for_team_in_pg(self.non_persons_writer.clone(), team_id, Some(flag)).await?;
+        insert_early_access_feature_for_team_in_pg(
+            self.non_persons_writer.clone(),
+            team_id,
+            inserted_flag.id,
+            stage,
+        )
+        .await
     }
 }

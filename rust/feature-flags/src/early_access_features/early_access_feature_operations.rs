@@ -49,10 +49,7 @@ impl EarlyAccessFeature {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        early_access_features::early_access_feature_models::EarlyAccessStage,
-        utils::test_utils::TestContext,
-    };
+    use crate::utils::test_utils::TestContext;
 
     #[tokio::test]
     async fn test_list_from_pg() {
@@ -62,11 +59,11 @@ mod tests {
             .await
             .expect("Failed to insert team");
         context
-            .insert_early_access_feature(team.id, None)
+            .insert_early_access_feature(team.id, None, "flag1".to_string())
             .await
             .expect("Failed to insert early_access_feature1");
         context
-            .insert_early_access_feature(team.id, Some(EarlyAccessStage::Alpha))
+            .insert_early_access_feature(team.id, Some("alpha".to_string()), "flag2".to_string())
             .await
             .expect("Failed to insert early_access_feature2");
 

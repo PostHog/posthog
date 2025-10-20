@@ -20,6 +20,9 @@ pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
 pub const FLAG_REQUESTS_COUNTER: &str = "flags_requests_total";
 pub const FLAG_REQUESTS_LATENCY: &str = "flags_requests_duration_ms";
 pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
+pub const EARLY_ACCESS_FEATURE_CACHE_HIT_COUNTER: &str = "flags_early_access_feature_cache_hit_total";
+pub const DB_EARLY_ACCESS_FEATURE_READS_COUNTER: &str = "flags_db_early_access_feature_reads_total";
+pub const DB_EARLY_ACCESS_FEATURE_ERRORS_COUNTER: &str = "flags_db_early_access_feature_errors_total";
 
 // Performance monitoring
 pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_active_total";
