@@ -2343,6 +2343,20 @@ class RecordingDurationFilter(BaseModel):
     value: float
 
 
+class RecordingOrder(StrEnum):
+    DURATION = "duration"
+    RECORDING_DURATION = "recording_duration"
+    INACTIVE_SECONDS = "inactive_seconds"
+    ACTIVE_SECONDS = "active_seconds"
+    START_TIME = "start_time"
+    CONSOLE_ERROR_COUNT = "console_error_count"
+    CLICK_COUNT = "click_count"
+    KEYPRESS_COUNT = "keypress_count"
+    MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
+    ACTIVITY_SCORE = "activity_score"
+    RECORDING_TTL = "recording_ttl"
+
+
 class RecordingOrderDirection(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
@@ -12609,7 +12623,7 @@ class MaxRecordingUniversalFilters(BaseModel):
     duration: list[RecordingDurationFilter]
     filter_group: MaxOuterUniversalFiltersGroup
     filter_test_accounts: Optional[bool] = None
-    order: Optional[str] = "start_time"
+    order: Optional[RecordingOrder] = RecordingOrder.START_TIME
     order_direction: Optional[RecordingOrderDirection] = Field(
         default=RecordingOrderDirection.DESC,
         description=(
@@ -12724,7 +12738,7 @@ class RecordingsQuery(BaseModel):
     )
     offset: Optional[int] = None
     operand: Optional[FilterLogicalOperator] = FilterLogicalOperator.AND_
-    order: Optional[str] = "start_time"
+    order: Optional[RecordingOrder] = RecordingOrder.START_TIME
     order_direction: Optional[RecordingOrderDirection] = Field(
         default=RecordingOrderDirection.DESC,
         description=(

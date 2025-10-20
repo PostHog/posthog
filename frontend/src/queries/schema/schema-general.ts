@@ -447,7 +447,7 @@ export interface RecordingsQueryResponse {
     has_next: boolean
 }
 
-export const VALID_RECORDING_ORDERS: readonly string[] = [
+export const VALID_RECORDING_ORDERS = [
     'duration',
     'recording_duration',
     'inactive_seconds',
