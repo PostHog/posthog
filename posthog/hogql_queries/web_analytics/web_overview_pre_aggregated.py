@@ -120,7 +120,7 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
                 NULL as revenue,
                 NULL as previous_revenue
             FROM {stats_subquery} as stats
-            CROSS JOIN {conversion_subquery} as conversions
+            LEFT JOIN {conversion_subquery} as conversions
             """,
                 placeholders={
                     "stats_subquery": stats_subquery,
