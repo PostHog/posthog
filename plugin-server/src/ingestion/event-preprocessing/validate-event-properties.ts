@@ -1,4 +1,3 @@
-import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { IncomingEventWithTeam } from '../../types'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -15,12 +14,6 @@ export function createValidateEventPropertiesStep<T extends { eventWithTeam: Inc
         if (event.event === '$groupidentify') {
             const groupKey = event.properties?.$group_key
             if (groupKey && groupKey.toString().length > 400) {
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: 'group_key_too_long',
-                    })
-                    .inc()
                 return drop(
                     'group_key_too_long',
                     [],

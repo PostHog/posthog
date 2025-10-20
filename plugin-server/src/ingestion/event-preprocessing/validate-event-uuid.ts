@@ -1,4 +1,3 @@
-import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { IncomingEventWithTeam } from '../../types'
 import { UUID } from '../../utils/utils'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
@@ -13,12 +12,6 @@ function validateEventUuid(eventWithTeam: IncomingEventWithTeam): {
     const { event } = eventWithTeam
 
     if (!event.uuid) {
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'empty_uuid',
-            })
-            .inc()
         return {
             valid: false,
             warning: {
@@ -32,12 +25,6 @@ function validateEventUuid(eventWithTeam: IncomingEventWithTeam): {
     }
 
     if (!UUID.validateString(event.uuid, false)) {
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'invalid_uuid',
-            })
-            .inc()
         return {
             valid: false,
             warning: {

@@ -1,4 +1,3 @@
-import { getMetricValues, resetMetrics } from '../../../tests/helpers/metrics'
 import { IncomingEventWithTeam } from '../../types'
 import { PipelineResultType, drop, ok } from '../pipelines/results'
 import { createValidateEventUuidStep } from './validate-event-uuid'
@@ -8,8 +7,6 @@ describe('createValidateEventUuidStep', () => {
     let step: ReturnType<typeof createValidateEventUuidStep>
 
     beforeEach(() => {
-        resetMetrics()
-
         mockEventWithTeam = {
             event: {
                 token: 'test-token-123',
@@ -121,42 +118,6 @@ describe('createValidateEventUuidStep', () => {
                 ]
             )
         )
-    })
-
-    it('should increment metrics when UUID is invalid', async () => {
-        mockEventWithTeam.event.uuid = 'invalid-uuid'
-        const input = { eventWithTeam: mockEventWithTeam }
-
-        await step(input)
-
-        const metrics = await getMetricValues('ingestion_event_dropped_total')
-        expect(metrics).toEqual([
-            {
-                labels: {
-                    drop_cause: 'invalid_uuid',
-                    event_type: 'analytics',
-                },
-                value: 1,
-            },
-        ])
-    })
-
-    it('should increment metrics with empty_uuid when UUID is null', async () => {
-        mockEventWithTeam.event.uuid = null as any
-        const input = { eventWithTeam: mockEventWithTeam }
-
-        await step(input)
-
-        const metrics = await getMetricValues('ingestion_event_dropped_total')
-        expect(metrics).toEqual([
-            {
-                labels: {
-                    drop_cause: 'empty_uuid',
-                    event_type: 'analytics',
-                },
-                value: 1,
-            },
-        ])
     })
 
     it('should include warning in result when UUID is invalid', async () => {
