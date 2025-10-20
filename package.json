@@ -75,28 +75,16 @@
         }
     },
     "lint-staged": {
-        "*.{json,yaml,yml}": "prettier --write",
-        "*.{css,scss}": [
-            "stylelint --fix --allow-empty-input",
-            "prettier --write"
-        ],
-        "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": [
-            "oxlint --fix --fix-suggestions --quiet",
-            "prettier --write"
-        ],
-        "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [
-            "pnpm --dir plugin-server exec eslint --fix",
-            "pnpm --dir plugin-server exec prettier --write"
-        ],
-        "funnel-udf/**/*.rs": "rustfmt",
+        "*.{json,yaml,yml}": "hogli format:yaml",
+        "*.{css,scss}": "hogli format:css",
+        "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": "hogli format:js",
+        "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": "hogli format:plugin-server",
+        "funnel-udf/**/*.rs": "hogli format:rust",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
-            "hogli lint:fix",
-            "hogli format"
+            "hogli lint:fix:python",
+            "hogli format:python"
         ],
-        "*.{md,mdx}": [
-            "prettier --write",
-            "pnpm exec markdownlint-cli2 --fix --config .config/.markdownlint-cli2.jsonc"
-        ]
+        "*.{md,mdx}": "hogli format:markdown"
     },
     "browserslist": {
         "development": [

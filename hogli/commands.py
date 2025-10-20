@@ -135,10 +135,28 @@ class DirectCommand(Command):
         """Return the shell command."""
         return self.config.get("cmd", "")
 
+    def register(self, cli_group: click.Group) -> None:
+        """Register command with extra args support."""
+        help_text = self.get_help_text()
+
+        @cli_group.command(
+            self.name,
+            help=help_text,
+            context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+        )
+        @click.pass_context
+        def cmd(ctx: click.Context) -> None:
+            try:
+                self.execute(*ctx.args)
+            except SystemExit:
+                raise
+
+        return cmd
+
     def execute(self, *args: str) -> None:
-        """Execute the shell command."""
+        """Execute the shell command with any passed arguments."""
         cmd_str = self.config.get("cmd", "")
-        _run(cmd_str.split())
+        _run([*cmd_str.split(), *args])
 
 
 class CompositeCommand(Command):

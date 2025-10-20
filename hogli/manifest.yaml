@@ -242,15 +242,35 @@ tests:
         description: Set up test databases and run Playwright E2E tests
 quality:
     lint:
+        cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
         description: Run code quality checks for Python and JavaScript
-    lint:fix:
-        description: Fix code quality issues automatically
     format:
         cmd: pnpm format
         description: Format both backend and frontend code
-    format:staged:
-        cmd: pnpm lint-staged
-        description: Format and lint staged files (pre-commit hook)
+    format:yaml:
+        cmd: prettier --write
+        description: Format JSON, YAML files
+    format:css:
+        cmd: stylelint --fix --allow-empty-input && prettier --write
+        description: Format CSS/SCSS files
+    format:js:
+        cmd: oxlint --fix --fix-suggestions --quiet && prettier --write
+        description: Format JavaScript/TypeScript files (frontend)
+    format:plugin-server:
+        cmd: pnpm --dir plugin-server exec eslint --fix && pnpm --dir plugin-server exec prettier --write
+        description: Format plugin-server JavaScript files
+    format:rust:
+        cmd: rustfmt
+        description: Format Rust files
+    format:python:
+        cmd: ./bin/ruff.sh format
+        description: Format Python files
+    lint:fix:python:
+        cmd: ./bin/ruff.sh check --fix
+        description: Fix Python code quality issues
+    format:markdown:
+        cmd: prettier --write && pnpm exec markdownlint-cli2 --fix --config .config/.markdownlint-cli2.jsonc
+        description: Format Markdown files
 tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
