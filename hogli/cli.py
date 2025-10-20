@@ -92,51 +92,66 @@ def cli() -> None:
     pass
 
 
-@cli.command(name="meta", help="Show services and concepts that hogli knows about")
+@cli.command(name="meta", help="Show all commands grouped by service instead of category")
 def meta() -> None:
-    """Display all known services and the commands that use them."""
+    """Display all commands grouped by their associated services."""
     from hogli.manifest import get_services_for_command
 
     manifest = load_manifest()
     services_dict = manifest.get("metadata", {}).get("services", {})
 
-    if not services_dict:
-        click.echo("No services found in manifest.")
-        return
+    # Build a map of service_key -> list of (cmd_name, help_text) tuples
+    service_commands: dict[str, list[tuple[str, str]]] = {svc_key: [] for svc_key in services_dict}
+    commands_without_service: list[tuple[str, str]] = []
 
-    # Build a map of service_key -> list of commands that use it
-    service_commands: dict[str, list[str]] = {svc_key: [] for svc_key in services_dict}
+    # Scan all commands from the CLI group (already registered)
+    for cmd_name, cmd in cli.commands.items():
+        if cmd_name == "meta":
+            continue  # Skip meta itself
 
-    # Scan all commands for explicit services or prefix matching
-    for _category, scripts in manifest.items():
-        if _category == "metadata" or not isinstance(scripts, dict):
-            continue
-        for cmd_name, config in scripts.items():
-            if not isinstance(config, dict):
+        help_text = cmd.get_short_help_str(100) if hasattr(cmd, "get_short_help_str") else (cmd.help or "")
+
+        # Get services for this command
+        config = {}
+        for _category, scripts in manifest.items():
+            if _category == "metadata" or not isinstance(scripts, dict):
                 continue
+            if cmd_name in scripts and isinstance(scripts[cmd_name], dict):
+                config = scripts[cmd_name]
+                break
 
-            # Get services for this command
-            services = get_services_for_command(cmd_name, config)
-            if services:
-                # Extract service keys that match
-                for svc_name, _ in services:
-                    for svc_key, svc_info in services_dict.items():
-                        if svc_info.get("name", svc_key) == svc_name:
-                            service_commands[svc_key].append(cmd_name)
-                            break
+        services = get_services_for_command(cmd_name, config)
+        if services:
+            # Add to each service it belongs to
+            for svc_name, _ in services:
+                for svc_key, svc_info in services_dict.items():
+                    if svc_info.get("name", svc_key) == svc_name:
+                        service_commands[svc_key].append((cmd_name, help_text))
+                        break
+        else:
+            commands_without_service.append((cmd_name, help_text))
 
-    click.echo("\n🛠️  Services:\n")
+    # Format output like help but grouped by service
+    click.echo("\nServices:\n")
     for service_key in sorted(services_dict.keys()):
         service_info = services_dict[service_key]
         name = service_info.get("name", service_key)
-        about = service_info.get("about", "No description")
-        click.echo(f"  {name}")
-        click.echo(f"    {about}")
 
         commands = service_commands.get(service_key, [])
         if commands:
-            click.echo(f"    Commands: {', '.join(sorted(commands))}")
-        click.echo()
+            formatter = click.formatting.HelpFormatter()
+            rows = sorted(commands, key=lambda x: x[0])
+            with formatter.section(name):
+                formatter.write_dl(rows)
+            click.echo(formatter.getvalue())
+
+    # Commands without explicit service
+    if commands_without_service:
+        formatter = click.formatting.HelpFormatter()
+        rows = sorted(commands_without_service, key=lambda x: x[0])
+        with formatter.section("Other"):
+            formatter.write_dl(rows)
+        click.echo(formatter.getvalue())
 
 
 def _register_script_commands() -> None:
