@@ -6,11 +6,11 @@ metadata:
           title: Start services and background workers
         - key: health_checks
           title: Verify infrastructure readiness
-        - key: migration
+        - key: migrations
           title: Database migrations
-        - key: testing
+        - key: tests
           title: Run tests
-        - key: code_quality
+        - key: quality
           title: Code quality and formatting
         - key: build
           title: Build and generate code
@@ -72,8 +72,6 @@ core:
     dev:demo-data:
         cmd: python manage.py generate_demo_data
         description: Generate demo data for local testing
-    qa:check:
-        description: Run pre-push quality checks (lint + build, ~5 min)
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
@@ -182,33 +180,31 @@ docker:
         description: Stop Docker infrastructure services
     docker:
         bin_script: docker
-        description: Run all services (migrate, backend, worker) via Docker orchestration
+        description: '[DEPRECATED] Use `hogli start` instead'
     docker:dev:
         bin_script: docker-dev
-        description: Migrate, run Django dev server on port 8000, and start frontend in
-            Docker
+        description: '[DEPRECATED] Use `hogli start` instead'
     docker:dev-web:
         bin_script: docker-dev-web
-        description: Run Django dev server on port 8000 and start frontend in Docker
+        description: '[DEPRECATED] Use `hogli start` instead'
     docker:backend:
         bin_script: docker-backend
-        description: Run Django development server on port 8000 with migrations
+        description: '[DEPRECATED] Use `hogli start:backend` instead'
     docker:frontend:
         bin_script: docker-frontend
-        description: Build and run frontend in Docker with Webpack hot reload
+        description: '[DEPRECATED] Use `hogli start:frontend` instead'
     docker:migrate:
         bin_script: docker-migrate
-        description: Run database migrations in Docker
+        description: '[DEPRECATED] Use `hogli migrations:run` instead'
+    docker:worker:
+        bin_script: docker-worker
+        description: '[DEPRECATED] Use `hogli start:worker` instead'
     docker:server:
         bin_script: docker-server
         description: Run gunicorn application server with Prometheus metrics support
     docker:server-unit:
         bin_script: docker-server-unit
         description: Run NGINX Unit application server with configurable workers
-    docker:worker:
-        bin_script: docker-worker
-        description: Start plugin-server and Celery worker/beat in parallel with restart
-            loop
     docker:worker-beat:
         bin_script: docker-worker-beat
         description: Run Celery beat scheduler with RedBeat backend
@@ -218,42 +214,43 @@ docker:
     docker:ai-evals:
         bin_script: docker-ai-evals
         description: Set up Docker services and run evaluation scripts with cleanup
-migration:
+migrations:
     db:migrate:
         description: Apply database migrations (Django and ClickHouse)
-    migration:migrate:
+    migrations:run:
         bin_script: migrate
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
-    migration:migrate-check:
+    migrations:check:
         bin_script: migrate-check
         description: Verify all migrations are ready without applying them
-    migration:migrate-kafka:
+    migrations:kafka:
         bin_script: migrate_kafka_data.py
         description: Migrate data between Kafka clusters/topics with consumer group tracking
-    migration:sync-feature-flags:
+    migrations:sync-flags:
         cmd: python manage.py sync_feature_flags
         description: Sync feature flags from configuration
-testing:
-    test:python:
+tests:
+    tests:python:
         description: Run Python test suite
-    test:js:
+    tests:js:
         description: Run JavaScript test suite
-    testing:tests:
+    tests:run:
         bin_script: tests
         description: Interactive test runner with watch mode and changed file detection
-    testing:e2e-test-runner:
+    tests:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
-code_quality:
-    lint:check:
+quality:
+    lint:
         description: Run code quality checks for Python and JavaScript
     lint:fix:
         description: Fix code quality issues automatically
-    fmt:code:
-        description: Format Python and JavaScript code
-    fmt:all:
+    format:
         cmd: pnpm format
         description: Format both backend and frontend code
+    format:staged:
+        cmd: pnpm lint-staged
+        description: Format and lint staged files (pre-commit hook)
 tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
@@ -326,21 +323,21 @@ compositions:
             - docker:services:up
             - check:postgres
             - check:clickhouse
-            - migration:migrate
+            - migrations:run
             - dev:demo-data
-            - migration:sync-feature-flags
+            - migrations:sync-flags
         description: Full reset - stop services, migrate, load demo data, sync flags
-    infra:ready:
+    services:ready:
         steps:
             - check:clickhouse
             - check:postgres
             - check:temporal
         description: Verify all core infrastructure services are ready
-    quality:check:
+    precommit:
         steps:
-            - lint:check
-            - build:frontend
-        description: Quick quality checks without tests (lint + build)
+            - lint
+            - format
+        description: Pre-commit checks (lint and format)
 environment:
     flox:activate:
         cmd: flox activate
