@@ -24,6 +24,7 @@ class BaseMarketingConfig(ABC):
     """Base configuration for marketing source adapters"""
 
     source_type: str
+    source_id: str
 
 
 @dataclass
@@ -33,7 +34,6 @@ class ExternalConfig(BaseMarketingConfig):
     table: DataWarehouseTable
     source_map: SourceMap
     schema_name: str
-    source_id: str
 
 
 @dataclass
@@ -42,7 +42,6 @@ class GoogleAdsConfig(BaseMarketingConfig):
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable
-    source_id: str
 
 
 @dataclass
@@ -51,7 +50,6 @@ class LinkedinAdsConfig(BaseMarketingConfig):
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable
-    source_id: str
 
 
 @dataclass
@@ -60,7 +58,6 @@ class RedditAdsConfig(BaseMarketingConfig):
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable
-    source_id: str
 
 
 @dataclass
@@ -69,7 +66,14 @@ class MetaAdsConfig(BaseMarketingConfig):
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable
-    source_id: str
+
+
+@dataclass
+class TikTokAdsConfig(BaseMarketingConfig):
+    """Configuration for TikTok Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
 
 
 @dataclass
@@ -106,6 +110,21 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     cost_field: str = MarketingAnalyticsColumnsSchemaNames.COST
     reported_conversion_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION
 
+    @classmethod
+    @abstractmethod
+    def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
+        """
+        Return a mapping of primary source identifier to all possible UTM source values.
+        Used to normalize conversion goal sources to match campaign costs.
+
+        Example:
+            return {"google": ["google", "youtube", "search", "display", ...]}
+
+        For single-source adapters, return a mapping with just the primary source:
+            return {"meta": ["meta"]}
+        """
+        pass
+
     def __init__(self, config: ConfigType, context: QueryContext):
         self.team = context.team
         self.config: ConfigType = config
@@ -116,6 +135,10 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     def get_source_type(self) -> str:
         """Return unique identifier for this source type"""
         pass
+
+    def get_source_id(self) -> str:
+        """Return the source ID for filtering purposes"""
+        return self.config.source_id
 
     @abstractmethod
     def validate(self) -> ValidationResult:
@@ -133,10 +156,22 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Get the campaign name field expression"""
         pass
 
-    @abstractmethod
     def _get_source_name_field(self) -> ast.Expr:
-        """Get the source name field expression"""
-        pass
+        """
+        Get the source name field expression (returns the primary source identifier).
+        Default implementation returns the key from get_source_identifier_mapping().
+        For example, {"reddit": ["reddit", "red"]} returns "reddit".
+        Override if you need custom logic (e.g., user-configured sources).
+        """
+        mapping = self.get_source_identifier_mapping()
+        if not mapping:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} has no source identifier mapping. "
+                "Either provide a mapping or override _get_source_name_field()."
+            )
+        assert len(mapping) > 0, "Should have at least one source identifier mapping"
+        primary_source = next(iter(mapping.keys()))
+        return ast.Call(name="toString", args=[ast.Constant(value=primary_source)])
 
     @abstractmethod
     def _get_impressions_field(self) -> ast.Expr:

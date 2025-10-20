@@ -410,6 +410,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                     "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
                 ),
             )
+            .filter(managed_viewset__isnull=True)  # Ignore managed views for now
             .exclude(deleted=True)
             .order_by(self.ordering)
         )

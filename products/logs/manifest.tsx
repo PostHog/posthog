@@ -14,6 +14,8 @@ export const manifest: ProductManifest = {
             name: 'Logs',
             activityScope: 'Logs',
             layout: 'app-container',
+            iconType: 'logs',
+            description: 'Monitor and analyze your logs to understand and fix issues.',
         },
     },
     routes: {
@@ -32,6 +34,7 @@ export const manifest: ProductManifest = {
             href: urls.logs(),
             flag: FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS,
             tags: ['alpha'],
+            sceneKey: 'Logs',
         },
     ],
 }

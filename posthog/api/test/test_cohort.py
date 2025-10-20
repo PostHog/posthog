@@ -398,6 +398,71 @@ User ID
             distinct_ids.update(person.distinct_ids)
         self.assertIn("456", distinct_ids)  # Should still contain 456
 
+    def test_static_cohort_create_and_patch_with_query(self):
+        _create_person(
+            distinct_ids=["123"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        flush_persons_and_events()
+
+        csv = SimpleUploadedFile(
+            "example.csv",
+            str.encode(
+                """
+User ID
+email@example.org
+123
+0
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={
+                "query": {
+                    "kind": "ActorsQuery",
+                    "properties": [
+                        {
+                            "key": "$some_prop",
+                            "value": "something",
+                            "type": "person",
+                            "operator": PropertyOperator.EXACT,
+                        }
+                    ],
+                }
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        cohort.refresh_from_db()
+
+        # Verify the persons were actually added to the cohort
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        self.assertEqual(people_in_cohort.count(), 2)
+
     @parameterized.expand([("distinct-id",), ("distinct_id",)])
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
     def test_static_cohort_csv_upload_with_distinct_id_column(

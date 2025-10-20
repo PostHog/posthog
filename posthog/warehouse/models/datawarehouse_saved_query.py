@@ -84,6 +84,15 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
 
+    # If this view is managed by a DataWarehouseManagedViewSet, this will be set
+    managed_viewset = models.ForeignKey(
+        "posthog.DataWarehouseManagedViewSet",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="saved_queries",
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(

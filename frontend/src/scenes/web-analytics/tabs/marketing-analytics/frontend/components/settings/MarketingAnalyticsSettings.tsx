@@ -1,4 +1,6 @@
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -21,10 +23,10 @@ export function MarketingAnalyticsSettings({
         <SceneContent>
             {!hideTitle && (
                 <SceneTitleSection
-                    name="Marketing settings"
-                    description={null}
+                    name={sceneConfigurations[Scene.WebAnalyticsMarketing].name}
+                    description={sceneConfigurations[Scene.WebAnalyticsMarketing].description}
                     resourceType={{
-                        type: 'marketing_settings',
+                        type: sceneConfigurations[Scene.WebAnalyticsMarketing].iconType || 'default_icon_type',
                     }}
                 />
             )}

@@ -17,6 +17,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
+from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 
 from .constants import (
@@ -126,6 +127,57 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
     def _get_column_names_for_order_by(self, select_columns: list[ast.Expr]) -> list[str]:
         """Extract column names from AST expressions for order by"""
         return [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
+
+    def _build_flexible_source_join_condition(self) -> ast.Expr:
+        """
+        Build a flexible source join condition that handles source identifier mappings.
+        Case-insensitive matching for alternative sources.
+        """
+        conditions: list[ast.Expr] = []
+
+        # Add exact match condition first
+        conditions.append(
+            ast.CompareOperation(
+                left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.source_field)),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.source_field)),
+            )
+        )
+
+        # Add conditions for each mapped source with case-insensitive matching
+        source_mappings = MarketingSourceFactory.get_all_source_identifier_mappings()
+        for primary_source, all_sources in source_mappings.items():
+            conditions.append(
+                ast.Call(
+                    name="and",
+                    args=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.source_field)),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Constant(value=primary_source),
+                        ),
+                        ast.Call(
+                            name="in",
+                            args=[
+                                ast.Call(
+                                    name="lower",
+                                    args=[
+                                        ast.Field(
+                                            chain=self.config.get_unified_conversion_field_chain(
+                                                self.config.source_field
+                                            )
+                                        )
+                                    ],
+                                ),
+                                ast.Array(exprs=[ast.Constant(value=source.lower()) for source in all_sources]),
+                            ],
+                        ),
+                    ],
+                )
+            )
+
+        # Combine all conditions with OR
+        return ast.Call(name="or", args=conditions)
 
     def _build_compare_join(
         self, current_period_query: ast.SelectQuery, previous_period_query: ast.SelectQuery
@@ -279,15 +331,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                                     chain=self.config.get_unified_conversion_field_chain(self.config.campaign_field)
                                 ),
                             ),
-                            ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.source_field)
-                                ),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.source_field)
-                                ),
-                            ),
+                            self._build_flexible_source_join_condition(),
                         ]
                     ),
                     constraint_type="ON",

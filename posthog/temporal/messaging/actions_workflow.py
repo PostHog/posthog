@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 import temporalio.activity
 import temporalio.workflow
+from structlog.contextvars import bind_contextvars
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
@@ -44,9 +45,13 @@ class ProcessActionsResult:
 
 
 @temporalio.activity.defn
-async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsResult:
+def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsResult:
     """Process a batch of actions with bytecode."""
+    bind_contextvars()
     logger = LOGGER.bind()
+
+    # Send heartbeat at start
+    temporalio.activity.heartbeat()
 
     # Basic validation
     if not isinstance(inputs.days, int) or inputs.days < 0 or inputs.days > 365:
@@ -65,11 +70,13 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
         else queryset[inputs.offset :]
     )
 
+    actions: list[Action] = list(queryset)
+
     actions_count = 0
 
     # Process each action with heartbeat to keep activity alive
     with HeartbeaterSync(logger=logger):
-        for idx, action in enumerate(queryset, 1):
+        for idx, action in enumerate(actions, 1):
             # Extract event name from the first step in steps_json
             if not action.steps_json or len(action.steps_json) == 0:
                 continue

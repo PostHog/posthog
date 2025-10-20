@@ -9,6 +9,7 @@ import temporalio.workflow
 
 from posthog.constants import MESSAGING_TASK_QUEUE
 from posthog.models.action import Action
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 
@@ -46,7 +47,7 @@ async def get_actions_count_activity(inputs: ActionsCoordinatorWorkflowInputs) -
     # Only get actions that are not deleted and have bytecode
     queryset = Action.objects.filter(deleted=False, bytecode__isnull=False)
 
-    count = queryset.count()
+    count = await database_sync_to_async(queryset.count)()
     return ActionsCountResult(count=count)
 
 

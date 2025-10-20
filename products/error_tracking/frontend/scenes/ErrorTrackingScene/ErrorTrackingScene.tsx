@@ -106,6 +106,7 @@ const Header = (): JSX.Element => {
         <>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.ErrorTracking].name}
+                description={null}
                 resourceType={{
                     type: sceneConfigurations[Scene.ErrorTracking].iconType || 'default_icon_type',
                 }}

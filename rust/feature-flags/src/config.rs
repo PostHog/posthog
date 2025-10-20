@@ -138,6 +138,16 @@ pub struct Config {
     #[envconfig(default = "")]
     pub redis_reader_url: String,
 
+    // S3 configuration for HyperCache fallback
+    #[envconfig(default = "posthog")]
+    pub object_storage_bucket: String,
+
+    #[envconfig(default = "us-east-1")]
+    pub object_storage_region: String,
+
+    #[envconfig(default = "")]
+    pub object_storage_endpoint: String,
+
     #[envconfig(default = "")]
     pub redis_writer_url: String,
 
@@ -313,6 +323,9 @@ impl Config {
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
             otel_log_level: Level::ERROR,
+            object_storage_bucket: "posthog".to_string(),
+            object_storage_region: "us-east-1".to_string(),
+            object_storage_endpoint: "".to_string(),
         }
     }
 

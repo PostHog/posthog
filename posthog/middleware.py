@@ -701,6 +701,8 @@ class CSPMiddleware:
                 "object-src 'none'",
                 "frame-ancestors 'none'",
                 "manifest-src 'none'",
+                # used by the error page
+                "frame-src https://posthog.com",
                 "base-uri 'self'",
                 "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2",
                 "report-to posthog",

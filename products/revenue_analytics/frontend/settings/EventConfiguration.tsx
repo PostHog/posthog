@@ -2,28 +2,58 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconGear, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, getCurrencySymbol } from 'lib/utils/geography/currency'
+import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
+import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EventConfigurationModal } from './EventConfigurationModal'
+import { deleteRevenueEventModalLogic } from './deleteRevenueEventModalLogic'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {
     const { events } = useValues(revenueAnalyticsSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { views, eventName: eventToBeDeleted } = useValues(deleteRevenueEventModalLogic)
+
     const { deleteEvent, save } = useActions(revenueAnalyticsSettingsLogic)
+    const { openModal } = useActions(disableDataWarehouseManagedViewsetModalLogic({ type: 'EventConfiguration' }))
+    const { setEventName: setEventToBeDeleted } = useActions(deleteRevenueEventModalLogic)
+
+    const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
 
     const [modalState, setModalState] = useState<{
         isOpen: boolean
         event?: RevenueAnalyticsEventItem
     }>({ isOpen: false })
+
+    const onDeleteEvent = async (): Promise<boolean> => {
+        if (!eventToBeDeleted) {
+            return false
+        }
+
+        try {
+            deleteEvent(eventToBeDeleted)
+            save()
+            setEventToBeDeleted(null)
+            lemonToast.success(`Revenue event "${eventToBeDeleted}" removed successfully`)
+            return true
+        } catch (error: any) {
+            lemonToast.error(`Failed to remove event: ${error.message || 'Unknown error'}`)
+        }
+
+        return false
+    }
 
     return (
         <SceneSection
@@ -178,9 +208,16 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                         status="danger"
                                         icon={<IconTrash />}
                                         onClick={() => {
-                                            if (confirm('Are you sure you want to remove this event?')) {
-                                                deleteEvent(item.eventName)
-                                                save()
+                                            if (managedViewsetsEnabled) {
+                                                // Show confirmation modal (if feature flag enabled)
+                                                setEventToBeDeleted(item.eventName)
+                                                openModal('revenue_analytics')
+                                            } else {
+                                                // Delete directly if feature flag is off
+                                                if (confirm('Are you sure you want to remove this event?')) {
+                                                    deleteEvent(item.eventName)
+                                                    save()
+                                                }
                                             }
                                         }}
                                         tooltip="Remove event"
@@ -199,6 +236,29 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                         onClose={() => setModalState({ isOpen: false, event: undefined })}
                     />
                 )}
+
+            {managedViewsetsEnabled && (
+                <DataWarehouseManagedViewsetImpactModal
+                    type="EventConfiguration"
+                    title={`Remove revenue event "${eventToBeDeleted}"?`}
+                    action={onDeleteEvent}
+                    confirmText={eventToBeDeleted || ''}
+                    views={views}
+                    warningItems={[
+                        'Remove this event from revenue analytics',
+                        "Regenerate all revenue views without this event's data",
+                        'Potentially affect existing queries, insights, or dashboards that depend on this data',
+                    ]}
+                    infoMessage={
+                        <>
+                            <strong>Important:</strong> The event will no longer be included in revenue calculations for
+                            revenue analytics. It'll also trigger re-materialization of all remaining revenue views.
+                        </>
+                    }
+                    viewsActionText="will be removed"
+                    confirmButtonText="Yes, remove event"
+                />
+            )}
         </SceneSection>
     )
 }

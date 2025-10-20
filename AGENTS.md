@@ -94,3 +94,4 @@ See `posthog/clickhouse/migrations/AGENTS.md` for comprehensive patterns, exampl
 ## General
 
 - Use American English spelling
+- When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.

@@ -27,6 +27,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     MetaAdsConfig,
     QueryContext,
     RedditAdsConfig,
+    TikTokAdsConfig,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.bigquery import BigQueryAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.google_ads import GoogleAdsAdapter
@@ -39,6 +40,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.self_managed im
     CloudflareR2Adapter,
     GoogleCloudAdapter,
 )
+from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
 
 # Test Constants
 TEST_DATE_FROM = "2024-01-01"
@@ -460,6 +462,219 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     },
                 },
             ),
+            "tiktok_campaigns": DataConfig(
+                csv_filename="test/tiktok_ads/campaigns.csv",
+                table_name="tiktokads_campaigns",
+                platform="TikTok Ads",
+                source_type="TikTokAds",
+                bucket_suffix="tiktok_campaigns",
+                column_schema={
+                    "advertiser_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "app_promotion_type": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "bid_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "budget": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "budget_mode": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "budget_optimize_on": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "campaign_automation_type": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "catalog_enabled": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "create_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "current_status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "deep_bid_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "disable_skan_campaign": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "is_advanced_dedicated_campaign": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "is_new_structure": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "is_search_campaign": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "is_smart_performance_campaign": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "modify_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "objective": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "objective_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "operation_status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "optimization_goal": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "roas_bid": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "rta_bid_enabled": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "rta_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "rta_product_selection_enabled": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "sales_destination": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "secondary_status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "virtual_objective_type": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                },
+            ),
+            "tiktok_campaign_report": DataConfig(
+                csv_filename="test/tiktok_ads/campaign_report.csv",
+                table_name="tiktokads_campaign_report",
+                platform="TikTok Ads",
+                source_type="TikTokAds",
+                bucket_suffix="tiktok_campaign_report",
+                column_schema={
+                    "app_promotion_type": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "average_video_play": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "average_video_play_per_user": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "billing_event": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_budget": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "campaign_dedicate_type": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "clicks": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "clicks_on_music_disc": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "comments": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "conversion": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "conversion_rate": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "conversion_rate_v2": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "cost_per_1000_reached": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "cost_per_conversion": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "cost_per_result": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "cost_per_secondary_goal_result": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "cpc": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "cpm": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "ctr": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "currency": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "follows": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "frequency": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "gross_impressions": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "impressions": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "likes": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "profile_visits": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "profile_visits_rate": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "reach": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "real_time_conversion": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "real_time_conversion_rate": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "real_time_conversion_rate_v2": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "real_time_cost_per_conversion": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "real_time_cost_per_result": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "real_time_result": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "real_time_result_rate": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "result": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "result_rate": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "secondary_goal_result": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "secondary_goal_result_rate": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "shares": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "spend": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "split_test": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "stat_time_day": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "video_play_actions": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "video_views_p100": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "video_views_p25": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "video_views_p50": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "video_views_p75": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "video_watched_2s": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "video_watched_6s": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                },
+            ),
         }
 
     def setUp(self):
@@ -785,6 +1000,24 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert result.is_valid, "MetaAdsAdapter validation should succeed"
         assert isinstance(result.errors, list), "MetaAdsAdapter should return list of errors"
 
+    def test_tiktok_ads_adapter_validation_consistency(self):
+        """Test TikTok Ads adapter validation consistency."""
+        campaign_table = self._create_mock_table("tiktokads_campaigns", "TikTokAds")
+        stats_table = self._create_mock_table("tiktokads_campaign_report", "TikTokAds")
+
+        config = TikTokAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="TikTokAds",
+            source_id="test_consistency",
+        )
+
+        adapter = TikTokAdsAdapter(config=config, context=self.context)
+        result = adapter.validate()
+
+        assert result.is_valid, "TikTokAdsAdapter validation should succeed"
+        assert isinstance(result.errors, list), "TikTokAdsAdapter should return list of errors"
+
     # ================================================================
     # QUERY GENERATION TESTS
     # ================================================================
@@ -872,6 +1105,25 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         assert query is not None, "MetaAdsAdapter should generate a query"
         self._validate_query_structure(query, "MetaAdsAdapter")
+        assert self._execute_and_snapshot(query) == self.snapshot
+
+    def test_tiktok_ads_native_query_generation(self):
+        """Test TikTok Ads native adapter query generation with JOIN."""
+        campaign_table = self._create_mock_table("tiktok_campaigns", "TikTokAds")
+        stats_table = self._create_mock_table("tiktok_campaign_report", "TikTokAds")
+
+        config = TikTokAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="TikTokAds",
+            source_id="tiktok_ads",
+        )
+
+        adapter = TikTokAdsAdapter(config=config, context=self.context)
+        query = adapter.build_query()
+
+        assert query is not None, "TikTokAdsAdapter should generate a query"
+        self._validate_query_structure(query, "TikTokAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
     def test_tiktok_ads_query_generation(self):
