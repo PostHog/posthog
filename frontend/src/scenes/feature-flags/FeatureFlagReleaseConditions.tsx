@@ -447,7 +447,10 @@ export function FeatureFlagReleaseConditions({
                                         totalUsers !== null
                                     ) {
                                         return `(${humanFriendlyNumber(
-                                            Math.floor((affectedUserCount * (group.rollout_percentage ?? 100)) / 100)
+                                            Math.floor(
+                                                (affectedUserCount * Math.min(group.rollout_percentage ?? 100, 100)) /
+                                                    100
+                                            )
                                         )} / ${humanFriendlyNumber(totalUsers)})`
                                     }
                                     return ''
