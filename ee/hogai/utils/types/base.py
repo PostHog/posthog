@@ -39,6 +39,7 @@ from posthog.schema import (
     TaskExecutionMessage,
     TaskExecutionStatus,
     TrendsQuery,
+    UpdateMessage,
     VisualizationMessage,
 )
 
@@ -199,7 +200,6 @@ class TaskResult(BaseModel):
     """
 
     id: str
-    description: str
     result: str
     artifacts: Sequence[TaskArtifact] = Field(default=[])
     status: TaskExecutionStatus
