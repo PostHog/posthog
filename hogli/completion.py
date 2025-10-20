@@ -43,8 +43,9 @@ _hogli() {{
 
   # Parse output from hogli --help to get all commands
   # Use tab separator since zsh treats colons specially
+  # Escape square brackets since they have special meaning in zsh
   # Format: "command-name<tab>description text"
-  commands=(${{(f)"$(hogli --help 2>/dev/null | grep -E '^  [a-z]' | sed -E 's/^  ([a-z:0-9-]+)[[:space:]]+(.*)$/\\1\\t\\2/')"}})
+  commands=(${{(f)"$(hogli --help 2>/dev/null | grep -E '^  [a-z]' | sed -E 's/^  ([a-z:0-9-]+)[[:space:]]+(.*)$/\\1\\t\\2/' | sed 's/\\[/\\\\[/g; s/\\]/\\\\]/g')"}})
 
   # Use _describe with tab separator
   _describe 'hogli commands' commands
