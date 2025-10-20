@@ -197,6 +197,9 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
     if not isinstance(inputs.min_matches, int) or inputs.min_matches < 0:
         raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
 
+    # Initialize Kafka producer once before the loop
+    kafka_producer = KafkaProducer()
+
     for idx, condition_data in enumerate(inputs.conditions, 1):
         team_id = condition_data["team_id"]
         cohort_id = condition_data["cohort_id"]
@@ -292,7 +295,7 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                                 "status": row["status"],
                             }
                             await asyncio.to_thread(
-                                KafkaProducer().produce,
+                                kafka_producer.produce,
                                 topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
                                 key=payload["person_id"],
                                 data=payload,
