@@ -8,7 +8,7 @@ import importlib.util
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, NoReturn, Optional
+from typing import Annotated, NoReturn
 
 import yaml
 import typer
@@ -177,10 +177,13 @@ def _show_version(value: bool) -> None:
     raise typer.Exit()
 
 
-@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
-def up(ctx: typer.Context) -> None:
-    """Start backend, product frontends, and infrastructure with mprocs."""
+@app.command("dev:up", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def dev_up(ctx: typer.Context) -> None:
+    """Start full PostHog dev stack via mprocs.
 
+    Justification: "up" is vague—could mean many things. "dev:up" explicitly
+    indicates we're starting the development environment stack.
+    """
     typer.echo(f"{EMOJI_HOG}{EMOJI_SPARKLE} Launching PostHog stack via mprocs…")
     command = [str(BIN_DIR / "start"), *ctx.args]
     try:
@@ -189,58 +192,7 @@ def up(ctx: typer.Context) -> None:
         _fail_with_message(error)
 
 
-tests_app = typer.Typer(help="Testing workflows.")
-app.add_typer(tests_app, name="test")
-
-
-@tests_app.callback(invoke_without_command=True)
-def test(
-    ctx: typer.Context,
-    scope: Annotated[
-        str,
-        typer.Option(
-            "--scope",
-            help="Which test suite to run (python or js). Pick one—running all tests takes 30+ minutes.",
-            case_sensitive=False,
-        ),
-    ] = "python",
-    pytest_args: Annotated[
-        Optional[list[str]],
-        typer.Option(
-            "--pytest-arg",
-            help="Additional arguments to forward to pytest (repeatable).",
-        ),
-    ] = None,
-    jest_args: Annotated[
-        Optional[list[str]],
-        typer.Option(
-            "--jest-arg",
-            help="Additional arguments to forward to the frontend test runner (repeatable).",
-        ),
-    ] = None,
-) -> None:
-    """Run a specific test suite. Pick one—tests are slow and shouldn't run together."""
-
-    if ctx.invoked_subcommand is not None:
-        return
-
-    normalized_scope = scope.lower()
-    valid_scopes = {"python", "js"}
-    if normalized_scope not in valid_scopes:
-        raise typer.BadParameter("Scope must be one of: python, js")
-
-    try:
-        if normalized_scope == "python":
-            pytest_forward = list(pytest_args or [])
-            _run_pytest(pytest_forward)
-        elif normalized_scope == "js":
-            jest_forward = list(jest_args or [])
-            _run_jest(jest_forward)
-    except CommandError as error:
-        _fail_with_message(error)
-
-
-@tests_app.command("python")
+@app.command("test:python")
 def test_python(
     pytest_args: Annotated[
         list[str] | None,
@@ -251,15 +203,18 @@ def test_python(
         ),
     ] = None,
 ) -> None:
-    """Run only the Python test suite with optional selectors."""
+    """Run Python test suite.
 
+    Justification: Flatten nested "test python" into "test:python" for consistent
+    verb:noun naming. All tests should be visible at same level.
+    """
     try:
         _run_pytest(list(pytest_args or []))
     except CommandError as error:
         _fail_with_message(error)
 
 
-@tests_app.command("js")
+@app.command("test:js")
 def test_js(
     jest_args: Annotated[
         list[str] | None,
@@ -270,26 +225,30 @@ def test_js(
         ),
     ] = None,
 ) -> None:
-    """Run only the JavaScript test suite with optional selectors."""
+    """Run JavaScript test suite.
 
+    Justification: Flatten nested "test js" into "test:js" for consistency.
+    """
     try:
         _run_jest(list(jest_args or []))
     except CommandError as error:
         _fail_with_message(error)
 
 
-@app.command()
-def lint(
+@app.command("lint:check")
+def lint_check(
     scope: str = typer.Option(
         "all",
         "--scope",
         help="Which linters to run (all, python, js).",
         case_sensitive=False,
     ),
-    fix: bool = typer.Option(False, "--fix", help="Attempt to automatically fix lint issues when supported."),
 ) -> None:
-    """Run code quality checks for Python and JavaScript."""
+    """Run code quality checks for Python and JavaScript.
 
+    Justification: "lint" alone is vague (lint what? the linter?). "lint:check"
+    is explicit: lint CHECK. Separate --fix into dedicated lint:fix command.
+    """
     normalized_scope = scope.lower()
     valid_scopes = {"all", "python", "js"}
     if normalized_scope not in valid_scopes:
@@ -297,15 +256,43 @@ def lint(
 
     try:
         if normalized_scope in {"all", "python"}:
-            _run_python_lint(fix)
+            _run_python_lint(False)
         if normalized_scope in {"all", "js"}:
-            _run_js_lint(fix)
+            _run_js_lint(False)
     except CommandError as error:
         _fail_with_message(error)
 
 
-@app.command()
-def fmt(
+@app.command("lint:fix")
+def lint_fix(
+    scope: str = typer.Option(
+        "all",
+        "--scope",
+        help="Which linters to run (all, python, js).",
+        case_sensitive=False,
+    ),
+) -> None:
+    """Fix code quality issues automatically.
+
+    Justification: Separate fix operation into dedicated command for clarity.
+    "lint:fix" is explicit: lint and FIX issues.
+    """
+    normalized_scope = scope.lower()
+    valid_scopes = {"all", "python", "js"}
+    if normalized_scope not in valid_scopes:
+        raise typer.BadParameter("Scope must be one of: all, python, js")
+
+    try:
+        if normalized_scope in {"all", "python"}:
+            _run_python_lint(True)
+        if normalized_scope in {"all", "js"}:
+            _run_js_lint(True)
+    except CommandError as error:
+        _fail_with_message(error)
+
+
+@app.command("fmt:code")
+def fmt_code(
     scope: str = typer.Option(
         "all",
         "--scope",
@@ -313,8 +300,11 @@ def fmt(
         case_sensitive=False,
     ),
 ) -> None:
-    """Format Python and JavaScript code."""
+    """Format Python and JavaScript code.
 
+    Justification: "fmt" is an abbreviation that's not self-evident. "fmt:code"
+    is explicit: we're formatting CODE, not filesystem or something else.
+    """
     normalized_scope = scope.lower()
     valid_scopes = {"all", "python", "js"}
     if normalized_scope not in valid_scopes:
@@ -329,10 +319,13 @@ def fmt(
         _fail_with_message(error)
 
 
-@app.command()
-def migrate() -> None:
-    """Apply Django and ClickHouse migrations using the canonical script."""
+@app.command("db:migrate")
+def db_migrate() -> None:
+    """Apply database migrations (Django and ClickHouse).
 
+    Justification: "migrate" alone doesn't specify what. "db:migrate" is explicit:
+    we're migrating the DATABASE, not code or data pipelines.
+    """
     try:
         typer.echo(f"{EMOJI_HOG}{EMOJI_SPARKLE} Applying PostHog migrations…")
         _run([str(BIN_DIR / "migrate")])
@@ -340,10 +333,13 @@ def migrate() -> None:
         _fail_with_message(error)
 
 
-@app.command()
-def shell() -> None:
-    """Drop into an activated Flox shell."""
+@app.command("env:shell")
+def env_shell() -> None:
+    """Enter Flox development environment shell.
 
+    Justification: "shell" is vague (bash? zsh? fish? local? remote?). "env:shell"
+    is explicit: we're entering the ENVironment shell (Flox).
+    """
     typer.echo(f"{EMOJI_HOG}{EMOJI_SPARKLE} Launching Flox environment shell…")
     try:
         os.execvp("flox", ["flox", "activate"])
@@ -352,8 +348,8 @@ def shell() -> None:
         raise typer.Exit(1) from error
 
 
-@app.command()
-def build(
+@app.command("build:frontend")
+def build_frontend(
     scope: str = typer.Option(
         "all",
         "--scope",
@@ -361,8 +357,11 @@ def build(
         case_sensitive=False,
     ),
 ) -> None:
-    """Build JavaScript packages and run TypeScript compilation."""
+    """Build frontend packages and run TypeScript compilation.
 
+    Justification: "build" could mean backend, containers, artifacts, etc.
+    "build:frontend" is explicit: we're building the FRONTEND packages.
+    """
     normalized_scope = scope.lower()
     valid_scopes = {"all", "frontend"}
     if normalized_scope not in valid_scopes:
@@ -375,22 +374,20 @@ def build(
         _fail_with_message(error)
 
 
-@app.command()
-def services(
-    follow: bool = typer.Option(False, "--follow", help="Stream docker-compose logs after the services are up."),
-    rebuild: bool = typer.Option(False, "--rebuild", help="Recreate containers even if they already exist."),
-    down: bool = typer.Option(False, "--down", help="Tear down the infrastructure services."),
+@app.command("docker:services:up")
+def docker_services_up(
+    follow: bool = typer.Option(False, "--follow", help="Stream docker-compose logs after startup."),
+    rebuild: bool = typer.Option(False, "--rebuild", help="Recreate containers even if they exist."),
 ) -> None:
-    """Start or stop the shared infrastructure services (Postgres, ClickHouse, Redis, Kafka)."""
+    """Start Docker infrastructure services (Postgres, ClickHouse, Redis, Kafka).
 
+    Justification: EXPLICIT "docker:" prefix clarifies this starts Docker containers,
+    not local services. Helps developers understand scope and requirements.
+    """
     compose_file = str(REPO_ROOT / "docker-compose.dev.yml")
     services = ["db", "clickhouse", "redis", "redis7", "zookeeper", "kafka"]
 
     try:
-        if down:
-            _run(["docker", "compose", "-f", compose_file, "down"], description="(Stop infra services)")
-            return
-
         command: list[str] = ["docker", "compose", "-f", compose_file, "up", "-d", *services]
         if rebuild:
             command.insert(command.index("up") + 1, "--force-recreate")
@@ -401,19 +398,36 @@ def services(
         _fail_with_message(error)
 
 
-@app.command()
-def check(
+@app.command("docker:services:down")
+def docker_services_down() -> None:
+    """Stop Docker infrastructure services.
+
+    Justification: Pair with docker:services:up for symmetry and clarity.
+    """
+    compose_file = str(REPO_ROOT / "docker-compose.dev.yml")
+
+    try:
+        _run(["docker", "compose", "-f", compose_file, "down"], description="(Stop infra services)")
+    except CommandError as error:
+        _fail_with_message(error)
+
+
+@app.command("qa:check")
+def qa_check(
     linting: bool = typer.Option(True, "--lint/--skip-lint", help="Toggle running Python and JS linters (fast)."),
     build_assets: bool = typer.Option(True, "--build/--skip-build", help="Toggle building the frontend packages."),
 ) -> None:
-    """Run fast quality checks: lint + build. Run tests separately—they're slow.
+    """Run pre-push quality checks: lint + build (~5 min). Tests run separately.
 
-    This skips test runs because tests take 15+ minutes and shouldn't be bundled with lint/build.
-    Run hogli test python or hogli test js separately in another terminal.
+    Justification: "check" was ambiguous with health-check commands. "qa:check"
+    is explicit: QA (code quality) check. Tests excluded—they're slow (15+ min).
+
+    Run tests separately in another terminal:
+      hogli test:python [selector]
+      hogli test:js [selector]
     """
-
     typer.echo(f"{EMOJI_HOG}{EMOJI_SPARKLE} Running fast quality checks (lint + build)…")
-    typer.echo(typer.style("Tip: run tests separately with hogli test python or hogli test js", fg=typer.colors.YELLOW))
+    typer.echo(typer.style("Tip: run tests separately with hogli test:python or hogli test:js", fg=typer.colors.YELLOW))
     try:
         if linting:
             _run_python_lint(False)
@@ -425,25 +439,28 @@ def check(
 
 
 @app.command(
-    "worktree",
+    "git:worktree",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
-def worktree(ctx: typer.Context) -> None:
-    """Delegate to the phw helper for isolated worktree management."""
+def git_worktree(ctx: typer.Context) -> None:
+    """Manage git worktrees for isolated development.
 
+    Justification: "worktree" is obscure without context. "git:worktree" is explicit:
+    we're managing GIT worktrees (isolated branches as directories).
+    """
     try:
         _run_phw(list(ctx.args))
     except CommandError as error:
         _fail_with_message(error)
 
 
-products_app = typer.Typer(help="Product catalog utilities.")
-app.add_typer(products_app, name="products")
+@app.command("products:list")
+def products_list(json_output: bool = typer.Option(False, "--json", help="Output as JSON.")) -> None:
+    """List available product packages across frontend and backend.
 
-
-@products_app.command("list")
-def list_products(json_output: bool = typer.Option(False, "--json", help="Output as JSON.")) -> None:
-    """Enumerate available product packages across frontend and backend."""
+    Justification: Flatten "products list" subcommand into "products:list" for
+    consistency with verb:noun pattern. Explicit action (list).
+    """
 
     infos = _discover_products()
     if json_output:
