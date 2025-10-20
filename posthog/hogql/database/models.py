@@ -1,7 +1,7 @@
 import datetime
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -203,44 +203,105 @@ class Table(FieldOrTable):
         return asterisk
 
 
-class TableGroup(FieldOrTable):
-    tables: dict[str, "Table | TableGroup"] = field(default_factory=dict)
+class TableNode(
+    BaseModel,
+):
+    model_config = ConfigDict(extra="forbid")
 
-    def has_table(self, name: str) -> bool:
-        return name in self.tables
+    name: Literal["root"] | str
+    table: FieldOrTable | None = None
+    children: dict[str, "TableNode"] = {}
 
-    def get_table(self, name: str) -> "Table | TableGroup":
-        return self.tables[name]
+    def get(self) -> FieldOrTable:
+        """
+        Evaluates and returns the table currently associated with this node.
+        Raises `ResolutionError` if the table is not set.
+        """
+        if self.table is None:
+            raise ResolutionError(f"Table is not set at `{self.name}`")
 
-    def merge_with(self, table_group: "TableGroup"):
-        for name, table in table_group.tables.items():
-            if name in self.tables:
-                if isinstance(self.tables[name], TableGroup) and isinstance(table, TableGroup):
-                    # Yes, casts are required to make mypy happy
-                    this_table = cast("TableGroup", self.tables[name])
-                    other_table = cast("TableGroup", table)
-                    this_table.merge_with(other_table)
-                else:
-                    raise ValueError(f"Conflict between Table and TableGroup: {name} already exists")
-            else:
-                self.tables[name] = table
+        return self.table
 
-        return self
+    def has_child(self, name: list[str]) -> bool:
+        if len(name) == 0:
+            return self.table is not None
 
-    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
-        raise NotImplementedError("TableGroup.to_printed_clickhouse not overridden")
+        first, *rest = name
+        if first not in self.children:
+            return False
 
-    def to_printed_hogql(self) -> str:
-        raise NotImplementedError("TableGroup.to_printed_hogql not overridden")
+        return self.children[first].has_child(rest)
+
+    def get_child(self, name: list[str]) -> "TableNode":
+        if len(name) == 0:
+            return self
+
+        first, *rest = name
+        if first not in self.children:
+            raise ResolutionError(f"Unknown children `{first}` at `{self.name}`.")
+
+        return self.children[first].get_child(rest)
+
+    def add_child(
+        self,
+        child: "TableNode",
+        *,
+        table_conflict_mode: Literal["override", "ignore"] = "ignore",
+        children_conflict_mode: Literal["override", "merge", "ignore"] = "merge",
+    ):
+        # If there's a conflict, we act according to the conflict modes
+        if self.has_child(child.name):
+            if children_conflict_mode == "override":
+                self.children[child.name] = child
+            elif children_conflict_mode == "merge":
+                self.get_child(child.name).merge_with(
+                    child, table_conflict_mode=table_conflict_mode, children_conflict_mode=children_conflict_mode
+                )
+            elif children_conflict_mode == "ignore":
+                pass
+
+            return
+
+        self.children[child.name] = child
+
+    # TODO: Add error and warning modes for `table_conflict_mode``, should append to the diagnostics context
+    def merge_with(
+        self,
+        other: "TableNode",
+        *,
+        table_conflict_mode: Literal["override", "ignore"] = "ignore",
+        children_conflict_mode: Literal["override", "merge", "ignore"] = "merge",
+    ):
+        if self.table is None and other.table is not None:
+            self.table = other.table
+            return
+
+        # This implies we have a conflict so check conflict mode to decide what to do here
+        if self.table is not None and other.table is not None:
+            if table_conflict_mode == "override":
+                self.table = other.table
+            elif table_conflict_mode == "ignore":
+                pass
+
+        for child in other.children.values():
+            self.add_child(
+                child, table_conflict_mode=table_conflict_mode, children_conflict_mode=children_conflict_mode
+            )
 
     def resolve_all_table_names(self) -> list[str]:
         names: list[str] = []
-        for name, table in self.tables.items():
-            if isinstance(table, Table):
-                names.append(name)
-            elif isinstance(table, TableGroup):
-                child_names = table.resolve_all_table_names()
-                names.extend([f"{name}.{x}" for x in child_names])
+
+        if self.table is not None:
+            names.append(self.name)
+
+        for child in self.children.values():
+            child_names = child.resolve_all_table_names()
+
+            # The root node should NOT include itself in the names
+            if self.name == "root":
+                names.extend(child_names)
+            else:
+                names.extend([f"{self.name}.{x}" for x in child_names])
 
         return names
 

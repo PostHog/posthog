@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
@@ -44,7 +44,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
-    TableGroup,
+    TableNode,
     UnknownDatabaseField,
     VirtualTable,
 )
@@ -131,74 +131,75 @@ class Database(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     # Users can query from the tables below
-    events: EventsTable = EventsTable()
-    groups: GroupsTable = GroupsTable()
-    persons: PersonsTable = PersonsTable()
-    person_distinct_ids: PersonDistinctIdsTable = PersonDistinctIdsTable()
-    person_distinct_id_overrides: PersonDistinctIdOverridesTable = PersonDistinctIdOverridesTable()
-    error_tracking_issue_fingerprint_overrides: ErrorTrackingIssueFingerprintOverridesTable = (
-        ErrorTrackingIssueFingerprintOverridesTable()
+    tables: TableNode = TableNode(
+        name="root",
+        children={
+            "events": TableNode(name="events", table=EventsTable()),
+            "groups": TableNode(name="groups", table=GroupsTable()),
+            "persons": TableNode(name="persons", table=PersonsTable()),
+            "person_distinct_ids": TableNode(name="person_distinct_ids", table=PersonDistinctIdsTable()),
+            "person_distinct_id_overrides": TableNode(
+                name="person_distinct_id_overrides", table=PersonDistinctIdOverridesTable()
+            ),
+            "error_tracking_issue_fingerprint_overrides": TableNode(
+                name="error_tracking_issue_fingerprint_overrides", table=ErrorTrackingIssueFingerprintOverridesTable()
+            ),
+            "session_replay_events": TableNode(name="session_replay_events", table=SessionReplayEventsTable()),
+            "cohort_people": TableNode(name="cohort_people", table=CohortPeople()),
+            "static_cohort_people": TableNode(name="static_cohort_people", table=StaticCohortPeople()),
+            "log_entries": TableNode(name="log_entries", table=LogEntriesTable()),
+            "query_log": TableNode(name="query_log", table=QueryLogArchiveTable()),
+            "app_metrics": TableNode(name="app_metrics", table=AppMetrics2Table()),
+            "console_logs_log_entries": TableNode(
+                name="console_logs_log_entries", table=ReplayConsoleLogsLogEntriesTable()
+            ),
+            "batch_export_log_entries": TableNode(name="batch_export_log_entries", table=BatchExportLogEntriesTable()),
+            "sessions": TableNode(name="sessions", table=SessionsTableV1()),
+            "heatmaps": TableNode(name="heatmaps", table=HeatmapsTable()),
+            "exchange_rate": TableNode(name="exchange_rate", table=ExchangeRateTable()),
+            "document_embeddings": TableNode(name="document_embeddings", table=DocumentEmbeddingsTable()),
+            "pg_embeddings": TableNode(name="pg_embeddings", table=PgEmbeddingsTable()),
+            "logs": TableNode(name="logs", table=LogsTable()),
+            "numbers": TableNode(name="numbers", table=NumbersTable()),
+            "system": SystemTables(),  # This is a `TableNode` already, refer to implementation
+            # Web analytics pre-aggregated tables (internal use only)
+            "web_stats_daily": TableNode(name="web_stats_daily", table=WebStatsDailyTable()),
+            "web_bounces_daily": TableNode(name="web_bounces_daily", table=WebBouncesDailyTable()),
+            "web_stats_hourly": TableNode(name="web_stats_hourly", table=WebStatsHourlyTable()),
+            "web_bounces_hourly": TableNode(name="web_bounces_hourly", table=WebBouncesHourlyTable()),
+            "web_stats_combined": TableNode(name="web_stats_combined", table=WebStatsCombinedTable()),
+            "web_bounces_combined": TableNode(name="web_bounces_combined", table=WebBouncesCombinedTable()),
+            # V2 Pre-aggregated tables (will replace the above tables after we backfill)
+            "web_pre_aggregated_stats": TableNode(name="web_pre_aggregated_stats", table=WebPreAggregatedStatsTable()),
+            "web_pre_aggregated_bounces": TableNode(
+                name="web_pre_aggregated_bounces", table=WebPreAggregatedBouncesTable()
+            ),
+            # Revenue analytics tables
+            "persons_revenue_analytics": TableNode(
+                name="persons_revenue_analytics", table=PersonsRevenueAnalyticsTable()
+            ),
+            "groups_revenue_analytics": TableNode(name="groups_revenue_analytics", table=GroupsRevenueAnalyticsTable()),
+            # Raw tables used to support the streamlined tables above
+            "raw_session_replay_events": TableNode(
+                name="raw_session_replay_events", table=RawSessionReplayEventsTable()
+            ),
+            "raw_person_distinct_ids": TableNode(name="raw_person_distinct_ids", table=RawPersonDistinctIdsTable()),
+            "raw_persons": TableNode(name="raw_persons", table=RawPersonsTable()),
+            "raw_groups": TableNode(name="raw_groups", table=RawGroupsTable()),
+            "raw_cohort_people": TableNode(name="raw_cohort_people", table=RawCohortPeople()),
+            "raw_person_distinct_id_overrides": TableNode(
+                name="raw_person_distinct_id_overrides", table=RawPersonDistinctIdOverridesTable()
+            ),
+            "raw_error_tracking_issue_fingerprint_overrides": TableNode(
+                name="raw_error_tracking_issue_fingerprint_overrides",
+                table=RawErrorTrackingIssueFingerprintOverridesTable(),
+            ),
+            "raw_sessions": TableNode(name="raw_sessions", table=RawSessionsTableV1()),
+            "raw_sessions_v3": TableNode(name="raw_sessions_v3", table=RawSessionsTableV3()),
+            "raw_query_log": TableNode(name="raw_query_log", table=RawQueryLogArchiveTable()),
+            "raw_document_embeddings": TableNode(name="raw_document_embeddings", table=RawDocumentEmbeddingsTable()),
+        },
     )
-
-    session_replay_events: SessionReplayEventsTable = SessionReplayEventsTable()
-    cohort_people: CohortPeople = CohortPeople()
-    static_cohort_people: StaticCohortPeople = StaticCohortPeople()
-    log_entries: LogEntriesTable = LogEntriesTable()
-    query_log: QueryLogArchiveTable = QueryLogArchiveTable()
-    app_metrics: AppMetrics2Table = AppMetrics2Table()
-    console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
-    batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
-    sessions: Union[SessionsTableV1, SessionsTableV2, SessionsTableV3] = SessionsTableV1()
-    heatmaps: HeatmapsTable = HeatmapsTable()
-    exchange_rate: ExchangeRateTable = ExchangeRateTable()
-    document_embeddings: DocumentEmbeddingsTable = DocumentEmbeddingsTable()
-
-    # Web analytics pre-aggregated tables (internal use only)
-    web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()
-    web_bounces_daily: WebBouncesDailyTable = WebBouncesDailyTable()
-    web_stats_hourly: WebStatsHourlyTable = WebStatsHourlyTable()
-    web_bounces_hourly: WebBouncesHourlyTable = WebBouncesHourlyTable()
-    web_stats_combined: WebStatsCombinedTable = WebStatsCombinedTable()
-    web_bounces_combined: WebBouncesCombinedTable = WebBouncesCombinedTable()
-
-    # V2 Pre-aggregated tables (will replace the above tables after we backfill)
-    web_pre_aggregated_stats: WebPreAggregatedStatsTable = WebPreAggregatedStatsTable()
-    web_pre_aggregated_bounces: WebPreAggregatedBouncesTable = WebPreAggregatedBouncesTable()
-
-    # Revenue analytics tables
-    persons_revenue_analytics: PersonsRevenueAnalyticsTable = PersonsRevenueAnalyticsTable()
-    groups_revenue_analytics: GroupsRevenueAnalyticsTable = GroupsRevenueAnalyticsTable()
-
-    raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
-    raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
-    raw_persons: RawPersonsTable = RawPersonsTable()
-    raw_groups: RawGroupsTable = RawGroupsTable()
-    raw_cohort_people: RawCohortPeople = RawCohortPeople()
-    raw_person_distinct_id_overrides: RawPersonDistinctIdOverridesTable = RawPersonDistinctIdOverridesTable()
-    raw_error_tracking_issue_fingerprint_overrides: RawErrorTrackingIssueFingerprintOverridesTable = (
-        RawErrorTrackingIssueFingerprintOverridesTable()
-    )
-    raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV1()
-    raw_sessions_v3: Union[RawSessionsTableV1, RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV3()
-    raw_query_log: RawQueryLogArchiveTable = RawQueryLogArchiveTable()
-    raw_document_embeddings: RawDocumentEmbeddingsTable = RawDocumentEmbeddingsTable()
-    pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
-    # logs table for logs product
-    logs: LogsTable = LogsTable()
-
-    # system tables
-    numbers: NumbersTable = NumbersTable()
-    system: TableGroup = SystemTables()
-
-    # These are the tables exposed via SQL editor autocomplete and data management
-    _table_names: ClassVar[list[str]] = [
-        "events",
-        "groups",
-        "persons",
-        "sessions",
-        "query_log",
-        *system.resolve_all_table_names(),
-    ]
 
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []
@@ -206,6 +207,9 @@ class Database(BaseModel):
 
     _timezone: Optional[str]
     _week_start_day: Optional[WeekStartDay]
+
+    # TODO: Improve typing, allow different levels of errors
+    diagnostics: list[str] = []
 
     def __init__(self, timezone: Optional[str] = None, week_start_day: Optional[WeekStartDay] = None):
         super().__init__()
@@ -222,135 +226,80 @@ class Database(BaseModel):
         return self._week_start_day or WeekStartDay.SUNDAY
 
     def has_table(self, table_name: str | list[str]) -> bool:
-        if not isinstance(table_name, list) and "." not in table_name:
-            return hasattr(self, table_name)
+        if isinstance(table_name, str):
+            table_name = table_name.split(".")
+        return self.tables.has_child(table_name)
 
-        if isinstance(table_name, list):
-            # Handling trends data warehouse nodes
-            if len(table_name) == 1 and "." in table_name[0]:
-                table_chain = table_name[0].split(".")
-            else:
-                table_chain = table_name
-        else:
-            table_chain = table_name.split(".")
+    def get_table_node(self, table_name: str | list[str]) -> TableNode:
+        if isinstance(table_name, str):
+            table_name = table_name.split(".")
 
-        if not hasattr(self, table_chain[0]):
-            return False
+        return self.tables.get_child(table_name)
 
+    def get_table(self, table_name: str | list[str]) -> Table:
         try:
-            return self.get_table_by_chain(table_chain) is not None
-        except QueryError:
-            return False
+            return cast(Table, self.get_table_node(table_name).get())
+        except ResolutionError as e:
+            raise QueryError(f"Unknown table `{'.'.join(table_name)}`.") from e
 
-    def get_table(self, table_name: str) -> Table:
-        if "." in table_name:
-            return self.get_table_by_chain(table_name.split("."))
-
-        if self.has_table(table_name):
-            return getattr(self, table_name)
-
-        raise QueryError(f'Unknown table "{table_name}".')
-
-    def get_table_by_chain(self, table_chain: list[str]) -> Table:
-        # Handling trends data warehouse nodes
-        if len(table_chain) == 1 and "." in table_chain[0]:
-            table_chain = table_chain[0].split(".")
-
-        if not self.has_table(table_chain[0]):
-            raise QueryError(f'Unknown table "{".".join(table_chain)}".')
-
-        database_table = getattr(self, table_chain[0])
-
-        if isinstance(database_table, TableGroup) and len(table_chain) > 1:
-            for ele in table_chain[1:]:
-                if isinstance(database_table, TableGroup):
-                    if not database_table.has_table(ele):
-                        raise QueryError(f'Unknown table "{".".join(table_chain)}".')
-
-                    database_table = database_table.get_table(ele)
-
-        if not database_table or not isinstance(database_table, Table):
-            raise QueryError(f'Unknown table "{".".join(table_chain)}".')
-
-        return database_table
-
-    def get_all_tables(self) -> list[str]:
+    def get_all_table_names(self) -> list[str]:
         warehouse_table_names = list(filter(lambda x: "." in x, self._warehouse_table_names))
 
         return (
-            self._table_names
+            self.get_posthog_table_names()
             + warehouse_table_names
             + self._warehouse_self_managed_table_names
             + self._view_table_names
         )
 
-    def get_posthog_tables(self) -> list[str]:
-        return self._table_names
+    # These are the tables exposed via SQL editor autocomplete and data management
+    def get_posthog_table_names(self) -> list[str]:
+        return [
+            "events",
+            "groups",
+            "persons",
+            "sessions",
+            *self.get_system_table_names(),
+        ]
 
-    def get_system_tables(self) -> list[str]:
-        return [*self.system.resolve_all_table_names(), "query_log"]
+    def get_system_table_names(self) -> list[str]:
+        return [*cast(SystemTables, self.tables.children["system"]).resolve_all_table_names(), "query_log"]
 
-    def get_warehouse_tables(self) -> list[str]:
+    def get_warehouse_table_names(self) -> list[str]:
         return self._warehouse_table_names + self._warehouse_self_managed_table_names
 
-    def get_views(self) -> list[str]:
+    def get_view_names(self) -> list[str]:
         return self._view_table_names
 
-    # This guaranttes that we can have both tables and views (or anything)
-    # with the same namespace (like Stripe, for example) and they're merged
-    # together as an attribute when we try setting them
-    def merge_or_setattr(self, f_name: str, f_def: Any):
-        current = getattr(self, f_name, None)
-        if current is not None:
-            if isinstance(current, TableGroup) and isinstance(f_def, TableGroup):
-                current.merge_with(f_def)  # Inplace
-            else:
-                raise ValueError(
-                    f"Conflict trying to add table {f_name}: {current} and {f_def} have the same key but are not the same"
-                )
-        else:
-            setattr(self, f_name, f_def)
+    def _add_warehouse_tables(self, node: TableNode):
+        self.tables.merge_with(node)
+        for name in node.children.keys():
+            self._warehouse_table_names.append(name)
 
-        return self
+    def _add_warehouse_self_managed_tables(self, node: TableNode):
+        self.tables.merge_with(node)
+        for name in node.children.keys():
+            self._warehouse_self_managed_table_names.append(name)
 
-    def add_warehouse_tables(self, **field_definitions: Any):
-        for f_name, f_def in field_definitions.items():
-            self.merge_or_setattr(f_name, f_def)
-
-            if isinstance(f_def, Table):
-                self._warehouse_table_names.append(f_name)
-            elif isinstance(f_def, TableGroup):
-                self._warehouse_table_names.extend([f"{f_name}.{x}" for x in f_def.resolve_all_table_names()])
-
-    def add_warehouse_self_managed_tables(self, **field_definitions: Any):
-        for f_name, f_def in field_definitions.items():
-            self.merge_or_setattr(f_name, f_def)
-            self._warehouse_self_managed_table_names.append(f_name)
-
-    def add_views(self, **field_definitions: Any):
-        for f_name, f_def in field_definitions.items():
-            self.merge_or_setattr(f_name, f_def)
-
-            # No need to add TableGroups to the view table names,
-            # they're already with their chained names
-            if isinstance(f_def, TableGroup):
-                continue
-
-            self._view_table_names.append(f_name)
+    def _add_views(self, node: TableNode):
+        self.tables.merge_with(node)
+        for name in node.children.keys():
+            self._view_table_names.append(name)
 
 
 def _use_person_properties_from_events(database: Database) -> None:
-    database.events.fields["person"] = FieldTraverser(chain=["poe"])
+    database.get_table("events").fields["person"] = FieldTraverser(chain=["poe"])
 
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
-    database.events.fields["event_person_id"] = StringDatabaseField(name="person_id")
-    database.events.fields["override"] = LazyJoin(
+    table = database.get_table("events")
+    table.fields["event_person_id"] = StringDatabaseField(name="person_id")
+    table.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
-        join_table=database.person_distinct_id_overrides,
+        join_table=database.get_table("person_distinct_id_overrides"),
         join_function=join_with_person_distinct_id_overrides_table,
     )
-    database.events.fields["person_id"] = ExpressionField(
+    table.fields["person_id"] = ExpressionField(
         name="person_id",
         expr=parse_expr(
             # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.distinct_id`` is not Nullable
@@ -362,17 +311,18 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
 
 
 def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: Database) -> None:
-    database.events.fields["event_issue_id"] = ExpressionField(
+    table = database.get_table("events")
+    table.fields["event_issue_id"] = ExpressionField(
         name="event_issue_id",
         # convert to UUID to match type of `issue_id` on overrides table
         expr=parse_expr("toUUID(properties.$exception_issue_id)"),
     )
-    database.events.fields["exception_issue_override"] = LazyJoin(
+    table.fields["exception_issue_override"] = LazyJoin(
         from_field=["fingerprint"],
         join_table=ErrorTrackingIssueFingerprintOverridesTable(),
         join_function=join_with_error_tracking_issue_fingerprint_overrides_table,
     )
-    database.events.fields["issue_id"] = ExpressionField(
+    table.fields["issue_id"] = ExpressionField(
         name="issue_id",
         expr=parse_expr(
             # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.fingerprint`` is not Nullable
@@ -390,6 +340,7 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
     - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
     """
     group_mappings = {mapping.group_type_index: mapping for mapping in GroupTypeMapping.objects.filter(team=team)}
+    table = database.get_table("events")
 
     for group_index in range(5):
         field_name = f"$group_{group_index}"
@@ -398,13 +349,13 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
         # If no mapping exists or the mapping predated this feature, leave the original field unchanged
         if group_mapping and group_mapping.created_at:
             # Store the original field as a "raw" version before replacing
-            original_field = database.events.fields[field_name]
+            original_field = table.fields[field_name]
             raw_field_name = f"_{field_name}_raw"
-            database.events.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
+            table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
 
             created_at_str = group_mapping.created_at.strftime("%Y-%m-%d %H:%M:%S")
 
-            database.events.fields[field_name] = ExpressionField(
+            table.fields[field_name] = ExpressionField(
                 name=field_name,
                 expr=ast.Call(
                     name="if",
@@ -423,11 +374,14 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
 
 
 def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
-    poe = cast(VirtualTable, database.events.fields["poe"])
+    events_table = database.get_table("events")
+    persons_table = database.get_table("persons")
+    groups_table = database.get_table("groups")
+    poe = cast(VirtualTable, events_table.fields["poe"])
 
     with timings.measure("initial_referring_domain_type"):
         field_name = "$virt_initial_referring_domain_type"
-        database.persons.fields[field_name] = create_initial_domain_type(name=field_name, timings=timings)
+        persons_table.fields[field_name] = create_initial_domain_type(name=field_name, timings=timings)
         poe.fields[field_name] = create_initial_domain_type(
             name=field_name,
             timings=timings,
@@ -435,7 +389,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
         )
     with timings.measure("initial_channel_type"):
         field_name = "$virt_initial_channel_type"
-        database.persons.fields[field_name] = create_initial_channel_type(
+        persons_table.fields[field_name] = create_initial_channel_type(
             name=field_name, custom_rules=modifiers.customChannelTypeRules, timings=timings
         )
         poe.fields[field_name] = create_initial_channel_type(
@@ -454,12 +408,9 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
                 field_name = f"$virt_{field}"
                 chain = ["revenue_analytics", field]
 
-                database.persons.fields[field_name] = ast.FieldTraverser(chain=chain)
-                database.groups.fields[field_name] = ast.FieldTraverser(chain=chain)
+                persons_table.fields[field_name] = ast.FieldTraverser(chain=chain)
+                groups_table.fields[field_name] = ast.FieldTraverser(chain=chain)
                 poe.fields[field_name] = ast.FieldTraverser(chain=chain)
-
-
-TableStore = dict[str, Table | TableGroup]
 
 
 @tracer.start_as_current_span("create_hogql_database")
@@ -496,30 +447,34 @@ def create_hogql_database(
         span = trace.get_current_span()
         span.set_attribute("team_id", team.pk)
 
+    with timings.measure("database"):
+        database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)
-        database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
-        poe = cast(VirtualTable, database.events.fields["poe"])
+
+        events_table = database.get_table("events")
+        poe = cast(VirtualTable, events_table.fields["poe"])
 
         if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
             # no change
-            database.events.fields["person"] = FieldTraverser(chain=["pdi", "person"])
-            database.events.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
+            events_table.fields["person"] = FieldTraverser(chain=["pdi", "person"])
+            events_table.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
         elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
-            database.events.fields["person_id"] = StringDatabaseField(name="person_id")
+            events_table.fields["person_id"] = StringDatabaseField(name="person_id")
             _use_person_properties_from_events(database)
 
         elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
             _use_person_id_from_person_overrides(database)
             _use_person_properties_from_events(database)
-            poe.fields["id"] = database.events.fields["person_id"]
+            poe.fields["id"] = events_table.fields["person_id"]
 
         elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
             _use_person_id_from_person_overrides(database)
-            database.events.fields["person"] = LazyJoin(
+            events_table.fields["person"] = LazyJoin(
                 from_field=["person_id"],
-                join_table=database.persons,
+                join_table=database.get_table("persons"),
                 join_function=join_with_persons_table,
             )
 
@@ -531,66 +486,76 @@ def create_hogql_database(
             or modifiers.sessionTableVersion == SessionTableVersion.AUTO
         ):
             raw_sessions: Union[RawSessionsTableV2, RawSessionsTableV3] = RawSessionsTableV2()
-            database.raw_sessions = raw_sessions
+            database.tables.add_child(
+                TableNode(name="raw_sessions", table=raw_sessions), table_conflict_mode="override"
+            )
+
             sessions: Union[SessionsTableV2, SessionsTableV3] = SessionsTableV2()
-            database.sessions = sessions
-            events = database.events
-            events.fields["session"] = LazyJoin(
+            database.tables.add_child(TableNode(name="sessions", table=sessions), table_conflict_mode="override")
+
+            events_table = database.get_table("events")
+            events_table.fields["session"] = LazyJoin(
                 from_field=["$session_id"],
                 join_table=sessions,
                 join_function=join_events_table_to_sessions_table_v2,
             )
-            replay_events = database.session_replay_events
+
+            replay_events = database.get_table("session_replay_events")
             replay_events.fields["session"] = LazyJoin(
                 from_field=["session_id"],
                 join_table=sessions,
                 join_function=join_replay_table_to_sessions_table_v2,
             )
-            cast(LazyJoin, replay_events.fields["events"]).join_table = events
-            raw_replay_events = database.raw_session_replay_events
+            cast(LazyJoin, replay_events.fields["events"]).join_table = events_table
+
+            raw_replay_events = database.get_table("raw_session_replay_events")
             raw_replay_events.fields["session"] = LazyJoin(
                 from_field=["session_id"],
                 join_table=sessions,
                 join_function=join_replay_table_to_sessions_table_v2,
             )
-            cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
+            cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
         elif modifiers.sessionTableVersion == SessionTableVersion.V3:
             sessions = SessionsTableV3()
-            database.sessions = sessions
-            events = database.events
-            events.fields["session"] = LazyJoin(
+            database.tables.add_child(TableNode(name="sessions", table=sessions), table_conflict_mode="override")
+
+            events_table = database.get_table("events")
+            events_table.fields["session"] = LazyJoin(
                 from_field=["$session_id"],
                 join_table=sessions,
                 join_function=join_events_table_to_sessions_table_v3,
             )
-            replay_events = database.session_replay_events
+
+            replay_events = database.get_table("session_replay_events")
             replay_events.fields["session"] = LazyJoin(
                 from_field=["session_id"],
                 join_table=sessions,
                 join_function=join_replay_table_to_sessions_table_v3,
             )
-            cast(LazyJoin, replay_events.fields["events"]).join_table = events
-            raw_replay_events = database.raw_session_replay_events
+            cast(LazyJoin, replay_events.fields["events"]).join_table = events_table
+
+            raw_replay_events = database.get_table("raw_session_replay_events")
             raw_replay_events.fields["session"] = LazyJoin(
                 from_field=["session_id"],
                 join_table=sessions,
                 join_function=join_replay_table_to_sessions_table_v3,
             )
-            cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
+            cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
 
     with timings.measure("virtual_fields"):
         _use_virtual_fields(database, modifiers, timings)
 
     with timings.measure("group_type_mapping"):
         _setup_group_key_fields(database, team)
+        events_table = database.get_table("events")
         for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
-            if database.events.fields.get(mapping.group_type) is None:
-                database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
+            if events_table.fields.get(mapping.group_type) is None:
+                events_table.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
-    warehouse_tables: TableStore = {}
     warehouse_tables_dot_notation_mapping: dict[str, str] = {}
-    self_managed_warehouse_tables: TableStore = {}
-    views: TableStore = {}
+    warehouse_tables: TableNode = TableNode(name="root", children={})
+    self_managed_warehouse_tables: TableNode = TableNode(name="root", children={})
+    views: TableNode = TableNode(name="root", children={})
 
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):
@@ -603,7 +568,10 @@ def create_hogql_database(
 
         for saved_query in saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
-                views[saved_query.name] = saved_query.hogql_definition(modifiers)
+                views.add_child(
+                    TableNode(name=saved_query.name, table=saved_query.hogql_definition(modifiers)),
+                    table_conflict_mode="ignore",
+                )
 
     with timings.measure("revenue_analytics_views"):
         revenue_views = []
@@ -619,25 +587,25 @@ def create_hogql_database(
         # but still allowing the bare `stripe.prefix.table_name` string access
         for view in revenue_views:
             try:
-                views[view.name] = view
+                views.add_child(TableNode(name=view.name, table=view))
                 create_nested_table_group(view.name.split("."), views, view)
             except Exception as e:
                 capture_exception(e)
                 continue
 
-    class WarehousePropertiesVirtualTable(VirtualTable):
-        fields: dict[str, FieldOrTable]
-        parent_table: HogQLDataWarehouseTable
+        class WarehousePropertiesVirtualTable(VirtualTable):
+            fields: dict[str, FieldOrTable]
+            parent_table: HogQLDataWarehouseTable
 
-        def to_printed_hogql(self):
-            return self.parent_table.to_printed_hogql()
+            def to_printed_hogql(self):
+                return self.parent_table.to_printed_hogql()
 
-        def to_printed_clickhouse(self, context):
-            return self.parent_table.to_printed_clickhouse(context)
+            def to_printed_clickhouse(self, context):
+                return self.parent_table.to_printed_clickhouse(context)
 
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
-            tables = list(
+            tables: list[DataWarehouseTable] = list(
                 DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                 .exclude(deleted=True)
                 .select_related("credential", "external_data_source")
@@ -659,9 +627,9 @@ def create_hogql_database(
                     )
 
                 if table.external_data_source:
-                    warehouse_tables[table.name] = s3_table
+                    warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
                 else:
-                    self_managed_warehouse_tables[table.name] = s3_table
+                    self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
 
                 # Add warehouse table using dot notation
                 if table.external_data_source:
@@ -685,30 +653,24 @@ def create_hogql_database(
                     s3_table.name = joined_table_chain
                     warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
 
-    def define_mappings(store: TableStore, get_table: Callable):
+    def define_mappings(root_node: TableNode, get_table: Callable):
         table: Table | None = None
 
-        if warehouse_modifier.table_name in store:
-            _table = store[warehouse_modifier.table_name]
+        if root_node.has_child([warehouse_modifier.table_name]):
+            _table = root_node.get_child([warehouse_modifier.table_name]).get()
             assert isinstance(_table, Table)
+
             table = _table
 
         if "." in warehouse_modifier.table_name:
             table_chain = warehouse_modifier.table_name.split(".")
-            _table_or_group: Table | TableGroup | None = store.get(table_chain[0])
-            if _table_or_group is None:
-                return store
+            if not root_node.has_child(table_chain[0]):
+                return root_node
 
-            for ele in table_chain[1:]:
-                if isinstance(_table_or_group, Table):
-                    table = _table_or_group
-                elif isinstance(_table_or_group, TableGroup):
-                    _table_or_group = _table_or_group.tables.get(ele)
-                    if isinstance(_table_or_group, Table):
-                        table = _table_or_group
+            table = root_node.get_child(table_chain).get()
 
         if table is None:
-            return store
+            return root_node
 
         if "id" not in table.fields.keys():
             table.fields["id"] = ExpressionField(
@@ -767,14 +729,14 @@ def create_hogql_database(
                     expr=parse_expr(warehouse_modifier.distinct_id_field),
                 )
 
-        return store
+        return root_node
 
     if modifiers.dataWarehouseEventsModifiers:
         with timings.measure("data_warehouse_event_modifiers"):
             for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
                 with timings.measure(f"data_warehouse_event_modifier_{warehouse_modifier.table_name}"):
                     # TODO: add all field mappings
-                    is_view = warehouse_modifier.table_name in views.keys()
+                    is_view = views.has_child([warehouse_modifier.table_name])
 
                     if is_view:
                         views = define_mappings(
@@ -804,9 +766,9 @@ def create_hogql_database(
                             .latest("created_at"),
                         )
 
-    database.add_warehouse_tables(**warehouse_tables)
-    database.add_warehouse_self_managed_tables(**self_managed_warehouse_tables)
-    database.add_views(**views)
+    database._add_warehouse_tables(warehouse_tables)
+    database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
+    database._add_views(views)
 
     with timings.measure("data_warehouse_joins"):
         for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
@@ -839,9 +801,10 @@ def create_hogql_database(
                 )
 
                 if join.source_table_name == "persons":
-                    person_field = database.events.fields["person"]
+                    events_table = database.get_table("events")
+                    person_field = events_table.fields["person"]
                     if isinstance(person_field, ast.FieldTraverser):
-                        table_or_field: ast.FieldOrTable = database.events
+                        table_or_field: ast.FieldOrTable = events_table
                         for chain in person_field.chain:
                             if isinstance(table_or_field, ast.LazyJoin):
                                 table_or_field = table_or_field.resolve_table(
@@ -871,7 +834,7 @@ def create_hogql_database(
                                 source_table_key_node.args[0].chain = ["person", *source_table_key_node.args[0].chain]
                                 override_source_table_key = source_table_key_node.to_hogql()
 
-                            database.events.fields[join.field_name] = LazyJoin(
+                            events_table.fields[join.field_name] = LazyJoin(
                                 from_field=from_field,
                                 to_field=to_field,
                                 join_table=joining_table,
@@ -899,35 +862,20 @@ def create_hogql_database(
     return database
 
 
-def create_nested_table_group(
-    table_chain: list[str],
-    store: TableStore,
-    table: Table,
-) -> TableGroup | None:
-    last_table_group: TableGroup | None = None
-    for index, ele in enumerate(table_chain):
-        is_last_element = index == len(table_chain) - 1
-        if last_table_group:
-            if is_last_element:
-                last_table_group.tables[ele] = table
-            elif last_table_group.has_table(ele):
-                last_table_group_table_group = last_table_group.get_table(ele)
-                assert isinstance(last_table_group_table_group, TableGroup)
-                last_table_group = last_table_group_table_group
-            else:
-                new_group = TableGroup()
-                last_table_group.tables[ele] = new_group
-                last_table_group = new_group
-        elif store.get(ele) is not None:
-            parent_table_group = store[ele]
-            if isinstance(parent_table_group, TableGroup):
-                last_table_group = parent_table_group
-        else:
-            new_group = TableGroup()
-            store[ele] = new_group
-            last_table_group = new_group
+def create_nested_table_group(table_chain: list[str], root_node: TableNode, table: Table) -> None:
+    # Create a deeply nested table node structure
+    start: TableNode = TableNode(name=table_chain[0])
+    current: TableNode = start
+    for name in table_chain[1:]:
+        child = TableNode(name=name)
+        current.add_child(child)
+        current = child
 
-    return last_table_group
+    # Make sure we add the table
+    current.table = table
+
+    # Add/merge the whole structure back into the root node
+    root_node.add_child(start)
 
 
 @dataclasses.dataclass
@@ -967,24 +915,24 @@ def serialize_database(
         raise ResolutionError("Must provide team_id to serialize_database")
 
     # PostHog tables
-    posthog_tables = context.database.get_posthog_tables()
-    for table_key in posthog_tables:
-        if include_only and table_key not in include_only:
+    posthog_table_names = context.database.get_posthog_table_names()
+    for table_name in posthog_table_names:
+        if include_only and table_name not in include_only:
             continue
 
         field_input: dict[str, Any] = {}
-        table = context.database.get_table(table_key)
+        table = context.database.get_table(table_name)
         if isinstance(table, FunctionCallTable):
             field_input = table.get_asterisk()
         elif isinstance(table, Table):
             field_input = table.fields
 
-        fields = serialize_fields(field_input, context, table_key.split("."), table_type="posthog")
+        fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
         fields_dict = {field.name: field for field in fields}
-        tables[table_key] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_key, name=table_key)
+        tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
 
     # System tables
-    system_tables = context.database.get_system_tables()
+    system_tables = context.database.get_system_table_names()
     for table_key in system_tables:
         if include_only and table_key not in include_only:
             continue
@@ -1001,8 +949,8 @@ def serialize_database(
         tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
 
     # Data Warehouse Tables and Views - Fetch all related data in one go
-    warehouse_table_names = context.database.get_warehouse_tables()
-    views = context.database.get_views()
+    warehouse_table_names = context.database.get_warehouse_table_names()
+    views = context.database.get_view_names()
 
     # Fetch warehouse tables with related data in a single query
     warehouse_tables_with_data = (
@@ -1112,12 +1060,9 @@ def serialize_database(
         if include_only and view_name not in include_only:
             continue
 
-        view: Table | TableGroup | None = getattr(context.database, view_name, None)
-        if view is None:
-            continue
-
-        # Don't need to process TableGroups, they're already processed below
-        if isinstance(view, TableGroup):
+        try:
+            view = context.database.get_table(view_name)
+        except QueryError:
             continue
 
         fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")

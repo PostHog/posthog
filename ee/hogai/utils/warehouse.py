@@ -11,7 +11,7 @@ def serialize_database_schema(database: Database, hogql_context: HogQLContext):
     # Simplify the schema description by only including the most important core tables, plus all warehouse tables and views
     serialized_database = serialize_database(
         hogql_context,
-        include_only={"events", "groups", "persons", *database.get_warehouse_tables(), *database.get_views()},
+        include_only={"events", "groups", "persons", *database.get_warehouse_table_names(), *database.get_view_names()},
     )
 
     schema_description = "\n\n".join(
