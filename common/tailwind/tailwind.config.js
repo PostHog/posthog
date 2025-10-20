@@ -816,12 +816,12 @@ const config = {
             // Standard spacing utilities for backwards compatibility
             for (const [key, value] of Object.entries(spacing)) {
                 if (!key.includes('.')) {
-                    newUtilities[`.gap-y-${key} > :not([hidden]) ~ :not([hidden])`] = {
+                    newUtilities[`.deprecated-space-y-${key} > :not([hidden]) ~ :not([hidden])`] = {
                         '--tw-space-y-reverse': '0',
                         'margin-top': `calc(${value} * calc(1 - var(--tw-space-y-reverse)))`,
                         'margin-bottom': `calc(${value} * var(--tw-space-y-reverse))`,
                     }
-                    newUtilities[`.gap-x-${key} > :not([hidden]) ~ :not([hidden])`] = {
+                    newUtilities[`.deprecated-space-x-${key} > :not([hidden]) ~ :not([hidden])`] = {
                         '--tw-space-x-reverse': '0',
                         'margin-right': `calc(${value} * var(--tw-space-x-reverse))`,
                         'margin-left': `calc(${value} * calc(1 - var(--tw-space-x-reverse)))`,
