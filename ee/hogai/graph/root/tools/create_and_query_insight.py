@@ -9,7 +9,9 @@ from posthog.schema import AssistantContextualTool, AssistantToolCallMessage, Vi
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
+from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState
 
 INSIGHT_TOOL_PROMPT = """
@@ -107,12 +109,33 @@ Do not remove any fields from the current insight definition. Do not change any 
 </system_reminder>
 """.strip()
 
-INSIGHT_TOOL_FAILURE_PROMPT = """
-The agent has encountered an error while creating an insight.
+INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT = """
 <system_reminder>
 Inform the user that you've encountered an error during the creation of the insight. Afterwards, try to generate a new insight with a different query.
 Terminate if the error persists.
 </system_reminder>
+""".strip()
+
+INSIGHT_TOOL_HANDLED_FAILURE_PROMPT = """
+The agent has encountered the error while creating an insight.
+
+Generated output:
+```
+{{{output}}}
+```
+
+Error message:
+```
+{{{error_message}}}
+```
+
+{{{system_reminder}}}
+""".strip()
+
+
+INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT = """
+The agent has encountered an unknown error while creating an insight.
+{{{system_reminder}}}
 """.strip()
 
 
@@ -145,12 +168,23 @@ class CreateAndQueryInsightTool(MaxTool):
             },
             deep=True,
         )
-        dict_state = await graph.ainvoke(new_state)
+        try:
+            dict_state = await graph.ainvoke(new_state)
+        except SchemaGenerationException as e:
+            return format_prompt_string(
+                INSIGHT_TOOL_HANDLED_FAILURE_PROMPT,
+                output=e.llm_output,
+                error_message=e.validation_message,
+                system_reminder=INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT,
+            ), None
+
         updated_state = AssistantState.model_validate(dict_state)
         maybe_viz_message, tool_call_message = updated_state.messages[-2:]
 
         if not isinstance(tool_call_message, AssistantToolCallMessage):
-            return INSIGHT_TOOL_FAILURE_PROMPT, None
+            return format_prompt_string(
+                INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT, system_reminder=INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT
+            ), None
 
         # If the previous message is not a visualization message, the agent has requested human feedback.
         if not isinstance(maybe_viz_message, VisualizationMessage):
