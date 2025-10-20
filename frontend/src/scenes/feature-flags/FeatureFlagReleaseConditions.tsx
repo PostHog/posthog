@@ -24,7 +24,7 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import { capitalizeFirstLetter, clamp, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
 import { urls } from 'scenes/urls'
 
@@ -448,7 +448,7 @@ export function FeatureFlagReleaseConditions({
                                     ) {
                                         return `(${humanFriendlyNumber(
                                             Math.floor(
-                                                (affectedUserCount * Math.min(group.rollout_percentage ?? 100, 100)) /
+                                                (affectedUserCount * clamp(group.rollout_percentage ?? 100, 0, 100)) /
                                                     100
                                             )
                                         )} / ${humanFriendlyNumber(totalUsers)})`
