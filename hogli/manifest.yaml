@@ -156,6 +156,7 @@ deploy:
             checks
 build:
     build:frontend:
+        cmd: pnpm --filter=@posthog/frontend build
         description: Build frontend packages and run TypeScript compilation
     build:schema-json:
         cmd: pnpm --filter=@posthog/frontend run schema:build:json
@@ -171,9 +172,11 @@ build:
         description: Generate core filter definitions taxonomy JSON for frontend
 docker:
     docker:services:up:
+        cmd: docker compose -f docker-compose.dev.yml up -d
         description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
             Kafka)
     docker:services:down:
+        cmd: docker compose -f docker-compose.dev.yml down
         description: Stop Docker infrastructure services
     docker:deprecated:
         bin_script: docker
@@ -213,6 +216,7 @@ docker:
         description: Set up Docker services and run evaluation scripts with cleanup
 migrations:
     db:migrate:
+        bin_script: migrate
         description: Apply database migrations (Django and ClickHouse)
     migrations:run:
         bin_script: migrate
@@ -228,8 +232,10 @@ migrations:
         description: Sync feature flags from configuration
 tests:
     tests:python:
+        cmd: pytest
         description: Run Python test suite
     tests:js:
+        cmd: pnpm --filter=@posthog/frontend test
         description: Run JavaScript test suite
     tests:run:
         bin_script: tests
@@ -314,10 +320,6 @@ tools:
         description: Full reset - stop services, migrate, load demo data
         # TODO: deprecated - use hogli dev:reset instead
 utilities:
-    git:worktree:
-        description: Manage git worktrees for isolated development
-    products:list:
-        description: List available product packages across frontend and backend
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
