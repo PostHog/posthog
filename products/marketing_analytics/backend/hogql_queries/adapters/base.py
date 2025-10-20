@@ -69,6 +69,14 @@ class MetaAdsConfig(BaseMarketingConfig):
 
 
 @dataclass
+class TikTokAdsConfig(BaseMarketingConfig):
+    """Configuration for TikTok Ads marketing sources"""
+
+    campaign_table: DataWarehouseTable
+    stats_table: DataWarehouseTable
+
+
+@dataclass
 class ValidationResult:
     """Result of source validation"""
 
