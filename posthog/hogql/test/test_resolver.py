@@ -19,7 +19,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
-    TableGroup,
+    TableNode,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import QueryError
@@ -762,22 +762,62 @@ class TestResolver(BaseTest):
             resolve_types(node, context, dialect="clickhouse")
 
     def test_nested_table_name(self):
-        table_group = TableGroup(tables={"events": EventsTable()})
-        self.database.__setattr__("nested", table_group)
+        table_group = TableNode(
+            name="root",
+            children={
+                "nested": TableNode(
+                    name="nested",
+                    children={"events": TableNode(name="events", table=EventsTable())},
+                )
+            },
+        )
+        self.database.tables.merge_with(table_group)
+
         query = "SELECT * FROM nested.events"
         resolve_types(self._select(query), self.context, dialect="hogql")
 
     def test_deeply_nested_table_name(self):
-        table_group = TableGroup(
-            tables={
-                "events": TableGroup(
-                    tables={"some": TableGroup(tables={"other": TableGroup(tables={"table": EventsTable()})})}
+        table_group = TableNode(
+            name="root",
+            children={
+                "very": TableNode(
+                    name="very",
+                    children={
+                        "deeply": TableNode(
+                            name="deeply",
+                            children={
+                                "nested": TableNode(
+                                    name="nested",
+                                    children={"events": TableNode(name="events", table=EventsTable())},
+                                )
+                            },
+                        )
+                    },
                 )
-            }
+            },
         )
+        self.database.tables.merge_with(table_group)
 
-        self.database.__setattr__("nested", table_group)
-        query = "SELECT * FROM nested.events.some.other.table"
+        query = "SELECT * FROM very.deeply.nested.events"
+        resolve_types(self._select(query), self.context, dialect="hogql")
+
+    def test_nested_table_on_existing_table(self):
+        table_group = TableNode(
+            name="root",
+            children={
+                "events": TableNode(
+                    name="events",
+                    table=EventsTable(),
+                    children={"copy": TableNode(name="copy", table=EventsTable())},
+                )
+            },
+        )
+        self.database.tables.merge_with(table_group)
+
+        query = "SELECT * FROM events"
+        resolve_types(self._select(query), self.context, dialect="hogql")
+
+        query = "SELECT * FROM events.copy"
         resolve_types(self._select(query), self.context, dialect="hogql")
 
     def test_lambda_scope(self):
