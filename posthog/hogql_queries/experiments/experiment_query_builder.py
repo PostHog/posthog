@@ -284,7 +284,7 @@ class ExperimentQueryBuilder:
 
     def _build_funnel_steps_filter(self) -> ast.Expr:
         """
-        Returns the expression for filter funnel steps (matches ANY step) within
+        Returns the expression to filter funnel steps (matches ANY step) within
         the time period of the experiment + the conversion window if set.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
