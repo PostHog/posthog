@@ -301,9 +301,7 @@ export function Results({
         search,
         selectedCategory,
         isSearching,
-        newTabSceneDataIncludePersons,
-        newTabSceneDataIncludeEventDefinitions,
-        newTabSceneDataIncludePropertyDefinitions,
+        newTabSceneDataInclude,
     } = useValues(newTabSceneLogic({ tabId }))
     const { setSearch } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -318,47 +316,49 @@ export function Results({
         }
 
         const orderedSections: string[] = []
+        const showAll = newTabSceneDataInclude.includes('all')
 
         // Add sections in order: persons, events, properties (if enabled), new, apps, data-management, recents
-        if (newTabSceneDataIncludePersons) {
+        if (showAll || newTabSceneDataInclude.includes('persons')) {
             orderedSections.push('persons')
         }
-        if (newTabSceneDataIncludeEventDefinitions) {
+        if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
             orderedSections.push('eventDefinitions')
         }
-        if (newTabSceneDataIncludePropertyDefinitions) {
+        if (showAll || newTabSceneDataInclude.includes('propertyDefinitions')) {
             orderedSections.push('propertyDefinitions')
         }
 
         const mainSections = ['create-new', 'apps', 'data-management', 'recents']
         mainSections.forEach((section) => {
-            orderedSections.push(section)
+            if (showAll || newTabSceneDataInclude.includes(section as any)) {
+                orderedSections.push(section)
+            }
         })
 
         return orderedSections
             .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
             .filter(([section, items]) => {
-                // Always show enabled sections (even when empty)
-                if (section === 'persons' && newTabSceneDataIncludePersons) {
+                // Always show enabled sections (even when empty) for data sections
+                if (section === 'persons' && (showAll || newTabSceneDataInclude.includes('persons'))) {
                     return true
                 }
-                if (section === 'eventDefinitions' && newTabSceneDataIncludeEventDefinitions) {
+                if (
+                    section === 'eventDefinitions' &&
+                    (showAll || newTabSceneDataInclude.includes('eventDefinitions'))
+                ) {
                     return true
                 }
-                if (section === 'propertyDefinitions' && newTabSceneDataIncludePropertyDefinitions) {
+                if (
+                    section === 'propertyDefinitions' &&
+                    (showAll || newTabSceneDataInclude.includes('propertyDefinitions'))
+                ) {
                     return true
                 }
                 // Hide empty categories for other sections
                 return items.length > 0
             })
-    }, [
-        newTabSceneData,
-        groupedFilteredItems,
-        newTabSceneDataGroupedItems,
-        newTabSceneDataIncludePersons,
-        newTabSceneDataIncludeEventDefinitions,
-        newTabSceneDataIncludePropertyDefinitions,
-    ])
+    }, [newTabSceneData, groupedFilteredItems, newTabSceneDataGroupedItems, newTabSceneDataInclude])
 
     // Memoized helper to determine which category should get first focus
     const firstCategoryWithResults = useMemo((): string | null => {
@@ -491,8 +491,9 @@ export function Results({
                 />
             ))}
 
-            {/* Show "No results found" for non-flagged version when no results and not searching */}
-            {filteredItemsGrid.length === 0 && !isSearching && (
+            {/* Show "No results found" when there's a search term but no results */}
+            {(!newTabSceneData && filteredItemsGrid.length === 0 && !isSearching) ||
+            (newTabSceneData && search.trim() !== '' && !hasResults && !isSearching) ? (
                 <div className="flex flex-col gap-4 px-2 py-2 bg-glass-bg-3000 rounded-lg col-span-full">
                     <div className="flex flex-col gap-1">
                         <p className="text-tertiary mb-1">
@@ -526,7 +527,7 @@ export function Results({
                         </div>
                     </div>
                 </div>
-            )}
+            ) : null}
         </>
     )
 }

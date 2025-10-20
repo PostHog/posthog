@@ -1,1 +1,1 @@
-export { CommandInput, type Command } from './CommandInput'
+export { CommandInput, type Command, type CommandInputHandle } from './CommandInput'

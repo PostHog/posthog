@@ -1,5 +1,5 @@
 import { DropdownMenuGroup } from '@radix-ui/react-dropdown-menu'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 import { IconCheck } from '@posthog/icons'
 
@@ -14,6 +14,7 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
+import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { TextInputPrimitive, textInputVariants } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
@@ -33,27 +34,53 @@ interface CommandInputProps<T = string> {
     activeCommands?: T[]
 }
 
-export function CommandInput<T = string>({
-    commands,
-    placeholder = 'Type / to see commands...',
-    value = '',
-    onChange,
-    onCommandSelect,
-    selectedCommands = [],
-    onSelectedCommandsChange,
-    activeCommands = [],
-}: CommandInputProps<T>): JSX.Element {
+export interface CommandInputHandle {
+    focus: () => void
+    getInputRef: () => React.RefObject<HTMLInputElement>
+}
+
+export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(function CommandInput<T = string>(
+    {
+        commands,
+        placeholder = 'Type / to see commands...',
+        value = '',
+        onChange,
+        onCommandSelect,
+        selectedCommands = [],
+        onSelectedCommandsChange,
+        activeCommands = [],
+    }: CommandInputProps<T>,
+    ref: React.Ref<CommandInputHandle>
+) {
     const [inputValue, setInputValue] = useState(value)
     const [showDropdown, setShowDropdown] = useState(false)
-    const [filteredCommands, setFilteredCommands] = useState<Command<T>[]>([])
+    const [filteredCommands, setFilteredCommands] = useState<Command<T>[]>(commands)
     const [focusedIndex, setFocusedIndex] = useState(0)
     const inputRef = useRef<HTMLInputElement>(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
     const [focusedTagIndex, setFocusedTagIndex] = useState<number | null>(null)
 
+    useImperativeHandle(
+        ref,
+        () => ({
+            focus: () => {
+                if (inputRef.current) {
+                    inputRef.current.focus()
+                } else {
+                }
+            },
+            getInputRef: () => inputRef,
+        }),
+        []
+    )
+
     useEffect(() => {
         setInputValue(value)
     }, [value])
+
+    useEffect(() => {
+        setFilteredCommands(commands)
+    }, [commands])
 
     const handleInputChange = (newValue: string): void => {
         setInputValue(newValue)
@@ -93,8 +120,10 @@ export function CommandInput<T = string>({
         setShowDropdown(false)
         // Small delay to ensure dropdown closes before focusing
         setTimeout(() => {
-            inputRef.current?.focus()
-        }, 1)
+            if (inputRef.current) {
+                inputRef.current.focus()
+            }
+        }, 150)
     }
 
     const scrollFocusedCommandToView = (): void => {
@@ -110,8 +139,6 @@ export function CommandInput<T = string>({
     }
 
     const handleKeyDown = (e: React.KeyboardEvent): void => {
-        e.stopPropagation()
-
         switch (e.key) {
             case '/':
                 if (!showDropdown) {
@@ -131,7 +158,7 @@ export function CommandInput<T = string>({
         if (focusedIndex >= 0) {
             scrollFocusedCommandToView()
         }
-    }, [focusedIndex])
+    }, [focusedIndex, scrollFocusedCommandToView])
 
     return (
         <div className="relative w-full">
@@ -144,14 +171,39 @@ export function CommandInput<T = string>({
                     'flex gap-0 focus-within:border-secondary p-0 items-center h-8'
                 )}
             >
-                <DropdownMenu open={showDropdown} onOpenChange={setShowDropdown}>
-                    <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive className="rounded-r-none text-primary" variant="panel">
-                            Filters
-                            <DropdownMenuOpenIndicator />
-                        </ButtonPrimitive>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="min-w-[300px]">
+                <DropdownMenu
+                    open={showDropdown}
+                    onOpenChange={(open) => {
+                        setShowDropdown(open)
+                    }}
+                >
+                    <ListBox.Item
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            setShowDropdown(true)
+                        }}
+                    >
+                        <DropdownMenuTrigger asChild>
+                            <ButtonPrimitive className="rounded-r-none text-primary data-[focused=true]:outline-2 data-[focused=true]:outline-accent">
+                                Filters
+                                <DropdownMenuOpenIndicator />
+                            </ButtonPrimitive>
+                        </DropdownMenuTrigger>
+                    </ListBox.Item>
+                    <DropdownMenuContent
+                        align="start"
+                        className="min-w-[300px]"
+                        onCloseAutoFocus={(e) => {
+                            e.preventDefault()
+
+                            setTimeout(() => {
+                                if (inputRef.current) {
+                                    inputRef.current.focus()
+                                }
+                            }, 100)
+                        }}
+                    >
                         <DropdownMenuGroup>
                             <Label intent="menu" className="pl-1">
                                 Select all, or select multiple
@@ -210,10 +262,11 @@ export function CommandInput<T = string>({
                     onChange={(e) => handleInputChange(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder={placeholder}
+                    autoFocus
                     autoComplete="off"
                     className="pl-2 w-full border-none flex-1 h-full min-h-full"
                 />
             </div>
         </div>
     )
-}
+})

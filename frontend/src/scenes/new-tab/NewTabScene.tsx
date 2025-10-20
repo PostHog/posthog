@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconApps, IconCheck, IconInfo, IconPerson, IconX } from '@posthog/icons'
+import { IconApps, IconDatabase, IconDocument, IconInfo, IconPerson, IconPlusSmall, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Command, CommandInput } from 'lib/components/CommandInput'
+import { Command, CommandInput, CommandInputHandle } from 'lib/components/CommandInput'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -62,7 +62,7 @@ export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
 }
 
 export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
-    const inputRef = useRef<HTMLInputElement>(null)
+    const commandInputRef = useRef<CommandInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
     const {
         filteredItemsGrid,
@@ -96,6 +96,10 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         }
     }, [selectedItem])
 
+    const focusSearchInput = (): void => {
+        commandInputRef.current?.focus()
+    }
+
     // Determine active commands based on current state
     const activeCommands: NEW_TAB_COMMANDS[] = []
     if (newTabSceneDataInclude.length > 0) {
@@ -122,6 +126,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                 <div className="flex flex-col gap-2">
                     <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
                         <CommandInput
+                            ref={commandInputRef}
                             commands={NEW_TAB_COMMANDS_ITEMS}
                             value={search}
                             onChange={(value) => {
@@ -132,14 +137,23 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                             placeholder="Search or type / to see commands..."
                             activeCommands={activeCommands}
                             selectedCommands={selectedCommands}
-                            onSelectedCommandsChange={setSelectedCommands}
+                            onSelectedCommandsChange={(commands) =>
+                                setSelectedCommands(commands as Command<NEW_TAB_COMMANDS>[])
+                            }
                             onCommandSelect={(command) => {
                                 if (command.value === 'all') {
-                                    for (const commandItem of NEW_TAB_COMMANDS_ITEMS) {
-                                        toggleNewTabSceneDataInclude(commandItem.value)
+                                    // Check if "all" is currently selected
+                                    if (newTabSceneDataInclude.includes('all')) {
+                                        // If "all" is on, turn off everything (clear all filters)
+                                        newTabSceneDataInclude.forEach((selectedCommand) => {
+                                            toggleNewTabSceneDataInclude(selectedCommand)
+                                        })
+                                    } else {
+                                        // If "all" is off, turn it on (which will show all filters)
+                                        toggleNewTabSceneDataInclude('all')
                                     }
                                 } else {
-                                    toggleNewTabSceneDataInclude(command.value)
+                                    toggleNewTabSceneDataInclude(command.value as NEW_TAB_COMMANDS)
                                 }
                                 setSearch('')
                             }}
@@ -156,7 +170,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 setSearch={setSearch}
                                 setQuestion={setQuestion}
                                 focusMaxInput={focusMaxInput}
-                                focusSearchInput={() => inputRef.current?.focus()}
+                                focusSearchInput={focusSearchInput}
                                 openSidePanel={openSidePanel}
                             />
                         </div>
@@ -176,7 +190,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                             onClick={() => {
                                                 if (!mobileLayout) {
                                                     // If not mobile, we want to re-focus the input if we trigger the tabs (which filter)
-                                                    inputRef.current?.focus()
+                                                    focusSearchInput()
                                                     // Reset listbox focus on first item
                                                     listboxRef.current?.focusFirstItem()
                                                 }
@@ -205,48 +219,80 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                     ) : (
                         <div className="border-b">
                             <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-2">
-                                <div className="flex items-center gap-3 flex-wrap min-h-7">
-                                    {newTabSceneDataInclude.length === 0 ? (
+                                <div className="flex items-center gap-x-2 gap-y-2 flex-wrap">
+                                    {newTabSceneDataInclude.length === 0 || newTabSceneDataInclude.includes('all') ? (
                                         <></>
                                     ) : (
-                                        newTabSceneDataInclude.map((command) => {
-                                            const commandInfo = NEW_TAB_COMMANDS_ITEMS.find(
-                                                (cmd) => cmd.value === command
-                                            )
-                                            if (!commandInfo) {
-                                                return null
-                                            }
+                                        <>
+                                            <span className="text-xs text-tertiary">Showing only:</span>
+                                            {newTabSceneDataInclude
+                                                .filter((command) => command !== 'all')
+                                                .map((command) => {
+                                                    const commandInfo = NEW_TAB_COMMANDS_ITEMS.find(
+                                                        (cmd) => cmd.value === command
+                                                    )
+                                                    if (!commandInfo) {
+                                                        return null
+                                                    }
 
-                                            return (
-                                                <ListBox.Item asChild key={command}>
+                                                    return (
+                                                        <ListBox.Item asChild key={command}>
+                                                            <ButtonPrimitive
+                                                                size="xxs"
+                                                                variant="outline"
+                                                                onClick={() => {
+                                                                    toggleNewTabSceneDataInclude(command)
+                                                                    focusSearchInput()
+                                                                }}
+                                                                className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                                                                tooltip={`Remove ${command} from selected filters`}
+                                                            >
+                                                                {command === 'persons' && (
+                                                                    <IconPerson className="size-4" />
+                                                                )}
+                                                                {command === 'eventDefinitions' && (
+                                                                    <IconApps className="size-4" />
+                                                                )}
+                                                                {command === 'propertyDefinitions' && (
+                                                                    <IconApps className="size-4" />
+                                                                )}
+                                                                {command === 'create-new' && (
+                                                                    <IconPlusSmall className="size-4" />
+                                                                )}
+                                                                {command === 'apps' && <IconApps className="size-4" />}
+                                                                {command === 'data-management' && (
+                                                                    <IconDatabase className="size-4" />
+                                                                )}
+                                                                {command === 'recents' && (
+                                                                    <IconDocument className="size-4" />
+                                                                )}
+                                                                {commandInfo.displayName}
+                                                                <IconX className="size-3" />
+                                                            </ButtonPrimitive>
+                                                        </ListBox.Item>
+                                                    )
+                                                })}
+                                            {newTabSceneDataInclude.length > 1 && (
+                                                <ListBox.Item asChild>
                                                     <ButtonPrimitive
-                                                        size="xs"
-                                                        active={true}
+                                                        size="xxs"
+                                                        variant="panel"
                                                         onClick={() => {
-                                                            toggleNewTabSceneDataInclude(command)
-                                                            inputRef.current?.focus()
+                                                            // Clear all filters
+                                                            newTabSceneDataInclude.forEach((command) => {
+                                                                toggleNewTabSceneDataInclude(command)
+                                                            })
+                                                            focusSearchInput()
                                                         }}
-                                                        className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                                                        className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                                                        tooltip="Clear all filters"
                                                     >
-                                                        {command === 'persons' && <IconPerson className="size-4" />}
-                                                        {command === 'eventDefinitions' && (
-                                                            <IconApps className="size-4" />
-                                                        )}
-                                                        {command === 'propertyDefinitions' && (
-                                                            <IconApps className="size-4" />
-                                                        )}
-                                                        {command === 'create-new' && <IconCheck className="size-4" />}
-                                                        {command === 'apps' && <IconApps className="size-4" />}
-                                                        {command === 'data-management' && (
-                                                            <IconApps className="size-4" />
-                                                        )}
-                                                        {command === 'recents' && <IconInfo className="size-4" />}
-                                                        {commandInfo.displayName}
-                                                        <IconX className="size-3" />
+                                                        <IconX className="size-4" />
+                                                        Clear all
                                                     </ButtonPrimitive>
                                                 </ListBox.Item>
-                                            )
-                                        })
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             </div>
@@ -306,7 +352,11 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         </p>
                                     </div>
                                 )}
-                                <Results tabId={tabId || ''} searchInputRef={inputRef} listboxRef={listboxRef} />
+                                <Results
+                                    tabId={tabId || ''}
+                                    searchInputRef={commandInputRef.current?.getInputRef() || { current: null }}
+                                    listboxRef={listboxRef}
+                                />
                             </div>
                         )}
                     </div>

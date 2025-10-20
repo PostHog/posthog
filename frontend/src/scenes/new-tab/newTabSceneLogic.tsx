@@ -50,7 +50,7 @@ export type NEW_TAB_COMMANDS =
     | 'propertyDefinitions'
 
 export const NEW_TAB_COMMANDS_ITEMS: Command<NEW_TAB_COMMANDS>[] = [
-    { value: 'all', displayName: 'Everything' },
+    { value: 'all', displayName: 'Toggle all' },
     { value: 'create-new', displayName: 'New' },
     { value: 'apps', displayName: 'Apps' },
     { value: 'data-management', displayName: 'Data management' },
@@ -244,14 +244,28 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         newTabSceneDataInclude: [
-            [] as NEW_TAB_COMMANDS[],
+            ['all'] as NEW_TAB_COMMANDS[],
             {
                 setNewTabSceneDataInclude: (_, { include }) => include,
                 toggleNewTabSceneDataInclude: (state, { item }) => {
-                    if (state.includes(item)) {
-                        return state.filter((i) => i !== item)
+                    if (item === 'all') {
+                        // Handle "all" toggle
+                        if (state.includes('all')) {
+                            return state.filter((i) => i !== 'all')
+                        }
+                        return ['all']
                     }
-                    return [...state, item]
+                    // Handle individual command toggle
+                    if (state.includes(item)) {
+                        // Remove the item
+                        const newState = state.filter((i) => i !== item)
+                        // If no items left, default back to "all"
+                        return newState.length === 0 ? ['all'] : newState
+                    } else {
+                        // Add the item and remove "all" if it was selected
+                        const newState = state.filter((i) => i !== 'all')
+                        return [...newState, item]
+                    }
                 },
             },
         ],
@@ -599,24 +613,20 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (s) => [
                 s.itemsGrid,
                 s.search,
-                s.newTabSceneDataIncludePersons,
+                s.newTabSceneDataInclude,
                 s.personSearchItems,
-                s.newTabSceneDataIncludeEventDefinitions,
                 s.eventDefinitionSearchItems,
-                s.newTabSceneDataIncludePropertyDefinitions,
                 s.propertyDefinitionSearchItems,
                 s.featureFlags,
             ],
             (
                 itemsGrid: NewTabTreeDataItem[],
                 search: string,
-                includePersons: boolean,
+                newTabSceneDataInclude: NEW_TAB_COMMANDS[],
                 personSearchItems: NewTabTreeDataItem[],
-                includeEventDefinitions: boolean,
                 eventDefinitionSearchItems: NewTabTreeDataItem[],
-                includePropertyDefinitions: boolean,
                 propertyDefinitionSearchItems: NewTabTreeDataItem[],
-                featureFlags
+                featureFlags: any
             ): Record<string, NewTabTreeDataItem[]> => {
                 const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
                 if (!newTabSceneData) {
@@ -638,27 +648,43 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     )
                 }
 
-                // Group items by category and filter
-                const grouped: Record<string, NewTabTreeDataItem[]> = {
-                    'create-new': filterBySearch(itemsGrid.filter((item) => item.category === 'create-new')),
-                    apps: filterBySearch(itemsGrid.filter((item) => item.category === 'apps')),
-                    'data-management': filterBySearch(itemsGrid.filter((item) => item.category === 'data-management')),
-                    recents: filterBySearch(itemsGrid.filter((item) => item.category === 'recents')),
-                }
+                // Check if "all" is selected
+                const showAll = newTabSceneDataInclude.includes('all')
+
+                // Group items by category and filter based on what's selected
+                const grouped: Record<string, NewTabTreeDataItem[]> = {}
 
                 // Add persons section if filter is enabled
-                if (includePersons) {
+                if (showAll || newTabSceneDataInclude.includes('persons')) {
                     grouped['persons'] = personSearchItems
                 }
-
                 // Add event definitions section if filter is enabled
-                if (includeEventDefinitions) {
+                if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
                     grouped['eventDefinitions'] = eventDefinitionSearchItems
                 }
 
                 // Add property definitions section if filter is enabled
-                if (includePropertyDefinitions) {
+                if (showAll || newTabSceneDataInclude.includes('propertyDefinitions')) {
                     grouped['propertyDefinitions'] = propertyDefinitionSearchItems
+                }
+
+                // Add each category only if it's selected or if "all" is selected
+                if (showAll || newTabSceneDataInclude.includes('create-new')) {
+                    grouped['create-new'] = filterBySearch(itemsGrid.filter((item) => item.category === 'create-new'))
+                }
+
+                if (showAll || newTabSceneDataInclude.includes('apps')) {
+                    grouped['apps'] = filterBySearch(itemsGrid.filter((item) => item.category === 'apps'))
+                }
+
+                if (showAll || newTabSceneDataInclude.includes('data-management')) {
+                    grouped['data-management'] = filterBySearch(
+                        itemsGrid.filter((item) => item.category === 'data-management')
+                    )
+                }
+
+                if (showAll || newTabSceneDataInclude.includes('recents')) {
+                    grouped['recents'] = filterBySearch(itemsGrid.filter((item) => item.category === 'recents'))
                 }
 
                 return grouped
@@ -908,7 +934,16 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 ? (searchParams.include as string)
                       .split(',')
                       .filter((item): item is NEW_TAB_COMMANDS =>
-                          ['persons', 'eventDefinitions', 'propertyDefinitions'].includes(item)
+                          [
+                              'all',
+                              'create-new',
+                              'apps',
+                              'data-management',
+                              'recents',
+                              'persons',
+                              'eventDefinitions',
+                              'propertyDefinitions',
+                          ].includes(item)
                       )
                 : []
 
@@ -925,7 +960,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     includeFromUrl.forEach((item) => {
                         if (searchTerm !== '') {
-                            // If there's a search term, trigger search
+                            // If there's a search term, trigger search for data items only
                             if (item === 'persons') {
                                 actions.debouncedPersonSearch(searchTerm)
                             } else if (item === 'eventDefinitions') {
@@ -933,8 +968,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                             } else if (item === 'propertyDefinitions') {
                                 actions.debouncedPropertyDefinitionSearch(searchTerm)
                             }
+                            // For non-data items (create-new, apps, etc.), no special search needed as they're handled by itemsGrid
                         } else {
-                            // Load initial data when no search term
+                            // Load initial data when no search term for data items only
                             if (item === 'persons') {
                                 actions.loadInitialPersons({})
                             } else if (item === 'eventDefinitions') {
@@ -954,12 +990,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             if (!searchParams.category && values.selectedCategory !== 'all') {
                 actions.setSelectedCategory('all')
             }
-            if (!searchParams.include && values.newTabSceneDataInclude.length > 0) {
-                actions.setNewTabSceneDataInclude([])
+            if (
+                (!searchParams.include && values.newTabSceneDataInclude.length !== 1) ||
+                (!searchParams.include && !values.newTabSceneDataInclude.includes('all'))
+            ) {
+                actions.setNewTabSceneDataInclude(['all'])
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         actions.loadRecents()
+
+        // Load initial data for data sections when "all" is selected by default
+        const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+        if (newTabSceneData && values.newTabSceneDataInclude.includes('all')) {
+            actions.loadInitialPersons({})
+            actions.loadInitialEventDefinitions({})
+            actions.loadInitialPropertyDefinitions({})
+        }
     }),
 ])
