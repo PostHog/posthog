@@ -1,14 +1,15 @@
+use crate::avro_schema::AVRO_SCHEMA;
 use crate::log_record::KafkaLogRow;
 use anyhow::anyhow;
+use apache_avro::{Codec, Schema, Writer, ZstandardSettings};
 use capture::config::KafkaConfig;
 use health::HealthHandle;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
 use rdkafka::message::{Header, OwnedHeaders};
-use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
+use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
-use serde_json;
 use std::result::Result::Ok;
 use std::time::Duration;
 use tracing::log::{debug, info};
@@ -188,43 +189,42 @@ impl KafkaSink {
     }
 
     pub async fn write(&self, team_id: i32, rows: Vec<KafkaLogRow>) -> Result<(), anyhow::Error> {
-        let mut latest_future: Option<DeliveryFuture> = None;
+        let schema = Schema::parse_str(AVRO_SCHEMA)?;
+        let mut writer = Writer::with_codec(
+            &schema,
+            Vec::new(),
+            Codec::Zstandard(ZstandardSettings::default()),
+        );
+
         for row in rows {
-            let payload: Vec<u8> = serde_json::to_vec(&row)?;
-            // try and keep team+service names together, but to prevent hot partitions we
-            // "shuffle" partitions every 5 minutes with the time bucket
-            let partition_key = format!(
-                "team_{}_service_name_{}_time_bucket_{}",
-                team_id,
-                row.service_name,
-                row.timestamp.timestamp() / 300
-            );
-            latest_future = Some(match self.producer.send_result(FutureRecord {
-                topic: self.topic.as_str(),
-                payload: Some(&payload),
-                partition: None,
-                key: Some(&partition_key),
-                timestamp: None,
-                headers: Some(
-                    OwnedHeaders::new()
-                        .insert(Header {
-                            key: "team_id",
-                            value: Some(&format!("{team_id}")),
-                        })
-                        .insert(Header {
-                            key: "schema.id",
-                            value: Some(&format!("{}", 1)),
-                        }),
-                ),
-            }) {
-                Err((err, _)) => Err(anyhow!(format!("kafka error: {}", err))),
-                Ok(delivery_future) => Ok(delivery_future),
-            }?);
+            writer.append_ser(row)?;
         }
 
-        if let Some(future) = latest_future {
-            drop(future.await?);
-        }
+        let payload: Vec<u8> = writer.into_inner()?;
+
+        let future = match self.producer.send_result(FutureRecord {
+            topic: self.topic.as_str(),
+            payload: Some(&payload),
+            partition: None,
+            key: None::<Vec<u8>>.as_ref(),
+            timestamp: None,
+            headers: Some(
+                OwnedHeaders::new()
+                    .insert(Header {
+                        key: "team_id",
+                        value: Some(&format!("{team_id}")),
+                    })
+                    .insert(Header {
+                        key: "schema.id",
+                        value: Some(&format!("{}", 1)),
+                    }),
+            ),
+        }) {
+            Err((err, _)) => Err(anyhow!(format!("kafka error: {}", err))),
+            Ok(delivery_future) => Ok(delivery_future),
+        }?;
+
+        drop(future.await?);
 
         Ok(())
     }

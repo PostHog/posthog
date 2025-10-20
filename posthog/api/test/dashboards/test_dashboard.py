@@ -321,15 +321,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.organization.available_product_features = []
         self.organization.save()
-        self.team.access_control = True
-        self.team.save()
+
+        # Set up restricted access (equivalent of old access_control)
+        AccessControl.objects.create(
+            team=self.team,
+            access_level="none",
+            resource="project",
+            resource_id=str(self.team.id),
+        )
 
         user_with_collaboration = User.objects.create_and_join(
             self.organization, "no-collaboration-feature@posthog.com", None
         )
+
+        # Grant access to the new user
+        AccessControl.objects.create(
+            team=self.team,
+            access_level="member",
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=user_with_collaboration.organization_memberships.first(),
+        )
+
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(10):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
@@ -337,7 +353,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(FuzzyInt(10, 11)):
+            with self.assertNumQueries(FuzzyInt(11, 12)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
@@ -1394,6 +1410,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "is_sample": True,
                     "last_modified_at": ANY,
                     "last_modified_by": self_user_basic_serialized,
+                    "last_viewed_at": ANY,
                     "last_refresh": None,
                     "name": None,
                     "next_allowed_client_refresh": None,

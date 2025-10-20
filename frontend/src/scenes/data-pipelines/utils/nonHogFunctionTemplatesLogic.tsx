@@ -92,11 +92,16 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
         hogFunctionTemplatesBatchExports: [
             (s) => [s.featureFlags, s.user],
             (featureFlags, user): HogFunctionTemplateType[] => {
+                // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
-                // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
-                const services = BATCH_EXPORT_SERVICE_NAMES.filter((service) =>
-                    httpEnabled ? true : service !== ('HTTP' as const)
+                // Databricks is currently behind a feature flag
+                const databricksEnabled = featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_DATABRICKS]
+
+                const services = BATCH_EXPORT_SERVICE_NAMES.filter(
+                    (service) =>
+                        (httpEnabled ? true : service !== ('HTTP' as const)) &&
+                        (databricksEnabled ? true : service !== ('Databricks' as const))
                 )
 
                 return services.map(
@@ -105,7 +110,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         type: 'destination',
                         name: humanizeBatchExportName(service),
                         icon_url: BATCH_EXPORT_ICON_MAP[service],
-                        status: 'stable',
+                        status: service === 'Databricks' ? 'beta' : 'stable',
                         code: '',
                         code_language: 'hog',
                         inputs_schema: [],

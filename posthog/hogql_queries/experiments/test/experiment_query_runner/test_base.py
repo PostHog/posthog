@@ -676,6 +676,87 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
 
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_action_as_exposure_criteria(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 31)
+        )
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Create an action for purchase events with specific properties
+        action = Action.objects.create(
+            name="Qualified Purchase",
+            team=self.team,
+            steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],
+        )
+        action.save()
+
+        for variant, purchase_count in [("control", 6), ("test", 8)]:
+            for i in range(10):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                # Create purchase event (exposure candidate)
+                if i < purchase_count:
+                    # Half with premium plan (matches action), half without (doesn't match)
+                    plan = "premium" if i < purchase_count // 2 else "basic"
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:00:00Z",
+                        properties={feature_flag_property: variant, "plan": plan},
+                    )
+                # Create metric event
+                if i < purchase_count:
+                    _create_event(
+                        team=self.team,
+                        event="conversion",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={feature_flag_property: variant},
+                    )
+
+        # Extra user who has purchase but doesn't match action criteria (should be excluded from exposure)
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=f"user_extra_1",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={feature_flag_property: "control", "plan": "free"},
+        )
+
+        flush_persons_and_events()
+
+        # Set exposure criteria to use the action
+        experiment.exposure_criteria = {"exposure_config": ActionsNode(id=action.id).model_dump(mode="json")}
+        experiment.save()
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=ExperimentMeanMetric(
+                source=EventsNode(event="conversion"),
+            ),
+        )
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
+
+        # Only users with premium plan (matching action) should be counted as exposures
+        # Control: 3 users with premium plan (0, 1, 2 out of 6 purchases)
+        # Test: 4 users with premium plan (0, 1, 2, 3 out of 8 purchases)
+        self.assertEqual(control_variant.sum, 3)
+        self.assertEqual(test_variant.sum, 4)
+        self.assertEqual(control_variant.number_of_samples, 3)
+        self.assertEqual(test_variant.number_of_samples, 4)
+
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_query_runner_without_feature_flag_property(self):

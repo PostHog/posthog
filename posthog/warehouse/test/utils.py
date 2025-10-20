@@ -85,11 +85,11 @@ def create_data_warehouse_table_from_csv(
         table_columns = {
             str(key): {
                 "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(value))].__name__,
-                "clickhouse": value,  # type: ignore
+                "clickhouse": value,
                 "valid": True,
             }
             for key, value in table_columns.items()
-        }  # type: ignore
+        }
 
     table = DataWarehouseTable.objects.create(
         name=table_name,

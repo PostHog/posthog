@@ -269,6 +269,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
+    @action(methods=["POST"], detail=False, url_path="subscription/switch-plan")
+    def subscription_switch_plan(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.switch_plan(organization, request.data)
+        return Response(res, status=status.HTTP_200_OK)
+
     @action(methods=["GET"], detail=False)
     def portal(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()

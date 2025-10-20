@@ -43,6 +43,7 @@ import {
     objectClean,
     objectCleanWithEmpty,
     objectDiffShallow,
+    parseTagsFilter,
     pluralize,
     range,
     reverseColonDelimitedDuration,
@@ -1050,6 +1051,145 @@ describe('lib/utils', () => {
 
         it('returns null for encoded protocol-relative URL', () => {
             expect(getRelativeNextPath('%2F%2Fevil.com%2Ftest', location)).toBeNull()
+        })
+    })
+
+    describe('parseTagsFilter()', () => {
+        describe('array input', () => {
+            it('handles string arrays', () => {
+                expect(parseTagsFilter(['tag1', 'tag2', 'tag3'])).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('handles mixed type arrays', () => {
+                expect(parseTagsFilter(['tag1', 123, true, null, undefined])).toEqual([
+                    'tag1',
+                    '123',
+                    'true',
+                    'null',
+                    'undefined',
+                ])
+            })
+
+            it('filters out empty values', () => {
+                expect(parseTagsFilter(['tag1', '', 'tag2', null, 'tag3'])).toEqual(['tag1', 'tag2', 'null', 'tag3'])
+            })
+
+            it('handles empty array', () => {
+                expect(parseTagsFilter([])).toEqual([])
+            })
+        })
+
+        describe('JSON string input', () => {
+            it('parses valid JSON arrays', () => {
+                expect(parseTagsFilter('["tag1", "tag2", "tag3"]')).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('parses JSON arrays with mixed types', () => {
+                expect(parseTagsFilter('["tag1", 123, true]')).toEqual(['tag1', '123', 'true'])
+            })
+
+            it('filters out empty values from JSON', () => {
+                expect(parseTagsFilter('["tag1", "", "tag2", null, "tag3"]')).toEqual(['tag1', 'tag2', 'null', 'tag3'])
+            })
+
+            it('handles empty JSON array', () => {
+                expect(parseTagsFilter('[]')).toEqual([])
+            })
+
+            it('handles malformed JSON gracefully', () => {
+                expect(parseTagsFilter('["tag1", "tag2"')).toEqual(['["tag1"', '"tag2"'])
+            })
+
+            it('handles invalid JSON syntax', () => {
+                expect(parseTagsFilter('{invalid json}')).toEqual(['{invalid json}'])
+            })
+
+            it('handles JSON that is not an array', () => {
+                expect(parseTagsFilter('{"not": "an array"}')).toEqual(['{"not": "an array"}'])
+            })
+
+            it('handles JSON with trailing comma', () => {
+                expect(parseTagsFilter('["tag1", "tag2",]')).toEqual(['["tag1"', '"tag2"', ']'])
+            })
+        })
+
+        describe('comma-separated string input', () => {
+            it('parses simple comma-separated values', () => {
+                expect(parseTagsFilter('tag1,tag2,tag3')).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('trims whitespace from values', () => {
+                expect(parseTagsFilter(' tag1 , tag2 , tag3 ')).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('filters out empty values', () => {
+                expect(parseTagsFilter('tag1,,tag2, ,tag3')).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('handles single value', () => {
+                expect(parseTagsFilter('tag1')).toEqual(['tag1'])
+            })
+
+            it('handles empty string', () => {
+                expect(parseTagsFilter('')).toEqual([])
+            })
+
+            it('handles string with only whitespace', () => {
+                expect(parseTagsFilter('   ')).toEqual([])
+            })
+
+            it('handles string with only commas', () => {
+                expect(parseTagsFilter(',,')).toEqual([])
+            })
+
+            it('handles string with commas and whitespace', () => {
+                expect(parseTagsFilter(' , , ')).toEqual([])
+            })
+        })
+
+        describe('edge cases and invalid input', () => {
+            it('returns undefined for null input', () => {
+                expect(parseTagsFilter(null)).toBeUndefined()
+            })
+
+            it('returns undefined for undefined input', () => {
+                expect(parseTagsFilter(undefined)).toBeUndefined()
+            })
+
+            it('returns undefined for number input', () => {
+                expect(parseTagsFilter(123)).toBeUndefined()
+            })
+
+            it('returns undefined for boolean input', () => {
+                expect(parseTagsFilter(true)).toBeUndefined()
+                expect(parseTagsFilter(false)).toBeUndefined()
+            })
+
+            it('returns undefined for object input', () => {
+                expect(parseTagsFilter({})).toBeUndefined()
+                expect(parseTagsFilter({ tags: ['tag1'] })).toBeUndefined()
+            })
+
+            it('handles special characters in tags', () => {
+                expect(parseTagsFilter('tag-with-dash,tag_with_underscore,tag.with.dots')).toEqual([
+                    'tag-with-dash',
+                    'tag_with_underscore',
+                    'tag.with.dots',
+                ])
+            })
+
+            it('handles unicode characters', () => {
+                expect(parseTagsFilter('标签1,🏷️,тег')).toEqual(['标签1', '🏷️', 'тег'])
+            })
+
+            it('handles very long strings', () => {
+                const longTag = 'a'.repeat(1000)
+                expect(parseTagsFilter(longTag)).toEqual([longTag])
+            })
+
+            it('handles strings with newlines and tabs', () => {
+                expect(parseTagsFilter('tag1\ntag2\ttag3')).toEqual(['tag1\ntag2\ttag3'])
+            })
         })
     })
 })

@@ -18,7 +18,8 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -26,16 +27,15 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { CohortType, ProductKey } from '~/types'
 
-const RESOURCE_TYPE = 'cohort'
-
 export const scene: SceneExport = {
     component: Cohorts,
     logic: cohortsSceneLogic,
 }
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, pagination, cohortFilters, shouldShowEmptyState } = useValues(cohortsSceneLogic)
-    const { deleteCohort, exportCohortPersons, setCohortFilters } = useActions(cohortsSceneLogic)
+    const { cohorts, cohortsLoading, pagination, cohortFilters, shouldShowEmptyState, cohortSorting } =
+        useValues(cohortsSceneLogic)
+    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting } = useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
 
     const columns: LemonTableColumns<CohortType> = [
@@ -110,6 +110,7 @@ export function Cohorts(): JSX.Element {
                                         }).url
                                     }
                                     fullWidth
+                                    targetBlank
                                 >
                                     View session recordings
                                 </LemonButton>
@@ -211,25 +212,24 @@ export function Cohorts(): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs
-                tabKey="cohorts"
-                buttons={
+            <PersonsManagementSceneTabs tabKey="cohorts" />
+
+            <SceneTitleSection
+                name={sceneConfigurations[Scene.Cohorts].name}
+                description={sceneConfigurations[Scene.Cohorts].description}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Cohorts].iconType || 'default_icon_type',
+                }}
+                actions={
                     <LemonButton
                         type="primary"
+                        size="small"
                         data-attr="new-cohort"
                         onClick={() => router.actions.push(urls.cohort('new'))}
                     >
                         New cohort
                     </LemonButton>
                 }
-            />
-
-            <SceneTitleSection
-                name="Cohorts"
-                description="A catalog of identified persons and your created cohorts."
-                resourceType={{
-                    type: RESOURCE_TYPE,
-                }}
             />
             <SceneDivider />
 
@@ -253,6 +253,11 @@ export function Cohorts(): JSX.Element {
                 dataSource={cohorts.results}
                 nouns={['cohort', 'cohorts']}
                 data-attr="cohorts-table"
+                sorting={cohortSorting}
+                onSort={(sorting) => {
+                    setCohortSorting(sorting)
+                }}
+                useURLForSorting={false}
             />
         </SceneContent>
     )
