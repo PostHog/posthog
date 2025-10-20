@@ -23,7 +23,7 @@ export function AddIntegrationButton(): JSX.Element {
     }
 
     const handleIntegrateClick = (integrationId: string): void => {
-        router.actions.push(urls.dataWarehouseSourceNew(integrationId as any))
+        router.actions.push(urls.dataWarehouseSourceNew(integrationId))
 
         setShowPopover(false)
     }

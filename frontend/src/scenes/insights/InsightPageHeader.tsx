@@ -37,6 +37,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -370,16 +371,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         {hogQL &&
                             !isHogQLQuery(query) &&
                             !(isDataVisualizationNode(query) && isHogQLQuery(query.source)) && (
-                                <ButtonPrimitive
-                                    data-attr={`${RESOURCE_TYPE}-edit-sql`}
-                                    onClick={() => {
-                                        router.actions.push(urls.sqlEditor(hogQL))
+                                <Link
+                                    to={urls.sqlEditor(hogQL)}
+                                    buttonProps={{
+                                        'data-attr': `${RESOURCE_TYPE}-edit-sql`,
+                                        menuItem: true,
                                     }}
-                                    menuItem
                                 >
                                     <IconPencil />
                                     Edit in SQL editor
-                                </ButtonPrimitive>
+                                </Link>
                             )}
 
                         {hogQL && showCohortButton && (

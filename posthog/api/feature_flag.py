@@ -1024,6 +1024,7 @@ class FeatureFlagViewSet(
                     # Get flags that are at least 30 days old and active
                     # This is an approximation - the serializer will compute the exact status
                     queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
+                        # This needs to be in sync with the implementation in `FeatureFlagStatusChecker`, flag_status.py
                         where=[
                             """
                             (
@@ -1047,6 +1048,18 @@ class FeatureFlagViewSet(
                                         AND (elem->'properties')::text = '[]'::text
                                     )
                                 )
+                                OR
+                                -- Multivariate that has a condition that overrides with a specific variant and the rollout_percentage is 100
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                        AND elem->'variant' IS NOT NULL
+                                    )
+                                    AND (filters->'multivariate' IS NOT NULL AND jsonb_array_length(filters->'multivariate'->'variants') > 0)
+                                )
+                                OR (filters IS NULL OR filters = '{}'::jsonb)
                             )
                             """
                         ]
