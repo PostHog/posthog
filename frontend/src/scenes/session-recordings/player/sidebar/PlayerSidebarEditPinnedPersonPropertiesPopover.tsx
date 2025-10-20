@@ -23,10 +23,8 @@ export function PlayerSidebarEditPinnedPersonPropertiesPopover(
     const { loadPerson, loadPersonUUID } = useActions(personsLogic({ syncWithUrl: false }))
     const { person, personLoading } = useValues(personsLogic({ syncWithUrl: false }))
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { allOverviewItems, pinnedPersonProperties, pinnedOverviewProperties } = useValues(
-        playerMetaLogic(logicProps)
-    )
-    const { togglePersonPropertyPin, togglePropertyPin } = useActions(playerMetaLogic(logicProps))
+    const { allOverviewItems, pinnedProperties } = useValues(playerMetaLogic(logicProps))
+    const { togglePropertyPin } = useActions(playerMetaLogic(logicProps))
 
     useEffect(() => {
         if (props.distinctId) {
@@ -48,13 +46,13 @@ export function PlayerSidebarEditPinnedPersonPropertiesPopover(
     if (!person) {
         return (
             <div className="p-2 max-w-160">
-                <h4>No profile associated with this ID</h4>
+                <h4>No person profile associated with this ID</h4>
                 <p>
                     Person profiles allow you to see a detailed view of a Person's user properties, track users across
                     devices, and more. To create person profiles, see{' '}
                     <Link to="https://posthog.com/docs/data/persons#capturing-person-profiles">here.</Link>
                 </p>
-                <p>To edit pinned user properties, try with another recording with a different user.</p>
+                <p>To edit pinned overview properties, try via another recording with a different user.</p>
             </div>
         )
     }
@@ -66,7 +64,6 @@ export function PlayerSidebarEditPinnedPersonPropertiesPopover(
 
     // Deduplicate and create a combined list
     const allPropertyKeys = Array.from(new Set([...recordingPropertyKeys, ...personPropertyKeys])).sort()
-    const recordingPropertyKeysSet = new Set(recordingPropertyKeys)
 
     return (
         <div className="flex flex-col overflow-hidden max-h-96 w-[400px]">
@@ -78,17 +75,10 @@ export function PlayerSidebarEditPinnedPersonPropertiesPopover(
             <ScrollableShadows direction="vertical" className="flex-1">
                 <div className="flex flex-col">
                     {allPropertyKeys.map((propertyKey) => {
-                        const isRecordingProperty = recordingPropertyKeysSet.has(propertyKey)
-                        const isPinned = isRecordingProperty
-                            ? pinnedOverviewProperties.includes(propertyKey)
-                            : pinnedPersonProperties.includes(propertyKey)
+                        const isPinned = pinnedProperties.includes(propertyKey)
 
                         const handleToggle = (): void => {
-                            if (isRecordingProperty) {
-                                togglePropertyPin(propertyKey)
-                            } else {
-                                togglePersonPropertyPin(propertyKey)
-                            }
+                            togglePropertyPin(propertyKey)
                         }
 
                         return (

@@ -88,10 +88,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
         summarizeSession: () => ({}),
         setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
-        setPinnedOverviewProperties: (properties: string[]) => ({ properties }),
+        setPinnedProperties: (properties: string[]) => ({ properties }),
         togglePropertyPin: (propertyKey: string) => ({ propertyKey }),
-        setPinnedPersonProperties: (properties: string[]) => ({ properties }),
-        togglePersonPropertyPin: (propertyKey: string) => ({ propertyKey }),
         setIsPersonPopoverOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     reducers(() => ({
@@ -115,7 +113,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 setSessionSummaryLoading: (_, { isLoading }) => isLoading,
             },
         ],
-        pinnedOverviewProperties: [
+        pinnedProperties: [
             [
                 'Start',
                 'Clicks',
@@ -130,26 +128,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ] as string[],
             { persist: true },
             {
-                setPinnedOverviewProperties: (_, { properties }) => properties,
-                togglePropertyPin: (state, { propertyKey }) => {
-                    if (state.includes(propertyKey)) {
-                        return state.filter((k: string) => k !== propertyKey)
-                    }
-                    return [...state, propertyKey]
-                },
-            },
-        ],
-        pinnedPersonProperties: [
-            [] as string[],
-            { persist: true },
-            {
-                setPinnedPersonProperties: (_, { properties }) => properties,
-                togglePersonPropertyPin: (state, { propertyKey }) => {
-                    if (state.includes(propertyKey)) {
-                        return state.filter((k: string) => k !== propertyKey)
-                    }
-                    return [...state, propertyKey]
-                },
+                setPinnedProperties: (_, { properties }) => properties,
             },
         ],
         isPersonPopoverOpen: [
@@ -158,6 +137,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 setIsPersonPopoverOpen: (_, { isOpen }) => isOpen,
             },
         ],
+    })),
+    listeners(({ actions, values }) => ({
+        togglePropertyPin: ({ propertyKey }) => {
+            const currentPinned = values.pinnedProperties
+            if (currentPinned.includes(propertyKey)) {
+                actions.setPinnedProperties(currentPinned.filter((k) => k !== propertyKey))
+            } else {
+                actions.setPinnedProperties([...currentPinned, propertyKey])
+            }
+        },
     })),
     selectors(() => ({
         loading: [
@@ -232,6 +221,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
             (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
                 const items: OverviewItem[] = []
+
                 if (startTime) {
                     items.push({
                         label: 'Start',
@@ -345,18 +335,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         displayOverviewItems: [
-            (s) => [s.allOverviewItems, s.pinnedOverviewProperties, s.pinnedPersonProperties],
-            (allOverviewItems, pinnedOverviewProperties, pinnedPersonProperties) => {
-                // If no recording properties are pinned, show all items
-                if (pinnedOverviewProperties.length === 0) {
-                    return allOverviewItems
-                }
-                // Filter to show only pinned recording properties OR pinned person properties
+            (s) => [s.allOverviewItems, s.pinnedProperties],
+            (allOverviewItems, pinnedProperties) => {
+                // Filter to show only pinned properties
                 return allOverviewItems.filter((item) => {
                     const key = item.type === 'property' ? item.property : item.label
-                    return (
-                        pinnedOverviewProperties.includes(String(key)) || pinnedPersonProperties.includes(String(key))
-                    )
+                    return pinnedProperties.includes(String(key))
                 })
             },
         ],
