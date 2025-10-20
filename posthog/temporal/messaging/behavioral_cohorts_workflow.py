@@ -1,4 +1,5 @@
 import json
+import asyncio
 import datetime as dt
 import dataclasses
 from typing import Any, Optional
@@ -12,7 +13,6 @@ from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
-from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
@@ -197,118 +197,115 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
     if not isinstance(inputs.min_matches, int) or inputs.min_matches < 0:
         raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
 
-    with HeartbeaterSync(logger=logger):
-        for idx, condition_data in enumerate(inputs.conditions, 1):
-            team_id = condition_data["team_id"]
-            cohort_id = condition_data["cohort_id"]
-            condition_hash = condition_data["condition"]
+    for idx, condition_data in enumerate(inputs.conditions, 1):
+        team_id = condition_data["team_id"]
+        cohort_id = condition_data["cohort_id"]
+        condition_hash = condition_data["condition"]
 
-            # Log progress within the batch
-            if idx % 100 == 0 or idx == len(inputs.conditions):
-                logger.info(
-                    f"Batch {inputs.batch_number}: Processed {idx}/{len(inputs.conditions)} conditions",
-                    batch_number=inputs.batch_number,
-                    progress=idx,
-                    total=len(inputs.conditions),
-                )
+        # Log progress within the batch
+        if idx % 100 == 0 or idx == len(inputs.conditions):
+            logger.info(
+                f"Batch {inputs.batch_number}: Processed {idx}/{len(inputs.conditions)} conditions",
+                batch_number=inputs.batch_number,
+                progress=idx,
+                total=len(inputs.conditions),
+            )
 
-            query = """
-                SELECT
-                    COALESCE(bcm.team_id, cmc.team_id) as team_id,
-                    COALESCE(bcm.cohort_id, cmc.cohort_id) as cohort_id,
-                    COALESCE(bcm.person_id, cmc.person_id) as person_id,
-                    now64() as last_updated,
-                    CASE
-                        WHEN
-                            cmc.person_id IS NULL -- Does not exist in cohort_membership_changed
-                            THEN 'entered' -- so, new member
-                        WHEN
-                            cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
-                            AND cmc.status = 'left' -- it left the cohort at some point
-                            AND bcm.person_id IS NOT NULL -- but now there is a match in behavioral_cohorts_matches
-                            THEN 'entered' -- so, it re-entered the cohort
-                        WHEN
-                            cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
-                            AND cmc.status = 'entered' -- it is a member at some point
-                            AND bcm.person_id IS NULL -- but there is no match in behavioral_cohorts_matches
-                            THEN 'left' -- so, it left the cohort
-                        ELSE
-                            'unchanged' -- for all other cases, the membership did not change
-                    END as status
-                FROM
-                (
-                    SELECT team_id, cohort_id, person_id
-                    FROM behavioral_cohorts_matches
-                    WHERE
-                        team_id = %(team_id)s
-                        AND cohort_id = %(cohort_id)s
-                        AND condition = %(condition)s
-                        AND date >= now() - toIntervalDay(%(days)s)
-                    GROUP BY team_id, cohort_id, person_id
-                    HAVING sum(matches) >= %(min_matches)s
-                ) bcm
-                FULL OUTER JOIN
-                (
-                    SELECT team_id, cohort_id, person_id, argMax(status, last_updated) as status
-                    FROM cohort_membership
-                    WHERE
-                        team_id = %(team_id)s
-                        AND cohort_id = %(cohort_id)s
-                    GROUP BY team_id, cohort_id, person_id
-                ) cmc ON bcm.team_id = cmc.team_id AND bcm.cohort_id = cmc.cohort_id AND bcm.person_id = cmc.person_id
-                WHERE status != 'unchanged'
-                SETTINGS join_use_nulls = 1;
-            """
+        query = """
+            SELECT
+                COALESCE(bcm.team_id, cmc.team_id) as team_id,
+                COALESCE(bcm.cohort_id, cmc.cohort_id) as cohort_id,
+                COALESCE(bcm.person_id, cmc.person_id) as person_id,
+                now64() as last_updated,
+                CASE
+                    WHEN
+                        cmc.person_id IS NULL -- Does not exist in cohort_membership_changed
+                        THEN 'entered' -- so, new member
+                    WHEN
+                        cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
+                        AND cmc.status = 'left' -- it left the cohort at some point
+                        AND bcm.person_id IS NOT NULL -- but now there is a match in behavioral_cohorts_matches
+                        THEN 'entered' -- so, it re-entered the cohort
+                    WHEN
+                        cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
+                        AND cmc.status = 'entered' -- it is a member at some point
+                        AND bcm.person_id IS NULL -- but there is no match in behavioral_cohorts_matches
+                        THEN 'left' -- so, it left the cohort
+                    ELSE
+                        'unchanged' -- for all other cases, the membership did not change
+                END as status
+            FROM
+            (
+                SELECT team_id, cohort_id, person_id
+                FROM behavioral_cohorts_matches
+                WHERE
+                    team_id = %(team_id)s
+                    AND cohort_id = %(cohort_id)s
+                    AND condition = %(condition)s
+                    AND date >= now() - toIntervalDay(%(days)s)
+                GROUP BY team_id, cohort_id, person_id
+                HAVING sum(matches) >= %(min_matches)s
+            ) bcm
+            FULL OUTER JOIN
+            (
+                SELECT team_id, cohort_id, person_id, argMax(status, last_updated) as status
+                FROM cohort_membership
+                WHERE
+                    team_id = %(team_id)s
+                    AND cohort_id = %(cohort_id)s
+                GROUP BY team_id, cohort_id, person_id
+            ) cmc ON bcm.team_id = cmc.team_id AND bcm.cohort_id = cmc.cohort_id AND bcm.person_id = cmc.person_id
+            WHERE status != 'unchanged'
+            SETTINGS join_use_nulls = 1
+            FORMAT JSONEachRow;
+        """
 
-            try:
-                with tags_context(
-                    team_id=team_id,
-                    feature=Feature.BEHAVIORAL_COHORTS,
-                    cohort_id=cohort_id,
-                    product=Product.MESSAGING,
-                    query_type="get_cohort_memberships_batch",
-                ):
-                    # Add FORMAT JSONEachRow to the query
-                    formatted_query = query.replace(
-                        "SETTINGS join_use_nulls = 1;",
-                        "SETTINGS join_use_nulls = 1\n                FORMAT JSONEachRow;",
+        try:
+            with tags_context(
+                team_id=team_id,
+                feature=Feature.BEHAVIORAL_COHORTS,
+                cohort_id=cohort_id,
+                product=Product.MESSAGING,
+                query_type="get_cohort_memberships_batch",
+            ):
+                async with get_client(team_id=team_id) as client:
+                    response = await client.read_query(
+                        query,
+                        query_parameters={
+                            "team_id": team_id,
+                            "cohort_id": cohort_id,
+                            "condition": condition_hash,
+                            "days": inputs.days,
+                            "min_matches": inputs.min_matches,
+                        },
                     )
 
-                    async with get_client(team_id=team_id) as client:
-                        response = await client.read_query(
-                            formatted_query,
-                            query_parameters={
-                                "team_id": team_id,
-                                "cohort_id": cohort_id,
-                                "condition": condition_hash,
-                                "days": inputs.days,
-                                "min_matches": inputs.min_matches,
-                            },
-                        )
+                    # Parse the response
+                    for line in response.decode("utf-8").strip().split("\n"):
+                        if line:
+                            row = json.loads(line)
+                            payload = {
+                                "team_id": row["team_id"],
+                                "cohort_id": row["cohort_id"],
+                                "person_id": str(row["person_id"]),
+                                "last_updated": str(row["last_updated"]),
+                                "status": row["status"],
+                            }
+                            await asyncio.to_thread(
+                                KafkaProducer().produce,
+                                topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                                key=payload["person_id"],
+                                data=payload,
+                            )
 
-                        # Parse the response
-                        for line in response.decode("utf-8").strip().split("\n"):
-                            if line:
-                                row = json.loads(line)
-                                payload = {
-                                    "team_id": row["team_id"],
-                                    "cohort_id": row["cohort_id"],
-                                    "person_id": str(row["person_id"]),
-                                    "last_updated": str(row["last_updated"]),
-                                    "status": row["status"],
-                                }
-                                KafkaProducer().produce(
-                                    topic=KAFKA_COHORT_MEMBERSHIP_CHANGED, key=payload["person_id"], data=payload
-                                )
-
-            except Exception as e:
-                logger.exception(
-                    "Error processing condition in batch",
-                    condition=condition_hash[:16] + "...",
-                    error=str(e),
-                    batch_number=inputs.batch_number,
-                )
-                continue
+        except Exception as e:
+            logger.exception(
+                "Error processing condition in batch",
+                condition=condition_hash[:16] + "...",
+                error=str(e),
+                batch_number=inputs.batch_number,
+            )
+            continue
 
     logger.info(
         f"Batch {inputs.batch_number} completed: processed {len(inputs.conditions)} conditions",
