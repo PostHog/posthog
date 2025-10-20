@@ -1,5 +1,4 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 
@@ -15,8 +14,8 @@ import { PlayerSidebarEditPinnedPersonPropertiesPopover } from './PlayerSidebarE
 
 export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { displayOverviewItems, loading, sessionPerson } = useValues(playerMetaLogic(logicProps))
-    const [isPersonPopoverOpen, setIsPersonPopoverOpen] = useState(false)
+    const { displayOverviewItems, loading, sessionPerson, isPersonPopoverOpen } = useValues(playerMetaLogic(logicProps))
+    const { setIsPersonPopoverOpen } = useActions(playerMetaLogic(logicProps))
 
     return (
         <>
