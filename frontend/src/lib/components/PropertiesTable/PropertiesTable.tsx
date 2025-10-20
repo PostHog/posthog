@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { useMemo, useState } from 'react'
 
-import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
+import { IconPencil, IconPin, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -195,6 +195,7 @@ interface PropertiesTableType extends BasePropertyType {
     /** Whether this table should be style for being embedded. Default: true. */
     embedded?: boolean
     onDelete?: (key: string) => void
+    onPin?: (key: string) => void
     className?: string
     /* only event types are detected and so describe-able. see https://github.com/PostHog/posthog/issues/9245 */
     useDetectedPropertyType?: boolean
@@ -213,11 +214,12 @@ export function PropertiesTable({
     rootKey,
     onEdit,
     sortProperties = true,
-    searchable = false,
+    searchable = true, //false,
     filterable = false,
     embedded = true,
     nestingLevel = 0,
     onDelete,
+    onPin,
     className,
     useDetectedPropertyType,
     tableProps,
@@ -452,6 +454,17 @@ export function PropertiesTable({
                 )
             },
         })
+
+        if (onPin && nestingLevel === 0) {
+            columns.unshift({
+                key: 'pin',
+                title: '',
+                width: 0,
+                render: function Pin(_, item: any): JSX.Element {
+                    return <LemonButton icon={<IconPin />} onClick={() => onPin(item[0])} />
+                },
+            })
+        }
 
         if (onDelete && nestingLevel === 0) {
             const onClickDelete = (property: string): void => {

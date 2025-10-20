@@ -5,7 +5,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
+import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
 
 import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -37,25 +37,8 @@ import { SessionSummaryContent } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
-const ALLOW_LISTED_PERSON_PROPERTIES = [
-    '$os_name',
-    '$os',
-    '$browser_name',
-    '$browser',
-    '$device_type',
-    '$referrer',
-    '$geoip_country_code',
-    '$geoip_subdivision_1_name',
-    '$geoip_city_name',
-]
-
-function allowListedPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
-    const personProperties = sessionPlayerMetaData?.person?.properties ?? {}
-    return Object.fromEntries(
-        Object.entries(personProperties).filter(([key]) => {
-            return ALLOW_LISTED_PERSON_PROPERTIES.includes(key)
-        })
-    )
+function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
+    return sessionPlayerMetaData?.person?.properties ?? {}
 }
 
 function canRenderDirectly(value: any): boolean {
@@ -105,6 +88,10 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
         summarizeSession: () => ({}),
         setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
+        setPinnedOverviewProperties: (properties: string[]) => ({ properties }),
+        togglePropertyPin: (propertyKey: string) => ({ propertyKey }),
+        setPinnedPersonProperties: (properties: string[]) => ({ properties }),
+        togglePersonPropertyPin: (propertyKey: string) => ({ propertyKey }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
@@ -125,6 +112,43 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 summarizeSession: () => true,
                 setSessionSummaryContent: () => false,
                 setSessionSummaryLoading: (_, { isLoading }) => isLoading,
+            },
+        ],
+        pinnedOverviewProperties: [
+            [
+                'Start',
+                'Clicks',
+                'Duration',
+                'TTL',
+                'console_error_count',
+                'click_count',
+                'key_press_count',
+                '$referrer',
+                '$geoip_country_code',
+                '$geoip_city_name',
+            ] as string[],
+            { persist: true },
+            {
+                setPinnedOverviewProperties: (_, { properties }) => properties,
+                togglePropertyPin: (state, { propertyKey }) => {
+                    if (state.includes(propertyKey)) {
+                        return state.filter((k: string) => k !== propertyKey)
+                    }
+                    return [...state, propertyKey]
+                },
+            },
+        ],
+        pinnedPersonProperties: [
+            [] as string[],
+            { persist: true },
+            {
+                setPinnedPersonProperties: (_, { properties }) => properties,
+                togglePersonPropertyPin: (state, { propertyKey }) => {
+                    if (state.includes(propertyKey)) {
+                        return state.filter((k: string) => k !== propertyKey)
+                    }
+                    return [...state, propertyKey]
+                },
             },
         ],
     })),
@@ -197,13 +221,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
             },
         ],
-        overviewItems: [
+        allOverviewItems: [
             (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
             (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
                 const items: OverviewItem[] = []
                 if (startTime) {
                     items.push({
                         label: 'Start',
+                        icon: <IconClock />,
                         value: (
                             <SimpleTimeLabel
                                 muted={false}
@@ -218,6 +243,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 if (sessionPlayerMetaData?.recording_duration) {
                     items.push({
                         label: 'Duration',
+                        icon: <IconHourglass />,
                         value: humanFriendlyDuration(sessionPlayerMetaData.recording_duration),
                         type: 'text',
                     })
@@ -254,18 +280,15 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 const recordingProperties = sessionPlayerMetaData?.id
                     ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
                     : {}
-                const personProperties = allowListedPersonProperties(sessionPlayerMetaData)
+                const personProperties = getAllPersonProperties(sessionPlayerMetaData)
 
-                const shouldUsePersonProperties = Object.keys(recordingProperties).length === 0
-                const propertiesToUse = shouldUsePersonProperties ? personProperties : recordingProperties
-                if (propertiesToUse['$os_name'] && propertiesToUse['$os']) {
+                // Combine both recording and person properties
+                const allProperties = { ...recordingProperties, ...personProperties }
+                if (allProperties['$os_name'] && allProperties['$os']) {
                     // we don't need both, prefer $os_name in case mobile sends better value in that field
-                    delete propertiesToUse['$os']
+                    delete allProperties['$os']
                 }
-                Object.entries(propertiesToUse).forEach(([property, value]) => {
-                    if (value == null) {
-                        return
-                    }
+                Object.entries(allProperties).forEach(([property, value]) => {
                     if (property === '$geoip_subdivision_1_name' || property === '$geoip_city_name') {
                         // they're just shown in the title for Country
                         return
@@ -278,19 +301,20 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         : TaxonomicFilterGroupType.PersonProperties
 
                     const safeValue =
-                        typeof value === 'string'
-                            ? value
-                            : typeof value === 'number'
-                              ? value.toString()
-                              : JSON.stringify(value, null, 2)
+                        value == null
+                            ? '-'
+                            : typeof value === 'string'
+                              ? value
+                              : typeof value === 'number'
+                                ? value.toString()
+                                : JSON.stringify(value, null, 2)
 
-                    const calculatedPropertyType: PropertyFilterType | undefined = shouldUsePersonProperties
-                        ? PropertyFilterType.Person
-                        : propertyType === TaxonomicFilterGroupType.EventProperties
-                          ? PropertyFilterType.Event
-                          : TaxonomicFilterGroupType.SessionProperties
-                            ? PropertyFilterType.Session
-                            : PropertyFilterType.Person
+                    const calculatedPropertyType: PropertyFilterType | undefined =
+                        propertyType === TaxonomicFilterGroupType.EventProperties
+                            ? PropertyFilterType.Event
+                            : propertyType === TaxonomicFilterGroupType.SessionProperties
+                              ? PropertyFilterType.Session
+                              : PropertyFilterType.Person
                     items.push({
                         icon: <PropertyFilterIcon type={calculatedPropertyType} />,
                         label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
@@ -311,6 +335,22 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 })
 
                 return items
+            },
+        ],
+        displayOverviewItems: [
+            (s) => [s.allOverviewItems, s.pinnedOverviewProperties, s.pinnedPersonProperties],
+            (allOverviewItems, pinnedOverviewProperties, pinnedPersonProperties) => {
+                // If no recording properties are pinned, show all items
+                if (pinnedOverviewProperties.length === 0) {
+                    return allOverviewItems
+                }
+                // Filter to show only pinned recording properties OR pinned person properties
+                return allOverviewItems.filter((item) => {
+                    const key = item.type === 'property' ? item.property : item.label
+                    return (
+                        pinnedOverviewProperties.includes(String(key)) || pinnedPersonProperties.includes(String(key))
+                    )
+                })
             },
         ],
     })),

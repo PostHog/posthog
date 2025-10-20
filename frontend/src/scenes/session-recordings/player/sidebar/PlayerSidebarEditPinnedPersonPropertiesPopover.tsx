@@ -1,0 +1,111 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { IconPin, IconPinFilled } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { personsLogic } from 'scenes/persons/personsLogic'
+
+import { playerMetaLogic } from '../player-meta/playerMetaLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+
+export type PlayerSidebarEditPinnedPersonPropertiesPopoverProps = {
+    distinctId?: string
+    personId?: string
+    onClose?: () => void
+}
+
+export function PlayerSidebarEditPinnedPersonPropertiesPopover(
+    props: PlayerSidebarEditPinnedPersonPropertiesPopoverProps
+): JSX.Element | null {
+    const { loadPerson, loadPersonUUID } = useActions(personsLogic({ syncWithUrl: false }))
+    const { person, personLoading } = useValues(personsLogic({ syncWithUrl: false }))
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { allOverviewItems, pinnedPersonProperties, pinnedOverviewProperties } = useValues(
+        playerMetaLogic(logicProps)
+    )
+    const { togglePersonPropertyPin, togglePropertyPin } = useActions(playerMetaLogic(logicProps))
+
+    useEffect(() => {
+        if (props.distinctId) {
+            loadPerson(props.distinctId)
+        } else if (props.personId) {
+            loadPersonUUID(props.personId)
+        }
+    }, [loadPerson, loadPersonUUID, props.distinctId, props.personId])
+
+    if (!props.distinctId && !props.personId) {
+        return null
+    }
+
+    if (personLoading) {
+        return <Spinner />
+    }
+
+    // NOTE: This can happen if the Person was deleted or the events associated with the distinct_id had person processing disabled
+    if (!person) {
+        return (
+            <div className="p-2 max-w-160">
+                <h4>No profile associated with this ID</h4>
+                <p>
+                    Person profiles allow you to see a detailed view of a Person's user properties, track users across
+                    devices, and more. To create person profiles, see{' '}
+                    <Link to="https://posthog.com/docs/data/persons#capturing-person-profiles">here.</Link>
+                </p>
+                <p>To edit pinned user properties, try with another recording with a different user.</p>
+            </div>
+        )
+    }
+
+    const personPropertyKeys = person.properties ? Object.keys(person.properties).sort() : []
+    const recordingPropertyKeys = allOverviewItems.map((item) =>
+        item.type === 'property' ? item.property : item.label
+    )
+
+    // Deduplicate and create a combined list
+    const allPropertyKeys = Array.from(new Set([...recordingPropertyKeys, ...personPropertyKeys])).sort()
+    const recordingPropertyKeysSet = new Set(recordingPropertyKeys)
+
+    return (
+        <div className="flex flex-col overflow-hidden max-h-96 w-[400px]">
+            <div className="flex items-center gap-2 px-4 py-3 border-b">
+                <IconPinFilled className="text-muted" />
+                <h4 className="font-semibold m-0">Pinned properties</h4>
+            </div>
+
+            <ScrollableShadows direction="vertical" className="flex-1">
+                <div className="flex flex-col">
+                    {allPropertyKeys.map((propertyKey) => {
+                        const isRecordingProperty = recordingPropertyKeysSet.has(propertyKey)
+                        const isPinned = isRecordingProperty
+                            ? pinnedOverviewProperties.includes(propertyKey)
+                            : pinnedPersonProperties.includes(propertyKey)
+
+                        const handleToggle = (): void => {
+                            if (isRecordingProperty) {
+                                togglePropertyPin(propertyKey)
+                            } else {
+                                togglePersonPropertyPin(propertyKey)
+                            }
+                        }
+
+                        return (
+                            <LemonButton
+                                key={propertyKey}
+                                size="small"
+                                fullWidth
+                                className="justify-between"
+                                onClick={handleToggle}
+                                sideIcon={isPinned ? <IconPinFilled /> : <IconPin />}
+                            >
+                                <span>{propertyKey}</span>
+                            </LemonButton>
+                        )
+                    })}
+                </div>
+            </ScrollableShadows>
+        </div>
+    )
+}
