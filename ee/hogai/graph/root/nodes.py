@@ -67,6 +67,7 @@ from .tools import (
     create_and_query_insight,
     create_dashboard,
     session_summarization,
+    llm_traces_summarization
 )
 
 if TYPE_CHECKING:
@@ -84,6 +85,7 @@ RouteName = Literal[
     "insights_search",
     "billing",
     "session_summarization",
+    "llm_traces_summarization",
     "create_dashboard",
 ]
 
@@ -266,6 +268,9 @@ class RootNode(AssistantNode):
         if self._has_session_summarization_feature_flag():
             available_tools.append(session_summarization)
 
+        # LLM summarization tool
+        available_tools.append(llm_traces_summarization)
+
         # Dashboard creation tool
         available_tools.append(create_dashboard)
 
@@ -422,6 +427,12 @@ class RootNodeTools(AssistantNode):
                 summary_title=tool_call.args.get("summary_title"),
                 root_tool_calls_count=tool_call_count + 1,
             )
+        if tool_call.name == "llm_traces_summarization":
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                llm_traces_summarization_query=tool_call.args["llm_traces_summarization_query"],
+                root_tool_calls_count=tool_call_count + 1,
+            )
         if tool_call.name == "create_dashboard":
             raw_queries = tool_call.args["search_insights_queries"]
             search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
@@ -553,6 +564,8 @@ class RootNodeTools(AssistantNode):
                 return "insights_search"
             elif state.session_summarization_query:
                 return "session_summarization"
+            elif state.llm_traces_summarization_query:
+                return "llm_traces_summarization"
             else:
                 return "search_documentation"
         return "end"

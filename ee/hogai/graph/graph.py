@@ -3,6 +3,7 @@ from typing import Any, Generic, Literal, Optional, Protocol, cast, runtime_chec
 
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 
+from ee.hogai.graph.llm_traces_summaries.nodes import LLMTracesSummarizationNode
 from posthog.schema import ReasoningMessage
 
 from posthog.models.team.team import Team
@@ -273,6 +274,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "end": AssistantNodeName.END,
             "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
             "session_summarization": AssistantNodeName.SESSION_SUMMARIZATION,
+            "llm_traces_summarization": AssistantNodeName.LLM_TRACES_SUMMARIZATION,
             "create_dashboard": AssistantNodeName.DASHBOARD_CREATION,
         }
         root_node = RootNode(self._team, self._user)
@@ -410,6 +412,12 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self.add_node(AssistantNodeName.SESSION_SUMMARIZATION, session_summarization_node)
         self._graph.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, AssistantNodeName.ROOT)
         return self
+    
+    def add_llm_traces_summarization(self, end_node: AssistantNodeName = AssistantNodeName.END):
+        llm_traces_summarization_node = LLMTracesSummarizationNode(self._team, self._user)
+        self.add_node(AssistantNodeName.LLM_TRACES_SUMMARIZATION, llm_traces_summarization_node)
+        self._graph.add_edge(AssistantNodeName.LLM_TRACES_SUMMARIZATION, AssistantNodeName.ROOT)
+        return self
 
     def add_dashboard_creation(self, end_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
@@ -430,6 +438,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_billing()
             .add_insights_search()
             .add_session_summarization()
+            .add_llm_traces_summarization()
             .add_dashboard_creation()
             .compile(checkpointer=checkpointer)
         )

@@ -1,4 +1,4 @@
-from .legacy import create_and_query_insight, create_dashboard, session_summarization
+from .legacy import create_and_query_insight, create_dashboard, session_summarization, llm_traces_summarization
 from .navigate import NavigateTool, NavigateToolArgs
 from .read_data import ReadDataTool, ReadDataToolArgs
 from .read_taxonomy import ReadTaxonomyTool
@@ -17,5 +17,6 @@ __all__ = [
     "NavigateToolArgs",
     "create_and_query_insight",
     "session_summarization",
+    "llm_traces_summarization",
     "create_dashboard",
 ]

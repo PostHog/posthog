@@ -67,6 +67,45 @@ async def get_embeddings(client: httpx.AsyncClient, embeddings_input: list[str],
     return embeddings
 
 
+@retry(
+    retry=retry_if_exception_type(RetryableException),
+    stop=stop_after_attempt(5),
+    wait=wait_fixed(1) + wait_random(0, 3),
+    retry_error_callback=failed_get_embeddings,
+)
+def get_embeddings_sync(client: httpx.Client, embeddings_input: list[str], label: str = "") -> list[list[float]]:
+    input_data = {"input": embeddings_input, "model": EMBEDDINGS_MODEL}
+    try:
+        raw_response = client.post(
+            url=EMBEDDINGS_API_URL,
+            json=input_data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {EMBEDDINGS_API_KEY}",
+            },
+        )
+        response = raw_response.json()
+    except httpx.HTTPStatusError as err:
+        message = f"Request error when getting embeddings: {err}"
+        logger.exception(message)
+        raise RetryableException(message)
+    embeddings = jmespath.search("data[].embedding", response)
+    if not embeddings:
+        message = (
+            f"Couldn't get embeddings ({embeddings_input}, {label}), no embeddings returned ({response}). Retrying."
+        )
+        logger.exception(message)
+        raise RetryableException(message)
+    if len(embeddings) != len(embeddings_input):
+        message = (
+            f"Got {len(embeddings)} embeddings for {len(embeddings_input)} "
+            f"inputs ({embeddings_input}, {label}). Retrying."
+        )
+        logger.exception(message)
+        raise RetryableException(message)
+    return embeddings
+
+
 # TODO: Remove after testing
 if __name__ == "__main__":
     waka = asyncio.run(get_embeddings(client=httpx.AsyncClient(), embeddings_input=["Hello, world!"]))
