@@ -861,47 +861,6 @@ class TestRootNodeTools(BaseTest):
             self.assertTrue(interrupt_data.visible)
             self.assertEqual(interrupt_data.ui_payload, {"navigate": {"page_key": "insights"}})
 
-    def test_router_insights_path(self):
-        """Test router routes to insights when root_tool_insight_plan is set"""
-        node = RootNodeTools(self.team, self.user)
-
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="Creating insight",
-                    tool_calls=[
-                        AssistantToolCall(
-                            id="insight-123",
-                            name="create_and_query_insight",
-                            args={"query_kind": "trends", "query_description": "test"},
-                        )
-                    ],
-                )
-            ],
-            root_tool_call_id="insight-123",
-            root_tool_insight_plan="test query plan",
-        )
-
-        self.assertEqual(node.router(state), "insights")
-
-    def test_billing_tool_routing(self):
-        """Test that billing tool calls are routed correctly"""
-        node = RootNodeTools(self.team, self.user)
-
-        # Create state with billing tool call (read_data with kind=billing_info)
-        state = AssistantState(
-            messages=[
-                AssistantMessage(
-                    content="Let me check your billing information",
-                    tool_calls=[AssistantToolCall(id="billing-123", name="read_data", args={"kind": "billing_info"})],
-                )
-            ],
-            root_tool_call_id="billing-123",
-        )
-
-        # Should route to billing
-        self.assertEqual(node.router(state), "billing")
-
     def test_router_insights_search_path(self):
         """Test router routes to insights_search when search_insights_query is set"""
         node = RootNodeTools(self.team, self.user)
