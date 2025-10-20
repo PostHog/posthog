@@ -5,7 +5,6 @@ import {
     EXAMPLES_MONOREPO_URL,
     FRAMEWORK_EXAMPLE_PATHS,
     isSupportedFramework,
-    getSupportedFrameworks,
     getSupportedFrameworksList,
 } from './framework-mappings'
 import { convertSubfolderToMarkdown } from './repo-to-md'
@@ -63,19 +62,19 @@ async function fetchExamplesMonorepo(): Promise<Unzipped> {
 const workflowSequence = [
     {
         uri: ResourceUri.WORKFLOW_SETUP_BEGIN,
-        name: 'PostHog Setup - Begin',
+        name: 'Event Setup - Begin',
         description: 'Start the event tracking setup process',
         content: workflowBegin,
     },
     {
         uri: ResourceUri.WORKFLOW_SETUP_EDIT,
-        name: 'PostHog Setup - Edit',
+        name: 'Event Setup - Edit',
         description: 'Edit files to add PostHog event tracking',
         content: workflowEdit,
     },
     {
         uri: ResourceUri.WORKFLOW_SETUP_REVISE,
-        name: 'PostHog Setup - Revise',
+        name: 'Event Setup - Revise',
         description: 'Review and fix any errors in the implementation',
         content: workflowRevise,
     },
@@ -122,20 +121,7 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
     // Register the PostHog docs resource - fetch from URL with framework template
     server.registerResource(
         'Integration docs',
-        new ResourceTemplate(ResourceUri.DOCS_FRAMEWORK, {
-            list: async () => {
-                // Return a resource entry for each supported framework
-                const frameworks = getSupportedFrameworks()
-                return {
-                    resources: frameworks.map((framework: string) => ({
-                        uri: ResourceUri.DOCS_FRAMEWORK.replace('{framework}', framework),
-                        name: `PostHog ${framework} Integration Docs`,
-                        description: `PostHog integration documentation for ${framework}`,
-                        mimeType: 'text/markdown',
-                    })),
-                }
-            },
-        }),
+        new ResourceTemplate(ResourceUri.DOCS_FRAMEWORK, { list: undefined }),
         {
             mimeType: 'text/markdown',
             description: `PostHog integration documentation for a specific framework. Supported frameworks: ${getSupportedFrameworksList()}`,
@@ -195,23 +181,7 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
     // Register example project resource with framework template
     server.registerResource(
         'Example project',
-        new ResourceTemplate(ResourceUri.EXAMPLE_PROJECT_FRAMEWORK, {
-            list: async () => {
-                // Return a resource entry for each supported framework
-                const frameworks = getSupportedFrameworks()
-                return {
-                    resources: frameworks.map((framework: string) => ({
-                        uri: ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace(
-                            '{framework}',
-                            framework
-                        ),
-                        name: `PostHog ${framework} Example Project`,
-                        description: `Example project showing PostHog integration with ${framework}`,
-                        mimeType: 'text/markdown',
-                    })),
-                }
-            },
-        }),
+        new ResourceTemplate(ResourceUri.EXAMPLE_PROJECT_FRAMEWORK, { list: undefined }),
         {
             mimeType: 'text/markdown',
             description: `PostHog example project files for a specific framework. Supported frameworks: ${getSupportedFrameworksList()}`,
