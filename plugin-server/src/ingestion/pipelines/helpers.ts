@@ -3,9 +3,8 @@ import { Message } from 'node-rdkafka'
 import { BatchPipelineUnwrapper } from './batch-pipeline-unwrapper'
 import { BatchPipeline } from './batch-pipeline.interface'
 import { BatchPipelineBuilder, newBatchPipelineBuilder } from './builders'
-import { Pipeline, PipelineWarning } from './pipeline.interface'
+import { PipelineWarning } from './pipeline.interface'
 import { PipelineResult, ok } from './results'
-import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'
 import { StartPipeline } from './start-pipeline'
 
 export type DefaultContext = { message: Message }
@@ -67,16 +66,6 @@ export function createContext<T, PartialContext>(
             ...rest,
         },
     }
-}
-
-/**
- * Helper function to create a retrying pipeline
- */
-export function createRetryingPipeline<TInput, TOutput, C>(
-    innerPipeline: Pipeline<TInput, TOutput, C>,
-    options?: RetryingPipelineOptions
-): RetryingPipeline<TInput, TOutput, C> {
-    return new RetryingPipeline(innerPipeline, options)
 }
 
 /**

@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { captureException } from '../../utils/posthog'
-import { createContext, createNewPipeline, createRetryingPipeline } from './helpers'
+import { createContext, createNewPipeline } from './helpers'
 import { PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResultType, dlq, ok } from './results'
 import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'
@@ -27,7 +27,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline)
+            const retryingPipeline = new RetryingPipeline(innerPipeline)
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -64,7 +64,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 3, sleepMs: 150 })
+            const retryingPipeline = new RetryingPipeline(innerPipeline, { tries: 3, sleepMs: 150 })
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -95,7 +95,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 3, sleepMs: 200 })
+            const retryingPipeline = new RetryingPipeline(innerPipeline, { tries: 3, sleepMs: 200 })
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -124,7 +124,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 5, sleepMs: 50 })
+            const retryingPipeline = new RetryingPipeline(innerPipeline, { tries: 5, sleepMs: 50 })
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -164,7 +164,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 2, sleepMs: 75 })
+            const retryingPipeline = new RetryingPipeline(innerPipeline, { tries: 2, sleepMs: 75 })
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -193,7 +193,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 4, sleepMs: 300 })
+            const retryingPipeline = new RetryingPipeline(innerPipeline, { tries: 4, sleepMs: 300 })
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -232,7 +232,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 1, sleepMs: 25 })
+            const retryingPipeline = new RetryingPipeline(innerPipeline, { tries: 1, sleepMs: 25 })
             expect(retryingPipeline).toBeInstanceOf(RetryingPipeline)
 
             const message: Message = {
@@ -265,7 +265,7 @@ describe('RetryingPipeline', () => {
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const options: RetryingPipelineOptions = { tries: 2, sleepMs: 80 }
-            const retryingPipeline = createRetryingPipeline(innerPipeline, options)
+            const retryingPipeline = new RetryingPipeline(innerPipeline, options)
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -294,7 +294,7 @@ describe('RetryingPipeline', () => {
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const options: RetryingPipelineOptions = { tries: 2, sleepMs: 50 }
-            const retryingPipeline = createRetryingPipeline(innerPipeline, options)
+            const retryingPipeline = new RetryingPipeline(innerPipeline, options)
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -322,7 +322,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline) // No options - uses defaults
+            const retryingPipeline = new RetryingPipeline(innerPipeline) // No options - uses defaults
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -351,7 +351,7 @@ describe('RetryingPipeline', () => {
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
             const options: RetryingPipelineOptions = { tries: 2, sleepMs: 120 }
-            const retryingPipeline = createRetryingPipeline(innerPipeline, options)
+            const retryingPipeline = new RetryingPipeline(innerPipeline, options)
             expect(retryingPipeline).toBeInstanceOf(RetryingPipeline)
 
             const message: Message = {
@@ -383,7 +383,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline)
+            const retryingPipeline = new RetryingPipeline(innerPipeline)
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -416,7 +416,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline, { tries: 3, sleepMs: 50 })
+            const retryingPipeline = new RetryingPipeline(innerPipeline, { tries: 3, sleepMs: 50 })
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -442,7 +442,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline)
+            const retryingPipeline = new RetryingPipeline(innerPipeline)
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -473,7 +473,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline)
+            const retryingPipeline = new RetryingPipeline(innerPipeline)
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
@@ -504,7 +504,7 @@ describe('RetryingPipeline', () => {
             })
 
             const innerPipeline = createNewPipeline().pipe(mockProcessStep)
-            const retryingPipeline = createRetryingPipeline(innerPipeline)
+            const retryingPipeline = new RetryingPipeline(innerPipeline)
             const message: Message = {
                 value: Buffer.from('test'),
                 topic: 'test',
