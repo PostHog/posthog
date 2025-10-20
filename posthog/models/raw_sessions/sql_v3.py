@@ -351,7 +351,7 @@ FROM parsed_events
     )
 
 
-def RAW_SESSIONS_TABLE_MV_SQL_V3(where=True):
+def RAW_SESSIONS_TABLE_MV_SQL_V3(where="TRUE"):
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}
 TO {database}.{target_table}
