@@ -594,6 +594,9 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentsNode"
                 }
             ]
         },
@@ -10614,7 +10617,7 @@
             "type": "object"
         },
         "EntityType": {
-            "enum": ["actions", "events", "data_warehouse", "new_entity"],
+            "enum": ["actions", "events", "data_warehouse", "experiments", "new_entity"],
             "type": "string"
         },
         "ErrorTrackingCorrelatedIssue": {
@@ -13074,6 +13077,75 @@
                 }
             },
             "required": ["key", "count", "exposure", "absolute_exposure"],
+            "type": "object"
+        },
+        "ExperimentsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "experiment_id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "experiment_name": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "ExperimentsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["experiment_id", "kind"],
             "type": "object"
         },
         "ExternalDataSourceType": {
@@ -17564,6 +17636,7 @@
                 "EventsNode",
                 "ActionsNode",
                 "DataWarehouseNode",
+                "ExperimentsNode",
                 "EventsQuery",
                 "PersonsNode",
                 "HogQuery",

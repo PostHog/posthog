@@ -35,6 +35,7 @@ export function toLocalFilters(filters: Partial<FilterType>): LocalFilter[] {
         ...(filters[EntityTypes.ACTIONS] || []),
         ...(filters[EntityTypes.EVENTS] || []),
         ...(filters[EntityTypes.DATA_WAREHOUSE] || []),
+        ...(filters[EntityTypes.EXPERIMENTS] || []),
     ]
         .sort((a, b) => a.order - b.order)
         .map((filter, order) => ({ ...(filter as ActionFilter), order }))
@@ -61,6 +62,7 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
         [EntityTypes.ACTIONS]: filters.filter((filter) => filter.type === EntityTypes.ACTIONS),
         [EntityTypes.EVENTS]: filters.filter((filter) => filter.type === EntityTypes.EVENTS),
         [EntityTypes.DATA_WAREHOUSE]: filters.filter((filter) => filter.type === EntityTypes.DATA_WAREHOUSE),
+        [EntityTypes.EXPERIMENTS]: filters.filter((filter) => filter.type === EntityTypes.EXPERIMENTS),
     } as FilterType
 }
 
@@ -203,7 +205,17 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         hideModal: () => {
             actions.selectFilter(null)
         },
-        updateFilter: async ({ type, index, name, id, custom_name, table_name, ...fieldValues }) => {
+        updateFilter: async ({
+            type,
+            index,
+            name,
+            id,
+            custom_name,
+            table_name,
+            experiment_id,
+            experiment_name,
+            ...fieldValues
+        }) => {
             actions.setFilters(
                 values.localFilters.map((filter, i) => {
                     if (i === index) {
@@ -228,11 +240,27 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                             return updatedFilter
                         }
 
-                        // For non-DATA_WAREHOUSE types, remove any data warehouse specific fields
+                        if (type === EntityTypes.EXPERIMENTS) {
+                            return {
+                                ...filter,
+                                id: typeof id === 'undefined' ? filter.id : id,
+                                name: typeof name === 'undefined' ? filter.name : name,
+                                type: typeof type === 'undefined' ? filter.type : type,
+                                custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
+                                experiment_id:
+                                    typeof experiment_id === 'undefined' ? filter.experiment_id : experiment_id,
+                                experiment_name:
+                                    typeof experiment_name === 'undefined' ? filter.experiment_name : experiment_name,
+                            }
+                        }
+
+                        // For non-DATA_WAREHOUSE/EXPERIMENTS types, remove any specific fields
                         const cleanedFilter = { ...filter }
                         dataWarehousePopoverFields.forEach(({ key }) => {
                             delete cleanedFilter[key]
                         })
+                        delete cleanedFilter.experiment_id
+                        delete cleanedFilter.experiment_name
 
                         return {
                             ...cleanedFilter,

@@ -19,6 +19,7 @@ import {
     CompareFilter,
     DataWarehouseNode,
     EventsNode,
+    ExperimentsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelPathsFilter,
@@ -52,6 +53,7 @@ import {
     BaseMathType,
     CalendarHeatmapMathType,
     DataWarehouseFilter,
+    ExperimentFilter,
     FilterType,
     FunnelExclusionLegacy,
     FunnelMathType,
@@ -64,6 +66,7 @@ import {
     RetentionFilterType,
     TrendsFilterType,
     isDataWarehouseFilter,
+    isExperimentFilter,
 } from '~/types'
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
@@ -96,15 +99,16 @@ export type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
     actions?: ActionFilter[]
     data_warehouse?: DataWarehouseFilter[]
+    experiments?: ExperimentFilter[]
     new_entity?: ActionFilter[]
 }
 
 export const legacyEntityToNode = (
-    entity: ActionFilter | DataWarehouseFilter,
+    entity: ActionFilter | DataWarehouseFilter | ExperimentFilter,
     includeProperties: boolean,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode | DataWarehouseNode => {
-    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode> = {
+): EventsNode | ActionsNode | DataWarehouseNode | ExperimentsNode => {
+    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode | ExperimentsNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
     }
@@ -117,6 +121,14 @@ export const legacyEntityToNode = (
             distinct_id_field: entity.distinct_id_field || undefined,
             table_name: entity.table_name || undefined,
         } as DataWarehouseNode
+    }
+
+    if (isExperimentFilter(entity)) {
+        shared = {
+            ...shared,
+            experiment_id: entity.experiment_id,
+            experiment_name: entity.experiment_name,
+        } as ExperimentsNode
     }
 
     if (includeProperties) {
@@ -179,6 +191,13 @@ export const legacyEntityToNode = (
                 ...shared,
             })
         ) as any
+    } else if (entity.type === 'experiments') {
+        return setLatestVersionsOnQuery(
+            objectCleanWithEmpty({
+                kind: NodeKind.ExperimentsNode,
+                ...shared,
+            })
+        ) as any
     }
     return setLatestVersionsOnQuery(
         objectCleanWithEmpty({
@@ -203,11 +222,17 @@ export const exlusionEntityToNode = (
 }
 
 export const actionsAndEventsToSeries = (
-    { actions, events, data_warehouse, new_entity }: FilterTypeActionsAndEvents,
+    { actions, events, data_warehouse, experiments, new_entity }: FilterTypeActionsAndEvents,
     includeProperties: boolean,
     includeMath: MathAvailability
-): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
-    const series: any = [...(actions || []), ...(events || []), ...(data_warehouse || []), ...(new_entity || [])]
+): (EventsNode | ActionsNode | DataWarehouseNode | ExperimentsNode)[] => {
+    const series: any = [
+        ...(actions || []),
+        ...(events || []),
+        ...(data_warehouse || []),
+        ...(experiments || []),
+        ...(new_entity || []),
+    ]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
         .map((f) => legacyEntityToNode(f, includeProperties, includeMath))
 

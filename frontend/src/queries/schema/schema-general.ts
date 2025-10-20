@@ -74,6 +74,7 @@ export enum NodeKind {
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
+    ExperimentsNode = 'ExperimentsNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
@@ -695,7 +696,13 @@ export interface ActionsNode extends EntityNode {
     id: integer
 }
 
-export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
+export interface ExperimentsNode extends EntityNode {
+    kind: NodeKind.ExperimentsNode
+    experiment_id: integer
+    experiment_name?: string
+}
+
+export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode | ExperimentsNode
 
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */

@@ -281,6 +281,16 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
+    if kind == "ExperimentsNode":
+        from .insights.experiments_node_query_runner import ExperimentsNodeQueryRunner
+
+        return ExperimentsNodeQueryRunner(
+            query=query,  # type: ignore
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
     if kind == "EventsQuery":
         from .events_query_runner import EventsQueryRunner
 

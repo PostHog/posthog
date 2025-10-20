@@ -71,6 +71,7 @@ import {
     HogQLMathType,
     PropertyFilterValue,
     PropertyMathType,
+    isExperimentFilter,
 } from '~/types'
 
 import { LocalFilter } from '../entityFilterLogic'
@@ -96,7 +97,7 @@ const getValue = (
 ): string | number | null | undefined => {
     if (isAllEventsEntityFilter(filter)) {
         return 'All events'
-    } else if (filter.type === 'actions') {
+    } else if (filter.type === 'actions' || filter.type === 'experiments') {
         return typeof value === 'string' ? parseInt(value) : value || undefined
     }
     return value === null ? null : value || undefined
@@ -294,6 +295,9 @@ export function ActionFilterRow({
         const action = actions.find((action) => action.id === filter.id)
         name = action?.name || filter.name
         value = action?.id || filter.id
+    } else if (filter.type === EntityTypes.EXPERIMENTS && isExperimentFilter(filter)) {
+        name = filter.experiment_name || filter.name || String(filter.experiment_id)
+        value = filter.experiment_id || filter.id
     } else {
         name = filter.name || String(filter.id)
         value = filter.name || filter.id
@@ -325,6 +329,16 @@ export function ActionFilterRow({
                         table_name: item?.name,
                         index,
                         ...extraValues,
+                    })
+                } else if (groupType === EntityTypes.EXPERIMENTS) {
+                    const experimentName = item?.name || `Experiment ${changedValue}`
+                    updateFilter({
+                        type: groupType,
+                        id: changedValue ? Number(changedValue) : null,
+                        name: experimentName,
+                        experiment_id: changedValue ? Number(changedValue) : null,
+                        experiment_name: experimentName,
+                        index,
                     })
                 } else {
                     updateFilter({
@@ -700,7 +714,14 @@ export function ActionFilterRow({
                                       TaxonomicFilterGroupType.DataWarehouseProperties,
                                       TaxonomicFilterGroupType.HogQLExpression,
                                   ]
-                                : propertiesTaxonomicGroupTypes
+                                : filter.type == TaxonomicFilterGroupType.Experiments
+                                  ? [
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.EventFeatureFlags,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                        TaxonomicFilterGroupType.HogQLExpression,
+                                    ]
+                                  : propertiesTaxonomicGroupTypes
                         }
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
@@ -1147,6 +1168,7 @@ const taxonomicFilterGroupTypeToEntityTypeMapping: Partial<Record<TaxonomicFilte
     [TaxonomicFilterGroupType.Events]: EntityTypes.EVENTS,
     [TaxonomicFilterGroupType.Actions]: EntityTypes.ACTIONS,
     [TaxonomicFilterGroupType.DataWarehouse]: EntityTypes.DATA_WAREHOUSE,
+    [TaxonomicFilterGroupType.Experiments]: EntityTypes.EXPERIMENTS,
 }
 
 export function taxonomicFilterGroupTypeToEntityType(

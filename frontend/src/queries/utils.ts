@@ -17,6 +17,7 @@ import {
     ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
+    ExperimentsNode,
     FunnelsQuery,
     GoalLine,
     GroupsQuery,
@@ -102,6 +103,10 @@ export function isActionsNode(node?: Record<string, any> | null): node is Action
 
 export function isDataWarehouseNode(node?: Record<string, any> | null): node is DataWarehouseNode {
     return node?.kind === NodeKind.DataWarehouseNode
+}
+
+export function isExperimentsNode(node?: Record<string, any> | null): node is ExperimentsNode {
+    return node?.kind === NodeKind.ExperimentsNode
 }
 
 /** @deprecated `ActorsQuery` is now used instead of `PersonsNode`. */
@@ -407,7 +412,9 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
     return undefined
 }
 
-export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode | DataWarehouseNode)[] | undefined => {
+export const getSeries = (
+    query: InsightQueryNode
+): (EventsNode | ActionsNode | DataWarehouseNode | ExperimentsNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
     }

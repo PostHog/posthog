@@ -31,7 +31,6 @@ import {
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
 import { getInternalEventFilterOptions } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
@@ -680,8 +679,85 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Experiments',
                         searchPlaceholder: 'experiments',
                         type: TaxonomicFilterGroupType.Experiments,
-                        logic: experimentsLogic,
-                        value: 'experiments',
+                        // endpoint: combineUrl(`api/projects/${projectId}/experiments/`).url, // Temporarily disabled for mock testing
+                        options: [
+                            {
+                                id: 1,
+                                name: 'Checkout Button Color Test',
+                                description: 'Testing button colors',
+                                feature_flag_key: 'checkout-button-test',
+                                filters: {},
+                                metrics: [],
+                                metrics_secondary: [],
+                                secondary_metrics: [],
+                                primary_metrics_ordered_uuids: null,
+                                secondary_metrics_ordered_uuids: null,
+                                saved_metrics_ids: [],
+                                saved_metrics: [],
+                                parameters: {
+                                    feature_flag_variants: [
+                                        { key: 'control', rollout_percentage: 50 },
+                                        { key: 'test', rollout_percentage: 50 },
+                                    ],
+                                },
+                                created_at: null,
+                                created_by: null,
+                                updated_at: null,
+                                holdout_id: null,
+                                exposure_criteria: null,
+                            },
+                            {
+                                id: 2,
+                                name: 'Homepage Layout Experiment',
+                                description: 'New vs old layout',
+                                feature_flag_key: 'homepage-layout-test',
+                                filters: {},
+                                metrics: [],
+                                metrics_secondary: [],
+                                secondary_metrics: [],
+                                primary_metrics_ordered_uuids: null,
+                                secondary_metrics_ordered_uuids: null,
+                                saved_metrics_ids: [],
+                                saved_metrics: [],
+                                parameters: {
+                                    feature_flag_variants: [
+                                        { key: 'control', rollout_percentage: 50 },
+                                        { key: 'test', rollout_percentage: 50 },
+                                    ],
+                                },
+                                created_at: null,
+                                created_by: null,
+                                updated_at: null,
+                                holdout_id: null,
+                                exposure_criteria: null,
+                            },
+                            {
+                                id: 3,
+                                name: 'Pricing Page Copy Test',
+                                description: 'Testing different copy',
+                                feature_flag_key: 'pricing-copy-test',
+                                filters: {},
+                                metrics: [],
+                                metrics_secondary: [],
+                                secondary_metrics: [],
+                                primary_metrics_ordered_uuids: null,
+                                secondary_metrics_ordered_uuids: null,
+                                saved_metrics_ids: [],
+                                saved_metrics: [],
+                                parameters: {
+                                    feature_flag_variants: [
+                                        { key: 'control', rollout_percentage: 33 },
+                                        { key: 'variant-a', rollout_percentage: 33 },
+                                        { key: 'variant-b', rollout_percentage: 34 },
+                                    ],
+                                },
+                                created_at: null,
+                                created_by: null,
+                                updated_at: null,
+                                holdout_id: null,
+                                exposure_criteria: null,
+                            },
+                        ] as Experiment[],
                         getName: (experiment: Experiment) => experiment.name,
                         getValue: (experiment: Experiment) => experiment.id,
                         getPopoverHeader: () => `Experiments`,

@@ -167,6 +167,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: true,
     },
+    [NodeKind.ExperimentsNode]: {
+        name: 'Experiments',
+        description: 'Analyze experiment exposure events.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.EventsQuery]: {
         name: 'Events Query',
         description: 'List and explore events.',

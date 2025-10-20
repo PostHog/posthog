@@ -18,6 +18,7 @@ import {
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
+    ExperimentsNode,
     FileSystemIconType,
     HogQLQuery,
     InsightVizNode,
@@ -34,6 +35,7 @@ import {
     isDataTableNode,
     isDataWarehouseNode,
     isEventsNode,
+    isExperimentsNode,
     isInsightVizNode,
 } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
@@ -75,6 +77,12 @@ export const getDisplayNameFromEntityFilter = (
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
     let name = ensureStringIsNotBlank(filter?.name)
+
+    // Special handling for experiments - use experiment_name if available
+    if (filter?.type === EntityTypes.EXPERIMENTS && 'experiment_name' in filter) {
+        name = ensureStringIsNotBlank((filter as any).experiment_name) ?? name
+    }
+
     if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
         name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
     }
@@ -87,7 +95,7 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: EventsNode | ActionsNode | DataWarehouseNode,
+    node: EventsNode | ActionsNode | DataWarehouseNode | ExperimentsNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
@@ -100,7 +108,13 @@ export const getDisplayNameFromEntityNode = (
         name = 'All events'
     }
 
-    const id = isDataWarehouseNode(node) ? node.table_name : isEventsNode(node) ? node.event : node.id
+    const id = isDataWarehouseNode(node)
+        ? node.table_name
+        : isEventsNode(node)
+          ? node.event
+          : isExperimentsNode(node)
+            ? node.experiment_name
+            : node.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)

@@ -1067,6 +1067,7 @@ class EntityType(StrEnum):
     ACTIONS = "actions"
     EVENTS = "events"
     DATA_WAREHOUSE = "data_warehouse"
+    EXPERIMENTS = "experiments"
     NEW_ENTITY = "new_entity"
 
 
@@ -2010,6 +2011,7 @@ class NodeKind(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
     DATA_WAREHOUSE_NODE = "DataWarehouseNode"
+    EXPERIMENTS_NODE = "ExperimentsNode"
     EVENTS_QUERY = "EventsQuery"
     PERSONS_NODE = "PersonsNode"
     HOG_QUERY = "HogQuery"
@@ -8979,6 +8981,89 @@ class ExperimentEventExposureConfig(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ExperimentsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    experiment_id: int
+    experiment_name: Optional[str] = None
+    fixedProperties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    kind: Literal["ExperimentsNode"] = "ExperimentsNode"
+    math: Optional[
+        Union[
+            BaseMathType,
+            FunnelMathType,
+            PropertyMathType,
+            CountPerActorMathType,
+            ExperimentMetricMathType,
+            CalendarHeatmapMathType,
+            Literal["unique_group"],
+            Literal["hogql"],
+        ]
+    ] = None
+    math_group_type_index: Optional[MathGroupTypeIndex] = None
+    math_hogql: Optional[str] = None
+    math_multiplier: Optional[float] = None
+    math_property: Optional[str] = None
+    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
+    math_property_type: Optional[str] = None
+    name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[dict[str, Any]] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class FeatureFlagGroupType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12854,7 +12939,7 @@ class StickinessQuery(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[StickinessQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, ExperimentsNode]] = Field(
         ..., description="Events and actions to include"
     )
     stickinessFilter: Optional[StickinessFilter] = Field(
@@ -12929,7 +13014,7 @@ class TrendsQuery(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[TrendsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, ExperimentsNode]] = Field(
         ..., description="Events and actions to include"
     )
     tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -13126,7 +13211,7 @@ class CalendarHeatmapQuery(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[CalendarHeatmapResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, ExperimentsNode]] = Field(
         ..., description="Events and actions to include"
     )
     tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -13445,7 +13530,7 @@ class FunnelsQuery(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[FunnelsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, ExperimentsNode]] = Field(
         ..., description="Events and actions to include"
     )
     tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -13800,7 +13885,7 @@ class LifecycleQuery(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[LifecycleQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode, ExperimentsNode]] = Field(
         ..., description="Events and actions to include"
     )
     tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -14626,7 +14711,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
         extra="forbid",
     )
     funnelCorrelationPersonConverted: Optional[bool] = None
-    funnelCorrelationPersonEntity: Optional[Union[EventsNode, ActionsNode, DataWarehouseNode]] = None
+    funnelCorrelationPersonEntity: Optional[Union[EventsNode, ActionsNode, DataWarehouseNode, ExperimentsNode]] = None
     funnelCorrelationPropertyValues: Optional[
         list[
             Union[

@@ -1275,7 +1275,7 @@ export type ErrorCluster = {
 }
 export type ErrorClusterResponse = ErrorCluster[] | null
 
-export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'new_entity'
+export type EntityType = 'actions' | 'events' | 'data_warehouse' | 'experiments' | 'new_entity'
 
 export interface Entity {
     id: string | number
@@ -1289,6 +1289,7 @@ export enum EntityTypes {
     ACTIONS = 'actions',
     EVENTS = 'events',
     DATA_WAREHOUSE = 'data_warehouse',
+    EXPERIMENTS = 'experiments',
 }
 
 export type EntityFilter = {
@@ -1321,6 +1322,14 @@ export interface DataWarehouseFilter extends ActionFilter {
 
 export const isDataWarehouseFilter = (filter: EntityFilter): filter is DataWarehouseFilter =>
     filter.type === EntityTypes.DATA_WAREHOUSE
+
+export interface ExperimentFilter extends ActionFilter {
+    experiment_id: number
+    experiment_name?: string
+}
+
+export const isExperimentFilter = (filter: EntityFilter): filter is ExperimentFilter =>
+    filter.type === EntityTypes.EXPERIMENTS
 
 export interface FunnelExclusionLegacy extends Partial<EntityFilter> {
     funnel_from_step: number
@@ -2541,6 +2550,7 @@ export interface FilterType {
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
     data_warehouse?: Record<string, any>[]
+    experiments?: Record<string, any>[]
     new_entity?: Record<string, any>[]
 
     // persons modal

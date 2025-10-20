@@ -18,6 +18,7 @@ import {
     ActionsNode,
     DataWarehouseNode,
     EventsNode,
+    ExperimentsNode,
     FunnelsFilter,
     FunnelsQuery,
     InsightQueryNode,
@@ -88,9 +89,9 @@ export interface QueryPropertyCache
 }
 
 const cleanSeriesEntityMath = (
-    entity: EventsNode | ActionsNode | DataWarehouseNode,
+    entity: EventsNode | ActionsNode | DataWarehouseNode | ExperimentsNode,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode | DataWarehouseNode => {
+): EventsNode | ActionsNode | DataWarehouseNode | ExperimentsNode => {
     const { math, math_property, math_group_type_index, math_hogql, ...baseEntity } = entity
 
     // TODO: This should be improved to keep a math that differs from the default.
@@ -108,9 +109,9 @@ const cleanSeriesEntityMath = (
 }
 
 const cleanSeriesMath = (
-    series: (EventsNode | ActionsNode | DataWarehouseNode)[],
+    series: (EventsNode | ActionsNode | DataWarehouseNode | ExperimentsNode)[],
     mathAvailability: MathAvailability
-): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
+): (EventsNode | ActionsNode | DataWarehouseNode | ExperimentsNode)[] => {
     return series.map((entity) => cleanSeriesEntityMath(entity, mathAvailability))
 }
 
