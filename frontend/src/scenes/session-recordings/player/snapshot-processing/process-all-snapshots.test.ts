@@ -7,6 +7,46 @@ import { getDecompressionWorkerManager } from './DecompressionWorkerManager'
 import { hasAnyWireframes, parseEncodedSnapshots, processAllSnapshots } from './process-all-snapshots'
 import { keyForSource } from './source-key'
 
+// Mock the EE exports early so modules under test see it when imported
+jest.mock('@posthog/ee/exports', () => ({
+    __esModule: true,
+    default: jest.fn().mockResolvedValue({
+        enabled: true,
+        mobileReplay: {
+            transformEventToWeb: jest.fn((event: any) => {
+                // Transform mobile FullSnapshot (wireframes) into a rrweb-like full snapshot structure
+                if (event?.type === 2 && event?.data?.wireframes !== undefined) {
+                    return {
+                        ...event,
+                        data: {
+                            node: {
+                                childNodes: [
+                                    {},
+                                    {
+                                        childNodes: [
+                                            {},
+                                            {
+                                                childNodes: [
+                                                    {
+                                                        attributes: { width: 400, height: 800 },
+                                                    },
+                                                ],
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                            initialOffset: { top: 0, left: 0 },
+                            href: 'https://example.com',
+                        },
+                    }
+                }
+                return event
+            }),
+        },
+    }),
+}))
+
 // Mock the decompression worker manager
 jest.mock('./DecompressionWorkerManager', () => ({
     getDecompressionWorkerManager: jest.fn(),
@@ -34,33 +74,49 @@ describe('process all snapshots', () => {
             const snapshots = await parseEncodedSnapshots(rawSnapshots, sessionId)
             expect(snapshots).toHaveLength(99)
 
-            const start = performance.now()
-            const results = processAllSnapshots(
-                [
+            const durations: number[] = []
+            const runs = 10
+
+            for (let i = 0; i < runs; i++) {
+                const start = performance.now()
+                const results = processAllSnapshots(
+                    [
+                        {
+                            source: 'blob_v2',
+                            blob_key: '0',
+                        },
+                    ],
                     {
-                        source: 'blob_v2',
-                        blob_key: '0',
+                        [key]: {
+                            snapshots: snapshots,
+                        },
                     },
-                ],
-                {
-                    [key]: {
-                        snapshots: snapshots,
+                    {},
+                    () => {
+                        return {
+                            width: '100',
+                            height: '100',
+                            href: 'https://example.com',
+                        }
                     },
-                },
-                {},
-                () => {
-                    return {
-                        width: '100',
-                        height: '100',
-                        href: 'https://example.com',
-                    }
-                },
-                sessionId
+                    sessionId
+                )
+                const end = performance.now()
+                durations.push(end - start)
+                expect(results).toHaveLength(99)
+            }
+
+            durations.sort((a, b) => a - b)
+            // Drop slowest 2 runs (typically first runs with cold JIT/cache)
+            const trimmedDurations = durations.slice(0, -2)
+            const median = trimmedDurations[Math.floor(trimmedDurations.length / 2)]
+            const mean = trimmedDurations.reduce((sum, d) => sum + d, 0) / trimmedDurations.length
+            const stdDev = Math.sqrt(
+                trimmedDurations.reduce((sum, d) => sum + (d - mean) ** 2, 0) / trimmedDurations.length
             )
-            const end = performance.now()
-            const duration = end - start
-            expect(results).toHaveLength(99)
-            expect(duration).toBeLessThan(50)
+
+            expect(median).toBeLessThan(50)
+            expect(stdDev).toBeLessThan(25)
         })
 
         it('deduplicates snapshot', async () => {
@@ -270,6 +326,402 @@ describe('process all snapshots', () => {
             const result = await parseEncodedSnapshots(mockCompressedData, sessionId)
 
             expect(result).toHaveLength(1)
+        })
+    })
+
+    describe('mobile recording detection', () => {
+        it('detects mobile recordings with wireframes in incremental updates', () => {
+            const mobileIncrementalSnapshot = {
+                type: 3,
+                timestamp: 1000,
+                data: {
+                    source: 0,
+                    updates: [
+                        {
+                            wireframe: {
+                                type: 'screenshot',
+                                base64: 'data:image/webp;base64,test',
+                                width: 400,
+                                height: 800,
+                                x: 0,
+                                y: 0,
+                            },
+                        },
+                    ],
+                },
+            }
+
+            expect(hasAnyWireframes([mobileIncrementalSnapshot])).toBe(true)
+        })
+
+        it('detects mobile recordings with wireframes in full snapshots', () => {
+            const mobileFullSnapshot = {
+                type: 2,
+                timestamp: 1000,
+                data: {
+                    wireframes: [
+                        {
+                            type: 'screenshot',
+                            base64: 'data:image/webp;base64,test',
+                            width: 400,
+                            height: 800,
+                        },
+                    ],
+                    initialOffset: { top: 0, left: 0 },
+                },
+            }
+
+            expect(hasAnyWireframes([mobileFullSnapshot])).toBe(true)
+        })
+
+        it('does not detect web recordings as mobile', () => {
+            const webIncrementalSnapshot = {
+                type: 3,
+                timestamp: 1000,
+                data: {
+                    source: 0,
+                    adds: [],
+                    removes: [],
+                    texts: [],
+                    attributes: [],
+                },
+            }
+
+            expect(hasAnyWireframes([webIncrementalSnapshot])).toBe(false)
+        })
+    })
+
+    describe('synthetic full snapshot creation', () => {
+        it('creates synthetic full snapshot when mobile recording starts with incremental snapshot', async () => {
+            const sessionId = 'test-mobile-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            updates: [
+                                {
+                                    wireframe: {
+                                        type: 'screenshot',
+                                        base64: 'data:image/webp;base64,test',
+                                        width: 400,
+                                        height: 800,
+                                        x: 0,
+                                        y: 0,
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            // In the new single-loop model, synthetic/Meta injection happens in processAllSnapshots, not parse
+            // So parsed should contain only the original incremental
+            expect(parsed).toHaveLength(1)
+            expect(parsed[0].type).toBe(3)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            expect(results.length).toBeGreaterThanOrEqual(2)
+            expect(results[0].windowId).toBe('1')
+
+            const hasFullSnapshot = results.some((r) => r.type === 2)
+            const hasIncrementalSnapshot = results.some((r) => r.type === 3)
+            expect(hasFullSnapshot).toBe(true)
+            expect(hasIncrementalSnapshot).toBe(true)
+
+            const fullSnapshot = results.find((r) => r.type === 2)
+            const incrementalSnapshot = results.find((r) => r.type === 3)
+            expect(fullSnapshot?.timestamp).toBe(999)
+            expect(incrementalSnapshot?.timestamp).toBe(1000)
+        })
+
+        it('does not create synthetic snapshot when mobile recording starts with full snapshot', async () => {
+            const sessionId = 'test-mobile-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 2,
+                        timestamp: 1000,
+                        data: {
+                            wireframes: [
+                                {
+                                    type: 'screenshot',
+                                    base64: 'data:image/webp;base64,test',
+                                    width: 400,
+                                    height: 800,
+                                },
+                            ],
+                            initialOffset: { top: 0, left: 0 },
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+            expect(parsed).toHaveLength(1)
+            expect(parsed[0].type).toBe(2)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            expect(results.length).toBeGreaterThanOrEqual(2) // Meta + Full
+            expect(results[0].windowId).toBe('1')
+
+            const fullSnapshots = results.filter((r) => r.type === 2)
+            expect(fullSnapshots).toHaveLength(1)
+            expect(fullSnapshots[0].timestamp).toBe(1000)
+        })
+
+        it('does not create synthetic snapshot for web recordings', async () => {
+            const sessionId = 'test-web-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            adds: [],
+                            removes: [],
+                            texts: [],
+                            attributes: [],
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+            expect(parsed).toHaveLength(1)
+            expect(parsed[0].windowId).toBe('1')
+            expect(parsed[0].type).toBe(3)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '100', height: '100', href: 'https://example.com' }),
+                sessionId
+            )
+
+            // Web events should not generate synthetic full
+            const hasFullSnapshot = results.some((r) => r.type === 2)
+            expect(hasFullSnapshot).toBe(false)
+        })
+
+        it('creates synthetic snapshot with correct windowId from original event', async () => {
+            const sessionId = 'test-mobile-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: 'custom-window-123',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 2000,
+                        data: {
+                            source: 0,
+                            updates: [
+                                {
+                                    wireframe: {
+                                        type: 'screenshot',
+                                        base64: 'data:image/webp;base64,test',
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const result = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            result.forEach((event) => {
+                expect(event.windowId).toBe('custom-window-123')
+            })
+
+            const fullSnapshot = result.find((r) => r.type === 2)
+            expect(fullSnapshot?.timestamp).toBe(1999)
+        })
+
+        it('handles multiple mobile events correctly (only first gets synthetic)', async () => {
+            const sessionId = 'test-mobile-session'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot' } }],
+                        },
+                    },
+                    {
+                        type: 3,
+                        timestamp: 2000,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot' } }],
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const results = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            const fullSnapshots = results.filter((r) => r.type === 2)
+            expect(fullSnapshots).toHaveLength(1)
+            expect(fullSnapshots[0].timestamp).toBe(999)
+
+            const incrementalSnapshots = results.filter((r) => r.type === 3)
+            expect(incrementalSnapshots).toHaveLength(2)
+            expect(incrementalSnapshots[0].timestamp).toBe(1000)
+            expect(incrementalSnapshots[1].timestamp).toBe(2000)
+        })
+
+        it('preserves original event data when creating synthetic snapshot', async () => {
+            const sessionId = 'test-mobile-session'
+
+            const originalEventData = {
+                source: 0,
+                updates: [
+                    {
+                        wireframe: {
+                            type: 'screenshot',
+                            base64: 'data:image/webp;base64,original-data',
+                            width: 400,
+                            height: 800,
+                        },
+                    },
+                ],
+            }
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: originalEventData,
+                    },
+                ],
+            })
+
+            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            const originalEvent = result.find((r) => r.type === 3 && r.timestamp === 1000)
+            expect(originalEvent).toBeTruthy()
+            expect(originalEvent?.data).toEqual(originalEventData)
+        })
+
+        it('handles edge cases gracefully', async () => {
+            const sessionId = 'test-edge-cases'
+
+            const emptyWireframesJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            updates: [
+                                {
+                                    wireframe: {
+                                        type: 'screenshot',
+                                        base64: '',
+                                        width: 0,
+                                        height: 0,
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([emptyWireframesJson], sessionId)
+
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            const result = processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                {},
+                () => ({ width: '400', height: '800', href: 'https://example.com' }),
+                sessionId
+            )
+
+            const hasFullSnapshot = result.some((r) => r.type === 2)
+            expect(hasFullSnapshot).toBe(true)
+        })
+
+        it('handles missing windowId gracefully', async () => {
+            const sessionId = 'test-missing-windowid'
+
+            const snapshotJson = JSON.stringify({
+                window_id: '1',
+                data: [
+                    {
+                        type: 3,
+                        timestamp: 1000,
+                        data: {
+                            source: 0,
+                            updates: [{ wireframe: { type: 'screenshot' } }],
+                        },
+                    },
+                ],
+            })
+
+            const result = await parseEncodedSnapshots([snapshotJson], sessionId)
+
+            expect(result.length).toBeGreaterThan(0)
+            result.forEach((event) => {
+                expect(event.windowId).toBe('1')
+            })
         })
     })
 })

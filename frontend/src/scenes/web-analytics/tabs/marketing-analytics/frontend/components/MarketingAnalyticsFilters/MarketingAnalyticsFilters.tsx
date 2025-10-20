@@ -1,5 +1,5 @@
-import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -10,6 +10,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
+import { IntegrationFilter } from './IntegrationFilter'
 
 export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const { compareFilter, dateFilter } = useValues(marketingAnalyticsLogic)
@@ -22,6 +23,7 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                 left={<ReloadAll />}
                 right={
                     <>
+                        <IntegrationFilter />
                         <DateFilter
                             allowTimePrecision
                             dateFrom={dateFilter.dateFrom}

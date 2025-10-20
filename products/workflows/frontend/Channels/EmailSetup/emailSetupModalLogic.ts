@@ -2,7 +2,7 @@ import { afterMount, connect, kea, key, listeners, path, props, selectors } from
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
@@ -71,10 +71,9 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     actions.verifyDomain()
                     return config
                 } catch (error) {
-                    console.error(error)
-                    actions.setEmailSenderManualErrors({
-                        email: JSON.stringify(error),
-                    })
+                    if (error instanceof ApiError || (error && typeof error === 'object' && 'detail' in error)) {
+                        lemonToast.error(`Failed to create email sender: ${error.detail || 'Please try again.'}`)
+                    }
                     throw error
                 }
             },
