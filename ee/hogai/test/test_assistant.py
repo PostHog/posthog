@@ -1682,8 +1682,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
             ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating trends query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             (
                 "message",
@@ -1691,7 +1689,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     content="The results indicate a great future for you.",
                     tool_call_id="xyz",
                     ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
-                    visible=False,
+                    visible=True,
                 ),
             ),
             ("message", AssistantMessage(content="Everything is fine")),
@@ -1702,7 +1700,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         state = AssistantState.model_validate(snapshot.values)
         expected_state_messages = [
             ContextMessage(
-                content="<system_reminder>\nContextual tools that are available to you on this page are:\n<create_and_query_insight>\nThe user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:\n\n```json\nquery\n```\n\nIMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT CHANGE ANY OTHER FIELDS THAN THE ONES THE USER ASKED FOR. KEEP THE REST AS IS.\n</create_and_query_insight>\nIMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system_reminder>"
+                content="<system_reminder>\nContextual tools that are available to you on this page are:\n<create_and_query_insight>\nThe user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:\n\n```json\nquery\n```\n\n<system_reminder>\nDo not remove any fields from the current insight definition. Do not change any other fields than the ones the user asked for. Keep the rest as is.\n</system_reminder>\n</create_and_query_insight>\nIMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system_reminder>"
             ),
             HumanMessage(content="Hello"),
             AssistantMessage(
@@ -1720,7 +1718,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 content="The results indicate a great future for you.",
                 tool_call_id="xyz",
                 ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
-                visible=False,
+                visible=True,
             ),
             AssistantMessage(content="Everything is fine"),
         ]
