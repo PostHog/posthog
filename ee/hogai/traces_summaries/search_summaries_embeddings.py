@@ -1,5 +1,6 @@
 import json
 import asyncio
+import argparse
 from pathlib import Path
 
 import httpx
@@ -25,14 +26,14 @@ class EmbeddingSearcher:
         for trace_id, document_embedding in trace_id_to_embeddings_mapping.items():
             similarity = cosine_similarity(search_request_embedding_np, document_embedding)
             cosine_distances.append((trace_id, similarity))
-        # Find top 5 traces with the smallest cosine distance
-        top_5_similar_trace_ids = sorted(cosine_distances, key=lambda x: x[1], reverse=True)[:top]
-        # Load documents from the 5 traces
-        top_5_similar_summaries = [
+        # Find top traces with the smallest cosine distance
+        top_similar_trace_ids = sorted(cosine_distances, key=lambda x: x[1], reverse=True)[:top]
+        # Load documents from the top traces
+        top_similar_summaries = [
             {"trace_id": trace_id, "trace_summary": trace_ids_to_summaries_mapping[trace_id]}
-            for trace_id, _ in top_5_similar_trace_ids
+            for trace_id, _ in top_similar_trace_ids
         ]
-        return top_5_similar_summaries
+        return top_similar_summaries
 
 
 async def get_embeddings_for_search_request(search_request_str: str) -> list[float]:
@@ -45,6 +46,11 @@ async def get_embeddings_for_search_request(search_request_str: str) -> list[flo
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--question", type=str, required=True, help="Search question")
+    parser.add_argument("--top", type=int, required=False, default=5, help="Number of top similar traces to return")
+    args = parser.parse_args()
+
     base_output_dir_path = Path("/Users/woutut/Documents/Code/posthog/playground/traces-summarization/output/")
     # Iterate over directories to find npy files with embeddings
     traces_dirs = list(base_output_dir_path.iterdir())
@@ -74,7 +80,7 @@ if __name__ == "__main__":
         # Add to mapping
         input_trace_id_to_embeddings_mapping[trace_id] = embedding
     # Generate embedding for the search request
-    input_search_request_str = "Google Tag Manager"
+    input_search_request_str = args.question
     input_search_request_embedding = asyncio.run(
         get_embeddings_for_search_request(search_request_str=input_search_request_str)
     )
@@ -83,6 +89,12 @@ if __name__ == "__main__":
         search_request_embedding_np=input_search_request_embedding_np,
         trace_id_to_embeddings_mapping=input_trace_id_to_embeddings_mapping,
         trace_ids_to_summaries_mapping=input_trace_ids_to_summaries_mapping,
-        top=5,
+        top=args.top,
     )
-    logger.info(f"Top 5 similar traces to the search request ({input_search_request_str}): {similar_documents}")
+    if not similar_documents:
+        logger.error(f"No similar traces found for the search request ({input_search_request_str})")
+        exit(1)
+    for document in similar_documents:
+        logger.info(f"Trace ID: {document['trace_id']}")
+        logger.info(f"Trace Summary:\n{document['trace_summary']}")
+        logger.info("-" * 100)
