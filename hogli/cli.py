@@ -501,7 +501,13 @@ def _discover_products() -> list[ProductInfo]:
 
 
 def _register_script_commands() -> None:
-    """Dynamically register commands from scripts_manifest.yaml."""
+    """Dynamically register commands from scripts_manifest.yaml.
+
+    Supports three types of entries:
+    1. bin_script: Delegate to a shell script
+    2. steps: Compose multiple hogli commands in sequence
+    3. cmd: Execute a direct shell command
+    """
     manifest = _load_manifest()
     if not manifest:
         return
@@ -514,57 +520,108 @@ def _register_script_commands() -> None:
             if not isinstance(config, dict):
                 continue
 
-            bin_script = config.get("bin_script")
             description = config.get("description", "")
             allow_extra_args = config.get("allow_extra_args", False)
             cli_name = config.get("cli_name")  # Explicit name takes precedence
 
-            if not bin_script:
+            # Determine command type
+            bin_script = config.get("bin_script")
+            steps = config.get("steps")  # List of hogli commands to compose
+            cmd = config.get("cmd")  # Direct shell command
+
+            if not (bin_script or steps or cmd):
+                # No command specified, skip
                 continue
 
-            script_path = BIN_DIR / bin_script
-            if not script_path.exists():
-                continue
+            # Handle composition (steps field)
+            if steps:
 
-            # Create a closure to capture the current values
-            def make_command(name: str, path: Path, desc: str, extra_args: bool):
-                if extra_args:
-
-                    def command(ctx: typer.Context) -> None:
-                        """Dynamic command from bin/ script."""
-                        _run([str(path), *ctx.args])
-                else:
-
+                def make_steps_command(step_list: list, desc: str):
                     def command() -> None:
-                        """Dynamic command from bin/ script."""
-                        _run([str(path)])
+                        """Composite hogli command."""
+                        for step in step_list:
+                            typer.echo(f"{EMOJI_HOG}{EMOJI_SPARKLE} Executing: {step}")
+                            # Run each step as a hogli subcommand
+                            try:
+                                _run(["hogli", step])
+                            except CommandError as error:
+                                _fail_with_message(error)
 
-                # Set docstring for help
-                command.__doc__ = desc
-                return command
+                    command.__doc__ = desc
+                    return command
 
-            # If cli_name not explicitly set, fall back to auto-generation
-            if not cli_name:
-                # Extract the verb from the category (health_checks → check, start → start, etc.)
-                category_parts = category.rstrip("s").replace("_", "-").split("-")
-                category_prefix = category_parts[-1] if category_parts else category
-                script_suffix = script_name.replace("_", "-")
+                if not cli_name:
+                    cli_name = _generate_cli_name(category, script_name)
 
-                # Build the CLI name intelligently:
-                if script_suffix.startswith(f"{category_prefix}-"):
-                    cli_name = script_suffix
-                elif script_suffix == category_prefix:
-                    cli_name = script_suffix
-                else:
-                    cli_name = f"{category_prefix}:{script_suffix}"
+                app.command(cli_name, help=description)(make_steps_command(steps, description))
+                continue
 
-            # Register the command
-            context_settings = {"allow_extra_args": True, "ignore_unknown_options": True} if allow_extra_args else {}
-            app.command(
-                cli_name,
-                context_settings=context_settings if context_settings else None,
-                help=description,
-            )(make_command(script_name, script_path, description, allow_extra_args))
+            # Handle direct commands (cmd field)
+            if cmd:
+
+                def make_cmd_command(shell_cmd: str, desc: str):
+                    def command() -> None:
+                        """Direct shell command."""
+                        try:
+                            _run(shell_cmd.split())
+                        except CommandError as error:
+                            _fail_with_message(error)
+
+                    command.__doc__ = desc
+                    return command
+
+                if not cli_name:
+                    cli_name = _generate_cli_name(category, script_name)
+
+                app.command(cli_name, help=description)(make_cmd_command(cmd, description))
+                continue
+
+            # Handle bin_script delegation (original behavior)
+            if bin_script:
+                script_path = BIN_DIR / bin_script
+                if not script_path.exists():
+                    continue
+
+                def make_command(name: str, path: Path, desc: str, extra_args: bool):
+                    if extra_args:
+
+                        def command(ctx: typer.Context) -> None:
+                            """Dynamic command from bin/ script."""
+                            _run([str(path), *ctx.args])
+                    else:
+
+                        def command() -> None:
+                            """Dynamic command from bin/ script."""
+                            _run([str(path)])
+
+                    command.__doc__ = desc
+                    return command
+
+                if not cli_name:
+                    cli_name = _generate_cli_name(category, script_name)
+
+                context_settings = (
+                    {"allow_extra_args": True, "ignore_unknown_options": True} if allow_extra_args else {}
+                )
+                app.command(
+                    cli_name,
+                    context_settings=context_settings if context_settings else None,
+                    help=description,
+                )(make_command(script_name, script_path, description, allow_extra_args))
+
+
+def _generate_cli_name(category: str, script_name: str) -> str:
+    """Generate CLI name from category and script name."""
+    category_parts = category.rstrip("s").replace("_", "-").split("-")
+    category_prefix = category_parts[-1] if category_parts else category
+    script_suffix = script_name.replace("_", "-")
+
+    if script_suffix.startswith(f"{category_prefix}-"):
+        return script_suffix
+    elif script_suffix == category_prefix:
+        return script_suffix
+    else:
+        return f"{category_prefix}:{script_suffix}"
 
 
 # Register all script commands from manifest before app runs

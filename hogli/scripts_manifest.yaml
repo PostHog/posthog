@@ -333,3 +333,29 @@ utilities:
         delegate: true
         allow_extra_args: true
         args: optional (create|destroy|test)
+
+# Compositions: Multi-step hogli workflows defined declaratively
+# These chain hogli commands in sequence, stopping on first failure
+compositions:
+    infra_ready:
+        cli_name: infra:ready
+        steps:
+            - check:clickhouse
+            - check:postgres
+            - check:temporal
+        description: Verify all core infrastructure services are ready
+
+    quality_check:
+        cli_name: quality:check
+        steps:
+            - lint:check
+            - build:frontend
+        description: Quick quality checks without tests (lint + build)
+
+# Direct shell commands (alternative to bin_script for simple single-line commands)
+# Could potentially move some env:shell, db:migrate, etc. here instead of Python
+direct_commands:
+    example_git_status:
+        cli_name: git:status
+        cmd: git status
+        description: Show git repository status
