@@ -80,6 +80,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 iconOnly
                                 onClick={toggleSearchBar}
                                 data-attr="tree-navbar-search-button"
+                                className="z-20"
                                 size="sm"
                                 aria-label="Search (Command + K) or Commands (Command + Shift + K)"
                                 aria-describedby="search-tooltip"
@@ -122,7 +123,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                             buttonProps={{
                                 size: 'sm',
                                 className:
-                                    'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-tr rounded-tl border-b',
+                                    'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-lg border-b z-20 ml-px',
                                 iconOnly: true,
                             }}
                             tooltip={
@@ -130,6 +131,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                     New tab <KeyboardShortcut command b />
                                 </>
                             }
+                            tooltipPlacement="bottom"
                         >
                             <IconPlus className="!ml-0" fontSize={14} />
                         </Link>
@@ -200,6 +202,30 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 fullWidth
                 className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
             >
+                {canRemoveTab && (
+                    <ButtonPrimitive
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            removeTab(tab)
+                        }}
+                        isSideActionRight
+                        iconOnly
+                        size="xs"
+                        className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
+                        tooltip={
+                            tab.active ? (
+                                <>
+                                    Close active tab <KeyboardShortcut shift command b />
+                                </>
+                            ) : (
+                                'Close tab'
+                            )
+                        }
+                    >
+                        <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
+                    </ButtonPrimitive>
+                )}
                 <ButtonPrimitive
                     onClick={(e) => {
                         e.stopPropagation()
@@ -226,10 +252,10 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     }}
                     hasSideActionRight
                     className={cn(
-                        'w-full',
-                        'relative py-0.5 pl-2 pr-5 flex flex-row items-center gap-1 rounded-tr rounded-tl border border-transparent',
+                        'w-full order-first',
+                        'relative pb-0.5 pt-[2px] pl-2 pr-5 flex flex-row items-center gap-1 rounded-lg border border-transparent',
                         tab.active
-                            ? 'rounded-bl-none rounded-br-none cursor-default text-primary bg-primary border-primary'
+                            ? 'tab-active rounded-bl-none rounded-br-none cursor-default text-primary bg-primary border-primary'
                             : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover z-20',
                         'focus:outline-none',
                         className
@@ -239,6 +265,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                             ? `${tab.customTitle} (${tab.title})`
                             : tab.title
                     }
+                    tooltipPlacement="bottom"
                 >
                     {tab.iconType === 'blank' ? (
                         <></>
@@ -250,7 +277,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     {isEditing ? (
                         <input
                             ref={inputRef}
-                            className="scene-tab-title flex-grow text-left bg-primary border-none outline-1 text-primary z-10"
+                            className="scene-tab-title grow text-left bg-primary border-none outline-1 text-primary z-30 max-w-full"
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => {
@@ -278,30 +305,6 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                         </div>
                     )}
                 </ButtonPrimitive>
-                {canRemoveTab && (
-                    <ButtonPrimitive
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            e.preventDefault()
-                            removeTab(tab)
-                        }}
-                        isSideActionRight
-                        iconOnly
-                        size="xs"
-                        className="group hover:bg-transparent mt-px z-20"
-                        tooltip={
-                            tab.active ? (
-                                <>
-                                    Close active tab <KeyboardShortcut shift command b />
-                                </>
-                            ) : (
-                                'Close tab'
-                            )
-                        }
-                    >
-                        <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
-                    </ButtonPrimitive>
-                )}
             </ButtonGroupPrimitive>
         </div>
     )
