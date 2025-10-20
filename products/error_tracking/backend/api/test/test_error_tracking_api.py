@@ -517,6 +517,34 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not ErrorTrackingSymbolSet.objects.filter(ref=chunk_id).exists()
 
+    def test_bulk_start_upload_allows_no_release(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [
+                    {
+                        "chunk_id": str(uuid7()),
+                        "release_id": None,
+                        "content_hash": "hash",
+                    },
+                    {
+                        "chunk_id": str(uuid7()),
+                        "content_hash": "hash",
+                    },
+                    {
+                        "chunk_id": str(uuid7()),
+                        "content_hash": None,
+                    },
+                    {
+                        "chunk_id": str(uuid7()),
+                    },
+                ]
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
     def test_bulk_start_upload_updates_release_for_pending_symbol_set(self) -> None:
         chunk_id = str(uuid7())
 

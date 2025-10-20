@@ -4,12 +4,12 @@ from typing import Any, Optional
 
 import temporalio.activity
 import temporalio.workflow
+from structlog.contextvars import bind_contextvars
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.action import Action
-from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
@@ -45,9 +45,13 @@ class ProcessActionsResult:
 
 
 @temporalio.activity.defn
-async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsResult:
+def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsResult:
     """Process a batch of actions with bytecode."""
+    bind_contextvars()
     logger = LOGGER.bind()
+
+    # Send heartbeat at start
+    temporalio.activity.heartbeat()
 
     # Basic validation
     if not isinstance(inputs.days, int) or inputs.days < 0 or inputs.days > 365:
@@ -66,7 +70,7 @@ async def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActi
         else queryset[inputs.offset :]
     )
 
-    actions: list[Action] = await database_sync_to_async(lambda: list(queryset))()
+    actions: list[Action] = list(queryset)
 
     actions_count = 0
 

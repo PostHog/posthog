@@ -861,6 +861,10 @@ class DataWarehouseEventsModifier(BaseModel):
     timestamp_field: str
 
 
+class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
+    root: Literal["revenue_analytics"] = "revenue_analytics"
+
+
 class DataWarehouseViewLinkConfiguration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1416,6 +1420,7 @@ class FileSystemIconType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
+    MANAGED_VIEWSETS = "managed_viewsets"
     ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
     WEB_ANALYTICS = "web_analytics"
@@ -1741,6 +1746,15 @@ class InsightsThresholdBounds(BaseModel):
     )
     lower: Optional[float] = None
     upper: Optional[float] = None
+
+
+class IntegrationFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    integrationSourceIds: Optional[list[str]] = Field(
+        default=None, description="Selected integration source IDs to filter by (e.g., table IDs or source map IDs)"
+    )
 
 
 class IntegrationKind(StrEnum):
@@ -12531,6 +12545,7 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     )
     filterTestAccounts: Optional[bool] = None
     includeRevenue: Optional[bool] = None
+    integrationFilter: Optional[IntegrationFilter] = Field(default=None, description="Filter by integration IDs")
     kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -12562,6 +12577,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
         default=None, description="Include conversion goal rows even when they don't match campaign costs table"
     )
     includeRevenue: Optional[bool] = None
+    integrationFilter: Optional[IntegrationFilter] = Field(default=None, description="Filter by integration type")
     kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
     limit: Optional[int] = Field(default=None, description="Number of rows to return")
     modifiers: Optional[HogQLQueryModifiers] = Field(

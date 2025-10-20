@@ -451,13 +451,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Analyze your web analytics data to understand website performance and user behavior.',
         iconType: 'web_analytics',
     },
-    [Scene.EmbeddedAnalytics]: {
-        projectBased: true,
-        name: 'Embedded analytics',
-        description: 'Define queries your application will use via the API and monitor their cost and usage.',
-        layout: 'app-container',
-        iconType: 'endpoints',
-    },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     ...productConfiguration,
 }
@@ -583,6 +576,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
+    [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],
     [urls.eventDefinitionEdit(':id')]: [Scene.EventDefinitionEdit, 'eventDefinitionEdit'],
