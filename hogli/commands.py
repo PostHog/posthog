@@ -11,11 +11,14 @@ import click
 from hogli.manifest import get_services_for_command
 
 
-def _run(command: list[str], *, env: dict[str, str] | None = None) -> None:
+def _run(command: list[str] | str, *, env: dict[str, str] | None = None, shell: bool = False) -> None:
     """Execute a shell command."""
     from hogli.manifest import REPO_ROOT
 
-    display = " ".join(command)
+    if isinstance(command, list):
+        display = " ".join(command)
+    else:
+        display = command
     click.echo(f"🚀 {display}")
     try:
         subprocess.run(
@@ -23,6 +26,7 @@ def _run(command: list[str], *, env: dict[str, str] | None = None) -> None:
             cwd=REPO_ROOT,
             env={**os.environ, **(env or {})},
             check=True,
+            shell=shell,
         )
     except subprocess.CalledProcessError as e:
         click.echo(click.style(f"💥 Command failed: {display}", fg="red", bold=True), err=True)
@@ -156,7 +160,16 @@ class DirectCommand(Command):
     def execute(self, *args: str) -> None:
         """Execute the shell command with any passed arguments."""
         cmd_str = self.config.get("cmd", "")
-        _run([*cmd_str.split(), *args])
+        # Use shell=True if command contains operators like && or ||
+        has_operators = " && " in cmd_str or " || " in cmd_str
+        if has_operators:
+            # Append args to the command string when using shell
+            if args:
+                cmd_str = f"{cmd_str} {' '.join(args)}"
+            _run(cmd_str, shell=True)
+        else:
+            # Use list format for simple commands without shell operators
+            _run([*cmd_str.split(), *args])
 
 
 class CompositeCommand(Command):

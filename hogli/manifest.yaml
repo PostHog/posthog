@@ -245,13 +245,13 @@ quality:
         cmd: pnpm format
         description: Format both backend and frontend code
     format:yaml:
-        cmd: prettier --write
+        cmd: pnpm prettier --write
         description: Format JSON, YAML files
     format:css:
-        cmd: stylelint --fix --allow-empty-input && prettier --write
+        cmd: pnpm stylelint --fix --allow-empty-input && pnpm prettier --write
         description: Format CSS/SCSS files
     format:js:
-        cmd: oxlint --fix --fix-suggestions --quiet && prettier --write
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet && pnpm prettier --write
         description: Format JavaScript/TypeScript files (frontend)
     format:plugin-server:
         cmd: pnpm --dir plugin-server exec eslint --fix && pnpm --dir plugin-server exec prettier --write
@@ -266,7 +266,7 @@ quality:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
     format:markdown:
-        cmd: prettier --write
+        cmd: pnpm prettier --write
         description: Format Markdown files
 tools:
     tool:temporal-django-worker:
