@@ -3,6 +3,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -71,13 +72,13 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
                         key: Scene.Replay,
                         name: 'Replay',
                         path: urls.replay(),
-                        iconType: 'session_replay',
+                        iconType: sceneConfigurations[Scene.Replay].iconType || 'default_icon_type',
                     })
                 }
                 breadcrumbs.push({
                     key: tab,
                     name: humanFriendlyTabName(tab),
-                    iconType: 'session_replay',
+                    iconType: sceneConfigurations[Scene.Replay].iconType || 'default_icon_type',
                 })
 
                 return breadcrumbs

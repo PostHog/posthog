@@ -27,7 +27,7 @@ export function createApplyDropRestrictionsStep<T extends { headers: EventHeader
                     drop_cause: 'blocked_token',
                 })
                 .inc()
-            return drop('Event dropped due to token restrictions')
+            return drop('blocked_token')
         }
 
         return Promise.resolve(ok(input))

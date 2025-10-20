@@ -194,6 +194,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         sources_map: {},
     },
     base_currency: CurrencyCode.USD,
+    default_evaluation_environments_enabled: false,
+    managed_viewsets: { revenue_analytics: true },
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

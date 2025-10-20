@@ -12,13 +12,18 @@ use tracing::error;
 
 use crate::{
     app_context::AppContext,
-    metric_consts::{DROPPED_REQUESTS, EMBEDDINGS_GENERATED, MESSAGES_RECEIVED},
+    metrics_utils::{
+        RequestLabels, DROPPED_REQUESTS, EMBEDDINGS_GENERATED, EMBEDDING_FAILED,
+        EMBEDDING_REQUEST_TIME, EMBEDDING_TOTAL_TIME, EMBEDDING_TOTAL_TOKENS, MESSAGES_RECEIVED,
+        MESSAGE_TRUNCATED,
+    },
     organization::apply_ai_opt_in,
 };
 
+pub mod ad_hoc;
 pub mod app_context;
 pub mod config;
-pub mod metric_consts;
+pub mod metrics_utils;
 pub mod organization;
 
 pub async fn handle_batch(
@@ -28,28 +33,66 @@ pub async fn handle_batch(
 ) -> Result<Vec<EmbeddingRecord>> {
     let mut handles = vec![];
 
-    counter!(MESSAGES_RECEIVED).increment(requests.len() as u64);
-
     for request in requests {
-        let Some(request) = apply_ai_opt_in(&context, request).await? else {
-            counter!(DROPPED_REQUESTS, &[("cause", "ai_opt_in")]).increment(1);
+        let team_id = request.team_id;
+        let labels = RequestLabels::from(&request);
+        let Some(request) = apply_ai_opt_in(&context, request, team_id).await? else {
+            counter!(
+                DROPPED_REQUESTS,
+                labels.and([("cause", "ai_opt_in")]).render()
+            )
+            .increment(1);
             continue;
         };
         for model in &request.models {
-            handles.push(generate_embedding(context.clone(), *model, request.clone()));
+            handles.push(handle_single(context.clone(), *model, request.clone()));
         }
     }
     let results = futures::future::join_all(handles).await;
     results.into_iter().collect()
 }
 
-pub async fn generate_embedding(
+pub async fn handle_single(
     context: Arc<AppContext>,
     model: EmbeddingModel,
     request: EmbeddingRequest,
 ) -> Result<EmbeddingRecord> {
+    let labels = RequestLabels::from(&request)
+        .and_model(model)
+        .and([("from", "kafka")]);
+
+    counter!(MESSAGES_RECEIVED, labels.render()).increment(1);
+    let (embedding, _) = match generate_embedding(context, model, &request.content, &labels).await {
+        Ok(r) => r,
+        Err(e) => {
+            counter!(EMBEDDING_FAILED, labels.render()).increment(1);
+            return Err(e);
+        }
+    };
+
+    counter!(EMBEDDINGS_GENERATED, labels.render()).increment(1);
+
+    Ok(EmbeddingRecord {
+        team_id: request.team_id,
+        product: request.product.clone(),
+        document_type: request.document_type.clone(),
+        model_name: model,
+        rendering: request.rendering.to_string(),
+        document_id: request.document_id.to_string(),
+        timestamp: format_ch_datetime(request.timestamp),
+        embedding,
+    })
+}
+
+pub async fn generate_embedding(
+    context: Arc<AppContext>,
+    model: EmbeddingModel,
+    content: &str,
+    labels: &RequestLabels,
+) -> Result<(Vec<f64>, usize)> {
+    let total_time = common_metrics::timing_guard(EMBEDDING_TOTAL_TIME, labels.render());
     // Generate the text to actually send to OpenAI
-    let (text, token_count) = generate_embedding_text(&request.content, &model)?;
+    let (text, token_count) = generate_embedding_text(content, &model, labels)?;
 
     let api_req = construct_request(
         &text,
@@ -60,6 +103,7 @@ pub async fn generate_embedding(
 
     context.respect_rate_limits(model, token_count).await;
 
+    let request_time = common_metrics::timing_guard(EMBEDDING_REQUEST_TIME, labels.render());
     let response = context.client.execute(api_req).await?; // Unhandled - network errors etc
 
     // TODO - implement 429 backoff and retry
@@ -82,24 +126,22 @@ pub async fn generate_embedding(
         .extract_embedding_from_response_body(&response.json().await?)
         .ok_or_else(|| anyhow::anyhow!("Failed to extract embedding"))?;
 
-    counter!(EMBEDDINGS_GENERATED, &[("model", model.name())]).increment(1);
+    request_time.label("outcome", "success").fin();
+    total_time.label("outcome", "success").fin();
 
-    Ok(EmbeddingRecord {
-        team_id: request.team_id,
-        product: request.product.clone(),
-        document_type: request.document_type.clone(),
-        model_name: model,
-        rendering: request.rendering.to_string(),
-        document_id: request.document_id.to_string(),
-        timestamp: format_ch_datetime(request.timestamp),
-        embedding,
-    })
+    counter!(EMBEDDING_TOTAL_TOKENS, labels.render()).increment(token_count as u64);
+
+    Ok((embedding, token_count))
 }
 
 // This is here, rather than on the embedding model, to avoid taking a dep on tiktoken in common/types. We
 // can reconsider it later if we want
-fn generate_embedding_text(content: &str, model: &EmbeddingModel) -> Result<(String, usize)> {
-    match model {
+pub fn generate_embedding_text(
+    content: &str,
+    model: &EmbeddingModel,
+    labels: &RequestLabels,
+) -> Result<(String, usize)> {
+    let (text, count) = match model {
         EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
             let encoder = tiktoken_rs::cl100k_base()?;
             let tokens: Vec<_> = encoder
@@ -109,12 +151,18 @@ fn generate_embedding_text(content: &str, model: &EmbeddingModel) -> Result<(Str
                 .collect();
             let token_count = tokens.len();
             let text = encoder.decode(tokens)?;
-            Ok((text, token_count))
+            (text, token_count)
         }
+    };
+
+    if text.len() < content.len() {
+        counter!(MESSAGE_TRUNCATED, labels.render()).increment(1);
     }
+
+    Ok((text, count))
 }
 
-fn construct_request(
+pub fn construct_request(
     content: &str,
     model: EmbeddingModel,
     api_key: &str,

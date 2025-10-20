@@ -12,7 +12,7 @@ use crate::{
         custom::CustomFrame, go::RawGoFrame, hermes::RawHermesFrame, java::RawJavaFrame,
         js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
     },
-    metric_consts::PER_FRAME_TIME,
+    metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_string,
     symbol_store::Catalog,
 };
@@ -38,20 +38,23 @@ pub enum RawFrame {
     Go(RawGoFrame),
     #[serde(rename = "hermes")]
     Hermes(RawHermesFrame),
-    // TODO - remove once we're happy no clients are using this anymore
-    #[serde(rename = "javascript")]
-    LegacyJS(RawJSFrame),
     #[serde(rename = "java")]
     Java(RawJavaFrame),
     #[serde(rename = "custom")]
     Custom(CustomFrame),
+    // TODO - remove once we're happy no clients are using this anymore
+    #[serde(rename = "javascript")]
+    LegacyJS(RawJSFrame),
 }
 
 impl RawFrame {
     pub async fn resolve(&self, team_id: i32, catalog: &Catalog) -> Result<Frame, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
         let (res, lang_tag) = match self {
-            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
+            RawFrame::JavaScriptWeb(frame) => (frame.resolve(team_id, catalog).await, "javascript"),
+            RawFrame::LegacyJS(frame) => {
+                // TODO: monitor this metric and remove the legacy frame type when it hits 0
+                metrics::counter!(LEGACY_JS_FRAME_RESOLVED).increment(1);
                 (frame.resolve(team_id, catalog).await, "javascript")
             }
             RawFrame::JavaScriptNode(frame) => {
@@ -109,6 +112,13 @@ impl RawFrame {
 
         FrameId::new(hash_id, team_id)
     }
+
+    pub fn is_suspicious(&self) -> bool {
+        match self {
+            RawFrame::JavaScriptWeb(frame) => frame.is_suspicious(),
+            _ => false,
+        }
+    }
 }
 
 // We emit a single, unified representation of a frame, which is what we pass on to users.
@@ -123,17 +133,22 @@ pub struct Frame {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub column: Option<u32>, // Column the function is defined on, if known
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>, // Generally, the file the function is defined in
-    pub in_app: bool,         // We hard-require clients to tell us this?
+    pub source: Option<String>, // Generally, the file name or source file path the function is defined in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module: Option<String>, // The module the function is defined in, if known. Can include things like class names, namespaces, etc.
+    pub in_app: bool, // We hard-require clients to tell us this?
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved_name: Option<String>, // The name of the function, after symbolification
-    pub lang: String,         // The language of the frame. Always known (I guess?)
-    pub resolved: bool,       // Did we manage to resolve the frame?
+    pub lang: String, // The language of the frame. Always known (I guess?)
+    pub resolved: bool, // Did we manage to resolve the frame?
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
 
     #[serde(default)] // Defaults to false
     pub synthetic: bool, // Some SDKs construct stack traces, or partially reconstruct them. This flag indicates whether the frame is synthetic or not.
+
+    #[serde(default)] // Defaults to false
+    pub suspicious: bool, // We mark some frames as suspicious if we think they might be from our own SDK code.
 
     // Random extra/internal data we want to tag onto frames, e.g. the raw input. For debugging
     // purposes, all production code should assume this is None
@@ -169,24 +184,30 @@ impl FingerprintComponent for Frame {
         };
 
         let mut included_pieces = Vec::new();
-        if let Some(resolved) = &self.resolved_name {
-            fp.update(resolved.as_bytes());
-            included_pieces.push("Resolved function name");
-            if let Some(s) = self.source.as_ref() {
-                fp.update(s.as_bytes());
-                included_pieces.push("Source file name");
-            }
-            fp.add_part(get_part(&self.raw_id, included_pieces));
-            return;
-        }
 
-        fp.update(self.mangled_name.as_bytes());
-        included_pieces.push("Mangled function name");
-
+        // Include source and module in the fingerprint either way
         if let Some(source) = &self.source {
             fp.update(source.as_bytes());
             included_pieces.push("Source file name");
         }
+
+        if let Some(module) = &self.module {
+            fp.update(module.as_bytes());
+            included_pieces.push("Module name");
+        }
+
+        // If we've resolved this frame, include function name, and then return
+        if let Some(resolved) = &self.resolved_name {
+            fp.update(resolved.as_bytes());
+            included_pieces.push("Resolved function name");
+
+            fp.add_part(get_part(&self.raw_id, included_pieces));
+            return;
+        }
+
+        // Otherwise, get more granular
+        fp.update(self.mangled_name.as_bytes());
+        included_pieces.push("Mangled function name");
 
         if let Some(line) = self.line {
             fp.update(line.to_string().as_bytes());

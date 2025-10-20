@@ -1,3 +1,4 @@
+import time
 import inspect
 from collections.abc import Callable, Coroutine
 from datetime import datetime
@@ -9,6 +10,36 @@ from temporalio import workflow
 
 P = ParamSpec("P")
 T = TypeVar("T")
+
+
+def make_sync_retryable_with_exponential_backoff(
+    func: Callable[P, T],
+    max_attempts: int = 5,
+    initial_retry_delay: float | int = 2,
+    max_retry_delay: float | int = 32,
+    exponential_backoff_coefficient: int = 2,
+    retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
+    is_exception_retryable: Callable[[Exception], bool] = lambda _: True,
+) -> Callable[P, T]:
+    """Retry the provided sync `func` until `max_attempts` is reached with exponential backoff."""
+
+    @wraps(func)
+    def inner(*args: P.args, **kwargs: P.kwargs) -> T:
+        attempt = 0
+
+        while True:
+            try:
+                return func(*args, **kwargs)
+            except retryable_exceptions as err:
+                attempt += 1
+
+                if not is_exception_retryable(err) or attempt >= max_attempts:
+                    raise
+
+                delay = min(max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient))
+                time.sleep(delay)
+
+    return inner
 
 
 def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
