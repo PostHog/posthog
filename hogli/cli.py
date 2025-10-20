@@ -90,17 +90,32 @@ class CategorizedGroup(click.Group):
                     formatter.write_dl(rows)
 
 
+def _auto_update_manifest() -> None:
+    """Automatically update manifest with missing entries."""
+    from hogli.validate import auto_update_manifest
+
+    added = auto_update_manifest()
+    if added:
+        click.secho(
+            f"ℹ️  Auto-added to manifest: {', '.join(sorted(added))}",
+            fg="blue",
+            err=True,
+        )
+
+
 @click.group(cls=CategorizedGroup, help="Unified developer experience for the PostHog monorepo.")
-def cli() -> None:
+@click.pass_context
+def cli(ctx: click.Context) -> None:
     """hogli - Developer CLI for PostHog."""
-    pass
+    # Auto-update manifest on every invocation (but skip for check, which validates only)
+    if ctx.invoked_subcommand not in {"check", "help"}:
+        _auto_update_manifest()
 
 
-@cli.command(name="check", help="Validate manifest against bin scripts (--fix to add missing entries)")
-@click.option("--fix", is_flag=True, help="Generate manifest entries for missing scripts")
-def check(fix: bool) -> None:
+@cli.command(name="check", help="Validate manifest against bin scripts (for CI)")
+def check() -> None:
     """Validate that all bin scripts are in the manifest."""
-    from hogli.validate import find_missing_manifest_entries, generate_missing_entries
+    from hogli.validate import find_missing_manifest_entries
 
     missing = find_missing_manifest_entries()
 
@@ -111,16 +126,6 @@ def check(fix: bool) -> None:
     click.echo(f"✗ Found {len(missing)} bin script(s) not in manifest:")
     for script in sorted(missing):
         click.echo(f"  - {script}")
-
-    if fix:
-        entries = generate_missing_entries()
-        click.echo(f"\nGenerated entries:\n")
-        import yaml
-
-        click.echo(yaml.dump(entries, default_flow_style=False))
-        click.echo("\nAdd these to manifest.yaml under the appropriate category")
-    else:
-        click.echo("\nRun with --fix to see generated manifest entries")
 
     raise SystemExit(1)
 

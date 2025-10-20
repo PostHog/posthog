@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import yaml
+
 from hogli.manifest import REPO_ROOT, get_manifest
 
 
@@ -63,3 +65,36 @@ def generate_missing_entries() -> dict[str, dict]:
         }
 
     return entries
+
+
+def auto_update_manifest() -> set[str]:
+    """Automatically add missing entries to manifest.
+
+    Returns set of newly added command names.
+    """
+    entries = generate_missing_entries()
+    if not entries:
+        return set()
+
+    manifest_file = REPO_ROOT / "hogli" / "manifest.yaml"
+    if not manifest_file.exists():
+        return set()
+
+    # Load existing manifest
+    with open(manifest_file) as f:
+        manifest = yaml.safe_load(f) or {}
+
+    # Find or create tools category for new entries
+    if "tools" not in manifest:
+        manifest["tools"] = {}
+
+    # Add new entries to tools category
+    for cmd_name, cmd_config in entries.items():
+        if cmd_name not in manifest["tools"]:
+            manifest["tools"][cmd_name] = cmd_config
+
+    # Write back to manifest file
+    with open(manifest_file, "w") as f:
+        yaml.dump(manifest, f, default_flow_style=False, sort_keys=False)
+
+    return set(entries.keys())

@@ -1,62 +1,66 @@
-# Metadata: Category descriptions and help formatting
 metadata:
     categories:
         - key: core
-          title: 'Core development commands'
+          title: Core development commands
         - key: health_checks
-          title: 'Verify infrastructure readiness'
+          title: Verify infrastructure readiness
         - key: start
-          title: 'Start services and background workers'
+          title: Start services and background workers
         - key: deploy
-          title: 'Deploy PostHog to remote instances'
+          title: Deploy PostHog to remote instances
         - key: build
-          title: 'Build and generate code'
+          title: Build and generate code
         - key: docker
-          title: 'Docker-based service orchestration'
+          title: Docker-based service orchestration
         - key: migration
-          title: 'Database migrations'
+          title: Database migrations
         - key: testing
-          title: 'Run tests'
+          title: Run tests
         - key: code_quality
-          title: 'Code quality and formatting'
+          title: Code quality and formatting
         - key: tools
-          title: 'Developer tools and utilities'
+          title: Developer tools and utilities
         - key: utilities
-          title: 'Git worktrees and admin'
+          title: Git worktrees and admin
         - key: compositions
-          title: 'Multi-step workflows'
+          title: Multi-step workflows
         - key: environment
-          title: 'Environment and shell'
+          title: Environment and shell
     services:
         flox:
             name: Flox
-            about: 'Manages reproducible development environments. All developers get the same exact versions of tools and dependencies.'
+            about: Manages reproducible development environments. All developers get the
+                same exact versions of tools and dependencies.
         docker:
             name: Docker
-            about: 'Isolates services and dependencies in containers to match production without requiring local installation.'
+            about: Isolates services and dependencies in containers to match production
+                without requiring local installation.
         migration:
             name: Database migrations
-            about: 'Schema updates and data migrations across PostgreSQL, ClickHouse, and async systems.'
+            about: Schema updates and data migrations across PostgreSQL, ClickHouse, and
+                async systems.
         clickhouse:
             name: ClickHouse
-            about: 'Analytics database used for metrics, events, and funnel analysis throughout PostHog.'
+            about: Analytics database used for metrics, events, and funnel analysis throughout
+                PostHog.
         postgresql:
             name: PostgreSQL
-            about: 'Primary relational database for application data, authentication, and feature flags.'
+            about: Primary relational database for application data, authentication, and
+                feature flags.
         redis:
             name: Redis
-            about: 'In-memory cache and queue backend for fast data access and job processing.'
+            about: In-memory cache and queue backend for fast data access and job processing.
         kafka:
             name: Kafka
-            about: 'Event streaming platform for reliable event processing and data pipelines.'
+            about: Event streaming platform for reliable event processing and data pipelines.
         temporal:
             name: Temporal
-            about: 'Workflow orchestration engine for reliable, long-running background jobs and retries.'
+            about: Workflow orchestration engine for reliable, long-running background jobs
+                and retries.
         testing:
             name: Testing
-            about: 'Automated test suites (unit, integration, E2E) to ensure code quality and prevent regressions.'
-
-# Command categories
+            about: Automated test suites (unit, integration, E2E) to ensure code quality
+                and prevent regressions.
 core:
     categories:
         description: Show all available commands grouped by category
@@ -64,12 +68,12 @@ core:
         description: Start full PostHog dev stack via mprocs
     qa:check:
         description: Run pre-push quality checks (lint + build, ~5 min)
-
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
         description: Poll ClickHouse HTTP port until service is ready
-        services: [clickhouse]
+        services:
+            - clickhouse
         args: none
     check:dagster-graphql:
         bin_script: check_dagster_graphql_up
@@ -83,17 +87,21 @@ health_checks:
     check:kafka-clickhouse:
         bin_script: check_kafka_clickhouse_up
         description: Wait for both Kafka and ClickHouse services to be ready
-        services: [kafka, clickhouse]
+        services:
+            - kafka
+            - clickhouse
         args: none
     check:postgres:
         bin_script: check_postgres_up
         description: Poll PostgreSQL connection until database is available
-        services: [postgresql]
+        services:
+            - postgresql
         args: optional
     check:temporal:
         bin_script: check_temporal_up
         description: Wait for Temporal service port with 180s timeout
-        services: [temporal]
+        services:
+            - temporal
         args: none
     check:video-deps:
         bin_script: check_video_deps
@@ -103,23 +111,34 @@ start:
     start:
         bin_script: start
         description: Main entry point that launches all dev services via mprocs orchestrator
-        services: [docker, postgresql, redis, kafka, clickhouse, temporal]
+        services:
+            - docker
+            - postgresql
+            - redis
+            - kafka
+            - clickhouse
+            - temporal
         allow_extra_args: true
         args: optional
     start:backend:
         bin_script: start-backend
         description: Run Django development server on port 8000 with auto-reload
-        services: [postgresql, redis]
+        services:
+            - postgresql
+            - redis
         args: none
     start:celery:
         bin_script: start-celery
         description: Start Celery worker or beat scheduler with auto-reload
-        services: [redis, kafka]
+        services:
+            - redis
+            - kafka
         args: required (worker|beat)
     start:frontend:
         bin_script: start-frontend
         description: Install dependencies and start frontend with Vite dev server
-        services: [docker]
+        services:
+            - docker
         allow_extra_args: true
         args: optional
     start:frontend-vite:
@@ -130,7 +149,10 @@ start:
     start:worker:
         bin_script: start-worker
         description: Launch all background workers (Celery worker, beat scheduler, plugin-server)
-        services: [kafka, temporal, redis]
+        services:
+            - kafka
+            - temporal
+            - redis
         args: none
     start:rust-service:
         bin_script: start-rust-service
@@ -166,7 +188,8 @@ build:
         args: none
 docker:
     docker:services:up:
-        description: Start Docker infrastructure services (Postgres, ClickHouse, Redis, Kafka)
+        description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
+            Kafka)
     docker:services:down:
         description: Stop Docker infrastructure services
     docker:
@@ -304,6 +327,12 @@ tools:
         description: WSGI app that aggregates Prometheus metrics from NGINX Unit status
             endpoint
         args: none
+    test:new:script:
+        bin_script: test-new-script
+        description: 'TODO: add description for test-new-script'
+    new:tool:
+        bin_script: new-tool
+        description: 'TODO: add description for new-tool'
 utilities:
     git:worktree:
         description: Manage git worktrees for isolated development
