@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconApps, IconCheck, IconInfo, IconPerson } from '@posthog/icons'
+import { IconApps, IconCheck, IconInfo, IconPerson, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Command, CommandInput } from 'lib/components/CommandInput'
@@ -205,56 +205,49 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                     ) : (
                         <div className="border-b">
                             <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-2">
-                                <div className="flex items-center gap-3">
-                                    <span className="text-sm text-tertiary">Include:</span>
-                                    <ListBox.Item asChild>
-                                        <ButtonPrimitive
-                                            size="sm"
-                                            active={newTabSceneDataIncludePersons}
-                                            onClick={() => {
-                                                toggleNewTabSceneDataInclude('persons')
-                                                inputRef.current?.focus()
-                                            }}
-                                            className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
-                                        >
-                                            <IconPerson className="size-4" /> Persons
-                                            {newTabSceneDataIncludePersons && (
-                                                <IconCheck className="size-3 text-success" />
-                                            )}
-                                        </ButtonPrimitive>
-                                    </ListBox.Item>
-                                    <ListBox.Item asChild>
-                                        <ButtonPrimitive
-                                            size="sm"
-                                            active={newTabSceneDataIncludeEventDefinitions}
-                                            onClick={() => {
-                                                toggleNewTabSceneDataInclude('eventDefinitions')
-                                                inputRef.current?.focus()
-                                            }}
-                                            className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
-                                        >
-                                            <IconApps className="size-4" /> Events
-                                            {newTabSceneDataIncludeEventDefinitions && (
-                                                <IconCheck className="size-3 text-success" />
-                                            )}
-                                        </ButtonPrimitive>
-                                    </ListBox.Item>
-                                    <ListBox.Item asChild>
-                                        <ButtonPrimitive
-                                            size="sm"
-                                            active={newTabSceneDataIncludePropertyDefinitions}
-                                            onClick={() => {
-                                                toggleNewTabSceneDataInclude('propertyDefinitions')
-                                                inputRef.current?.focus()
-                                            }}
-                                            className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
-                                        >
-                                            <IconApps className="size-4" /> Properties
-                                            {newTabSceneDataIncludePropertyDefinitions && (
-                                                <IconCheck className="size-3 text-success" />
-                                            )}
-                                        </ButtonPrimitive>
-                                    </ListBox.Item>
+                                <div className="flex items-center gap-3 flex-wrap min-h-7">
+                                    {newTabSceneDataInclude.length === 0 ? (
+                                        <></>
+                                    ) : (
+                                        newTabSceneDataInclude.map((command) => {
+                                            const commandInfo = NEW_TAB_COMMANDS_ITEMS.find(
+                                                (cmd) => cmd.value === command
+                                            )
+                                            if (!commandInfo) {
+                                                return null
+                                            }
+
+                                            return (
+                                                <ListBox.Item asChild key={command}>
+                                                    <ButtonPrimitive
+                                                        size="xs"
+                                                        active={true}
+                                                        onClick={() => {
+                                                            toggleNewTabSceneDataInclude(command)
+                                                            inputRef.current?.focus()
+                                                        }}
+                                                        className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                                                    >
+                                                        {command === 'persons' && <IconPerson className="size-4" />}
+                                                        {command === 'eventDefinitions' && (
+                                                            <IconApps className="size-4" />
+                                                        )}
+                                                        {command === 'propertyDefinitions' && (
+                                                            <IconApps className="size-4" />
+                                                        )}
+                                                        {command === 'create-new' && <IconCheck className="size-4" />}
+                                                        {command === 'apps' && <IconApps className="size-4" />}
+                                                        {command === 'data-management' && (
+                                                            <IconApps className="size-4" />
+                                                        )}
+                                                        {command === 'recents' && <IconInfo className="size-4" />}
+                                                        {commandInfo.displayName}
+                                                        <IconX className="size-3" />
+                                                    </ButtonPrimitive>
+                                                </ListBox.Item>
+                                            )
+                                        })
+                                    )}
                                 </div>
                             </div>
                         </div>

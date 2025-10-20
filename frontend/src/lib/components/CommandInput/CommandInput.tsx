@@ -1,9 +1,19 @@
+import { DropdownMenuGroup } from '@radix-ui/react-dropdown-menu'
 import React, { useEffect, useRef, useState } from 'react'
 
-import { IconCheck, IconX } from '@posthog/icons'
+import { IconCheck } from '@posthog/icons'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuOpenIndicator,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { Label } from 'lib/ui/Label/Label'
 import { TextInputPrimitive, textInputVariants } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
@@ -55,6 +65,7 @@ export function CommandInput<T = string>({
         }
 
         if (newValue.endsWith('/')) {
+            // Show all commands when slash is typed
             setFilteredCommands(commands)
             setShowDropdown(true)
             setFocusedIndex(0)
@@ -63,8 +74,6 @@ export function CommandInput<T = string>({
             const filtered = commands.filter((cmd) => cmd.displayName.toLowerCase().includes(searchTerm))
             setFilteredCommands(filtered)
             setFocusedIndex(0)
-        } else {
-            setShowDropdown(false)
         }
     }
 
@@ -82,31 +91,10 @@ export function CommandInput<T = string>({
         setInputValue(newInputValue)
         onChange?.(newInputValue)
         setShowDropdown(false)
-        inputRef.current?.focus()
-    }
-
-    const removeCommand = (commandValue: string): void => {
-        const commandToRemove = selectedCommands.find((cmd) => cmd.value === commandValue)
-        const newSelectedCommands = selectedCommands.filter((cmd) => cmd.value !== commandValue)
-        onSelectedCommandsChange?.(newSelectedCommands)
-
-        // Notify parent component about the command removal
-        if (commandToRemove) {
-            onCommandSelect?.(commandToRemove)
-        }
-    }
-
-    const handleBlur = (): void => {
-        if (inputValue === '/' && showDropdown) {
-            setShowDropdown(false)
-            setInputValue('')
-        }
-        // Delay hiding dropdown to allow for clicks
+        // Small delay to ensure dropdown closes before focusing
         setTimeout(() => {
-            if (!dropdownRef.current?.contains(document.activeElement)) {
-                setShowDropdown(false)
-            }
-        }, 100)
+            inputRef.current?.focus()
+        }, 1)
     }
 
     const scrollFocusedCommandToView = (): void => {
@@ -122,57 +110,17 @@ export function CommandInput<T = string>({
     }
 
     const handleKeyDown = (e: React.KeyboardEvent): void => {
-        // Handle escape key to clear focused tag or close dropdown
-        if (e.key === 'Escape') {
-            e.preventDefault()
-            if (focusedTagIndex !== null) {
-                // If a tag is focused, clear the focus
-                setFocusedTagIndex(null)
-                return
-            } else if (showDropdown) {
-                // If dropdown is open, close it
-                setShowDropdown(false)
-                if (inputValue === '/') {
-                    setInputValue('')
-                }
-                return
-            }
-        }
-
-        // Handle backspace for tag deletion regardless of dropdown state
-        if (e.key === 'Backspace' && selectedCommands.length > 0 && inputValue === '') {
-            e.preventDefault()
-            if (focusedTagIndex !== null) {
-                // If a tag is focused, delete it and clear focus
-                removeCommand(selectedCommands[focusedTagIndex].value as string)
-                setFocusedTagIndex(null)
-            } else {
-                // If no tag is focused, focus the last tag
-                setFocusedTagIndex(selectedCommands.length - 1)
-            }
-            return
-        }
-
-        // Handle dropdown navigation only when dropdown is showing
-        if (!showDropdown) {
-            return
-        }
         e.stopPropagation()
 
         switch (e.key) {
-            case 'ArrowDown':
-                e.preventDefault()
-                setFocusedIndex((prev) => (prev + 1) % filteredCommands.length)
-                break
-            case 'ArrowUp':
-                e.preventDefault()
-                setFocusedIndex((prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length)
-                break
-            case 'Enter':
-                e.preventDefault()
-                e.stopPropagation()
-                if (filteredCommands[focusedIndex]) {
-                    selectCommand(filteredCommands[focusedIndex])
+            case '/':
+                if (!showDropdown) {
+                    e.preventDefault()
+                    setFilteredCommands(commands)
+                    setShowDropdown(true)
+                    setFocusedIndex(0)
+                    // Don't add the '/' to the input value
+                    return
                 }
                 break
         }
@@ -196,34 +144,64 @@ export function CommandInput<T = string>({
                     'flex gap-0 focus-within:border-secondary p-0 items-center h-8'
                 )}
             >
-                {selectedCommands.length > 0 && (
-                    <div className="flex flex-wrap gap-1 h-full py-1 pl-1">
-                        {selectedCommands.map((command, index) => (
-                            <div
-                                key={command.value as string}
-                                className={cn('flex items-center gap-0.5 text-xxs h-full border rounded-sm pl-1 pr-0', {
-                                    'border-danger bg-danger-highlight': focusedTagIndex === index,
-                                    'border-primary': focusedTagIndex !== index,
-                                })}
-                                onClick={() => inputRef.current?.focus()}
-                            >
-                                {command.displayName}
-                                <ButtonPrimitive
-                                    size="xxs"
-                                    className={cn('text-xxs h-full rounded-xs rounded-l-none', {
-                                        'bg-danger text-primary-alt': focusedTagIndex === index,
-                                        'hover:bg-bg-3000': focusedTagIndex !== index,
-                                    })}
-                                    onClick={() => {
-                                        removeCommand(command.value as string)
-                                    }}
-                                >
-                                    <IconX />
-                                </ButtonPrimitive>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                <DropdownMenu open={showDropdown} onOpenChange={setShowDropdown}>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive className="rounded-r-none text-primary" variant="panel">
+                            Filters
+                            <DropdownMenuOpenIndicator />
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="min-w-[300px]">
+                        <DropdownMenuGroup>
+                            <Label intent="menu" className="pl-1">
+                                Select all, or select multiple
+                            </Label>
+                            <DropdownMenuSeparator />
+                            {filteredCommands.map((command, index) => {
+                                const isActive = activeCommands.includes(command.value)
+                                const isFocused = index === focusedIndex
+                                return (
+                                    <DropdownMenuItem asChild>
+                                        <ButtonPrimitive
+                                            key={command.value as string}
+                                            className={`group ${
+                                                isFocused ? 'command-input-focused' : ''
+                                            } flex items-center text-left`}
+                                            onClick={() => selectCommand(command)}
+                                            active={isFocused}
+                                            fullWidth
+                                            menuItem
+                                        >
+                                            <div className="flex items-center justify-center w-8">
+                                                <IconCheck
+                                                    className={cn(
+                                                        'hidden size-4 group-hover:block group-hover:opacity-10',
+                                                        {
+                                                            'block opacity-10': isFocused && !isActive,
+                                                            'block text-success': isActive,
+                                                            'group-hover:opacity-100': isActive && !isFocused,
+                                                        }
+                                                    )}
+                                                />
+                                                <IconBlank
+                                                    className={cn('hidden size-4 group-hover:hidden', {
+                                                        block: !isFocused && !isActive,
+                                                    })}
+                                                />
+                                            </div>
+
+                                            <div className="font-medium text-primary">{command.displayName}</div>
+                                        </ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                )
+                            })}
+                        </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+
+                <div className="h-full flex items-center py-1">
+                    <hr className="h-full w-px bg-border-primary" />
+                </div>
 
                 {/* Input Field */}
                 <TextInputPrimitive
@@ -231,56 +209,11 @@ export function CommandInput<T = string>({
                     value={inputValue}
                     onChange={(e) => handleInputChange(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    onBlur={handleBlur}
                     placeholder={placeholder}
                     autoComplete="off"
-                    className={cn('w-full border-none flex-1 h-full min-h-full', {
-                        'pl-1': selectedCommands.length > 0,
-                    })}
+                    className="pl-2 w-full border-none flex-1 h-full min-h-full"
                 />
             </div>
-
-            {/* Commands Dropdown */}
-            {showDropdown && filteredCommands.length > 0 && (
-                <div
-                    ref={dropdownRef}
-                    className="flex flex-col gap-px p-1 absolute z-50 w-full mt-1 bg-surface-primary border border-primary shadow rounded-lg overflow-y-auto show-scrollbar-on-hover"
-                >
-                    {filteredCommands.map((command, index) => {
-                        const isActive = activeCommands.includes(command.value)
-                        const isFocused = index === focusedIndex
-                        return (
-                            <ButtonPrimitive
-                                key={command.value as string}
-                                className={`group ${
-                                    isFocused ? 'command-input-focused' : ''
-                                } flex items-center text-left`}
-                                onClick={() => selectCommand(command)}
-                                active={isFocused}
-                                fullWidth
-                                menuItem
-                            >
-                                <div className="flex items-center justify-center size-8">
-                                    <IconCheck
-                                        className={cn('hidden size-4 group-hover:block group-hover:opacity-10', {
-                                            'block opacity-10': isFocused && !isActive,
-                                            'block text-success': isActive,
-                                            'group-hover:opacity-100': isActive && !isFocused,
-                                        })}
-                                    />
-                                    <IconBlank
-                                        className={cn('hidden size-4 group-hover:hidden', {
-                                            block: !isFocused && !isActive,
-                                        })}
-                                    />
-                                </div>
-
-                                <div className="font-medium text-primary">{command.displayName}</div>
-                            </ButtonPrimitive>
-                        )
-                    })}
-                </div>
-            )}
         </div>
     )
 }

@@ -50,14 +50,14 @@ export type NEW_TAB_COMMANDS =
     | 'propertyDefinitions'
 
 export const NEW_TAB_COMMANDS_ITEMS: Command<NEW_TAB_COMMANDS>[] = [
-    { value: 'all', displayName: 'Show all results' },
-    { value: 'create-new', displayName: 'Show create new' },
-    { value: 'apps', displayName: 'Show apps' },
-    { value: 'data-management', displayName: 'Show data management' },
-    { value: 'recents', displayName: 'Show recents' },
-    { value: 'persons', displayName: 'Show persons data' },
-    { value: 'eventDefinitions', displayName: 'Show events data' },
-    { value: 'propertyDefinitions', displayName: 'Show properties data' },
+    { value: 'all', displayName: 'Everything' },
+    { value: 'create-new', displayName: 'New' },
+    { value: 'apps', displayName: 'Apps' },
+    { value: 'data-management', displayName: 'Data management' },
+    { value: 'recents', displayName: 'Recents files' },
+    { value: 'persons', displayName: 'Persons' },
+    { value: 'eventDefinitions', displayName: 'Events' },
+    { value: 'propertyDefinitions', displayName: 'Properties' },
 ]
 
 export interface NewTabTreeDataItem extends TreeDataItem {
