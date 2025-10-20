@@ -342,7 +342,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             return null
                         }
                         return (
-                            <div key={item.id} className="not-first:mt-3 py-1 pl-2 flex items-center">
+                            <div key={item.id} className="not-first:mt-3 py-1 px-2 flex items-center">
                                 <span className="text-xs font-semibold text-tertiary">{item.displayName}</span>
                             </div>
                         )
@@ -485,11 +485,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                 </Link>
                             </ContextMenuTrigger>
 
-                            {isContextMenuOpenForItem === item.id && itemContextMenu?.(item) ? (
+                            {itemContextMenu?.(item) && (
                                 <ContextMenuContent loop className="max-w-[250px]">
                                     {itemContextMenu(item)}
                                 </ContextMenuContent>
-                            ) : null}
+                            )}
                         </ContextMenu>
                     )
 
@@ -578,7 +578,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 <DropdownMenu>
                                                     <DropdownMenuTrigger asChild>
                                                         {itemSideActionButton?.(item) ?? (
-                                                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
+                                                            <ButtonPrimitive
+                                                                iconOnly
+                                                                isSideActionRight
+                                                                className="z-2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+                                                            >
                                                                 <IconEllipsis className="size-3 text-tertiary" />
                                                             </ButtonPrimitive>
                                                         )}

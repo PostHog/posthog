@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 
-import { IconArchive, IconBolt, IconPlus } from '@posthog/icons'
+import { IconArchive, IconBolt, IconCheck, IconPlus } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
@@ -93,12 +93,14 @@ const renderItemContents = ({
     itemGroup,
     eventNames,
     enablePreaggregatedTableHints = false,
+    isActive,
 }: {
     item: TaxonomicDefinitionTypes
     listGroupType: TaxonomicFilterGroupType
     itemGroup: TaxonomicFilterGroup
     eventNames: string[]
     enablePreaggregatedTableHints?: boolean
+    isActive: boolean
 }): JSX.Element | string => {
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
     const isStale =
@@ -117,7 +119,11 @@ const renderItemContents = ({
             listGroupType === TaxonomicFilterGroupType.SessionProperties) &&
         (item as PropertyDefinition).supported_by_preaggregated_tables
 
-    const icon = itemGroup.getIcon ? (
+    const icon = isActive ? (
+        <div className="taxonomic-list-row-contents-icon">
+            <IconCheck />
+        </div>
+    ) : itemGroup.getIcon ? (
         <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>
     ) : null
 
@@ -212,6 +218,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         groupType,
         value,
         taxonomicGroups,
+        selectedProperties,
     } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const {
@@ -268,6 +275,8 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
 
         const isHighlighted = rowIndex === index && isActiveTab
 
+        const isActive = itemValue ? !!selectedProperties[listGroupType]?.includes(itemValue) : false
+
         // Show create custom event option when there are no results
         if (showNonCapturedEventOption && rowIndex === 0) {
             const selectNonCapturedEvent = (): void => {
@@ -285,7 +294,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     fullWidth
                     className={clsx(
                         'taxonomic-list-row',
-                        'border border-dashed border-secondary border rounded min-h-9 justify-center'
+                        'border border-dashed border-secondary rounded min-h-9 justify-center'
                     )}
                     outlined={false}
                     onKeyDown={(e) => {
@@ -314,6 +323,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             className: clsx(
                 'taxonomic-list-row',
                 rowIndex === index && mouseInteractionsEnabled && 'hover',
+                isActive && 'active',
                 isSelected && 'selected'
             ),
             onMouseOver: () => (mouseInteractionsEnabled ? setIndex(rowIndex) : setIndex(NO_ITEM_SELECTED)),
@@ -346,6 +356,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         itemGroup,
                         eventNames,
                         enablePreaggregatedTableHints,
+                        isActive,
                     })}
                 </div>
             )

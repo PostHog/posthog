@@ -22,7 +22,7 @@ class DoItSource(BaseSource[DoItSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.DOIT
 
-    def get_schemas(self, config: DoItSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: DoItSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         reports = doit_list_reports(config)
 
         return [
@@ -51,7 +51,8 @@ class DoItSource(BaseSource[DoItSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.DO_IT,
             label="DoIt",
-            caption="",
+            iconPath="/static/services/doit.svg",
+            docsUrl="https://posthog.com/docs/cdp/sources/doit",
             fields=cast(
                 list[FieldType],
                 [

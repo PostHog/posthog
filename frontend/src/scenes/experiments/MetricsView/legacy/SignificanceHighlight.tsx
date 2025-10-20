@@ -7,20 +7,35 @@ import { LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { experimentLogic } from '../../experimentLogic'
 
 interface SignificanceHighlightProps {
-    metricIndex?: number
+    displayOrder?: number
+    metricUuid?: string
     isSecondary?: boolean
     className?: string
 }
 
 export function SignificanceHighlight({
-    metricIndex = 0,
+    displayOrder = 0,
+    metricUuid,
     isSecondary = false,
     className = '',
 }: SignificanceHighlightProps): JSX.Element {
-    const { isPrimaryMetricSignificant, isSecondaryMetricSignificant, significanceDetails } = useValues(experimentLogic)
+    const { isPrimaryMetricSignificant, isSecondaryMetricSignificant, significanceDetails, experiment } =
+        useValues(experimentLogic)
+
+    // Convert displayOrder to UUID if UUID not provided
+    let identifier = metricUuid
+    if (!identifier) {
+        const metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
+        identifier = metrics[displayOrder]?.uuid || ''
+    }
+
+    if (!identifier) {
+        return <div className={className} />
+    }
+
     const isSignificant = isSecondary
-        ? isSecondaryMetricSignificant(metricIndex)
-        : isPrimaryMetricSignificant(metricIndex)
+        ? isSecondaryMetricSignificant(identifier)
+        : isPrimaryMetricSignificant(identifier)
     const result: { color: LemonTagType; label: string } = isSignificant
         ? { color: 'success', label: 'Significant' }
         : { color: 'primary', label: 'Not significant' }
@@ -37,7 +52,7 @@ export function SignificanceHighlight({
         </div>
     )
 
-    const details = significanceDetails(metricIndex)
+    const details = significanceDetails(identifier)
 
     return details ? (
         <Tooltip title={details}>

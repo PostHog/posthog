@@ -5,7 +5,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
+import { IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
 
 import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -21,7 +21,7 @@ import {
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,
@@ -86,7 +86,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
-            sessionRecordingDataLogic(props),
+            sessionRecordingDataCoordinatorLogic(props),
             ['urls', 'sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaData', 'windowIds', 'trackedWindow'],
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
@@ -94,7 +94,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ['recordingPropertiesById'],
         ],
         actions: [
-            sessionRecordingDataLogic(props),
+            sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingMetaSuccess', 'setTrackedWindow'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions', 'loadPropertiesForSessionsSuccess'],
@@ -161,14 +161,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return sessionPlayerData.start ?? null
             },
         ],
-
         endTime: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData) => {
                 return sessionPlayerData.end ?? null
             },
         ],
-
         currentWindowIndex: [
             (s) => [s.windowIds, s.currentSegment],
             (windowIds, currentSegment) => {
@@ -222,6 +220,15 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         label: 'Duration',
                         value: humanFriendlyDuration(sessionPlayerMetaData.recording_duration),
                         type: 'text',
+                    })
+                }
+                if (sessionPlayerMetaData?.retention_period_days && sessionPlayerMetaData?.recording_ttl) {
+                    items.push({
+                        icon: <IconHourglass />,
+                        label: 'TTL',
+                        value: `${sessionPlayerMetaData.recording_ttl}d / ${sessionPlayerMetaData.retention_period_days}d`,
+                        type: 'text',
+                        keyTooltip: 'The number of days left before this recording expires',
                     })
                 }
 

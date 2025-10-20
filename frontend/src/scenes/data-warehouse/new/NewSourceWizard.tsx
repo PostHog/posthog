@@ -1,20 +1,18 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 
-import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { IconBlank } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
-import { ManualLinkSourceType, SurveyEventName, SurveyEventProperties } from '~/types'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import SchemaForm from '../external/forms/SchemaForm'
@@ -48,29 +46,32 @@ function InternalNewSourceWizardScene(): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
 
     return (
-        <>
-            <PageHeader
-                buttons={
-                    <>
-                        <LemonButton
-                            type="secondary"
-                            center
-                            data-attr="source-form-cancel-button"
-                            onClick={closeWizard}
-                        >
-                            Cancel
-                        </LemonButton>
-                    </>
+        <SceneContent>
+            <SceneTitleSection
+                name="Internal source wizard"
+                resourceType={{ type: 'data_pipeline' }}
+                actions={
+                    <LemonButton
+                        type="secondary"
+                        center
+                        data-attr="source-form-cancel-button"
+                        onClick={closeWizard}
+                        size="small"
+                    >
+                        Cancel
+                    </LemonButton>
                 }
             />
+            <SceneDivider />
             <InternalSourcesWizard />
-        </>
+        </SceneContent>
     )
 }
 
 interface NewSourcesWizardProps {
-    disableConnectedSources?: boolean
     onComplete?: () => void
+    allowedSources?: ExternalDataSourceType[] // Filter to only show these source types
+    initialSource?: ExternalDataSourceType // Pre-select this source and start on step 2
 }
 
 export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
@@ -88,16 +89,31 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 }
 
 function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
-    const { modalTitle, modalCaption, isWrapped, currentStep, isLoading, canGoBack, canGoNext, nextButtonText } =
-        useValues(sourceWizardLogic)
-    const { onBack, onSubmit, onClear } = useActions(sourceWizardLogic)
+    const {
+        modalTitle,
+        isWrapped,
+        currentStep,
+        isLoading,
+        canGoBack,
+        canGoNext,
+        nextButtonText,
+        selectedConnector,
+        connectors,
+    } = useValues(sourceWizardLogic)
+    const { onBack, onSubmit, onClear, setInitialConnector } = useActions(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
+    // Initialize wizard with initial source if provided
     useEffect(() => {
-        return () => {
-            onClear()
+        if (props.initialSource && connectors.length > 0) {
+            const initialConnector = connectors.find((c) => c.name === props.initialSource)
+            if (initialConnector) {
+                setInitialConnector(initialConnector)
+            }
         }
-    }, [onClear])
+    }, [props.initialSource, connectors, setInitialConnector])
+
+    useEffect(() => onClear, [onClear])
 
     const footer = useCallback(() => {
         if (currentStep === 1) {
@@ -106,17 +122,15 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
         return (
             <div className="flex flex-row gap-2 justify-end mt-4">
-                {canGoBack && (
-                    <LemonButton
-                        type="secondary"
-                        center
-                        data-attr="source-modal-back-button"
-                        onClick={onBack}
-                        disabledReason={!canGoBack && 'You cant go back from here'}
-                    >
-                        Back
-                    </LemonButton>
-                )}
+                <LemonButton
+                    type="secondary"
+                    center
+                    data-attr="source-modal-back-button"
+                    onClick={onBack}
+                    disabledReason={!canGoBack && 'You cant go back from here'}
+                >
+                    Back
+                </LemonButton>
                 <LemonButton
                     loading={isLoading || manualLinkIsLoading}
                     disabledReason={!canGoNext && 'You cant click next yet'}
@@ -135,11 +149,20 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         <>
             {!isWrapped && <DataWarehouseInitialBillingLimitNotice />}
             <>
-                <h3>{modalTitle}</h3>
-                <LemonMarkdown className="mb-6">{modalCaption}</LemonMarkdown>
+                {selectedConnector && (
+                    <div className="flex items-center gap-3 mb-4">
+                        <DataWarehouseSourceIcon type={selectedConnector.name} size="small" disableTooltip />
+                        <div>
+                            <h4 className="text-lg font-semibold mb-0">{modalTitle}</h4>
+                            <p className="text-sm text-muted-alt mb-0">
+                                Import data directly from {selectedConnector.label ?? selectedConnector.name}
+                            </p>
+                        </div>
+                    </div>
+                )}
 
                 {currentStep === 1 ? (
-                    <FirstStep {...props} />
+                    <FirstStep allowedSources={props.allowedSources} />
                 ) : currentStep === 2 ? (
                     <SecondStep />
                 ) : currentStep === 3 ? (
@@ -156,173 +179,38 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     )
 }
 
-function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'disableConnectedSources'>): JSX.Element {
-    const { connectors, manualConnectors } = useValues(sourceWizardLogic)
-    const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
-        useActions(sourceWizardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+function FirstStep({ allowedSources }: NewSourcesWizardProps): JSX.Element {
+    const { availableSourcesLoading } = useValues(availableSourcesDataLogic)
+    const { connectors } = useValues(sourceWizardLogic)
 
-    const onClick = (sourceConfig: SourceConfig): void => {
-        selectConnector(sourceConfig)
-        onNext()
-    }
-
-    const onManualLinkClick = (manualLinkSource: ManualLinkSourceType): void => {
-        toggleManualLinkFormVisible(true)
-        setManualLinkingProvider(manualLinkSource)
-    }
-
-    const filteredConnectors = connectors
-        .filter((n) => {
-            if (n.name === 'MetaAds') {
-                return featureFlags[FEATURE_FLAGS.META_ADS_DWH]
+    // Filter out sources for onboarding flow
+    const sources = connectors.reduce(
+        (acc, cur) => {
+            if (allowedSources) {
+                if (allowedSources.indexOf(cur.name) !== -1) {
+                    acc[cur.name] = cur
+                }
+            } else {
+                acc[cur.name] = cur
             }
 
-            return true
+            return acc
+        },
+        {} as Record<string, SourceConfig>
+    )
+
+    const { hogFunctionTemplatesDataWarehouseSources } = useValues(
+        nonHogFunctionTemplatesLogic({
+            availableSources: sources ?? {},
         })
-        .sort((a, b) => Number(a.unreleasedSource) - Number(b.unreleasedSource))
+    )
 
     return (
-        <>
-            <h2 className="mt-4">Managed data warehouse sources</h2>
-
-            <p>
-                Data will be synced to PostHog and regularly refreshed.{' '}
-                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
-            </p>
-            <LemonTable
-                dataSource={filteredConnectors}
-                loading={false}
-                disableTableWhileLoading={false}
-                columns={[
-                    {
-                        title: 'Source',
-                        width: 0,
-                        render: function (_, sourceConfig) {
-                            return sourceConfig.name ? (
-                                <DataWarehouseSourceIcon type={sourceConfig.name} />
-                            ) : (
-                                <IconBlank />
-                            )
-                        },
-                    },
-                    {
-                        title: 'Name',
-                        key: 'name',
-                        render: (_, sourceConfig) => (
-                            <div className="flex flex-col">
-                                <span className="gap-1 text-sm font-semibold">
-                                    {sourceConfig.label ?? sourceConfig.name}
-                                    {sourceConfig.betaSource && (
-                                        <span>
-                                            {' '}
-                                            <LemonTag type="warning">BETA</LemonTag>
-                                        </span>
-                                    )}
-                                </span>
-                                {sourceConfig.unreleasedSource && (
-                                    <span>Get notified when {sourceConfig.label} is available to connect</span>
-                                )}
-                            </div>
-                        ),
-                    },
-                    {
-                        key: 'actions',
-                        render: (_, sourceConfig) => {
-                            const isConnected = disableConnectedSources && sourceConfig.existingSource
-
-                            return (
-                                <div className="flex flex-row justify-end p-1">
-                                    {isConnected && (
-                                        <LemonTag type="success" className="my-4" size="medium">
-                                            <IconCheck />
-                                            Connected
-                                        </LemonTag>
-                                    )}
-                                    {!isConnected && sourceConfig.unreleasedSource === true && (
-                                        <LemonButton
-                                            className="my-2"
-                                            type="primary"
-                                            icon={<IconBell />}
-                                            onClick={() => {
-                                                // https://us.posthog.com/project/2/surveys/0190ff15-5032-0000-722a-e13933c140ac
-                                                posthog.capture(SurveyEventName.SENT, {
-                                                    [SurveyEventProperties.SURVEY_ID]:
-                                                        '0190ff15-5032-0000-722a-e13933c140ac',
-                                                    [`${SurveyEventProperties.SURVEY_RESPONSE}_ad030277-3642-4abf-b6b0-7ecb449f07e8`]:
-                                                        sourceConfig.label ?? sourceConfig.name,
-                                                })
-                                                posthog.capture('source_notify_me', {
-                                                    source: sourceConfig.label ?? sourceConfig.name,
-                                                })
-                                                lemonToast.success('Notification registered successfully')
-                                            }}
-                                        >
-                                            Notify me
-                                        </LemonButton>
-                                    )}
-                                    {!isConnected && !sourceConfig.unreleasedSource && (
-                                        <LemonButton
-                                            onClick={() => onClick(sourceConfig)}
-                                            className="my-2"
-                                            type="primary"
-                                            disabledReason={
-                                                disableConnectedSources && sourceConfig.existingSource
-                                                    ? 'You have already connected this source'
-                                                    : undefined
-                                            }
-                                        >
-                                            Link
-                                        </LemonButton>
-                                    )}
-                                </div>
-                            )
-                        },
-                    },
-                ]}
-            />
-
-            <h2 className="mt-4">Self-managed data warehouse sources</h2>
-
-            <p>
-                Data will be queried directly from your data source that you manage.{' '}
-                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
-            </p>
-            <LemonTable
-                dataSource={manualConnectors}
-                loading={false}
-                disableTableWhileLoading={false}
-                columns={[
-                    {
-                        title: 'Source',
-                        width: 0,
-                        render: (_, sourceConfig) => <DataWarehouseSourceIcon type={sourceConfig.type} />,
-                    },
-                    {
-                        title: 'Name',
-                        key: 'name',
-                        render: (_, sourceConfig) => (
-                            <span className="gap-1 text-sm font-semibold">{sourceConfig.name}</span>
-                        ),
-                    },
-                    {
-                        key: 'actions',
-                        width: 0,
-                        render: (_, sourceConfig) => (
-                            <div className="flex flex-row justify-end p-1">
-                                <LemonButton
-                                    onClick={() => onManualLinkClick(sourceConfig.type)}
-                                    className="my-2"
-                                    type="primary"
-                                >
-                                    Link
-                                </LemonButton>
-                            </div>
-                        ),
-                    },
-                ]}
-            />
-        </>
+        <HogFunctionTemplateList
+            type="source_webhook"
+            manualTemplates={hogFunctionTemplatesDataWarehouseSources}
+            manualTemplatesLoading={availableSourcesLoading}
+        />
     )
 }
 
@@ -330,7 +218,23 @@ function SecondStep(): JSX.Element {
     const { selectedConnector } = useValues(sourceWizardLogic)
 
     return selectedConnector ? (
-        <SourceForm sourceConfig={selectedConnector} />
+        <div className="space-y-4">
+            {selectedConnector.caption && (
+                <LemonMarkdown className="text-sm">{selectedConnector.caption}</LemonMarkdown>
+            )}
+
+            {selectedConnector.docsUrl && (
+                <div className="inline-block">
+                    <LemonButton to={selectedConnector.docsUrl} type="primary" size="small">
+                        View docs
+                    </LemonButton>
+                </div>
+            )}
+
+            <LemonDivider />
+
+            <SourceForm sourceConfig={selectedConnector} />
+        </div>
     ) : (
         <BindLogic logic={dataWarehouseTableLogic} props={{ id: 'new' }}>
             <DatawarehouseTableForm />

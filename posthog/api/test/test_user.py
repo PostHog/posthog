@@ -162,6 +162,45 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json(), self.unauthenticated_response())
 
+    def test_non_admin_filter_users_by_email(self):
+        org = Organization.objects.create()
+        user = User.objects.create(
+            email="foo@bar.com",
+            password="<PASSWORD>",
+            organization=org,
+            current_team=Team.objects.create(organization=org, name="Another team"),
+        )
+
+        response = self.client.get(f"/api/users/?email={user.email}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0, "Should not return users from another orgs")
+
+    def test_admin_filter_users_by_email(self):
+        admin = User.objects.create(
+            email="admin@admin.com",
+            password="pw",
+            organization=self.organization,
+            current_team=self.team,
+            is_staff=True,
+        )
+        self.client.force_authenticate(admin)
+        org = Organization.objects.create()
+        user = User.objects.create(
+            email="foo@bar.com",
+            password="<PASSWORD>",
+            organization=org,
+            current_team=Team.objects.create(organization=org, name="Another team"),
+        )
+
+        response = self.client.get(f"/api/users/?email={user.email}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1, "Admin users should be able to list users from other orgs")
+        response_user = response.json()["results"][0]
+        self.assertEqual(response_user["email"], user.email)
+        self.assertEqual(response_user["id"], user.id, "User id should be returned")
+
     # CREATING USERS
 
     def test_creating_users_on_this_endpoint_is_not_supported(self):
@@ -219,7 +258,7 @@ class TestUserAPI(APIBaseTest):
         self.assertNotEqual(user.uuid, 1)
         self.assertEqual(user.first_name, "Cooper")
         self.assertEqual(user.anonymize_data, True)
-        self.assertDictContainsSubset({"plugin_disabled": False}, user.notification_settings)
+        self.assertLessEqual({"plugin_disabled": False}.items(), user.notification_settings.items())
         self.assertEqual(user.has_seen_product_intro_for, {"feature_flags": True})
         self.assertEqual(user.role_at_organization, "engineering")
 
@@ -956,9 +995,9 @@ class TestUserAPI(APIBaseTest):
         for _ in range(7):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertDictContainsSubset(
-            {"attr": None, "code": "throttled", "type": "throttled_error"},
-            response.json(),
+        self.assertLessEqual(
+            {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+            response.json().items(),
         )
 
         # Password was not changed
@@ -1001,7 +1040,8 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_409_CONFLICT
 
-    def test_can_delete_user_with_no_organization_memberships(self):
+    @patch("posthoganalytics.capture")
+    def test_can_delete_user_with_no_organization_memberships(self, mock_capture):
         user = self._create_user("noactiveorgmemberships@posthog.com", password="test")
 
         self.client.force_login(user)
@@ -1017,6 +1057,12 @@ class TestUserAPI(APIBaseTest):
         response = self.client.delete(f"/api/users/@me/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not User.objects.filter(uuid=user.uuid).exists()
+
+        mock_capture.assert_called_once_with(
+            distinct_id=user.distinct_id,
+            event="user account deleted",
+            properties=mock.ANY,
+        )
 
     def test_cannot_delete_another_user_with_no_org_memberships(self):
         user = self._create_user("deleteanotheruser@posthog.com", password="test")
@@ -1188,7 +1234,10 @@ class TestUserAPI(APIBaseTest):
             {
                 "notification_settings": {
                     "plugin_disabled": False,
+                    "discussions_mentioned": False,
+                    "error_tracking_issue_assigned": False,
                     "project_weekly_digest_disabled": {123: True},
+                    "all_weekly_digest_disabled": True,
                 }
             },
         )
@@ -1199,9 +1248,10 @@ class TestUserAPI(APIBaseTest):
             response_data["notification_settings"],
             {
                 "plugin_disabled": False,
+                "discussions_mentioned": False,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
-                "all_weekly_digest_disabled": False,
-                "error_tracking_issue_assigned": True,
+                "all_weekly_digest_disabled": True,
+                "error_tracking_issue_assigned": False,
             },
         )
 
@@ -1210,9 +1260,10 @@ class TestUserAPI(APIBaseTest):
             self.user.partial_notification_settings,
             {
                 "plugin_disabled": False,
+                "discussions_mentioned": False,
                 "project_weekly_digest_disabled": {"123": True},
-                "all_weekly_digest_disabled": False,
-                "error_tracking_issue_assigned": True,
+                "all_weekly_digest_disabled": True,
+                "error_tracking_issue_assigned": False,
             },
         )
 
@@ -1275,6 +1326,7 @@ class TestUserAPI(APIBaseTest):
             response_data["notification_settings"],
             {
                 "plugin_disabled": True,  # Default value
+                "discussions_mentioned": True,  # Default value
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
@@ -1425,16 +1477,6 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         # assert events were captured
         mock_capture.assert_any_call(
-            event="user logged in",
-            distinct_id=self.user.distinct_id,
-            properties={"social_provider": ""},
-            groups={
-                "instance": ANY,
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.uuid),
-            },
-        )
-        mock_capture.assert_any_call(
             event="user verified email",
             distinct_id=self.user.distinct_id,
             properties={"$set": ANY},
@@ -1447,7 +1489,7 @@ class TestEmailVerificationAPI(APIBaseTest):
                 "organization": str(self.team.organization_id),
             },
         )
-        self.assertEqual(mock_capture.call_count, 3)
+        self.assertEqual(mock_capture.call_count, 2)
 
     def test_cant_verify_if_email_is_not_configured(self):
         set_instance_setting("EMAIL_HOST", "")
@@ -1478,9 +1520,9 @@ class TestEmailVerificationAPI(APIBaseTest):
             else:
                 # Fourth request should fail
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-                self.assertDictContainsSubset(
-                    {"attr": None, "code": "throttled", "type": "throttled_error"},
-                    response.json(),
+                self.assertLessEqual(
+                    {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+                    response.json().items(),
                 )
 
         # Three emails should be sent, fourth should not
@@ -1551,7 +1593,7 @@ class TestEmailVerificationAPI(APIBaseTest):
             },
         )
 
-    def test_email_verification_logs_in_user(self):
+    def test_email_verification_does_not_log_in_user(self):
         token = email_verification_token_generator.make_token(self.user)
 
         self.client.logout()
@@ -1562,7 +1604,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         # NOTE: Posting sets the session user id but doesn't log in the test client hence we just check the session id
         self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         session_user_id = self.client.session.get("_auth_user_id")
-        assert session_user_id == str(self.user.id)
+        assert session_user_id is None
 
     def test_email_verification_logs_in_correctuser(self):
         other_token = email_verification_token_generator.make_token(self.other_user)
@@ -1572,7 +1614,8 @@ class TestEmailVerificationAPI(APIBaseTest):
         # NOTE: The user id in path should basically be ignored
         self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
         session_user_id = self.client.session.get("_auth_user_id")
-        assert session_user_id == str(self.other_user.id)
+        # user should still be logged out
+        assert session_user_id is None
 
     def test_email_verification_does_not_apply_to_current_logged_in_user(self):
         other_token = email_verification_token_generator.make_token(self.other_user)
@@ -1582,7 +1625,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.other_user.refresh_from_db()
         # Should now be logged in as other user
-        assert self.client.session.get("_auth_user_id") == str(self.other_user.id)
+        assert self.client.session.get("_auth_user_id") is None
         assert not self.user.is_email_verified
         assert self.other_user.is_email_verified
 

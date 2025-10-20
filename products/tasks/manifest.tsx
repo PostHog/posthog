@@ -1,9 +1,7 @@
-import { IconBug } from '@posthog/icons'
-
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Tasks',
@@ -14,19 +12,29 @@ export const manifest: ProductManifest = {
             projectBased: true,
             defaultDocsPath: '/docs/tasks',
             activityScope: 'TaskTracker',
+            description: 'Tasks are a way to track your work and get things done.',
+            iconType: 'task',
+        },
+        TaskDetail: {
+            name: 'Task Detail',
+            import: () => import('./frontend/TaskDetailScene'),
+            projectBased: true,
+            activityScope: 'TaskDetail',
         },
     },
     routes: {
         '/tasks': ['TaskTracker', 'taskTracker'],
+        '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
     },
     redirects: {},
     urls: {
         taskTracker: (): string => '/tasks',
+        taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
     },
     fileSystemTypes: {
         task: {
             name: 'Task',
-            icon: <IconBug />,
+            iconType: 'task',
             href: () => urls.taskTracker(),
             iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'],
             filterKey: 'task',
@@ -37,10 +45,14 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Tasks',
-            category: 'Development',
+            category: 'Unreleased',
             type: 'task',
             href: urls.taskTracker(),
             flag: FEATURE_FLAGS.TASKS,
+            iconType: 'task',
+            tags: ['alpha'],
+            iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
+            sceneKey: 'TaskTracker',
         },
     ],
 }

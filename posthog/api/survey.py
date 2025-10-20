@@ -52,12 +52,30 @@ from posthog.models.surveys.util import (
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
+    "linked_flag_id",
+    "targeting_flag_filters",
+]
+
+# Does not include actions or events, as those are objects and thus are evaluated differently
+CONDITION_FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
+    "url",
+    "urlMatchType",
+    "selector",
+    "seenSurveyWaitPeriodInDays",
+    "linkedFlagVariant",
+    "deviceTypes",
+    "deviceTypesMatchType",
+]
+
 
 if "replica" in settings.DATABASES:
     READ_DB_FOR_SURVEYS = "replica"
@@ -92,7 +110,7 @@ SurveyStats = TypedDict(
 )
 
 
-class SurveySerializer(serializers.ModelSerializer):
+class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -154,6 +172,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "user_access_level",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -369,7 +388,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
         # Validate linkedFlagVariant if provided
-        linked_flag_variant = data.get("conditions", {}).get("linkedFlagVariant")
+        conditions = data.get("conditions") or {}
+        linked_flag_variant = conditions.get("linkedFlagVariant")
         if linked_flag_variant and linked_flag and linked_flag_variant != "any":
             # Get available variants from the linked feature flag
             available_variants = [variant["key"] for variant in linked_flag.variants]
@@ -444,6 +464,45 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 }
             )
 
+        # Validate external survey constraints
+        if data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
+            errors = {}
+
+            # Check prohibited fields
+            for field in FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS:
+                if data.get(field) is not None:
+                    errors[field] = f"{field} is not allowed for external surveys"
+
+            # Check prohibited condition fields
+            if data.get("conditions"):
+                condition_errors = []
+                conditions = data["conditions"]
+
+                # Check individual condition fields
+                for field in CONDITION_FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS:
+                    if field in conditions and conditions[field] is not None:
+                        condition_errors.append(field)
+
+                # Check actions/events if they have values
+                for field in ["actions", "events"]:
+                    if field in conditions and isinstance(conditions[field], dict):
+                        values = conditions[field].get("values", [])
+                        if values:
+                            condition_errors.append(field)
+
+                if condition_errors:
+                    errors["conditions"] = (
+                        f"The following condition fields are not allowed for external surveys: {', '.join(condition_errors)}"
+                    )
+
+            # Check prohibited appearance fields
+            if "appearance" in data and data["appearance"] and "surveyPopupDelaySeconds" in data["appearance"]:
+                if data["appearance"]["surveyPopupDelaySeconds"] is not None:
+                    errors["appearance"] = "surveyPopupDelaySeconds is not allowed for external surveys"
+
+            if errors:
+                raise serializers.ValidationError(errors)
+
         return data
 
     def create(self, validated_data):
@@ -485,6 +544,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
         changes = []
+
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
                 # Manually delete the flag and log the change
@@ -747,7 +807,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError("Targeting flag for survey failed, invalid parameters.")
 
 
-class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").all()
     filter_backends = [filters.SearchFilter]
@@ -1229,9 +1289,25 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if question_index is None and question_id is None:
             raise exceptions.ValidationError("question_index or question_id is required")
+        # Extract the question text from the survey
+        question_text = None
+        if survey.questions and question_id:
+            # Find the question with the matching ID
+            for question in survey.questions:
+                if question.get("id", None) == question_id:
+                    question_text = question.get("question")
+                    break
+        elif survey.questions and question_index is not None:
+            # Fallback to question index if question_id is not provided
+            if 0 <= question_index < len(survey.questions):
+                question_text = survey.questions[question_index].get("question")
+
+        if question_text is None:
+            raise exceptions.ValidationError("the text of the question is required")
 
         summary = summarize_survey_responses(
             survey_id=survey_id,
+            question_text=question_text,
             question_index=question_index,
             question_id=question_id,
             survey_start=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),

@@ -1,12 +1,18 @@
 import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
+import { props } from 'kea'
 import React, { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { RichContentMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
+import { RichContentNodeType } from 'lib/components/RichContentEditor/types'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 import { Link } from '../Link'
+import remarkMentions from './mention'
 
 interface LemonMarkdownContainerProps {
     children: React.ReactNode
@@ -45,6 +51,20 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     {value}
                 </CodeSnippet>
             ),
+            [RichContentNodeType.Mention]: ({ id }): JSX.Element => <RichContentMention id={id} />,
+            listItem: ({ checked, children }: any): JSX.Element => {
+                // Handle task list items with LemonCheckbox
+                if (checked != null) {
+                    return (
+                        <li className="LemonMarkdown__task">
+                            <LemonCheckbox checked={checked} disabledReason="Read-only for display" size="small" />
+                            <span className="LemonMarkdown__task-content">{children}</span>
+                        </li>
+                    )
+                }
+                // Regular list item
+                return <li {...props}>{children}</li>
+            },
             ...(lowKeyHeadings
                 ? {
                       heading: 'strong',
@@ -59,6 +79,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
         <ReactMarkdown
             renderers={renderers}
             disallowedTypes={['html']} // Don't want to deal with the security considerations of HTML
+            plugins={[remarkGfm, remarkMentions]}
         >
             {children}
         </ReactMarkdown>

@@ -1,8 +1,10 @@
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { FetchResponse, fetch } from '~/utils/request'
+import { parseJSON } from '~/utils/json-parse'
 
 import { createHogFunction } from '../_tests/fixtures'
 import {
@@ -16,7 +18,6 @@ import { SegmentDestinationExecutorService } from './segment-destination-executo
 
 describe('SegmentDestinationExecutorService', () => {
     let service: SegmentDestinationExecutorService
-    let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
 
     const amplitudePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-actions-amplitude']
     const amplitudeAction = amplitudePlugin.destination.actions['logEventV2']
@@ -26,17 +27,21 @@ describe('SegmentDestinationExecutorService', () => {
 
     const pipedrivePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-actions-pipedrive']
     const pipedriveAction = pipedrivePlugin.destination.actions['createUpdatePerson']
+    const pipedriveActivitiesAction = pipedrivePlugin.destination.actions['createUpdateActivity']
 
     beforeEach(() => {
+        mockFetch.mockReset()
+
         Settings.defaultZone = 'UTC'
         service = new SegmentDestinationExecutorService(defaultConfig)
 
-        service.fetch = mockFetch = jest.fn((_url, _options) =>
+        mockFetch.mockImplementation((_url, _options) =>
             Promise.resolve({
                 status: 200,
                 json: () => Promise.resolve({}),
                 text: () => Promise.resolve(JSON.stringify({})),
                 headers: {},
+                dump: () => Promise.resolve(),
             } as any)
         )
 
@@ -44,6 +49,7 @@ describe('SegmentDestinationExecutorService', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
         jest.spyOn(amplitudeAction as any, 'perform')
         jest.spyOn(pipedriveAction as any, 'perform')
+        jest.spyOn(pipedriveActivitiesAction as any, 'perform')
     })
 
     afterAll(() => {
@@ -72,6 +78,7 @@ describe('SegmentDestinationExecutorService', () => {
                         })
                     ),
                 headers: {},
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -119,6 +126,7 @@ describe('SegmentDestinationExecutorService', () => {
                 json: () => Promise.resolve({ error: 'Forbidden' }),
                 text: () => Promise.resolve(JSON.stringify({ error: 'Forbidden' })),
                 headers: { 'retry-after': '60' },
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -182,6 +190,7 @@ describe('SegmentDestinationExecutorService', () => {
                 json: () => Promise.resolve({ error: 'Too many requests' }),
                 text: () => Promise.resolve(JSON.stringify({ error: 'Too many requests' })),
                 headers: { 'retry-after': '60' },
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -307,6 +316,7 @@ describe('SegmentDestinationExecutorService', () => {
                 json: () => Promise.resolve({ error: 'Forbidden' }),
                 text: () => Promise.resolve(JSON.stringify({ error: 'Forbidden' })),
                 headers: { 'retry-after': '60' },
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -386,6 +396,7 @@ describe('SegmentDestinationExecutorService', () => {
                 json: () => Promise.resolve({ total_count: 1 }),
                 text: () => Promise.resolve(JSON.stringify(pipedriveResponse)),
                 headers: {},
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -428,6 +439,73 @@ describe('SegmentDestinationExecutorService', () => {
             `)
 
             expect(result.finished).toBe(true)
+        })
+
+        it('handles activity_id field correctly for pipedrive activities action', async () => {
+            jest.spyOn(pipedriveActivitiesAction as any, 'perform')
+
+            const testCases = [
+                { activity_id: null, shouldHaveId: false },
+                { activity_id: '', shouldHaveId: false },
+                { activity_id: '15', shouldHaveId: true },
+            ]
+
+            for (const testCase of testCases) {
+                mockFetch.mockReset()
+
+                const pipedriveInputs = {
+                    domain: 'posthog-sandbox',
+                    apiToken: 'api-key',
+                    person_match_value: 'e252ca85-9ea2-4d17-9d99-5fda5535995d',
+                    activity_id: testCase.activity_id,
+                    personField: 'id',
+                    organization_match_value: '',
+                    organizationField: 'id',
+                    deal_match_value: null,
+                    dealField: 'id',
+                    subject: null,
+                    type: null,
+                    description: null,
+                    note: null,
+                    due_date: null,
+                    due_time: null,
+                    duration: null,
+                    done: null,
+                    internal_partner_action: 'createUpdateActivity',
+                    debug_mode: true,
+                }
+
+                const fn = createHogFunction({
+                    name: 'Plugin test',
+                    template_id: 'segment-actions-pipedrive',
+                })
+
+                const invocation = createExampleSegmentInvocation(fn, pipedriveInputs)
+
+                mockFetch.mockResolvedValue({
+                    status: 200,
+                    json: () => Promise.resolve({ total_count: 1 }),
+                    text: () => Promise.resolve(JSON.stringify(pipedriveResponse)),
+                    headers: {},
+                    dump: () => Promise.resolve(),
+                })
+
+                await service.execute(invocation)
+
+                expect(mockFetch).toHaveBeenCalledTimes(2)
+
+                const requestBody = parseJSON(mockFetch.mock.calls[1][1].body)
+                const endpoint = mockFetch.mock.calls[1][0]
+
+                if (testCase.shouldHaveId) {
+                    expect(endpoint).toBe(
+                        `https://posthog-sandbox.pipedrive.com/api/v1/activities/${testCase.activity_id}?api_token=api-key`
+                    )
+                } else {
+                    expect(requestBody).not.toHaveProperty('id')
+                    expect(endpoint).toBe('https://posthog-sandbox.pipedrive.com/api/v1/activities?api_token=api-key')
+                }
+            }
         })
     })
 })

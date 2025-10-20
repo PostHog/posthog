@@ -58,13 +58,13 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         serializer = InsightsToolCallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
-        assistant = Assistant(
+        assistant = Assistant.create(
             self.team,
             conversation,
             user=cast(User, request.user),
             is_new_conversation=False,  # we don't care about the conversation id being sent back to the client
             mode=AssistantMode.INSIGHTS_TOOL,
-            tool_call_partial_state=serializer.validated_data["state"],
+            initial_state=serializer.validated_data["state"],
         )
 
         return Response(

@@ -44,11 +44,13 @@ export const groupsListLogic = kea<groupsListLogicType>([
             (_: any, props: GroupsListLogicProps) =>
                 ({
                     kind: NodeKind.DataTableNode,
+
                     source: {
                         kind: NodeKind.GroupsQuery,
                         select: undefined,
                         group_type_index: props.groupTypeIndex,
                     },
+
                     full: true,
                     showEventFilter: false,
                     showPersistentColumnConfigurator: true,

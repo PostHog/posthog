@@ -11,6 +11,15 @@ export const template: HogFunctionTemplate = {
     category: ['Revenue', 'Payment'],
     code_language: 'hog',
     code: `
+if(request.method != 'POST') {
+  return {
+    'httpResponse': {
+      'status': 405,
+      'body': 'Method not allowed'
+    }
+  }
+}
+
 if (not inputs.bypass_signature_check) {
   let body := request.stringBody  
   let signatureHeader := request.headers['stripe-signature']

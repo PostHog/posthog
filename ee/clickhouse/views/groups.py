@@ -23,21 +23,22 @@ from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import GroupUsageMetric, Notebook
+from posthog.models import GroupUsageMetric
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
-from posthog.models.notebook import ResourceNotebook
-from posthog.models.notebook.util import (
+from posthog.models.user import User
+
+from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.notebooks.backend.util import (
     create_bullet_list,
     create_empty_paragraph,
     create_heading_with_text,
     create_text_content,
 )
-from posthog.models.user import User
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from ee.clickhouse.views.exceptions import TriggerGroupIdentifyException
@@ -61,6 +62,10 @@ class GroupsTypesViewSet(
     pagination_class = None
     sharing_enabled_actions = ["list"]
     lookup_field = "group_type_index"
+    filter_rewrite_rules = {"project_id": "project_id"}
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(project_id=self.team.project_id)
 
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
@@ -127,7 +132,7 @@ class FindGroupSerializer(GroupSerializer):
         fields = [*GroupSerializer.Meta.fields, "notebook"]
 
     def get_notebook(self, obj: Group) -> str | None:
-        notebooks = obj.notebooks.first()
+        notebooks = ResourceNotebook.objects.filter(group=obj.id).first()
         return notebooks.notebook.short_id if notebooks else None
 
 
@@ -319,8 +324,11 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
         try:
-            group = self.get_queryset().prefetch_related("notebooks__notebook").get(group_key=request.GET["group_key"])
-            if self._is_crm_enabled(cast(User, request.user)) and not group.notebooks.exists():
+            group = self.get_queryset().get(group_key=request.GET["group_key"])
+            if (
+                self._is_crm_enabled(cast(User, request.user))
+                and not ResourceNotebook.objects.filter(group=group.id).exists()
+            ):
                 try:
                     self._create_notebook_for_group(group=group)
                 except IntegrityError as e:
@@ -670,7 +678,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             content=notebook_content,
             visibility=Notebook.Visibility.INTERNAL,
         )
-        ResourceNotebook.objects.create(notebook=notebook, group=group)
+        ResourceNotebook.objects.create(notebook=notebook, group=group.id)
 
 
 class GroupUsageMetricSerializer(serializers.ModelSerializer):

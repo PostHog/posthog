@@ -256,8 +256,7 @@ def _resolve_field_type(field: dataclasses.Field[typing.Any], module_path: str) 
     is defined.
     """
     if isinstance(field.type, str):
-        # Ignore comment necessary here as mypy thinks `field.type` cannot be `str`.
-        module = importlib.import_module(module_path)  # type: ignore
+        module = importlib.import_module(module_path)
         lookup_type = functools.partial(_lookup_str_type, module=module)
 
         if "|" in field.type:

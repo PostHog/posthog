@@ -18,8 +18,9 @@ import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTi
 
 type MetricOption = {
     metric: ExperimentMetric
-    index: number
+    uuid: string
     isSharedMetric: boolean
+    name: string | undefined
 }
 
 export const MetricSelectorStep = ({
@@ -31,33 +32,38 @@ export const MetricSelectorStep = ({
 }): JSX.Element => {
     const { experimentId } = useValues(experimentLogic)
 
-    const { experiment, metric, metricIndex, metricResultLoading } = useValues(
+    const { experiment, metric, metricUuid, metricResultLoading } = useValues(
         runningTimeCalculatorLogic({ experimentId })
     )
-    const { setMetricIndex } = useActions(runningTimeCalculatorLogic({ experimentId }))
+    const { setMetricUuid } = useActions(runningTimeCalculatorLogic({ experimentId }))
 
     // Create combined array of metrics and saved metrics
     const metricOptions: MetricOption[] = [
         // Regular metrics
-        ...experiment.metrics.map((metric, index) => ({
-            metric: metric as ExperimentMetric,
-            index,
-            isSharedMetric: false,
-        })),
+        ...experiment.metrics
+            .filter((metric) => metric.uuid)
+            .map((metric) => ({
+                metric: metric as ExperimentMetric,
+                uuid: metric.uuid!,
+                isSharedMetric: false,
+                name: undefined,
+            })),
         // Shared metrics with primary type
         ...experiment.saved_metrics
             .filter((sharedMetric) => sharedMetric.metadata.type === 'primary')
-            .map((sharedMetric, index) => {
+            .map((sharedMetric) => {
                 // Ensure the shared metric query is an ExperimentMetric type
                 if (
                     sharedMetric.query &&
+                    sharedMetric.query.uuid &&
                     (sharedMetric.query.kind === NodeKind.ExperimentMetric ||
                         sharedMetric.query.metric_type !== undefined)
                 ) {
                     return {
                         metric: sharedMetric.query as ExperimentMetric,
-                        index: experiment.metrics.length + index,
+                        uuid: sharedMetric.query.uuid,
                         isSharedMetric: true,
+                        name: sharedMetric.name,
                     }
                 }
                 return null
@@ -78,7 +84,11 @@ export const MetricSelectorStep = ({
                         label: (
                             <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
                                 <span className="mr-1">{index + 1}.</span>
-                                <MetricTitle metric={option.metric} />
+                                {option.name ? (
+                                    <span className="max-w-56 truncate">{option.name}</span>
+                                ) : (
+                                    <MetricTitle metric={option.metric} />
+                                )}
                                 {option.isSharedMetric && (
                                     <span className="ml-1">
                                         <LemonTag>Shared</LemonTag>
@@ -86,13 +96,13 @@ export const MetricSelectorStep = ({
                                 )}
                             </div>
                         ),
-                        value: option.index,
+                        value: option.uuid,
                     }))}
-                    value={metricIndex}
+                    value={metricUuid}
                     onChange={(value) => {
                         if (value !== null) {
-                            setMetricIndex(value)
-                            const selectedOption = metricOptions.find((option) => option.index === value)
+                            setMetricUuid(value)
+                            const selectedOption = metricOptions.find((option) => option.uuid === value)
                             if (selectedOption) {
                                 onChangeMetric(selectedOption.metric)
                             }

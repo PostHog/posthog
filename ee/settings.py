@@ -4,7 +4,7 @@ Django settings for PostHog Enterprise Edition.
 
 import os
 
-from posthog.settings import AUTHENTICATION_BACKENDS, DEBUG, DEMO, SITE_URL
+from posthog.settings import AUTHENTICATION_BACKENDS, DEBUG, DEMO, MIDDLEWARE, SITE_URL
 from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
 
@@ -44,6 +44,17 @@ elif DEMO:
     # This is because in the demo env social signups get is_staff=True to facilitate instance management
     SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS = ["posthog.com"]
 
+# Admin OAuth2 Verification
+ADMIN_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("ADMIN_AUTH_GOOGLE_OAUTH2_KEY")
+ADMIN_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("ADMIN_AUTH_GOOGLE_OAUTH2_SECRET")
+ENFORCE_ADMIN_OAUTH2 = str_to_bool(get_from_env("ENFORCE_ADMIN_OAUTH2", "True", type_cast=str))
+if ENFORCE_ADMIN_OAUTH2 and ADMIN_AUTH_GOOGLE_OAUTH2_KEY and ADMIN_AUTH_GOOGLE_OAUTH2_SECRET:
+    ADMIN_OAUTH2_COOKIE_SECURE = str_to_bool(get_from_env("ADMIN_OAUTH2_COOKIE_SECURE", "True", type_cast=str))
+    # middleware must be added after `AuthenticationMiddleware``
+    MIDDLEWARE = MIDDLEWARE.copy()
+    auth_middleware_index = MIDDLEWARE.index("django.contrib.auth.middleware.AuthenticationMiddleware")
+    MIDDLEWARE.insert(auth_middleware_index + 1, "ee.middleware.AdminOAuth2Middleware")
+
 CUSTOMER_IO_API_KEY = get_from_env("CUSTOMER_IO_API_KEY", "", type_cast=str)
 CUSTOMER_IO_API_URL = get_from_env("CUSTOMER_IO_API_URL", "https://api-eu.customer.io", type_cast=str)
 
@@ -69,10 +80,12 @@ ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_
 PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES = get_from_env(
     "PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES", 10.0, type_cast=float
 )
+TEMPORAL_TASK_TIMEOUT_MINUTES = PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5
 
 # Assistant
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")

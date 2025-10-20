@@ -1,9 +1,7 @@
-import { IconChat } from '@posthog/icons'
-
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'User interviews',
@@ -13,6 +11,8 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/UserInterviews'),
             projectBased: true,
             activityScope: 'UserInterview',
+            description: 'Record and analyze user interviews with PostHog.',
+            iconType: 'user_interview',
         },
         UserInterview: {
             name: 'User interview',
@@ -32,7 +32,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         user_interview: {
             name: 'User interview',
-            icon: <IconChat />,
+            iconType: 'user_interview',
             href: (ref: string) => urls.userInterview(ref),
             iconColor: ['var(--color-product-user-interviews-light)'],
             filterKey: 'user_interview',
@@ -42,11 +42,14 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'User interviews',
-            category: 'Behavior',
+            category: 'Unreleased',
             href: urls.userInterviews(),
             type: 'user_interview',
             flag: FEATURE_FLAGS.USER_INTERVIEWS,
             tags: ['alpha'],
+            iconType: 'user_interview',
+            iconColor: ['var(--color-product-user-interviews-light)'] as FileSystemIconColor,
+            sceneKey: 'UserInterviews',
         },
     ],
 }

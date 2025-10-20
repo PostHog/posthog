@@ -11,7 +11,7 @@ interface ViolinPathProps {
     y: number
     height: number
     deltaX: number
-    metricIndex: number
+    displayOrder: number
     isSecondary: boolean
 }
 
@@ -22,7 +22,7 @@ export function ViolinPath({
     y,
     height,
     deltaX,
-    metricIndex,
+    displayOrder,
     isSecondary,
 }: ViolinPathProps): JSX.Element {
     const colors = useChartColors()
@@ -44,7 +44,7 @@ export function ViolinPath({
                 <>
                     <defs>
                         <linearGradient
-                            id={`gradient-${metricIndex}-${variant.key}-${isSecondary ? 'secondary' : 'primary'}`}
+                            id={`gradient-${displayOrder}-${variant.key}-${isSecondary ? 'secondary' : 'primary'}`}
                             x1="0"
                             x2="1"
                             y1="0"
@@ -64,7 +64,7 @@ export function ViolinPath({
                     </defs>
                     <path
                         d={generateViolinPath(x1, x2, y, height, deltaX)}
-                        fill={`url(#gradient-${metricIndex}-${variant.key}-${isSecondary ? 'secondary' : 'primary'})`}
+                        fill={`url(#gradient-${displayOrder}-${variant.key}-${isSecondary ? 'secondary' : 'primary'})`}
                     />
                 </>
             )}

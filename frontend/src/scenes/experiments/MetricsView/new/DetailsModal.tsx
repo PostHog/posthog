@@ -9,21 +9,11 @@ interface DetailsModalProps {
     isOpen: boolean
     onClose: () => void
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
-    metricIndex: number
-    isSecondary: boolean
     result: any
     experiment: Experiment
 }
 
-export function DetailsModal({
-    isOpen,
-    onClose,
-    metric,
-    result,
-    experiment,
-    metricIndex,
-    isSecondary,
-}: DetailsModalProps): JSX.Element {
+export function DetailsModal({ isOpen, onClose, metric, result, experiment }: DetailsModalProps): JSX.Element {
     // :KLUDGE: workaround until we pass metric into the Frequentist result response
     result.metric = metric
 
@@ -39,13 +29,7 @@ export function DetailsModal({
                 </LemonButton>
             }
         >
-            <ResultDetails
-                result={result}
-                experiment={experiment}
-                metric={metric as ExperimentMetric}
-                metricIndex={metricIndex}
-                isSecondary={isSecondary}
-            />
+            <ResultDetails result={result} experiment={experiment} metric={metric as ExperimentMetric} />
         </LemonModal>
     )
 }

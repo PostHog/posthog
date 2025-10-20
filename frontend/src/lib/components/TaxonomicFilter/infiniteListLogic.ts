@@ -75,6 +75,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
     props({ showNumericalPropsOnly: false } as InfiniteListLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`),
     path((key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key]),
+
     connect((props: InfiniteListLogicProps) => ({
         values: [
             taxonomicFilterLogic(props),
@@ -347,8 +348,18 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         localItems: [
-            (s) => [s.rawLocalItems, s.searchQuery, s.swappedInQuery, s.fuse],
-            (rawLocalItems, searchQuery, swappedInQuery, fuse): ListStorage => {
+            (s) => [s.rawLocalItems, s.searchQuery, s.swappedInQuery, s.fuse, s.group],
+            (rawLocalItems, searchQuery, swappedInQuery, fuse, group): ListStorage => {
+                if (group.localItemsSearch) {
+                    const filtered = group.localItemsSearch(rawLocalItems || [], swappedInQuery || searchQuery)
+                    return {
+                        results: filtered,
+                        count: filtered.length,
+                        searchQuery: swappedInQuery || searchQuery,
+                        originalQuery: swappedInQuery ? searchQuery : undefined,
+                    }
+                }
+
                 if (rawLocalItems) {
                     const filteredItems =
                         swappedInQuery || searchQuery
@@ -464,13 +475,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             actions.loadRemoteItems({ offset: values.index, limit: values.limit })
         },
         abortAnyRunningQuery: () => {
-            if (cache.abortController) {
-                cache.abortController.abort()
-            }
-            cache.abortController = new AbortController()
+            // Remove any existing abort controller
+            cache.disposables.dispose('abortController')
+
+            // Add new abort controller
+            cache.disposables.add(() => {
+                const abortController = new AbortController()
+                // Store reference in cache for the fetch operation to use
+                cache.abortController = abortController
+                return () => abortController.abort()
+            }, 'abortController')
         },
     })),
-    events(({ actions, values, props }) => ({
+    events(({ actions, values, props, cache }) => ({
         afterMount: () => {
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
@@ -478,6 +495,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 const { value, group, results } = values
                 actions.setIndex(results.findIndex((r) => group?.getValue?.(r) === value))
             }
+
+            // Clean up all cache timers to prevent memory leaks
+            cache.disposables.add(() => {
+                return () => {
+                    Object.values(apiCacheTimers).forEach((timerId) => {
+                        window.clearTimeout(timerId)
+                    })
+                }
+            }, 'apiCacheTimersCleanup')
         },
     })),
+
+    // Note: API cache timers are automatically cleaned up by the disposables plugin (configured in afterMount)
 ])

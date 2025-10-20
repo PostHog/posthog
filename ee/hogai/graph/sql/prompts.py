@@ -18,13 +18,12 @@ Important HogQL differences versus other SQL dialects:
 - For performance, every SELECT from the `events` table must have a `WHERE` clause narrowing down the timestamp to the relevant period.
 - HogQL queries shouldn't end in semicolons.
 
-Person or event metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.
-
-Note: "persons" means "users" here - instead of a "users" table, we have a "persons" table.
 
 <persons>
-When working with persons, default to `events.distinct_id`–it includes all activity.
-Use person_id only when the request is explicitly about identified people/person-profile logic (e.g., person properties), which excludes anonymous users.
+Event metadata unspecified above (emails, names, etc.) is stored under `properties`, accessed like: `events.properties.foo`.
+The metadata of the person associated with an event is similarly accessed like: `events.person.properties.foo`.
+"Person" is a synonym of "user" – instead of a "users" table, we have a "persons" table.
+For calculating unique users, default to `events.person_id` - where each unique person ID counted means one user.
 </persons>
 
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
@@ -58,6 +57,16 @@ WORKAROUND: Use subqueries or rewrite queries to avoid direct joins between mult
 </person_id_join_limitation>
 
 ONLY make formatting or casing changes if explicitly requested by the user.
+
+ABSOLUTE CONSTRAINTS ON OUTPUT FORMAT:{{=<% %>=}}
+- Do NOT use double curly braces (`{{` or `}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{variables.org}`).<%={{ }}=%>
+
+- If a filter is optional, ALWAYS implement via the variables namespace with guards:
+  - ALWAYS use the "variables." prefix (e.g., variables.org, variables.browser) - never use bare variable names
+  - Use coalesce() or IS NULL checks to handle optional values
+  - Optional org filter → AND (coalesce(variables.org, '') = '' OR p.properties.org = variables.org)
+  - Optional browser filter → AND (variables.browser IS NULL OR properties.$browser = variables.browser)
+  - Time window must remain enforced for events; add variable guards only if explicitly asked
 
 # Expressions guide
 

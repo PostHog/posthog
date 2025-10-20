@@ -14,66 +14,24 @@ use serde_json::json;
 use serde_json::Value;
 use tracing::{debug, error, instrument, warn, Span};
 
-use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
-use crate::v0_request::{
-    DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
-};
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
-    router, sinks,
+    prometheus::{report_dropped_events, report_internal_error_metrics},
+    router, sinks, timestamp,
     utils::{
         decode_base64, decode_form, extract_and_verify_token, extract_compression,
         extract_lib_version, is_likely_base64, is_likely_urlencoded_form, uuid_v7, Base64Option,
         FORM_MIME_TYPE, MAX_PAYLOAD_SNIPPET_SIZE,
     },
-    v0_request::{EventFormData, EventQuery},
+    v0_request::{
+        DataType, EventFormData, EventQuery, ProcessedEvent, ProcessedEventMetadata,
+        ProcessingContext, RawRequest,
+    },
 };
 
 // EXAMPLE: use verbose_sample_percent env var to capture extra logging/metric details of interest
 // let roll = thread_rng().with_borrow_mut(|rng| rng.gen_range(0.0..100.0));
 // if roll < verbose_sample_percent { ... }
-
-/// Check if an event is a survey-related event that should be subject to survey quota limiting
-fn is_survey_event(event_name: &str) -> bool {
-    matches!(
-        event_name,
-        "survey sent" | "survey shown" | "survey dismissed"
-    )
-}
-
-/// Check for survey quota limiting and filter out survey events if quota exceeded
-/// Simple all-or-nothing operation: if survey quota is exceeded, drop all survey events.
-async fn check_survey_quota_and_filter(
-    state: &crate::router::State,
-    context: &ProcessingContext,
-    events: Vec<RawEvent>,
-) -> Result<Vec<RawEvent>, CaptureError> {
-    let survey_limited = state
-        .survey_limiter
-        .is_limited(context.token.as_str())
-        .await;
-
-    if survey_limited {
-        // Drop all survey events when quota is exceeded
-        let (survey_events, non_survey_events): (Vec<_>, Vec<_>) = events
-            .into_iter()
-            .partition(|event| is_survey_event(&event.event));
-
-        let dropped_count = survey_events.len();
-        if dropped_count > 0 {
-            report_dropped_events("survey_over_quota", dropped_count as u64);
-        }
-
-        // If no events remain, return billing limit error
-        if non_survey_events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-
-        return Ok(non_survey_events);
-    }
-
-    Ok(events)
-}
 
 /// handle_event_payload owns processing of request payloads for the
 /// /i/v0/e/, /batch/, /e/, /capture/, /track/, and /engage/ endpoints
@@ -246,11 +204,13 @@ async fn handle_event_payload(
 
     counter!("capture_events_received_total", &[("legacy", "true")]).increment(events.len() as u64);
 
+    let now = state.timesource.current_time();
+
     let context = ProcessingContext {
         lib_version,
         sent_at,
         token,
-        now: state.timesource.current_time(),
+        now,
         client_ip: ip.to_string(),
         request_id: request_id.to_string(),
         path: path.as_str().to_string(),
@@ -259,24 +219,13 @@ async fn handle_event_payload(
         user_agent: Some(user_agent.to_string()),
     };
 
-    let billing_limited = state
-        .billing_limiter
-        .is_limited(context.token.as_str())
-        .await;
-
-    if billing_limited {
-        let start_len = events.len();
-        // TODO - right now the exception billing limits are applied only in ET's pipeline,
-        // we should apply both ET and PA limits here, and remove both types of events as needed.
-        events.retain(|e| e.event == "$exception" || is_survey_event(&e.event));
-        report_dropped_events("over_quota", (start_len - events.len()) as u64);
-        if events.is_empty() {
-            return Err(CaptureError::BillingLimit);
-        }
-    }
-
-    // Check for survey quota limiting if any events are survey-related
-    events = check_survey_quota_and_filter(state, &context, events).await?;
+    // Apply all billing limit quotas and drop partial or whole
+    // payload if any are exceeded for this token (team)
+    debug!(context=?context, event_count=?events.len(), "handle_event_payload: evaluating quota limits");
+    events = state
+        .quota_limiter
+        .check_and_filter(&context, events)
+        .await?;
 
     debug!(context=?context,
         event_count=?events.len(),
@@ -359,7 +308,7 @@ pub async fn event(
                     "processing",
                     state.capture_mode.as_tag(),
                 );
-                error!("event: rejected payload: {}", err);
+                warn!("event: rejected payload: {}", err);
                 return Err(err);
             }
 
@@ -424,7 +373,7 @@ pub async fn recording(
                     "processing",
                     state.capture_mode.as_tag(),
                 );
-                error!("recordings:rejected payload: {:?}", err);
+                warn!("recordings:rejected payload: {:?}", err);
                 return Err(err);
             }
             Ok(CaptureResponse {
@@ -474,14 +423,42 @@ pub fn process_single_event(
         .as_ref()
         .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok());
 
+    // redact the IP address of internally-generated events when tagged as such
+    let resolved_ip = if event.properties.contains_key("capture_internal") {
+        "127.0.0.1".to_string()
+    } else {
+        context.client_ip.clone()
+    };
+
     let data = serde_json::to_string(&event).map_err(|e| {
         error!("failed to encode data field: {}", e);
         CaptureError::NonRetryableSinkError
     })?;
 
+    // Compute the actual event timestamp using our timestamp parsing logic
+    let sent_at_utc = context.sent_at.map(|sa| {
+        DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond()).unwrap_or_default()
+    });
+    let ignore_sent_at = event
+        .properties
+        .get("$ignore_sent_at")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    // Parse the event timestamp
+    let computed_timestamp = timestamp::parse_event_timestamp(
+        event.timestamp.as_deref(),
+        event.offset,
+        sent_at_utc,
+        ignore_sent_at,
+        context.now,
+    );
+
     let mut metadata = ProcessedEventMetadata {
         data_type,
         session_id: None,
+        computed_timestamp: Some(computed_timestamp),
+        event_name: event.event.clone(),
     };
 
     let event = CapturedEvent {
@@ -489,9 +466,11 @@ pub fn process_single_event(
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
-        ip: context.client_ip.clone(),
+        ip: resolved_ip,
         data,
-        now: context.now.clone(),
+        now: context
+            .now
+            .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
         sent_at: context.sent_at,
         token: context.token.clone(),
         is_cookieless_mode: event
@@ -581,6 +560,24 @@ pub async fn process_replay_events<'a>(
 ) -> Result<(), CaptureError> {
     Span::current().record("request_id", &context.request_id);
 
+    // Compute the actual event timestamp using our timestamp parsing logic from the first event
+    let sent_at_utc = context.sent_at.map(|sa| {
+        DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond()).unwrap_or_default()
+    });
+    let ignore_sent_at = events[0]
+        .properties
+        .get("$ignore_sent_at")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let computed_timestamp = timestamp::parse_event_timestamp(
+        events[0].timestamp.as_deref(),
+        events[0].offset,
+        sent_at_utc,
+        ignore_sent_at,
+        context.now,
+    );
+
     // Grab metadata about the whole batch from the first event before
     // we drop all the events as we rip out the snapshot data
     let session_id = events[0]
@@ -651,6 +648,8 @@ pub async fn process_replay_events<'a>(
     let metadata = ProcessedEventMetadata {
         data_type: DataType::SnapshotMain,
         session_id: Some(session_id_str.to_string()),
+        computed_timestamp: Some(computed_timestamp), // Use computed event timestamp
+        event_name: "$snapshot_items".to_string(),
     };
 
     let event = CapturedEvent {
@@ -669,7 +668,9 @@ pub async fn process_replay_events<'a>(
             }
         })
         .to_string(),
-        now: context.now.clone(),
+        now: context
+            .now
+            .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
         sent_at: context.sent_at,
         token: context.token.clone(),
         is_cookieless_mode,
@@ -690,20 +691,141 @@ fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::v0_request::ProcessingContext;
+    use chrono::{DateTime, TimeZone, Utc};
+    use common_types::RawEvent;
+    use serde_json::json;
+    use std::collections::HashMap;
+    use time::OffsetDateTime;
+
+    fn create_test_context(
+        now: DateTime<Utc>,
+        sent_at: Option<OffsetDateTime>,
+    ) -> ProcessingContext {
+        ProcessingContext {
+            lib_version: None,
+            user_agent: None,
+            sent_at,
+            token: "test_token".to_string(),
+            now,
+            client_ip: "127.0.0.1".to_string(),
+            request_id: "test_request".to_string(),
+            path: "/e/".to_string(),
+            is_mirror_deploy: false,
+            historical_migration: false,
+        }
+    }
+
+    fn create_test_event(
+        timestamp: Option<String>,
+        offset: Option<i64>,
+        ignore_sent_at: Option<bool>,
+    ) -> RawEvent {
+        let mut properties = HashMap::new();
+        if let Some(ignore) = ignore_sent_at {
+            properties.insert("$ignore_sent_at".to_string(), json!(ignore));
+        }
+        properties.insert("distinct_id".to_string(), json!("test_user"));
+
+        RawEvent {
+            uuid: Some(uuid_v7()),
+            distinct_id: None,
+            event: "test_event".to_string(),
+            properties,
+            timestamp,
+            offset,
+            set: Some(HashMap::new()),
+            set_once: Some(HashMap::new()),
+            token: Some("test_token".to_string()),
+        }
+    }
 
     #[test]
-    fn test_is_survey_event() {
-        // Survey events should return true
-        assert!(is_survey_event("survey sent"));
-        assert!(is_survey_event("survey shown"));
-        assert!(is_survey_event("survey dismissed"));
+    fn test_process_single_event_with_invalid_sent_at() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
 
-        // Non-survey events should return false
-        assert!(!is_survey_event("pageview"));
-        assert!(!is_survey_event("$pageview"));
-        assert!(!is_survey_event("click"));
-        assert!(!is_survey_event("survey_sent")); // underscore variant
-        assert!(!is_survey_event("Survey Sent")); // case sensitivity
-        assert!(!is_survey_event(""));
+        // In real code, invalid sent_at would fail to parse and result in sent_at being None
+        let context = create_test_context(now, None);
+
+        let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let result = process_single_event(&event, historical_cfg, &context);
+
+        // Should succeed and use the event timestamp directly since sent_at is None
+        assert!(result.is_ok());
+        let processed = result.unwrap();
+
+        // The computed timestamp should be the event timestamp since no sent_at was provided
+        let expected = DateTime::parse_from_rfc3339("2023-01-01T11:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(processed.metadata.computed_timestamp, Some(expected));
+    }
+
+    #[test]
+    fn test_process_single_event_with_valid_sent_at() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        // Create a valid sent_at
+        let sent_at = OffsetDateTime::parse(
+            "2023-01-01T12:00:05Z",
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+        let context = create_test_context(now, Some(sent_at));
+
+        let event = create_test_event(
+            Some("2023-01-01T11:59:55Z".to_string()), // 10 seconds before sent_at
+            None,
+            None,
+        );
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let result = process_single_event(&event, historical_cfg, &context);
+
+        // Should succeed and apply clock skew correction
+        assert!(result.is_ok());
+        let processed = result.unwrap();
+
+        // Expected: now + (timestamp - sent_at) = 12:00:00 + (11:59:55 - 12:00:05) = 12:00:00 - 00:00:10 = 11:59:50
+        let expected = Utc.with_ymd_and_hms(2023, 1, 1, 11, 59, 50).unwrap();
+        assert_eq!(processed.metadata.computed_timestamp, Some(expected));
+    }
+
+    #[test]
+    fn test_process_single_event_ignore_sent_at() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let sent_at = OffsetDateTime::parse(
+            "2023-01-01T12:00:05Z",
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap();
+        let context = create_test_context(now, Some(sent_at));
+
+        let event = create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            Some(true), // $ignore_sent_at = true
+        );
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let result = process_single_event(&event, historical_cfg, &context);
+
+        // Should succeed and use timestamp directly, ignoring sent_at
+        assert!(result.is_ok());
+        let processed = result.unwrap();
+
+        let expected = DateTime::parse_from_rfc3339("2023-01-01T11:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(processed.metadata.computed_timestamp, Some(expected));
     }
 }

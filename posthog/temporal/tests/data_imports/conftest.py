@@ -981,6 +981,53 @@ def stripe_customer_balance_transaction():
 
 
 @pytest.fixture
+def stripe_customer_payment_method():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/payment_methods",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "pm_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "payment_method",
+                    "customer": "cus_NffrFeUfNV2Hib",
+                    "created": 1680644467,
+                    "livemode": false,
+                    "redaction": {
+                        "reason": "duplicate"
+                    },
+                    "metadata": {},
+                    "billing_details": {
+                        "address": {
+                            "city": "San Francisco",
+                            "country": "US",
+                            "line1": "510 Townsend St",
+                            "line2": "Apt 345",
+                            "postal_code": "94103",
+                            "state": "CA"
+                        },
+                        "email": "test@example.com",
+                        "name": "Test test",
+                        "phone": "+15555555555"
+                    },
+                    "card": {
+                        "brand": "visa",
+                        "last4": "4242",
+                        "exp_month": 12,
+                        "exp_year": 2024,
+                        "fingerprint": "mToisGZ01V71BCos"
+                    },
+                    "type": "card"
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
 def zendesk_brands():
     return json.loads(
         """
@@ -1277,6 +1324,7 @@ def zendesk_tickets():
             "next_page": "https://{subdomain}.zendesk.com/api/v2/incremental/tickets.json?per_page=3&start_time=1390362485",
             "tickets": [
                 {
+                    "generated_timestamp": 1,
                     "assignee_id": 235323,
                     "collaborator_ids": [
                         35334,

@@ -36,6 +36,7 @@ export function ActionsLineGraph({
         showPercentStackView,
         supportsPercentStackView,
         trendsFilter,
+        lifecycleFilter,
         isLifecycle,
         isStickiness,
         hasDataWarehouseSeries,
@@ -159,7 +160,13 @@ export function ActionsLineGraph({
     return (
         <LineGraph
             data-attr="trend-line-graph"
-            type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
+            type={
+                display === ChartDisplayType.ActionsBar ||
+                display === ChartDisplayType.ActionsUnstackedBar ||
+                isLifecycle
+                    ? GraphType.Bar
+                    : GraphType.Line
+            }
             datasets={finalDatasets}
             labels={labels}
             inSharedMode={inSharedMode}
@@ -171,6 +178,9 @@ export function ActionsLineGraph({
             showPercentView={isStickiness}
             showPercentStackView={showPercentStackView}
             supportsPercentStackView={supportsPercentStackView}
+            isStacked={
+                isLifecycle ? (lifecycleFilter?.stacked ?? true) : display !== ChartDisplayType.ActionsUnstackedBar
+            }
             yAxisScaleType={yAxisScaleType}
             showMultipleYAxes={showMultipleYAxes}
             showTrendLines={showTrendLines}

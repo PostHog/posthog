@@ -31,9 +31,15 @@ class Workload(StrEnum):
 
 
 class NodeRole(StrEnum):
-    ALL = "ALL"
-    COORDINATOR = "COORDINATOR"
-    DATA = "DATA"
+    # Roles of nodes for a particular NodeType. These are meant to
+    # match the CH macro hostClusterRole
+    ALL = "all"
+    COORDINATOR = "coordinator"
+    DATA = "data"
+    INGESTION_EVENTS = "events"
+    INGESTION_SMALL = "small"
+    INGESTION_MEDIUM = "medium"
+    SHUFFLEHOG = "shufflehog"
 
 
 _default_workload = Workload.ONLINE
@@ -51,6 +57,8 @@ class ClickHouseUser(StrEnum):
     CACHE_WARMUP = "cache_warmup"
     # Whenever the HogQL needs to query CH to get some metadata
     HOGQL = "hogql"
+    MESSAGING = "messaging"  # a.k.a. behavioral cohorts
+    MAX_AI = "max_ai"
 
     # Dev Operations - do not normally use
     OPS = "ops"

@@ -3,6 +3,10 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from django.test import override_settings
 
 from langchain_core.agents import AgentAction
+from langchain_core.messages import (
+    AIMessage,
+    ToolMessage as LangchainToolMessage,
+)
 from langchain_core.prompts import AIMessagePromptTemplate, HumanMessagePromptTemplate
 
 from posthog.schema import (
@@ -188,6 +192,28 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIsInstance(final_msg, HumanMessagePromptTemplate)
         self.assertIn("Final Question", final_msg.prompt.template)
 
+    def test_construct_messages_appends_query_planner_intermediate_messages(self):
+        node = self._get_node()
+        intermediate_messages = [
+            AIMessage(content="First message"),
+            LangchainToolMessage(content="Tool result", tool_call_id="call_1"),
+            AIMessage(content="Second message"),
+        ]
+
+        history = node._construct_messages(
+            AssistantState(
+                root_tool_insight_plan="Test Plan", query_planner_intermediate_messages=intermediate_messages
+            )
+        )
+
+        # System prompt + human message + 3 intermediate messages = 5 total
+        self.assertEqual(len(history), 5)
+
+        # Check that intermediate messages are appended at the end
+        self.assertEqual(history[2], intermediate_messages[0])
+        self.assertEqual(history[3], intermediate_messages[1])
+        self.assertEqual(history[4], intermediate_messages[2])
+
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
@@ -349,6 +375,34 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNone(state_update.intermediate_steps)
         self.assertEqual(state_update.plan, "This is the final plan")
 
+    def test_node_resets_query_planner_intermediate_messages_after_final_answer(self):
+        intermediate_messages = [
+            AIMessage(content="Intermediate message 1"),
+            LangchainToolMessage(content="Tool result", tool_call_id="call_1"),
+        ]
+        state = AssistantState(
+            intermediate_steps=[
+                (
+                    AgentAction(
+                        tool="final_answer",
+                        tool_input={"query_kind": "trends", "plan": "Final plan"},
+                        log="final",
+                    ),
+                    None,
+                )
+            ],
+            query_planner_intermediate_messages=intermediate_messages,
+            messages=[],
+            root_tool_call_id="1",
+        )
+
+        node = self._get_node()
+        state_update = node.run(state, {})
+
+        # Should reset query_planner_intermediate_messages to None after final answer
+        self.assertIsNone(state_update.query_planner_intermediate_messages)
+        self.assertEqual(state_update.plan, "Final plan")
+
     def test_node_allows_help_request_at_max_iterations(self):
         # Create state with 16 intermediate steps, last one being ask_user_for_help
         intermediate_steps = [
@@ -418,3 +472,66 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
             content_str = str(messages[0].content).lower()
             self.assertIn("maximum number of iterations", content_str)
             self.assertNotIn("pydantic", content_str)
+
+    def test_node_appends_new_tool_result(self):
+        initial_steps = [
+            (
+                AgentAction(
+                    tool="retrieve_event_properties",
+                    tool_input={"event_name": "test_event"},
+                    log="initial_log",
+                ),
+                "initial_result",
+            )
+        ]
+
+        state = AssistantState(
+            intermediate_steps=initial_steps,
+            messages=[],
+            root_tool_call_id="1",
+        )
+
+        node = self._get_node()
+        state_update = node.run(state, {})
+
+        # Should have 2 steps: initial + updated with tool result
+        self.assertEqual(len(state_update.intermediate_steps or []), 1)
+        action, observation = (state_update.intermediate_steps or [])[0]
+        self.assertEqual(action.log, "initial_log")
+        self.assertIsNotNone(observation)
+        # The observation should contain the actual tool result, not the initial "test" value
+
+    def test_node_appends_new_assistant_message(self):
+        initial_messages = [
+            AIMessage(content="Previous message"),
+        ]
+
+        state = AssistantState(
+            intermediate_steps=[
+                (
+                    AgentAction(
+                        tool="retrieve_event_properties",
+                        tool_input={"event_name": "test_event"},
+                        log="test_log_id",
+                    ),
+                    "test",  # This gets replaced by actual tool result
+                )
+            ],
+            query_planner_intermediate_messages=initial_messages,
+            messages=[],
+            root_tool_call_id="1",
+        )
+
+        node = self._get_node()
+        state_update = node.run(state, {})
+
+        # Should have 2 messages: initial + new tool message
+        self.assertEqual(len(state_update.query_planner_intermediate_messages or []), 2)
+        messages = state_update.query_planner_intermediate_messages or []
+
+        # First message should be the initial one
+        self.assertEqual(messages[0], initial_messages[0])
+
+        # Second message should be the new tool message
+        self.assertIsInstance(messages[1], LangchainToolMessage)
+        self.assertEqual(messages[1].tool_call_id, "test_log_id")

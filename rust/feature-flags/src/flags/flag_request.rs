@@ -5,6 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::api::errors::FlagError;
+use crate::handler::flags::EvaluationRuntime;
 
 fn deserialize_distinct_id<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
@@ -65,6 +66,10 @@ pub struct FlagRequest {
     pub timezone: Option<String>,
     #[serde(default)]
     pub cookieless_hash_extra: Option<String>,
+    #[serde(default)]
+    pub evaluation_environments: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluation_runtime: Option<EvaluationRuntime>,
 }
 
 impl FlagRequest {
@@ -164,11 +169,13 @@ impl FlagRequest {
     /// Extracts the properties from the request.
     /// If the request contains person_properties, they are returned.
     pub fn extract_properties(&self) -> HashMap<String, Value> {
-        let mut properties = HashMap::new();
         if let Some(person_properties) = &self.person_properties {
+            let mut properties = HashMap::with_capacity(person_properties.len());
             properties.extend(person_properties.clone());
+            properties
+        } else {
+            HashMap::new()
         }
-        properties
     }
 
     /// Checks if feature flags should be disabled for this request.
@@ -556,5 +563,85 @@ mod tests {
         assert_eq!(flag_keys[0], "flag1");
         assert_eq!(flag_keys[1], "flag2");
         assert_eq!(flag_keys[2], "flag3");
+    }
+
+    #[test]
+    fn test_evaluation_runtime_field() {
+        use crate::handler::flags::EvaluationRuntime;
+
+        // Test with evaluation_runtime: "server"
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "evaluation_runtime": "server"
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(
+            flag_payload.evaluation_runtime,
+            Some(EvaluationRuntime::Server)
+        );
+
+        // Test with evaluation_runtime: "client"
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "evaluation_runtime": "client"
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(
+            flag_payload.evaluation_runtime,
+            Some(EvaluationRuntime::Client)
+        );
+
+        // Test with evaluation_runtime: "all"
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "evaluation_runtime": "all"
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(
+            flag_payload.evaluation_runtime,
+            Some(EvaluationRuntime::All)
+        );
+
+        // Test without evaluation_runtime field
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1"
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(flag_payload.evaluation_runtime, None);
+
+        // Test with invalid evaluation_runtime value - should default to "all" with warning
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "evaluation_runtime": "invalid_value"
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        // Invalid values default to "all" per our custom deserializer
+        assert_eq!(
+            flag_payload.evaluation_runtime,
+            Some(EvaluationRuntime::All)
+        );
+
+        // Test with case-insensitive values
+        let json = json!({
+            "distinct_id": "user123",
+            "token": "my_token1",
+            "evaluation_runtime": "CLIENT"
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(
+            flag_payload.evaluation_runtime,
+            Some(EvaluationRuntime::Client)
+        );
     }
 }

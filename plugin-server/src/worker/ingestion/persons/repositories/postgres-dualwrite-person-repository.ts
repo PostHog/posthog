@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team, TeamId } from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { TwoPhaseCommitCoordinator } from '../../../../utils/db/two-phase'
@@ -11,7 +11,7 @@ import { logger as _logger } from '../../../../utils/logger'
 import { dualWriteComparisonCounter, dualWriteDataMismatchCounter } from '../metrics'
 import { PersonUpdate } from '../person-update-batch'
 import { DualWritePersonRepositoryTransaction } from './dualwrite-person-repository-transaction'
-import { PersonRepository } from './person-repository'
+import { InternalPersonWithDistinctId, PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import type { PostgresPersonRepositoryOptions } from './postgres-person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
@@ -48,6 +48,13 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<InternalPerson | undefined> {
         return await this.primaryRepo.fetchPerson(teamId, distinctId, options)
+    }
+
+    // a read, just use the primary as the source of truth
+    async fetchPersonsByDistinctIds(
+        teamPersons: { teamId: TeamId; distinctId: string }[]
+    ): Promise<InternalPersonWithDistinctId[]> {
+        return await this.primaryRepo.fetchPersonsByDistinctIds(teamPersons)
     }
 
     /*
@@ -295,6 +302,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             }
 
             isMerged = p
+            return true
         })
         return isMerged
     }
@@ -329,6 +337,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             }
 
             isMerged = p
+            return true
         })
         return isMerged
     }

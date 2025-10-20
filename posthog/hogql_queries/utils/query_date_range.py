@@ -181,21 +181,23 @@ class QueryDateRange:
 
         return self._date_range.explicitDate
 
-    def align_with_interval(self, start: datetime) -> datetime:
-        if self.interval_name == "minute":
+    def align_with_interval(self, start: datetime, *, interval_name: Optional[IntervalLiteral] = None) -> datetime:
+        interval_name = interval_name or self.interval_name
+
+        if interval_name == "minute":
             return start.replace(second=0, microsecond=0)
-        if self.interval_name == "hour":
+        if interval_name == "hour":
             return start.replace(minute=0, second=0, microsecond=0)
-        elif self.interval_name == "day":
+        elif interval_name == "day":
             return start.replace(hour=0, minute=0, second=0, microsecond=0)
-        elif self.interval_name == "week":
+        elif interval_name == "week":
             start = start.replace(hour=0, minute=0, second=0, microsecond=0)
             week_start_alignment_days = start.isoweekday() % 7
             if self._team.week_start_day == WeekStartDay.MONDAY:
                 week_start_alignment_days = start.weekday()
             start -= timedelta(days=week_start_alignment_days)
             return start
-        elif self.interval_name == "month":
+        elif interval_name == "month":
             return start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     def interval_relativedelta(self) -> relativedelta:
@@ -207,8 +209,8 @@ class QueryDateRange:
             minutes=self.interval_count if self.interval_name == "minute" else 0,
         )
 
-    def all_values(self) -> list[datetime]:
-        start = self.align_with_interval(self.date_from())
+    def all_values(self, *, interval_name: Optional[IntervalLiteral] = None) -> list[datetime]:
+        start = self.align_with_interval(self.date_from(), interval_name=interval_name)
         end: datetime = self.date_to()
         delta = self.interval_relativedelta()
 

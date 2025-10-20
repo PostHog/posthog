@@ -2,14 +2,7 @@ import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock
 
 import { HogFlow } from '~/schema/hogflow'
 
-import {
-    createOrganization,
-    createTeam,
-    getFirstTeam,
-    getTeam,
-    resetTestDatabase,
-    updateOrganizationAvailableFeatures,
-} from '../../../tests/helpers/sql'
+import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
@@ -25,7 +18,7 @@ import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { CdpEventsConsumer, counterMissingAddon } from './cdp-events.consumer'
+import { CdpEventsConsumer } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
 jest.setTimeout(1000)
@@ -201,36 +194,60 @@ describe.each([
                 expect(
                     mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
                 ).toMatchObject(
-                    hogType !== 'destination'
-                        ? []
-                        : [
-                              {
-                                  key: expect.any(String),
-                                  topic: 'clickhouse_app_metrics2_test',
-                                  value: {
-                                      app_source: 'hog_function',
-                                      app_source_id: fnFetchNoFilters.id,
-                                      count: 1,
-                                      metric_kind: 'billing',
-                                      metric_name: 'billable_invocation',
-                                      team_id: 2,
-                                      timestamp: expect.any(String),
-                                  },
-                              },
-                              {
-                                  key: expect.any(String),
-                                  topic: 'clickhouse_app_metrics2_test',
-                                  value: {
-                                      app_source: 'hog_function',
-                                      app_source_id: fnPrinterPageviewFilters.id,
-                                      count: 1,
-                                      metric_kind: 'billing',
-                                      metric_name: 'billable_invocation',
-                                      team_id: 2,
-                                      timestamp: expect.any(String),
-                                  },
-                              },
-                          ]
+                    [
+                        {
+                            key: expect.any(String),
+                            topic: 'clickhouse_app_metrics2_test',
+                            value: {
+                                app_source: 'hog_function',
+                                app_source_id: fnFetchNoFilters.id,
+                                count: 1,
+                                metric_kind: 'other',
+                                metric_name: 'triggered',
+                                team_id: 2,
+                                timestamp: expect.any(String),
+                            },
+                        },
+                        hogType === 'destination' && {
+                            key: expect.any(String),
+                            topic: 'clickhouse_app_metrics2_test',
+                            value: {
+                                app_source: 'hog_function',
+                                app_source_id: fnFetchNoFilters.id,
+                                count: 1,
+                                metric_kind: 'billing',
+                                metric_name: 'billable_invocation',
+                                team_id: 2,
+                                timestamp: expect.any(String),
+                            },
+                        },
+                        {
+                            key: expect.any(String),
+                            topic: 'clickhouse_app_metrics2_test',
+                            value: {
+                                app_source: 'hog_function',
+                                app_source_id: fnPrinterPageviewFilters.id,
+                                count: 1,
+                                metric_kind: 'other',
+                                metric_name: 'triggered',
+                                team_id: 2,
+                                timestamp: expect.any(String),
+                            },
+                        },
+                        hogType === 'destination' && {
+                            key: expect.any(String),
+                            topic: 'clickhouse_app_metrics2_test',
+                            value: {
+                                app_source: 'hog_function',
+                                app_source_id: fnPrinterPageviewFilters.id,
+                                count: 1,
+                                metric_kind: 'billing',
+                                metric_name: 'billable_invocation',
+                                team_id: 2,
+                                timestamp: expect.any(String),
+                            },
+                        },
+                    ].filter((x) => !!x)
                 )
             })
 
@@ -258,6 +275,19 @@ describe.each([
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'filtered',
+                            team_id: 2,
+                            timestamp: expect.any(String),
+                        },
+                    },
+                    {
+                        key: expect.any(String),
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            app_source_id: fnFetchNoFilters.id,
+                            count: 1,
+                            metric_kind: 'other',
+                            metric_name: 'triggered',
                             team_id: 2,
                             timestamp: expect.any(String),
                         },
@@ -369,62 +399,6 @@ describe.each([
             })
         })
     })
-
-    describe('missing addon', () => {
-        let counterMissingAddonSpy: jest.SpyInstance
-        beforeEach(async () => {
-            // Team 1 - has the addon
-            await insertHogFunction({
-                team_id: team.id,
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-
-            await updateOrganizationAvailableFeatures(hub.postgres, team2.organization_id, [])
-
-            // Team 2 - doesn't have the addon
-            await insertHogFunction({
-                team_id: team2.id,
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-
-            counterMissingAddonSpy = jest.spyOn(counterMissingAddon, 'labels')
-        })
-        it('should process events for teams with the addon', async () => {
-            if (processor instanceof CdpInternalEventsConsumer) {
-                return
-            }
-            const { invocations } = await processor.processBatch([
-                createHogExecutionGlobals({
-                    project: {
-                        id: team.id,
-                    } as any,
-                }),
-            ])
-            expect(invocations).toHaveLength(1)
-            expect(invocations[0].teamId).toBe(team.id)
-            expect(counterMissingAddonSpy).not.toHaveBeenCalled()
-        })
-
-        it('should not process events for teams without the addon', async () => {
-            if (processor instanceof CdpInternalEventsConsumer) {
-                return
-            }
-            const { invocations } = await processor.processBatch([
-                createHogExecutionGlobals({
-                    project: {
-                        id: team2.id,
-                    } as any,
-                }),
-            ])
-            expect(counterMissingAddonSpy).toHaveBeenCalledWith({ team_id: team2.id })
-            // TODO: Swap this to 0 once we release it
-            expect(invocations).toHaveLength(1)
-        })
-    })
 })
 
 describe('hog flow processing', () => {
@@ -493,7 +467,26 @@ describe('hog flow processing', () => {
         })
 
         it('should not create hog flow invocations with no filters', async () => {
-            await insertHogFlow(new FixtureHogFlowBuilder().withTeamId(team.id).build())
+            const hogFlow = new FixtureHogFlowBuilder().withTeamId(team.id).build()
+            hogFlow.trigger = {} as any
+            await insertHogFlow(hogFlow)
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+            expect(invocations).toHaveLength(0)
+        })
+
+        it('should not create hog flow invocations with webhook triggers', async () => {
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withSimpleWorkflow({
+                    trigger: {
+                        type: 'webhook',
+                        template_id: 'test',
+                        inputs: {},
+                    },
+                })
+                .build()
+            await insertHogFlow(hogFlow)
 
             const invocations = await processor['createHogFlowInvocations']([globals])
             expect(invocations).toHaveLength(0)
@@ -503,9 +496,11 @@ describe('hog flow processing', () => {
             const hogFlow = await insertHogFlow(
                 new FixtureHogFlowBuilder()
                     .withTeamId(team.id)
-                    .withTrigger({
-                        type: 'event',
-                        filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                        },
                     })
                     .build()
             )

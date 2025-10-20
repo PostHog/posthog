@@ -240,6 +240,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "product_type", "created_at", "onboarding_completed_at", "updated_at"
         )
 
+    def validate_access_control(self, value) -> None:
+        return TeamSerializer.validate_access_control(cast(TeamSerializer, self), value)
+
     @staticmethod
     def validate_session_recording_linked_flag(value) -> dict | None:
         return TeamSerializer.validate_session_recording_linked_flag(value)
@@ -651,7 +654,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["PATCH"],
         detail=True,
-        required_scopes=["team:read"],
+        required_scopes=["project:read"],
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
@@ -676,7 +679,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["PATCH"],
         detail=True,
-        required_scopes=["team:read"],
+        required_scopes=["project:read"],
     )
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         project = self.get_object()

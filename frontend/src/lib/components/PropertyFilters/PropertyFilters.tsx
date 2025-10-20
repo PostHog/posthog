@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react'
 
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
+    AllowedProperties,
     ExcludedProperties,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
@@ -16,6 +17,7 @@ import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-genera
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
+import { OperatorValueSelectProps } from './components/OperatorValueSelect'
 import { propertyFilterLogic } from './propertyFilterLogic'
 
 export interface PropertyFiltersProps {
@@ -43,7 +45,7 @@ export interface PropertyFiltersProps {
     allowNew?: boolean
     openOnInsert?: boolean
     errorMessages?: JSX.Element[] | null
-    propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
+    propertyAllowList?: AllowedProperties
     excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
     disabledReason?: string
@@ -51,6 +53,7 @@ export interface PropertyFiltersProps {
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
     enablePreaggregatedTableHints?: boolean
+    operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
 }
 
 export function PropertyFilters({
@@ -85,6 +88,7 @@ export function PropertyFilters({
     hideBehavioralCohorts,
     addFilterDocLink,
     enablePreaggregatedTableHints = false,
+    operatorAllowlist,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -124,6 +128,7 @@ export function PropertyFilters({
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
                                     label={buttonText}
+                                    size={buttonSize}
                                     onRemove={remove}
                                     orFiltering={orFiltering}
                                     editable={editable}
@@ -154,6 +159,7 @@ export function PropertyFilters({
                                             addFilterDocLink={addFilterDocLink}
                                             editable={editable}
                                             enablePreaggregatedTableHints={enablePreaggregatedTableHints}
+                                            operatorAllowlist={operatorAllowlist}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

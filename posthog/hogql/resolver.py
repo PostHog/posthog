@@ -16,8 +16,9 @@ from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
+from posthog.hogql.functions.core import compare_types, validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
-from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, compare_types, validate_function_args
+from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
@@ -34,6 +35,9 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 from posthog.models.utils import UUIDT
 
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
+
+# To quickly disable global joins, switch this to False
+USE_GLOBAL_JOINS = False
 
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
@@ -270,13 +274,16 @@ class Resolver(CloningVisitor):
             isinstance(asterisk.table_type, ast.SelectSetQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryAliasType)
-            or isinstance(asterisk.table_type, ast.SelectViewType)
         ):
             select = asterisk.table_type
-            while isinstance(select, ast.SelectQueryAliasType) or isinstance(select, ast.SelectViewType):
-                select = select.select_query_type
+
+            # Recursion because might be an `ast.BaseTableType` such as `ast.SelectViewType`
+            if isinstance(select, ast.SelectQueryAliasType):
+                return self._asterisk_columns(ast.AsteriskType(table_type=select.select_query_type), chain_prefix)
+
             if isinstance(select, ast.SelectSetQueryType):
                 select = select.types[0]
+
             if isinstance(select, ast.SelectQueryType):
                 return [ast.Field(chain=[*chain_prefix, key]) for key in select.columns.keys()]
             else:
@@ -365,35 +372,36 @@ class Resolver(CloningVisitor):
             node.next_join = self.visit(node.next_join)
 
             # Look ahead if current is events table and next is s3 table, global join must be used for distributed query on external data to work
-            global_table: ast.TableType | None = None
+            if USE_GLOBAL_JOINS:
+                global_table: ast.TableType | None = None
 
-            if isinstance(node.type, ast.TableAliasType) and isinstance(node.type.table_type, ast.TableType):
-                global_table = node.type.table_type
-            elif isinstance(node.type, ast.TableType):
-                global_table = node.type
+                if isinstance(node.type, ast.TableAliasType) and isinstance(node.type.table_type, ast.TableType):
+                    global_table = node.type.table_type
+                elif isinstance(node.type, ast.TableType):
+                    global_table = node.type
 
-            if global_table and isinstance(global_table.table, EventsTable):
-                next_join = node.next_join
-                is_global = False
-
-                while next_join:
-                    if self._is_next_s3(next_join):
-                        is_global = True
-                    # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
-                    elif isinstance(next_join.type, ast.SelectQueryAliasType):
-                        select_query_type = next_join.type.select_query_type
-                        tables = self._extract_tables_from_query_type(select_query_type)
-                        if any(self._is_s3_table(table) for table in tables):
-                            is_global = True
-
-                    next_join = next_join.next_join
-
-                # If there exists a S3 table in the chain, then all joins require to be a GLOBAL join
-                if is_global:
+                if global_table and isinstance(global_table.table, EventsTable):
                     next_join = node.next_join
+                    is_global = False
+
                     while next_join:
-                        next_join.join_type = f"GLOBAL {next_join.join_type}"
+                        if self._is_next_s3(next_join):
+                            is_global = True
+                        # Use GLOBAL joins for nested subqueries for S3 tables until https://github.com/ClickHouse/ClickHouse/pull/85839 is in
+                        elif isinstance(next_join.type, ast.SelectQueryAliasType):
+                            select_query_type = next_join.type.select_query_type
+                            tables = self._extract_tables_from_query_type(select_query_type)
+                            if any(self._is_s3_table(table) for table in tables):
+                                is_global = True
+
                         next_join = next_join.next_join
+
+                    # If there exists a S3 table in the chain, then all joins require to be a GLOBAL join
+                    if is_global:
+                        next_join = node.next_join
+                        while next_join:
+                            next_join.join_type = f"GLOBAL {next_join.join_type}"
+                            next_join = next_join.next_join
 
             if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit_join_constraint(node.constraint)
@@ -529,9 +537,8 @@ class Resolver(CloningVisitor):
 
         return_type = None
 
-        if node.name in HOGQL_CLICKHOUSE_FUNCTIONS:
-            signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
-            if signatures:
+        if func_meta := HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name, None):
+            if signatures := func_meta.signatures:
                 for sig_arg_types, sig_return_type in signatures:
                     if sig_arg_types is None or compare_types(arg_types, sig_arg_types):
                         return_type = dataclasses.replace(sig_return_type)
@@ -547,9 +554,12 @@ class Resolver(CloningVisitor):
             # )
 
         if node.name == "concat":
-            return_type.nullable = False
-        elif not isinstance(return_type, ast.UnknownType):
+            return_type.nullable = False  # valid only if at least 1 param is not null
+        elif not isinstance(return_type, ast.UnknownType):  # why cannot we set nullability here?
             return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
+
+        if node.name.lower() in ("nullif", "toNullable") or node.name.lower().endswith("OrNull"):
+            return_type.nullable = True
 
         node.type = ast.CallType(
             name=node.name,
@@ -868,7 +878,8 @@ class Resolver(CloningVisitor):
         node.type = ast.BooleanType(nullable=False)
 
         if (
-            (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
+            USE_GLOBAL_JOINS
+            and (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
             and self._is_events_table(node.left)
             and self._is_s3_cluster(node.right)
         ):

@@ -9,10 +9,9 @@ use crate::{
 use axum::http::{header::CONTENT_TYPE, HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use common_compression;
 use common_metrics::inc;
-use flate2::read::GzDecoder;
 use percent_encoding::percent_decode;
-use std::io::Read;
 
 pub fn decode_request(
     headers: &HeaderMap,
@@ -92,13 +91,12 @@ fn decode_body(
 }
 
 fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
-    let mut decoder = GzDecoder::new(&compressed[..]);
-    let mut decompressed = Vec::new();
-    decoder.read_to_end(&mut decompressed).map_err(|e| {
-        tracing::warn!("gzip decompression failed: {}", e);
-        FlagError::RequestDecodingError(format!("gzip decompression failed: {e}"))
-    })?;
-    Ok(Bytes::from(decompressed))
+    common_compression::decompress_gzip(&compressed)
+        .map(Bytes::from)
+        .map_err(|e| {
+            tracing::warn!("gzip decompression failed: {}", e);
+            FlagError::RequestDecodingError(format!("gzip decompression failed: {e}"))
+        })
 }
 
 fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
@@ -247,14 +245,8 @@ mod tests {
     use super::*;
     use crate::api::types::{Compression, FlagsQueryParams};
     use axum::http::HeaderMap;
-    use flate2::write::GzEncoder;
-    use flate2::Compression as FlateCompression;
-    use std::io::Write;
-
     fn create_gzipped_json(json_data: &str) -> Bytes {
-        let mut encoder = GzEncoder::new(Vec::new(), FlateCompression::default());
-        encoder.write_all(json_data.as_bytes()).unwrap();
-        let compressed = encoder.finish().unwrap();
+        let compressed = common_compression::compress_gzip(json_data.as_bytes()).unwrap();
         Bytes::from(compressed)
     }
 

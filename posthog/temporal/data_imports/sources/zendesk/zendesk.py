@@ -196,9 +196,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
                         "type": "incremental",
                         "cursor_path": "generated_timestamp",
                         "initial_value": 0,  # type: ignore
-                    }
-                    if should_use_incremental_field
-                    else None,
+                    },
                 },
             },
             "table_format": "delta",

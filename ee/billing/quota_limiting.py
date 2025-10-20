@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, TypedDict, cast
 
+from django.conf import settings
+from django.db import close_old_connections
 from django.db.models import Q
 from django.utils import timezone
 
@@ -19,12 +21,14 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     convert_team_usage_rows_to_dict,
+    get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_recording_count_in_period,
+    get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_survey_responses_count_in_period,
 )
@@ -53,6 +57,7 @@ class OrgQuotaLimitingInformation(TypedDict):
     quota_limiting_suspended_until: Optional[int]
 
 
+# These quota resource identifiers match billing default_plans_config.yml usage_key
 class QuotaResource(Enum):
     EVENTS = "events"
     EXCEPTIONS = "exceptions"
@@ -60,8 +65,10 @@ class QuotaResource(Enum):
     ROWS_SYNCED = "rows_synced"
     FEATURE_FLAG_REQUESTS = "feature_flag_requests"
     API_QUERIES = "api_queries_read_bytes"
-    SURVEYS = "surveys"
-    CDP_INVOCATIONS = "cdp_invocations"
+    SURVEY_RESPONSES = "survey_responses"
+    LLM_EVENTS = "llm_events"
+    CDP_TRIGGER_EVENTS = "cdp_trigger_events"
+    ROWS_EXPORTED = "rows_exported"
 
 
 class QuotaLimitingCaches(Enum):
@@ -76,10 +83,13 @@ OVERAGE_BUFFER = {
     QuotaResource.ROWS_SYNCED: 0,
     QuotaResource.FEATURE_FLAG_REQUESTS: 0,
     QuotaResource.API_QUERIES: 0,
-    QuotaResource.SURVEYS: 0,
-    QuotaResource.CDP_INVOCATIONS: 0,
+    QuotaResource.SURVEY_RESPONSES: 0,
+    QuotaResource.LLM_EVENTS: 0,
+    QuotaResource.CDP_TRIGGER_EVENTS: 0,
+    QuotaResource.ROWS_EXPORTED: 0,
 }
 
+# These trust score keys match billing default_plans_config.yml product keys (top level key)
 TRUST_SCORE_KEYS = {
     QuotaResource.EVENTS: "events",
     QuotaResource.EXCEPTIONS: "exceptions",
@@ -87,8 +97,10 @@ TRUST_SCORE_KEYS = {
     QuotaResource.ROWS_SYNCED: "rows_synced",
     QuotaResource.FEATURE_FLAG_REQUESTS: "feature_flags",
     QuotaResource.API_QUERIES: "api_queries",
-    QuotaResource.SURVEYS: "surveys",
-    QuotaResource.CDP_INVOCATIONS: "cdp_invocations",
+    QuotaResource.SURVEY_RESPONSES: "surveys",
+    QuotaResource.LLM_EVENTS: "llm_events",
+    QuotaResource.CDP_TRIGGER_EVENTS: "realtime_destinations",
+    QuotaResource.ROWS_EXPORTED: "rows_exported",
 }
 
 
@@ -99,8 +111,10 @@ class UsageCounters(TypedDict):
     rows_synced: int
     feature_flags: int
     api_queries_read_bytes: int
-    surveys: int
-    cdp_invocations: int
+    survey_responses: int
+    llm_events: int
+    cdp_trigger_events: int
+    rows_exported: int
 
 
 # -------------------------------------------------------------------------------------------------
@@ -600,11 +614,17 @@ def update_all_orgs_billing_quotas(
             )
         ),
         "teams_with_api_queries_read_bytes": convert_team_usage_rows_to_dict(api_queries_usage["read_bytes"]),
-        "teams_with_cdp_invocations_metrics": convert_team_usage_rows_to_dict(
+        "teams_with_cdp_trigger_events_metrics": convert_team_usage_rows_to_dict(
             get_teams_with_cdp_billable_invocations_in_period(period_start, period_end)
+        ),
+        "teams_with_rows_exported_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_rows_exported_in_period(period_start, period_end)
         ),
         "teams_with_survey_responses_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_survey_responses_count_in_period(period_start, period_end)
+        ),
+        "teams_with_ai_event_count_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_ai_event_count_in_period(period_start, period_end)
         ),
     }
 
@@ -636,8 +656,10 @@ def update_all_orgs_billing_quotas(
             rows_synced=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
             feature_flags=decide_requests + (local_evaluation_requests * 10),  # Same weighting as in _get_team_report
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
-            surveys=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
-            cdp_invocations=all_data["teams_with_cdp_invocations_metrics"].get(team.id, 0),
+            survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
+            llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+            cdp_trigger_events=all_data["teams_with_cdp_trigger_events_metrics"].get(team.id, 0),
+            rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
         )
 
         org_id = str(team.organization.id)
@@ -652,7 +674,7 @@ def update_all_orgs_billing_quotas(
 
     # Now we have the usage for all orgs for the current day
     # orgs_by_id is a dict of orgs by id (e.g. {"018e9acf-b488-0000-259c-534bcef40359": <Organization: 018e9acf-b488-0000-259c-534bcef40359>})
-    # todays_usage_report is a dict of orgs by id with their usage for the current day (e.g. {"018e9acf-b488-0000-259c-534bcef40359": {"events": 100, "exceptions": 100, "recordings": 100, "rows_synced": 100, "feature_flag_requests": 100, "api_queries_read_bytes": 100, "surveys": 100}})
+    # todays_usage_report is a dict of orgs by id with their usage for the current day (e.g. {"018e9acf-b488-0000-259c-534bcef40359": {"events": 100, "exceptions": 100, "recordings": 100, "rows_synced": 100, "feature_flag_requests": 100, "api_queries_read_bytes": 100, "survey_responses": 100}})
     quota_limited_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
 
@@ -666,11 +688,19 @@ def update_all_orgs_billing_quotas(
             resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
     # We have the teams that are currently under quota limits
-    # previously_quota_limited_team_tokens is a dict of resources to team tokens from redis (e.g. {"events": ["phc_123", "phc_456"], "exceptions": ["phc_123", "phc_456"], "recordings": ["phc_123", "phc_456"], "rows_synced": ["phc_123", "phc_456"], "feature_flag_requests": ["phc_123", "phc_456"], "api_queries_read_bytes": ["phc_123", "phc_456"], "surveys": ["phc_123", "phc_456"]})
+    # previously_quota_limited_team_tokens is a dict of resources to team tokens from redis (e.g. {"events": ["phc_123", "phc_456"], "exceptions": ["phc_123", "phc_456"], "recordings": ["phc_123", "phc_456"], "rows_synced": ["phc_123", "phc_456"], "feature_flag_requests": ["phc_123", "phc_456"], "api_queries_read_bytes": ["phc_123", "phc_456"], "survey_responses": ["phc_123", "phc_456"]})
 
     # Find all orgs that should be rate limited
     report_index = 1
     for org_id, todays_report in todays_usage_report.items():
+        # Check and refresh DB connections if needed on every iteration.
+        # The database_sync_to_async wrapper only closes connections at start/end,
+        # but this loop can run for up to 30min.
+        # Skip in tests to avoid breaking test transactions.
+
+        if not settings.TEST:
+            close_old_connections()
+
         try:
             org = orgs_by_id[org_id]
 
@@ -695,8 +725,8 @@ def update_all_orgs_billing_quotas(
             capture_exception(e, {"organization_id": org_id})
 
     # Now we have the teams that are currently under quota limits
-    # quota_limited_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "exceptions": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "api_queries_read_bytes": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "surveys": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
-    # quota_limiting_suspended_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "exceptions": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "api_queries_read_bytes": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "surveys": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
+    # quota_limited_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "exceptions": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "api_queries_read_bytes": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "survey_responses": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
+    # quota_limiting_suspended_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "exceptions": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "api_queries_read_bytes": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "survey_responses": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
 
     quota_limited_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
@@ -719,8 +749,8 @@ def update_all_orgs_billing_quotas(
                     orgs_with_changes.add(org_id)
 
     # Now we have the teams that are currently under quota limits
-    # quota_limited_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "exceptions": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flag_requests": {"phc_123": 1737867600}, "api_queries_read_bytes": {"phc_123": 1737867600}, "surveys": {"phc_123": 1737867600}})
-    # quota_limiting_suspended_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "exceptions": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flag_requests": {"phc_123": 1737867600}, "api_queries_read_bytes": {"phc_123": 1737867600}, "surveys": {"phc_123": 1737867600}})
+    # quota_limited_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "exceptions": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flag_requests": {"phc_123": 1737867600}, "api_queries_read_bytes": {"phc_123": 1737867600}, "survey_responses": {"phc_123": 1737867600}})
+    # quota_limiting_suspended_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "exceptions": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flag_requests": {"phc_123": 1737867600}, "api_queries_read_bytes": {"phc_123": 1737867600}, "survey_responses": {"phc_123": 1737867600}})
 
     for org_id in orgs_with_changes:
         properties = {
@@ -730,8 +760,10 @@ def update_all_orgs_billing_quotas(
             "quota_limited_rows_synced": quota_limited_orgs["rows_synced"].get(org_id, None),
             "quota_limited_feature_flags": quota_limited_orgs["feature_flag_requests"].get(org_id, None),
             "quota_limited_api_queries": quota_limited_orgs["api_queries_read_bytes"].get(org_id, None),
-            "quota_limited_surveys": quota_limited_orgs["surveys"].get(org_id, None),
-            "quota_limited_cdp_invocations": quota_limited_orgs["cdp_invocations"].get(org_id, None),
+            "quota_limited_survey_responses": quota_limited_orgs["survey_responses"].get(org_id, None),
+            "quota_limited_llm_events": quota_limited_orgs["llm_events"].get(org_id, None),
+            "quota_limited_cdp_trigger_events": quota_limited_orgs["cdp_trigger_events"].get(org_id, None),
+            "quota_limited_rows_exported": quota_limited_orgs["rows_exported"].get(org_id, None),
         }
 
         report_organization_action(

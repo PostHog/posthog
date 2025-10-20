@@ -8,6 +8,8 @@ from posthog.clickhouse.log_entries_v2_test import (
 
 operations = [
     run_sql_with_exceptions(KAFKA_LOG_ENTRIES_V2_TABLE_SQL(on_cluster=False)),
-    run_sql_with_exceptions(LOG_ENTRIES_V2_TABLE_SQL(on_cluster=False), node_role=NodeRole.ALL),
+    run_sql_with_exceptions(
+        LOG_ENTRIES_V2_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+    ),
     run_sql_with_exceptions(LOG_ENTRIES_V2_TABLE_MV_SQL(on_cluster=False)),
 ]

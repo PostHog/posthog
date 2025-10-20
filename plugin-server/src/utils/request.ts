@@ -6,6 +6,7 @@ import { Counter } from 'prom-client'
 // eslint-disable-next-line no-restricted-imports
 import {
     Agent,
+    Dispatcher,
     type HeadersInit,
     RequestInfo,
     RequestInit,
@@ -42,6 +43,7 @@ export type FetchResponse = {
     headers: Record<string, string>
     json: () => Promise<any>
     text: () => Promise<string>
+    dump: () => Promise<void>
 }
 
 export class SecureRequestError extends errors.UndiciError {
@@ -160,8 +162,8 @@ export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
 class SecureAgent extends Agent {
     constructor() {
         super({
-            keepAliveTimeout: 10_000,
-            connections: 500,
+            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
             connect: {
                 lookup: httpStaticLookup,
                 timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
@@ -170,9 +172,23 @@ class SecureAgent extends Agent {
     }
 }
 
-const sharedSecureAgent = new SecureAgent()
+// Safe way to use the same helpers for talking to internal endpoints such as other services
+class InsecureAgent extends Agent {
+    constructor() {
+        super({
+            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            connect: {
+                timeout: defaultConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+            },
+        })
+    }
+}
 
-export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+const sharedSecureAgent = new SecureAgent()
+const sharedInsecureAgent = new InsecureAgent()
+
+export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {
     let parsed: URL
     try {
         parsed = new URL(url)
@@ -190,7 +206,7 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
         method: options.method ?? 'GET',
         headers: options.headers,
         body: options.body,
-        dispatcher: sharedSecureAgent,
+        dispatcher,
         maxRedirections: 0, // No redirects allowed by default
         signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
     })
@@ -203,12 +219,36 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
         }
     }
 
-    return {
+    let consumed = false
+
+    const returnValue = {
         status: result.statusCode,
         headers,
-        json: async () => parseJSON(await result.body.text()),
-        text: async () => await result.body.text(),
+        json: async () => {
+            consumed = true
+            return parseJSON(await result.body.text())
+        },
+        text: async () => {
+            consumed = true
+            return await result.body.text()
+        },
+        dump: async () => {
+            if (consumed) {
+                return
+            }
+            consumed = true
+            await result.body.dump()
+        },
     }
+    return returnValue
+}
+
+export async function internalFetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+    return await _fetch(url, options, sharedInsecureAgent)
+}
+
+export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
+    return await _fetch(url, options, sharedSecureAgent)
 }
 
 // Legacy fetch implementation that exposes the entire fetch implementation

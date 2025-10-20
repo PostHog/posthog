@@ -1,3 +1,5 @@
+use crate::config::Config;
+use crate::database_pools::DatabasePools;
 use common_metrics::gauge;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -11,18 +13,38 @@ use crate::metrics::consts::{
 };
 
 pub struct DatabasePoolMonitor {
-    reader: Arc<PgPool>,
-    writer: Arc<PgPool>,
+    database_pools: Arc<DatabasePools>,
+    monitoring_interval: Duration,
+    warn_utilization_threshold: f64,
 }
 
 impl DatabasePoolMonitor {
-    pub fn new(reader: Arc<PgPool>, writer: Arc<PgPool>) -> Self {
-        Self { reader, writer }
+    pub fn new(database_pools: Arc<DatabasePools>, config: &Config) -> Self {
+        Self {
+            database_pools,
+            monitoring_interval: Duration::from_secs(config.db_monitor_interval_secs),
+            warn_utilization_threshold: config.db_pool_warn_utilization,
+        }
     }
 
     pub async fn start_monitoring(&self) {
-        let mut ticker = interval(Duration::from_secs(30));
-        tracing::debug!("Starting database connection pool monitoring");
+        let mut ticker = interval(self.monitoring_interval);
+
+        // Check if persons DB routing is enabled by comparing pool pointers
+        let persons_routing_enabled = !Arc::ptr_eq(
+            &self.database_pools.persons_reader,
+            &self.database_pools.non_persons_reader,
+        );
+
+        if persons_routing_enabled {
+            tracing::info!(
+                "Starting database connection pool monitoring with persons DB routing enabled"
+            );
+        } else {
+            tracing::info!(
+                "Starting database connection pool monitoring (persons DB routing disabled)"
+            );
+        }
 
         loop {
             ticker.tick().await;
@@ -34,83 +56,82 @@ impl DatabasePoolMonitor {
     }
 
     async fn collect_pool_metrics(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Monitor reader pool
-        let reader_size = self.reader.size();
-        let reader_idle = self.reader.num_idle();
-        let reader_max = self.reader.options().get_max_connections();
+        // Always monitor non-persons pools
+        self.collect_single_pool_metrics(
+            &self.database_pools.non_persons_reader,
+            "non_persons_reader",
+        )
+        .await?;
 
-        gauge(
-            DB_CONNECTION_POOL_ACTIVE_COUNTER,
-            &[("pool".to_string(), "reader".to_string())],
-            (reader_size as i32 - reader_idle as i32) as f64,
-        );
-        gauge(
-            DB_CONNECTION_POOL_IDLE_COUNTER,
-            &[("pool".to_string(), "reader".to_string())],
-            reader_idle as f64,
-        );
-        gauge(
-            DB_CONNECTION_POOL_MAX_COUNTER,
-            &[("pool".to_string(), "reader".to_string())],
-            reader_max as f64,
-        );
+        self.collect_single_pool_metrics(
+            &self.database_pools.non_persons_writer,
+            "non_persons_writer",
+        )
+        .await?;
 
-        tracing::debug!(
-            "Reader pool metrics - active: {}, idle: {}, max: {}",
-            reader_size as i32 - reader_idle as i32,
-            reader_idle,
-            reader_max
-        );
-
-        // Warn if pool utilization is high
-        let reader_utilization =
-            (reader_size as i32 - reader_idle as i32) as f64 / reader_max as f64;
-        if reader_utilization > 0.8 {
-            tracing::warn!(
-                "High reader pool utilization: {:.1}% ({}/{})",
-                reader_utilization * 100.0,
-                reader_size as i32 - reader_idle as i32,
-                reader_max
-            );
+        // Only monitor persons pools if they're different from non-persons pools
+        // (i.e., when persons DB routing is enabled)
+        if !Arc::ptr_eq(
+            &self.database_pools.persons_reader,
+            &self.database_pools.non_persons_reader,
+        ) {
+            self.collect_single_pool_metrics(&self.database_pools.persons_reader, "persons_reader")
+                .await?;
         }
 
-        // Monitor writer pool
-        let writer_size = self.writer.size();
-        let writer_idle = self.writer.num_idle();
-        let writer_max = self.writer.options().get_max_connections();
+        if !Arc::ptr_eq(
+            &self.database_pools.persons_writer,
+            &self.database_pools.non_persons_writer,
+        ) {
+            self.collect_single_pool_metrics(&self.database_pools.persons_writer, "persons_writer")
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn collect_single_pool_metrics(
+        &self,
+        pool: &Arc<PgPool>,
+        pool_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let pool_size = pool.size();
+        let pool_idle = pool.num_idle();
+        let pool_max = pool.options().get_max_connections();
 
         gauge(
             DB_CONNECTION_POOL_ACTIVE_COUNTER,
-            &[("pool".to_string(), "writer".to_string())],
-            (writer_size as i32 - writer_idle as i32) as f64,
+            &[("pool".to_string(), pool_name.to_string())],
+            (pool_size as i32 - pool_idle as i32) as f64,
         );
         gauge(
             DB_CONNECTION_POOL_IDLE_COUNTER,
-            &[("pool".to_string(), "writer".to_string())],
-            writer_idle as f64,
+            &[("pool".to_string(), pool_name.to_string())],
+            pool_idle as f64,
         );
         gauge(
             DB_CONNECTION_POOL_MAX_COUNTER,
-            &[("pool".to_string(), "writer".to_string())],
-            writer_max as f64,
+            &[("pool".to_string(), pool_name.to_string())],
+            pool_max as f64,
         );
 
         tracing::debug!(
-            "Writer pool metrics - active: {}, idle: {}, max: {}",
-            writer_size as i32 - writer_idle as i32,
-            writer_idle,
-            writer_max
+            "{} pool metrics - active: {}, idle: {}, max: {}",
+            pool_name,
+            pool_size as i32 - pool_idle as i32,
+            pool_idle,
+            pool_max
         );
 
         // Warn if pool utilization is high
-        let writer_utilization =
-            (writer_size as i32 - writer_idle as i32) as f64 / writer_max as f64;
-        if writer_utilization > 0.8 {
+        let pool_utilization = (pool_size as i32 - pool_idle as i32) as f64 / pool_max as f64;
+        if pool_utilization > self.warn_utilization_threshold {
             tracing::warn!(
-                "High writer pool utilization: {:.1}% ({}/{})",
-                writer_utilization * 100.0,
-                writer_size as i32 - writer_idle as i32,
-                writer_max
+                "High {} pool utilization: {:.1}% ({}/{})",
+                pool_name,
+                pool_utilization * 100.0,
+                pool_size as i32 - pool_idle as i32,
+                pool_max
             );
         }
 

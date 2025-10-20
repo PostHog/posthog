@@ -4,7 +4,7 @@
 
 1 **Object Tagging**: Each S3 object gets tags:
 
-```
+```text
 ttl_days=1              # Calculated TTL in days
 team_id=123            # Team identifier
 ```

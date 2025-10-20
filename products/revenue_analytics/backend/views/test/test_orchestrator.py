@@ -63,21 +63,39 @@ class TestRevenueAnalyticsViews(BaseTest):
 
     def test_schema_source_views(self):
         views = build_all_revenue_analytics_views(self.team, self.timings)
-        # Only revenue_item should be materialized for Stripe when only invoice schema exists
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 1)
-        self.assertEqual(source_views[0].name, "stripe.revenue_item_revenue_view")
+        self.assertEqual(len(source_views), 5)
+        self.assertIn("stripe.revenue_item_revenue_view", [s.name for s in source_views])
 
-        # Per-view class filtering (type introspection still works)
+        # Per-view class filtering
         revenue_item_views = [v for v in source_views if isinstance(v, RevenueAnalyticsRevenueItemView)]
         self.assertEqual(len(revenue_item_views), 1)
         self.assertEqual(revenue_item_views[0].name, "stripe.revenue_item_revenue_view")
 
         customer_views = [v for v in source_views if isinstance(v, RevenueAnalyticsCustomerView)]
-        self.assertEqual(len(customer_views), 0)
+        self.assertEqual(len(customer_views), 1)
+        self.assertEqual(customer_views[0].name, "stripe.customer_revenue_view")
+
+        product_views = [v for v in source_views if isinstance(v, RevenueAnalyticsProductView)]
+        self.assertEqual(len(product_views), 1)
+        self.assertEqual(product_views[0].name, "stripe.product_revenue_view")
 
         subscription_views = [v for v in source_views if isinstance(v, RevenueAnalyticsSubscriptionView)]
-        self.assertEqual(len(subscription_views), 0)
+        self.assertEqual(len(subscription_views), 1)
+        self.assertEqual(subscription_views[0].name, "stripe.subscription_revenue_view")
+
+        charge_views = [v for v in source_views if isinstance(v, RevenueAnalyticsChargeView)]
+        self.assertEqual(len(charge_views), 1)
+        self.assertEqual(charge_views[0].name, "stripe.charge_revenue_view")
+
+    def test_revenue_view_with_disabled_source(self):
+        """Test that the orchestrator returns None for disabled sources"""
+        self.source.revenue_analytics_config.enabled = False
+        self.source.revenue_analytics_config.save()
+
+        views = build_all_revenue_analytics_views(self.team, self.timings)
+        source_views = [v for v in views if v.source_id == str(self.source.id)]
+        self.assertEqual(len(source_views), 0)
 
     def test_revenue_view_non_stripe_source(self):
         """Test that the orchestrator returns None for non-Stripe sources"""
@@ -94,7 +112,7 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = build_all_revenue_analytics_views(self.team, self.timings)
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 0)
+        self.assertEqual(len(source_views), 5)
 
     def test_revenue_view_prefix(self):
         """Test that the orchestrator handles prefix correctly"""
@@ -103,8 +121,8 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = build_all_revenue_analytics_views(self.team, self.timings)
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 1)
-        self.assertEqual(source_views[0].name, "stripe.prefix.revenue_item_revenue_view")
+        self.assertEqual(len(source_views), 5)
+        self.assertIn("stripe.prefix.revenue_item_revenue_view", [s.name for s in source_views])
 
     def test_revenue_view_no_prefix(self):
         """Test that the orchestrator handles no prefix correctly"""
@@ -113,8 +131,8 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = build_all_revenue_analytics_views(self.team, self.timings)
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 1)
-        self.assertEqual(source_views[0].name, "stripe.revenue_item_revenue_view")
+        self.assertEqual(len(source_views), 5)
+        self.assertIn("stripe.revenue_item_revenue_view", [s.name for s in source_views])
 
     def test_revenue_view_prefix_with_underscores(self):
         """Test that the orchestrator handles prefix with underscores correctly"""
@@ -123,8 +141,8 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = build_all_revenue_analytics_views(self.team, self.timings)
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 1)
-        self.assertEqual(source_views[0].name, "stripe.prefix_with_underscores.revenue_item_revenue_view")
+        self.assertEqual(len(source_views), 5)
+        self.assertIn("stripe.prefix_with_underscores.revenue_item_revenue_view", [s.name for s in source_views])
 
     def test_revenue_view_prefix_with_empty_string(self):
         """Test that the orchestrator handles empty prefix"""
@@ -133,8 +151,8 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         views = build_all_revenue_analytics_views(self.team, self.timings)
         source_views = [v for v in views if v.source_id == str(self.source.id)]
-        self.assertEqual(len(source_views), 1)
-        self.assertEqual(source_views[0].name, "stripe.revenue_item_revenue_view")
+        self.assertEqual(len(source_views), 5)
+        self.assertIn("stripe.revenue_item_revenue_view", [s.name for s in source_views])
 
     def test_revenue_all_views(self):
         """Test that the orchestrator creates both charge and customer views"""

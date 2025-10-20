@@ -60,7 +60,7 @@ services:
                     }
 
                     handle @flags {
-                        reverse_proxy host.docker.internal:3001
+                        reverse_proxy feature-flags:3001
                     }
 
                     handle @webhooks {
@@ -164,3 +164,6 @@ services:
         depends_on:
             - redis
             - db
+
+volumes:
+    redpanda-data:

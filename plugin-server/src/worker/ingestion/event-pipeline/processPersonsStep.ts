@@ -4,6 +4,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Person, Team } from '~/types'
 
+import { PipelineResult, isOkResult, ok } from '../../../ingestion/pipelines/results'
 import { PersonContext } from '../persons/person-context'
 import { PersonEventProcessor } from '../persons/person-event-processor'
 import { PersonMergeService } from '../persons/person-merge-service'
@@ -17,13 +18,9 @@ export async function processPersonsStep(
     team: Team,
     timestamp: DateTime,
     processPerson: boolean,
-    personStoreBatch: PersonsStoreForBatch
-): Promise<[PluginEvent, Person, Promise<void>]> {
-    const moveLimit =
-        runner.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT === 0
-            ? undefined
-            : runner.hub.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT
-
+    personStoreBatch: PersonsStoreForBatch,
+    forceDisablePersonProcessing: boolean = false
+): Promise<PipelineResult<[PluginEvent, Person, Promise<void>]>> {
     const context = new PersonContext(
         event,
         team,
@@ -33,15 +30,20 @@ export async function processPersonsStep(
         runner.hub.db.kafkaProducer,
         personStoreBatch,
         runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-        moveLimit
+        runner.mergeMode
     )
 
     const processor = new PersonEventProcessor(
         context,
         new PersonPropertyService(context),
-        new PersonMergeService(context)
+        new PersonMergeService(context),
+        forceDisablePersonProcessing
     )
-    const [person, kafkaAck] = await processor.processEvent()
+    const [result, kafkaAck] = await processor.processEvent()
 
-    return [event, person, kafkaAck]
+    if (isOkResult(result)) {
+        return ok([event, result.value, kafkaAck])
+    } else {
+        return result
+    }
 }

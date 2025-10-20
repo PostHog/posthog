@@ -81,42 +81,6 @@ def table_has_data(
         )
 
 
-@asset_check(
-    asset="web_analytics_bounces_daily",
-    name="bounces_daily_has_data",
-    description="Check if web_bounces_daily table has data",
-)
-def bounces_daily_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    return table_has_data("web_bounces_daily", dagster_tags(context), context)
-
-
-@asset_check(
-    asset="web_analytics_stats_table_daily",
-    name="stats_daily_has_data",
-    description="Check if web_stats_daily table has data",
-)
-def stats_daily_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    return table_has_data("web_stats_daily", dagster_tags(context), context)
-
-
-@asset_check(
-    asset="web_analytics_bounces_hourly",
-    name="bounces_hourly_has_data",
-    description="Check if web_bounces_hourly table has data",
-)
-def bounces_hourly_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    return table_has_data("web_bounces_hourly", dagster_tags(context), context)
-
-
-@asset_check(
-    asset="web_analytics_stats_table_hourly",
-    name="stats_hourly_has_data",
-    description="Check if web_stats_hourly table has data",
-)
-def stats_hourly_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    return table_has_data("web_stats_hourly", dagster_tags(context), context)
-
-
 def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetCheckResult:
     try:
         export_filename = f"{export_type}_export"
@@ -245,26 +209,6 @@ def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetC
         )
 
 
-@asset_check(asset="web_analytics_stats_export", name="stats_export_chdb_queryable")
-def stats_export_chdb_queryable() -> AssetCheckResult:
-    """
-    Check if the web_stats_daily export file can be queried with chdb and contains data.
-    """
-    return check_export_chdb_queryable("web_stats_daily", "stats_export_chdb_check")
-
-
-@asset_check(
-    asset="web_analytics_bounces_export",
-    name="bounces_export_chdb_queryable",
-    description="Check if bounces export file can be queried with chdb and has data",
-)
-def bounces_export_chdb_queryable() -> AssetCheckResult:
-    """
-    Check if the web_bounces_daily export file can be queried with chdb and contains data.
-    """
-    return check_export_chdb_queryable("web_bounces_daily", "bounces_export_chdb_check")
-
-
 def log_query_sql(
     runner, query_name: str, context: AssetCheckExecutionContext, team: Team, use_pre_agg: bool = False
 ) -> None:
@@ -356,7 +300,7 @@ def execute_accuracy_check(
 
         # Convert results to dict for easier comparison
         def results_to_dict(results: list[WebOverviewItem]) -> dict[str, float]:
-            return {item.key: item.value for item in results if item.value is not None}
+            return {item.key: float(item.value) for item in results if item.value is not None}
 
         pre_agg_metrics = results_to_dict(pre_agg_response.results)
         regular_metrics = results_to_dict(regular_response.results)
@@ -449,9 +393,11 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
     for metric_name, metric_values in metrics.items():
         metadata.update(
             {
-                f"{metric_name}_pre_aggregated": MetadataValue.float(metric_values.get("pre_aggregated", 0.0)),
-                f"{metric_name}_regular": MetadataValue.float(metric_values.get("regular", 0.0)),
-                f"{metric_name}_percentage_difference": MetadataValue.float(metric_values.get("pct_difference", 0.0)),
+                f"{metric_name}_pre_aggregated": MetadataValue.float(float(metric_values.get("pre_aggregated", 0.0))),
+                f"{metric_name}_regular": MetadataValue.float(float(metric_values.get("regular", 0.0))),
+                f"{metric_name}_percentage_difference": MetadataValue.float(
+                    float(metric_values.get("pct_difference", 0.0))
+                ),
                 f"{metric_name}_within_tolerance": MetadataValue.bool(metric_values.get("within_tolerance", True)),
             }
         )
@@ -608,106 +554,6 @@ def web_analytics_team_selection_v2_has_data(context: AssetCheckExecutionContext
             description=f"Failed to check v2 team selection: {str(e)}",
             metadata={"error": MetadataValue.text(str(e))},
         )
-
-
-@asset_check(
-    asset="web_pre_aggregated_bounces",
-    name="web_pre_aggregated_bounces_has_data",
-    description="Check if web_pre_aggregated_bounces table has data",
-)
-def web_pre_aggregated_bounces_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    return table_has_data("web_pre_aggregated_bounces", dagster_tags(context), context)
-
-
-@asset_check(
-    asset="web_pre_aggregated_stats",
-    name="web_pre_aggregated_stats_has_data",
-    description="Check if web_pre_aggregated_stats table has data",
-)
-def web_pre_aggregated_stats_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    return table_has_data("web_pre_aggregated_stats", dagster_tags(context), context)
-
-
-@asset_check(
-    asset="web_pre_aggregated_bounces",
-    name="web_analytics_v2_accuracy_check",
-    description="Validates that v2 pre-aggregated web analytics data matches regular queries within tolerance",
-    blocking=False,
-)
-def web_analytics_v2_accuracy_check(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    """Data quality check: validates v2 pre-aggregated tables match regular WebOverview queries within tolerance."""
-    return run_accuracy_check_for_version(context, "web_analytics_v2_accuracy_check", "v2", use_v2_tables=True)
-
-
-web_analytics_data_quality_job = dagster.define_asset_job(
-    name="web_analytics_data_quality_job",
-    selection=dagster.AssetSelection.checks_for_assets(
-        [
-            "web_analytics_bounces_hourly",
-            "web_analytics_stats_table_hourly",
-            "web_analytics_bounces_daily",
-            "web_analytics_stats_table_daily",
-        ]
-    ),
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-)
-
-
-web_analytics_v2_data_quality_job = dagster.define_asset_job(
-    name="web_analytics_v2_data_quality_job",
-    selection=dagster.AssetSelection.checks_for_assets(
-        [
-            "web_analytics_team_selection_v2",
-            "web_pre_aggregated_bounces",
-            "web_pre_aggregated_stats",
-        ]
-    ),
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-)
-
-
-@dagster.schedule(
-    cron_schedule="0 2 * * 0",
-    job=web_analytics_data_quality_job,
-    execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-)
-def web_analytics_weekly_data_quality_schedule(context: dagster.ScheduleEvaluationContext):
-    return dagster.RunRequest(
-        run_config={
-            "ops": {
-                "web_analytics_accuracy_check": {
-                    "config": {
-                        "tolerance_pct": DEFAULT_TOLERANCE_PCT,
-                        "days_back": DEFAULT_DAYS_BACK,
-                    }
-                }
-            }
-        },
-        tags={"trigger": "weekly_schedule"},
-    )
-
-
-@dagster.schedule(
-    cron_schedule="0 3 * * 0",
-    job=web_analytics_v2_data_quality_job,
-    execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-)
-def web_analytics_v2_weekly_data_quality_schedule(context: dagster.ScheduleEvaluationContext):
-    return dagster.RunRequest(
-        run_config={
-            "ops": {
-                "web_analytics_v2_accuracy_check": {
-                    "config": {
-                        "tolerance_pct": DEFAULT_TOLERANCE_PCT,
-                        "days_back": DEFAULT_DAYS_BACK,
-                    }
-                }
-            }
-        },
-        tags={"trigger": "weekly_schedule_v2"},
-    )
 
 
 simple_data_checks_job = dagster.define_asset_job(

@@ -1,5 +1,3 @@
-import './NotebookScene.scss'
-
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -10,6 +8,8 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { SceneExport } from 'scenes/sceneTypes'
+
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
@@ -85,9 +85,10 @@ export function NotebookScene(): JSX.Element {
     }
 
     return (
-        <div className="NotebookScene">
-            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-primary z-10">
+        <>
+            <div className="flex items-center justify-between">
                 <div className="flex gap-2 items-center">
+                    <SceneBreadcrumbBackButton />
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
                 </div>
@@ -138,6 +139,6 @@ export function NotebookScene(): JSX.Element {
 
             <Notebook key={notebookId} shortId={notebookId} editable={!isTemplate} />
             <NotebookShareModal shortId={notebookId} />
-        </div>
+        </>
     )
 }

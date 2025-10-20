@@ -139,7 +139,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         return BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
-    def to_query(self) -> ast.SelectSetQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return ast.SelectSetQuery.create_from_queries(self.to_queries(), "UNION ALL")
 
     def to_queries(self) -> list[ast.SelectQuery | ast.SelectSetQuery]:
@@ -1049,7 +1049,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
                 )
                 .get(
-                    effective_project_id=self.team.project_id,  # type: ignore
+                    effective_project_id=self.team.project_id,
                     name=field,
                     type=field_type,
                     group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,

@@ -24,7 +24,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        featureFlags: Object.values(FEATURE_FLAGS).filter((flag) => flag !== FEATURE_FLAGS.NEW_SCENE_LAYOUT), // Enable all feature flags for the settings page, except the new scene layout
+        featureFlags: Object.values(FEATURE_FLAGS),
     },
     decorators: [
         mswDecorator({
@@ -43,6 +43,10 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 '/api/projects/:id/pipeline_destination_configs': { results: [] },
                 '/api/organizations/:id/pipeline_destinations': { results: [] },
                 '/api/environments/:id/batch_exports': { results: [] },
+                '/api/environments/:id/default_evaluation_tags/': {
+                    default_evaluation_tags: [],
+                    enabled: false,
+                },
             },
             patch: {
                 '/api/projects/:id': async (req, res, ctx) => {

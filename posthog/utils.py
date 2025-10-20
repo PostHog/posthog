@@ -13,7 +13,7 @@ import secrets
 import datetime
 import datetime as dt
 import dataclasses
-from collections.abc import Callable, Generator, Mapping
+from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from enum import Enum
 from functools import lru_cache, wraps
@@ -59,7 +59,7 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Dashboard, InsightVariable, Team, User
+    from posthog.models import Dashboard, DashboardTile, InsightVariable, Team, User
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -308,6 +308,20 @@ def relative_date_parse(
     )[0]
 
 
+def pluralize(count: int, singular: str, plural: str | None = None) -> str:
+    if plural is None:
+        plural = singular + "s"
+    return f"{count} {singular if count == 1 else plural}"
+
+
+def human_list(items: Sequence[str]) -> str:
+    """Join iterable of strings into a human-readable list ("a, b, and c").
+    Uses the Oxford comma only when there are at least 3 items."""
+    if len(items) < 3:
+        return " and ".join(items)
+    return ", ".join(items[:-1]) + f", and {items[-1]}"
+
+
 def get_js_url(request: HttpRequest) -> str:
     """
     As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
@@ -318,47 +332,43 @@ def get_js_url(request: HttpRequest) -> str:
     return settings.JS_URL
 
 
-def render_template(
+def get_context_for_template(
     template_name: str,
     request: HttpRequest,
     context: Optional[dict] = None,
-    *,
     team_for_public_context: Optional["Team"] = None,
-    status_code: Optional[int] = None,
-) -> HttpResponse:
-    """Render Django template.
-
-    If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
-    """
-
+) -> dict:
     if context is None:
         context = {}
-    template = get_template(template_name)
 
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
     context["self_capture"] = settings.SELF_CAPTURE
     context["region"] = get_instance_region()
 
-    if stripe_public_key := os.environ.get("STRIPE_PUBLIC_KEY"):
-        context["stripe_public_key"] = stripe_public_key
+    if settings.STRIPE_PUBLIC_KEY:
+        context["stripe_public_key"] = settings.STRIPE_PUBLIC_KEY
 
     context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
         context["git_branch"] = get_git_branch()
-        # Add vite dev scripts for development only when explicitly using Vite
-        if not settings.E2E_TESTING and os.environ.get("POSTHOG_USE_VITE"):
-            context["vite_dev_scripts"] = """
-    <script type="module">
-        import RefreshRuntime from 'http://localhost:8234/@react-refresh'
-        RefreshRuntime.injectIntoGlobalHook(window)
-        window.$RefreshReg$ = () => {}
-        window.$RefreshSig$ = () => (type) => type
-        window.__vite_plugin_react_preamble_installed__ = true
-    </script>
-    <!-- Vite development server -->
-    <script type="module" src="http://localhost:8234/@vite/client"></script>
-    <script type="module" src="http://localhost:8234/src/index.tsx"></script>"""
+        source_path = "src/index.tsx"
+        if template_name == "exporter.html":
+            source_path = "src/exporter/index.tsx"
+        elif template_name == "render_query.html":
+            source_path = "src/render-query/index.tsx"
+        # Add vite dev scripts for development
+        context["vite_dev_scripts"] = f"""
+        <script nonce="{request.csp_nonce}" type="module">
+            import RefreshRuntime from 'http://localhost:8234/@react-refresh'
+            RefreshRuntime.injectIntoGlobalHook(window)
+            window.$RefreshReg$ = () => {{}}
+            window.$RefreshSig$ = () => (type) => type
+            window.__vite_plugin_react_preamble_installed__ = true
+        </script>
+        <!-- Vite development server -->
+        <script type="module" src="http://localhost:8234/@vite/client"></script>
+        <script type="module" src="http://localhost:8234/{source_path}"></script>"""
 
     context["js_posthog_ui_host"] = ""
 
@@ -379,6 +389,7 @@ def render_template(
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
+    context["js_app_state_logging_sample_rate"] = settings.APP_STATE_LOGGING_SAMPLE_RATE
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
@@ -496,12 +507,32 @@ def render_template(
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
+    return context
+
+
+def render_template(
+    template_name: str,
+    request: HttpRequest,
+    context: Optional[dict] = None,
+    *,
+    team_for_public_context: Optional["Team"] = None,
+    status_code: Optional[int] = None,
+) -> HttpResponse:
+    """Render Django template.
+
+    If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
+    """
+
+    context = get_context_for_template(template_name, request, context, team_for_public_context)
+    template = get_template(template_name)
+
     html = template.render(context, request=request)
     response = HttpResponse(html)
     if status_code:
         response.status_code = status_code
     if not request.user.is_anonymous:
         patch_cache_control(response, no_store=True)
+
     return response
 
 
@@ -1154,16 +1185,19 @@ def cache_requested_by_client(request: Request) -> bool | str:
 
 
 def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
-    raw_filters_override_param = request.query_params.get("filters_override")
+    from posthog.auth import SharingAccessTokenAuthentication
 
-    request_filters = {}
     dashboard_filters = dashboard.filters if dashboard else {}
+    raw_override = request.query_params.get("filters_override")
 
-    if raw_filters_override_param is not None:
-        try:
-            request_filters = json.loads(raw_filters_override_param)
-        except Exception:
-            raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
+    # Security: Don't allow overrides when accessing via sharing tokens
+    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+        return dashboard_filters
+
+    try:
+        request_filters = json.loads(raw_override)
+    except Exception:
+        raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
     return {**dashboard_filters, **request_filters}
 
@@ -1172,21 +1206,41 @@ def variables_override_requested_by_client(
     request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
 ) -> Optional[dict[str, dict]]:
     from posthog.api.insight_variable import map_stale_to_latest
+    from posthog.auth import SharingAccessTokenAuthentication
 
-    raw_variables_override_param = request.query_params.get("variables_override") if request else None
+    dashboard_variables = (dashboard and dashboard.variables) or {}
+    raw_override = request.query_params.get("variables_override") if request else None
 
-    request_variables = {}
-    dashboard_variables = dashboard.variables if dashboard else {}
+    # Security: Don't allow overrides when accessing via sharing tokens
+    if not raw_override or (request and isinstance(request.successful_authenticator, SharingAccessTokenAuthentication)):
+        return map_stale_to_latest(dashboard_variables, variables)
 
-    if raw_variables_override_param is not None:
-        try:
-            request_variables = json.loads(raw_variables_override_param)
-        except Exception:
-            raise serializers.ValidationError(
-                {"variables_override": "Invalid JSON passed in variables_override parameter"}
-            )
+    try:
+        request_variables = json.loads(raw_override)
+    except Exception:
+        raise serializers.ValidationError({"variables_override": "Invalid JSON passed in variables_override parameter"})
 
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
+
+
+def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
+    from posthog.auth import SharingAccessTokenAuthentication
+
+    tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
+    raw_override = request.query_params.get("tile_filters_override")
+
+    # Security: Don't allow overrides when accessing via sharing tokens
+    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+        return tile_filters
+
+    try:
+        request_filters = json.loads(raw_override)
+    except Exception:
+        raise serializers.ValidationError(
+            {"tile_filters_override": "Invalid JSON passed in tile_filters_override parameter"}
+        )
+
+    return {**tile_filters, **request_filters}
 
 
 def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:

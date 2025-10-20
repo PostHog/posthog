@@ -10,6 +10,8 @@ import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import { SurveyAppearance, SurveyPosition, SurveyType, SurveyWidgetType } from '~/types'
 
+import { SurveyPositionSelector } from './SurveyAppearancePositionSelector'
+
 interface CommonProps {
     appearance: SurveyAppearance
     onAppearanceChange: (appearance: SurveyAppearance) => void
@@ -54,7 +56,7 @@ function SurveyOptionsGroup({
     sectionTitle: string
 }): JSX.Element {
     return (
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1 items-start">
+        <div className="grid grid-cols-2 gap-2 items-start">
             <h3 className="col-span-2 mb-0">{sectionTitle}</h3>
             {children}
         </div>
@@ -132,21 +134,21 @@ export function SurveyContainerAppearance({
                 }
                 className="gap-1 col-span-2"
             >
-                <div className="grid grid-cols-3 gap-1 mb-1">
-                    {gridPositions.map((position) => (
-                        <LemonButton
-                            key={position}
-                            type="tertiary"
-                            size="small"
-                            onClick={() => onAppearanceChange({ position })}
-                            active={appearance.position === position}
-                            disabled={!surveysStylingAvailable}
-                            className="justify-center text-xs" // Ensure text is centered and button is small
-                        >
-                            {positionDisplayNames[position]}
-                            {appearance.position === position && <IconCheck className="ml-2 size-4" />}
-                        </LemonButton>
-                    ))}
+                <div className="flex items-center gap-2">
+                    <SurveyPositionSelector
+                        currentPosition={appearance.position}
+                        onAppearanceChange={onAppearanceChange}
+                        disabled={!surveysStylingAvailable}
+                    />
+                    <LemonSelect
+                        value={appearance.position}
+                        onChange={(position) => onAppearanceChange({ position })}
+                        options={gridPositions.map((position) => ({
+                            label: positionDisplayNames[position],
+                            value: position,
+                        }))}
+                        disabled={!surveysStylingAvailable}
+                    />
                 </div>
                 {surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector && (
                     <div className="flex flex-col gap-1 items-start w-60">

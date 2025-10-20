@@ -1,6 +1,7 @@
 import json
 from typing import Any, Optional, cast
 
+from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
 from django.utils.timezone import now
@@ -24,6 +25,8 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
@@ -113,7 +116,7 @@ def log_playlist_activity(
         )
 
 
-class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
+class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     recordings_counts = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
@@ -253,7 +256,9 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         return updated_playlist
 
 
-class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class SessionRecordingPlaylistViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
+):
     scope_object = "session_recording_playlist"
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
@@ -323,7 +328,7 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
 
         # For collections, create a minimal query with only session_ids
         if playlist.type == SessionRecordingPlaylist.PlaylistType.COLLECTION:
-            query = RecordingsQuery(session_ids=playlist_items, date_from=None, date_to=None)
+            query = RecordingsQuery(session_ids=playlist_items, date_from="-1y", date_to=None)
         else:
             data_dict = query_as_params_to_dict(request.GET.dict())
             query = RecordingsQuery.model_validate(data_dict)
@@ -482,7 +487,7 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
     @action(methods=["POST"], detail=True)
     def playlist_viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         playlist = self.get_object()
-        user = request.user
+        user = cast(User | AnonymousUser, request.user)
         team = self.team
 
         if user.is_anonymous:

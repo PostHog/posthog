@@ -3,10 +3,14 @@ import { DateTime } from 'luxon'
 import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team, TeamId } from '../../../../types'
 import { CreatePersonResult } from '../../../../utils/db/db'
 import { PersonUpdate } from '../person-update-batch'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
+
+export type InternalPersonWithDistinctId = InternalPerson & {
+    distinct_id: string
+}
 
 export class PersonPropertiesSizeViolationError extends Error {
     constructor(
@@ -18,6 +22,7 @@ export class PersonPropertiesSizeViolationError extends Error {
         super(message)
         this.name = 'PersonPropertiesSizeViolationError'
     }
+    readonly isRetriable = false
 }
 
 export interface PersonRepository {
@@ -26,6 +31,10 @@ export interface PersonRepository {
         distinctId: string,
         options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<InternalPerson | undefined>
+
+    fetchPersonsByDistinctIds(
+        teamPersons: { teamId: TeamId; distinctId: string }[]
+    ): Promise<InternalPersonWithDistinctId[]>
 
     createPerson(
         createdAt: DateTime,

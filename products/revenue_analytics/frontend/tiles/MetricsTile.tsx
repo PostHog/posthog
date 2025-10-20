@@ -11,6 +11,7 @@ import {
     buildDashboardItemId,
     revenueAnalyticsLogic,
 } from '../revenueAnalyticsLogic'
+import { revenueAnalyticsSettingsLogic } from '../settings/revenueAnalyticsSettingsLogic'
 
 const QUERY_ID = RevenueAnalyticsQuery.METRICS
 const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
@@ -19,11 +20,27 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
     dataNodeCollectionId: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
 }
 
+const EMPTY_STATE_HEADING = 'No data available'
+const EMPTY_STATE_DETAIL_NO_EVENTS = 'Please try adjusting your query or filters.'
+const EMPTY_STATE_DETAIL_WITH_EVENTS = (
+    <span>
+        Please try adjusting your query or filters. If you're using revenue events then make sure you've configured what
+        the <code>subscription_id</code> property is to properly track subscriptions/customer churn metrics.
+    </span>
+)
 export const MetricsTile = (): JSX.Element => {
     const { queries } = useValues(revenueAnalyticsLogic)
+    const { events } = useValues(revenueAnalyticsSettingsLogic)
 
     const query = queries[QUERY_ID]
-    const context = useMemo(() => ({ insightProps: { ...INSIGHT_PROPS, query } }), [query])
+    const context = useMemo(
+        () => ({
+            insightProps: { ...INSIGHT_PROPS, query },
+            emptyStateHeading: EMPTY_STATE_HEADING,
+            emptyStateDetail: events.length > 0 ? EMPTY_STATE_DETAIL_WITH_EVENTS : EMPTY_STATE_DETAIL_NO_EVENTS,
+        }),
+        [query, events.length]
+    )
 
-    return <Query query={query} readOnly context={context} />
+    return <Query attachTo={revenueAnalyticsLogic} query={query} readOnly context={context} />
 }

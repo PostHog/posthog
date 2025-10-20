@@ -109,7 +109,8 @@
                     "display": "ActionsLineGraph"
                 },
                 "filterTestAccounts": true
-            }
+            },
+            "uuid": "d82e97b7-8464-4486-98fd-bae56071603d"
         }
     ],
     "metrics_secondary": [],

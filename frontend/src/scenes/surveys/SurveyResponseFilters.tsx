@@ -137,7 +137,7 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                 </LemonButton>
             </div>
             {questionWithFiltersAvailable.length > 0 && (
-                <div className="border rounded">
+                <div className="border rounded overflow-hidden">
                     <div className="grid grid-cols-6 gap-2 px-2 py-2 border-b bg-bg-light">
                         <div className="col-span-3 font-semibold">Question</div>
                         <div className="font-semibold">Filter type</div>

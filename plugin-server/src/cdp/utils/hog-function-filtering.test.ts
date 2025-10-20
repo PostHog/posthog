@@ -97,11 +97,11 @@ describe('hog-function-filtering', () => {
                   },
                   "properties": {},
                   "timestamp": "2025-01-01T00:00:00.000Z",
+                  "uuid": "event_uuid",
                 }
             `)
         })
     })
-
     describe('convertClickhouseRawEventToFilterGlobals', () => {
         it('should convert RawClickHouseEvent to HogFunctionFilterGlobals with basic event data', () => {
             const rawEvent: RawClickHouseEvent = {
@@ -284,6 +284,30 @@ describe('hog-function-filtering', () => {
             }
 
             // Test with an event that matches one of the specific events
+            mockFilterGlobals.event = 'change_order_generated'
+            const result = await filterFunctionInstrumented({
+                fn: mockHogFunction,
+                filters: mockHogFunction.filters,
+                filterGlobals: mockFilterGlobals,
+            })
+            expect(result.match).toBe(true)
+        })
+
+        it('should not run pre-filter when actions are present', async () => {
+            mockHogFunction.filters = {
+                events: [
+                    { id: 'change_order_generated', name: 'change_order_generated', type: 'events', order: 0 },
+                    {
+                        id: 'project_create_change_order_clicked',
+                        name: 'project_create_change_order_clicked',
+                        type: 'events',
+                        order: 1,
+                    },
+                ],
+                actions: [{ id: 'change_order_generated', name: 'change_order_generated', type: 'actions', order: 0 }],
+                bytecode: ['_H', 1, 29], // Simple bytecode that returns true
+            }
+
             mockFilterGlobals.event = 'change_order_generated'
             const result = await filterFunctionInstrumented({
                 fn: mockHogFunction,

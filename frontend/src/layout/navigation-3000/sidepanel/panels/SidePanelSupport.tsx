@@ -65,7 +65,7 @@ const SupportResponseTimesTable = ({
     const expiredTrialDate = hasExpiredTrial ? dayjs(billing?.trial?.expires_at) : null
     const getResponseTimeFeature = (planName: string): BillingFeatureType | undefined => {
         // Find the plan in supportPlans
-        const plan = supportPlans?.find((p) => p.name === planName)
+        const plan = supportPlans?.find((p) => p.name?.includes(planName))
 
         // Return the support_response_time feature if found
         return plan?.features?.find((f) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
@@ -118,7 +118,7 @@ const SupportResponseTimesTable = ({
                   {
                       name: 'Teams',
                       current_plan: currentPlan === 'teams',
-                      features: [{ note: '1 business day' }],
+                      features: [getResponseTimeFeature('Teams') || { note: '1 business day' }],
                       plan_key: BillingPlan.Teams,
                       legacy_product: true,
                   },

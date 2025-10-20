@@ -8,7 +8,7 @@ import { ReactNode, useEffect, useState } from 'react'
 import React from 'react'
 
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -23,7 +23,6 @@ import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import { ToolsDisplay } from './ToolsDisplay'
 
 interface QuestionInputProps {
-    isFloating?: boolean
     isSticky?: boolean
     placeholder?: string
     children?: ReactNode
@@ -34,11 +33,11 @@ interface QuestionInputProps {
     textAreaRef?: React.RefObject<HTMLTextAreaElement>
     containerClassName?: string
     onSubmit?: () => void
+    showDeepResearchModeToggle?: boolean
 }
 
 export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
     {
-        isFloating,
         isSticky,
         placeholder,
         children,
@@ -49,14 +48,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         textAreaRef,
         containerClassName,
         onSubmit,
+        showDeepResearchModeToggle,
     },
     ref
 ) {
     const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
-    const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
+    const { threadLoading, inputDisabled, submissionDisabledReason, deepResearchMode } = useValues(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
 
@@ -73,7 +73,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         <div
             className={clsx(
                 containerClassName,
-                !isSticky && !isFloating
+                !isSticky && !isThreadVisible
                     ? 'px-3 w-[min(40rem,100%)]'
                     : 'sticky bottom-0 z-10 w-full max-w-[45.25rem] self-center'
             )}
@@ -86,15 +86,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         'mb-2 border border-[var(--color-border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                 )}
             >
-                <div className="relative w-full flex flex-col">
+                {/* Have to increase z-index to overlay ToolsDisplay */}
+                <div className="relative w-full flex flex-col z-1">
                     {children}
                     <div
                         className={clsx(
                             'flex flex-col',
-                            'border border-[var(--color-border-primary)] rounded-[var(--radius)]',
+                            'border border-[var(--color-border-primary)]',
                             'bg-[var(--color-bg-fill-input)]',
-                            'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
-                            isFloating && 'border-primary m-1'
+                            'hover:border-border-bold focus-within:border-border-bold',
+                            isThreadVisible ? 'border-primary m-0.5 rounded-[10px]' : 'rounded-lg'
                         )}
                         onClick={(e) => {
                             // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
@@ -103,14 +104,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             }
                         }}
                     >
-                        {!isThreadVisible ? (
-                            <div className="flex items-start justify-between">
+                        <div className="pt-1">
+                            {!isThreadVisible ? (
+                                <div className="flex items-start justify-between">
+                                    <ContextDisplay size={contextDisplaySize} />
+                                    <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
+                                </div>
+                            ) : (
                                 <ContextDisplay size={contextDisplaySize} />
-                                <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
-                            </div>
-                        ) : (
-                            <ContextDisplay size={contextDisplaySize} />
-                        )}
+                            )}
+                        </div>
 
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <LemonTextArea
@@ -120,7 +123,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 placeholder={
                                     threadLoading
                                         ? 'Thinking…'
-                                        : isFloating
+                                        : isThreadVisible
                                           ? placeholder || 'Ask follow-up (/ for commands)'
                                           : 'Ask away (/ for commands)'
                                 }
@@ -134,14 +137,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 minRows={1}
                                 maxRows={10}
                                 className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
+                                autoFocus
                             />
                         </SlashCommandAutocomplete>
                     </div>
                     <div
-                        className={clsx('absolute flex items-center', {
-                            'bottom-[11px] right-3': isFloating,
-                            'bottom-[7px] right-2': !isFloating,
-                        })}
+                        className={clsx(
+                            'absolute flex items-center',
+                            isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
+                        )}
                     >
                         <AIConsentPopoverWrapper
                             placement="bottom-end"
@@ -156,7 +160,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             hidden={!threadLoading}
                         >
                             <LemonButton
-                                type={(isFloating && !question) || threadLoading ? 'secondary' : 'primary'}
+                                type={(isThreadVisible && !question) || threadLoading ? 'secondary' : 'primary'}
                                 onClick={() => {
                                     if (threadLoading) {
                                         stopGeneration()
@@ -192,7 +196,24 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                <ToolsDisplay isFloating={isFloating} tools={tools} bottomActions={bottomActions} />
+                <ToolsDisplay
+                    isFloating={isThreadVisible}
+                    tools={tools}
+                    bottomActions={bottomActions}
+                    deepResearchMode={deepResearchMode}
+                />
+                {showDeepResearchModeToggle && (
+                    <div className="flex justify-end gap-1 w-full p-1">
+                        <LemonSwitch
+                            checked={deepResearchMode}
+                            label="Think harder"
+                            disabled={threadLoading}
+                            onChange={(checked) => setDeepResearchMode(checked)}
+                            size="xxsmall"
+                            tooltip="This will make Max think harder about your question"
+                        />
+                    </div>
+                )}
             </div>
         </div>
     )

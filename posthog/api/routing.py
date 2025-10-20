@@ -16,6 +16,7 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models.organization import Organization
@@ -99,7 +100,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         except NotImplementedError:
             pass
 
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+        if isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        ):
             return [SharingTokenPermission()]
 
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
@@ -121,6 +125,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         ]
 
         if self.sharing_enabled_actions:
+            authentication_classes.append(SharingPasswordProtectedAuthentication)
             authentication_classes.append(SharingAccessTokenAuthentication)
 
         authentication_classes.extend([JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication])

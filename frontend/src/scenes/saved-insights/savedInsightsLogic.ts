@@ -24,7 +24,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { Breadcrumb, InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
@@ -50,6 +50,7 @@ export interface SavedInsightFilters {
     page: number
     dashboardId: number | undefined | null
     events: string[] | undefined | null
+    hideFeatureFlagInsights: boolean | undefined | null
 }
 
 export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
@@ -65,6 +66,7 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
         page: parseInt(String(values.page)) || 1,
         dashboardId: values.dashboardId,
         events: values.events,
+        hideFeatureFlagInsights: values.hideFeatureFlagInsights || false,
     }
 }
 
@@ -247,6 +249,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 ...(!!filters.dashboardId && {
                     dashboards: [filters.dashboardId],
                 }),
+                ...(filters.hideFeatureFlagInsights && { hide_feature_flag_insights: true }),
             }),
         ],
         pagination: [
@@ -267,6 +270,16 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     discussions_disabled: true,
                 }
             },
+        ],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'saved_insights',
+                    name: 'Product analytics',
+                    iconType: 'product_analytics',
+                },
+            ],
         ],
     }),
     listeners(({ actions, asyncActions, values, selectors }) => ({

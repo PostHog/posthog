@@ -55,7 +55,40 @@ else
     fi
 fi
 
-[[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
+# a previous version of the deploy script should have been quoting the caddy_host env var
+tmp="$(mktemp)"
+awk '
+  /^[[:space:]]*($|#)/ { print; next }        # keep blanks/comments
+  {
+    # split on first "=" only
+    p = index($0, "="); if (!p) { print; next }
+    key = substr($0,1,p-1); val = substr($0,p+1)
+
+    # trim
+    sub(/^[[:space:]]+/,"",key); sub(/[[:space:]]+$/,"",key)
+    sub(/^[[:space:]]+/,"",val); sub(/[[:space:]]+$/,"",val)
+
+    # already quoted?
+    if (val ~ /^".*"$/ || val ~ /^'\''.*'\''$/) { print key "=" val; next }
+
+    # quote if value has space, comma, or ://
+    if (val ~ /[[:space:],]|:\/\//) {
+      gsub(/"/, "\\\"", val)
+      print key "=\"" val "\""
+    } else {
+      print key "=" val
+    }
+  }
+' .env > "$tmp" && mv "$tmp" .env
+
+if [[ -f ".env" ]]; then
+    set -a           # auto-export all variables
+    . ./.env         # or: source .env
+    set +a
+else
+    echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set."
+    exit 1
+fi
 
 # we introduced ENCRYPTION_SALT_KEYS and so if there isn't one, need to add it
 # check for it in the .env file

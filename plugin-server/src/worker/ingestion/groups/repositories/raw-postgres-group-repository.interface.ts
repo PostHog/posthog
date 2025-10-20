@@ -2,7 +2,14 @@ import { DateTime } from 'luxon'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { Group, GroupTypeIndex, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
+import {
+    Group,
+    GroupTypeIndex,
+    ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    TeamId,
+} from '../../../../types'
 import { TransactionClient } from '../../../../utils/db/postgres'
 
 export interface RawPostgresGroupRepository {
@@ -13,6 +20,20 @@ export interface RawPostgresGroupRepository {
         options?: { forUpdate?: boolean; useReadReplica?: boolean },
         tx?: TransactionClient
     ): Promise<Group | undefined>
+
+    fetchGroupsByKeys(
+        teamIds: TeamId[],
+        groupTypeIndexes: GroupTypeIndex[],
+        groupKeys: string[],
+        tx?: TransactionClient
+    ): Promise<
+        {
+            team_id: TeamId
+            group_type_index: GroupTypeIndex
+            group_key: string
+            group_properties: Record<string, any>
+        }[]
+    >
 
     insertGroup(
         teamId: TeamId,
@@ -47,6 +68,28 @@ export interface RawPostgresGroupRepository {
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation
     ): Promise<number | undefined>
+
+    // Group Type Methods
+
+    fetchGroupTypesByProjectIds(
+        projectIds: ProjectId[],
+        tx?: TransactionClient
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+
+    fetchGroupTypesByTeamIds(
+        teamIds: TeamId[],
+        tx?: TransactionClient
+    ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
+
+    insertGroupType(
+        teamId: TeamId,
+        projectId: ProjectId,
+        groupType: string,
+        index: number,
+        tx?: TransactionClient
+    ): Promise<[GroupTypeIndex | null, boolean]>
+
+    // Transaction Methods
 
     inRawTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T>
 }

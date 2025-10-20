@@ -2,8 +2,12 @@ from django.utils import timezone
 
 from structlog import get_logger
 
-from posthog.models.notebook.notebook import Notebook
-from posthog.models.notebook.util import (
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
+
+from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.util import (
     TipTapContent,
     TipTapNode,
     create_bullet_list,
@@ -14,9 +18,6 @@ from posthog.models.notebook.util import (
     create_task_list,
     create_text_content,
 )
-from posthog.models.team import Team
-from posthog.models.user import User
-from posthog.temporal.ai.session_summary.types.group import SessionSummaryStep
 
 from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPattern,
@@ -87,9 +88,10 @@ def format_patterns_assignment_progress() -> TipTapNode:
 class SummaryNotebookIntermediateState:
     """Manages the intermediate state of a notebook during session group summarization."""
 
-    def __init__(self, team_name: str):
+    def __init__(self, team_name: str, summary_title: str | None):
         """Initialize the intermediate state with a plan."""
         self.team_name = team_name
+        self.summary_title = summary_title
         # Using dict to maintain order (Python 3.7+ guarantees order)
         self.plan_items: dict[SessionSummaryStep, tuple[str, bool]] = {
             SessionSummaryStep.WATCHING_SESSIONS: ("Watch sessions", False),
@@ -161,7 +163,11 @@ class SummaryNotebookIntermediateState:
         content = []
 
         # Add main title
-        content.append(create_heading_with_text(_create_notebook_title(team_name=self.team_name), 1))
+        content.append(
+            create_heading_with_text(
+                _create_notebook_title(team_name=self.team_name, summary_title=self.summary_title), 1
+            )
+        )
         content.append(create_empty_paragraph())
 
         # Add plan section
@@ -190,15 +196,20 @@ class SummaryNotebookIntermediateState:
         return {"type": "doc", "content": content}
 
 
-def _create_notebook_title(team_name: str) -> str:
-    return f"Session Summaries Report - {team_name} ({timezone.now().strftime('%Y-%m-%d')})"
+def _create_notebook_title(team_name: str, summary_title: str | None) -> str:
+    title = f"Session summaries report - {team_name}"
+    timestamp = timezone.now().strftime("%Y-%m-%d")
+    if summary_title:
+        title += f" - {summary_title}"
+    title += f" ({timestamp})"
+    return title
 
 
-async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
+async def create_empty_notebook_for_summary(user: User, team: Team, summary_title: str | None) -> Notebook:
     """Create an empty notebook for a summary."""
     notebook = await Notebook.objects.acreate(
         team=team,
-        title=_create_notebook_title(team_name=team.name),
+        title=_create_notebook_title(team_name=team.name, summary_title=summary_title),
         content="",
         created_by=user,
         last_modified_by=user,
@@ -206,11 +217,13 @@ async def create_empty_notebook_for_summary(user: User, team: Team) -> Notebook:
     return notebook
 
 
-async def create_notebook_from_summary_content(user: User, team: Team, summary_content: TipTapNode) -> Notebook:
+async def create_notebook_from_summary_content(
+    user: User, team: Team, summary_content: TipTapNode, summary_title: str | None
+) -> Notebook:
     """Create a notebook with session summary patterns."""
     notebook = await Notebook.objects.acreate(
         team=team,
-        title=_create_notebook_title(team_name=team.name),
+        title=_create_notebook_title(team_name=team.name, summary_title=summary_title),
         content=summary_content,
         created_by=user,
         last_modified_by=user,
@@ -232,7 +245,12 @@ async def update_notebook_from_summary_content(
 
 
 def generate_notebook_content_from_summary(
-    summary: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], project_name: str, team_id: int
+    summary: EnrichedSessionGroupSummaryPatternsList,
+    session_ids: list[str],
+    project_name: str,
+    team_id: int,
+    tasks_available: bool = False,
+    summary_title: str | None = None,
 ) -> TipTapNode:
     """Convert summary data to notebook structure."""
     patterns = summary.patterns
@@ -241,7 +259,9 @@ def generate_notebook_content_from_summary(
         return {
             "type": "doc",
             "content": [
-                create_heading_with_text(_create_notebook_title(team_name=project_name), 1),
+                create_heading_with_text(
+                    _create_notebook_title(team_name=project_name, summary_title=summary_title), 1
+                ),
                 create_paragraph_with_text("No patterns found."),
                 create_paragraph_with_text(f"Sessions covered: {', '.join(session_ids)}"),
             ],
@@ -250,7 +270,9 @@ def generate_notebook_content_from_summary(
     # Sort patterns by severity: critical, high, medium, low
     content = []
     # Title
-    content.append(create_heading_with_text(_create_notebook_title(team_name=project_name), 1))
+    content.append(
+        create_heading_with_text(_create_notebook_title(team_name=project_name, summary_title=summary_title), 1)
+    )
     # Issues to review summary
     session_text = "session" if total_sessions == 1 else "sessions"
     content.append(create_heading_with_text(f"Issues to review – based on {total_sessions} {session_text}", 2))
@@ -261,7 +283,9 @@ def generate_notebook_content_from_summary(
 
     # Pattern details
     for pattern in patterns:
-        pattern_content = _create_pattern_section(pattern=pattern, total_sessions=total_sessions, team_id=team_id)
+        pattern_content = _create_pattern_section(
+            pattern=pattern, total_sessions=total_sessions, team_id=team_id, tasks_available=tasks_available
+        )
         content.extend(pattern_content)
 
     content.append(
@@ -337,7 +361,7 @@ def _create_summary_table(patterns: list[EnrichedSessionGroupSummaryPattern], to
 
 
 def _create_pattern_section(
-    pattern: EnrichedSessionGroupSummaryPattern, total_sessions: int, team_id: int
+    pattern: EnrichedSessionGroupSummaryPattern, total_sessions: int, team_id: int, tasks_available: bool
 ) -> TipTapContent:
     """Create detailed pattern section content."""
     content = []
@@ -385,6 +409,15 @@ def _create_pattern_section(
     # Convert indicators to bullet list
     content.append(create_bullet_list(pattern.indicators))
 
+    if tasks_available:
+        try:
+            task_block = _create_task_block(pattern)
+            if task_block is not None:
+                content.append(task_block)
+        except Exception:
+            logger.exception(f"Failed to create task for pattern {pattern.pattern_name}")
+            pass
+
     # Examples section, collapsed to avoid overwhelming the user
     content.append(create_heading_with_text("Examples", 3, collapsed=True))
     # TODO: Decide if to limit examples (or create some sort of collapsible section in notebooks)
@@ -395,6 +428,75 @@ def _create_pattern_section(
         content.extend(example_content)
     content.append(_create_line_separator())
     return content
+
+
+def _create_task_block(pattern: EnrichedSessionGroupSummaryPattern) -> TipTapNode | None:
+    """Build a TipTap node to create a Task from a pattern.
+
+    Returns a `ph-task-create` node with attrs { title, description, severity } or None if invalid.
+    """
+    # Defensive checks in case the object isn't fully populated
+    pattern_name = getattr(pattern, "pattern_name", None)
+    pattern_description = getattr(pattern, "pattern_description", None)
+    pattern_severity = getattr(pattern, "severity", None)
+
+    if not pattern_name or not pattern_description or not pattern_severity:
+        return None
+
+    severity_value = pattern_severity.value if hasattr(pattern_severity, "value") else pattern_severity
+
+    task_description_lines: list[str] = [
+        f"Pattern: {pattern_name}",
+        f"Severity: {str(severity_value).title()}",
+        f"Description: {pattern_description}",
+    ]
+
+    # Add a compact list of indicators for quick context (limit to 5)
+    indicators = getattr(pattern, "indicators", None)
+    if indicators:
+        indicators_text = "; ".join(str(x) for x in indicators[:5])
+        task_description_lines.append(f"Indicators: {indicators_text}")
+
+    # Include a succinct developer-oriented example derived from the first event (if present)
+    first_event = None
+    try:
+        first_event = next(iter(getattr(pattern, "events", []) or []))
+    except Exception:
+        first_event = None
+
+    if first_event is not None:
+        target_event = getattr(first_event, "target_event", None)
+        example_lines: list[str] = [
+            "",
+            "Example:",
+            f"  Segment: {getattr(first_event, 'segment_name', 'Unknown')}",
+            f"  What confirmed: {getattr(target_event, 'description', 'Unknown')}",
+            f"  Where: {getattr(target_event, 'current_url', 'Unknown')}",
+            f"  When: {getattr(target_event, 'milliseconds_since_start', 'Unknown')}ms into session",
+        ]
+
+        prev_list = [
+            getattr(ev, "description", str(ev)) for ev in getattr(first_event, "previous_events_in_segment", [])[:3]
+        ]
+        next_list = [
+            getattr(ev, "description", str(ev)) for ev in getattr(first_event, "next_events_in_segment", [])[:3]
+        ]
+
+        if prev_list:
+            example_lines.append(f"  Previous: {'; '.join(prev_list)}")
+        if next_list:
+            example_lines.append(f"  Next: {'; '.join(next_list)}")
+
+        task_description_lines.extend(example_lines)
+
+    return {
+        "type": "ph-task-create",
+        "attrs": {
+            "title": pattern_name,
+            "description": "\n".join(task_description_lines),
+            "severity": str(severity_value).title(),
+        },
+    }
 
 
 def _create_example_section(event_data: PatternAssignedEventSegmentContext, team_id: int) -> TipTapContent:

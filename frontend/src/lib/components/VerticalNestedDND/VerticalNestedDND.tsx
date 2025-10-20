@@ -812,7 +812,6 @@ export const ChildItem = React.memo(
                 }`}
             >
                 <div
-                    data-cypress="draggable-item"
                     {...(!handle ? listeners : undefined)}
                     {...props}
                     tabIndex={!handle ? 0 : undefined}

@@ -25,7 +25,9 @@ class SalesforceSource(BaseSource[SalesforceSourceConfig], OAuthMixin):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SALESFORCE
 
-    def get_schemas(self, config: SalesforceSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: SalesforceSourceConfig, team_id: int, with_counts: bool = False
+    ) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -41,6 +43,8 @@ class SalesforceSource(BaseSource[SalesforceSourceConfig], OAuthMixin):
         return SourceConfig(
             name=SchemaExternalDataSourceType.SALESFORCE,
             caption="Select an existing Salesforce account to link to PostHog or create a new connection",
+            iconPath="/static/services/salesforce.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/salesforce",
             fields=cast(
                 list[FieldType],
                 [

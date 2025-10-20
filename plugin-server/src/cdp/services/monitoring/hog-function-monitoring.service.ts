@@ -1,5 +1,6 @@
 import { Counter, Histogram } from 'prom-client'
 
+import { InternalCaptureEvent } from '~/common/services/internal-capture'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { Hub, TimestampFormat } from '../../../types'
@@ -16,7 +17,7 @@ import {
     MetricLogSource,
     MinimalAppMetric,
 } from '../../types'
-import { convertToCaptureEvent, fixLogDeduplication } from '../../utils'
+import { fixLogDeduplication } from '../../utils'
 
 const counterHogFunctionMetric = new Counter({
     name: 'cdp_hog_function_metric',
@@ -46,15 +47,18 @@ export const isHogFunctionResult = (
 
 export class HogFunctionMonitoringService {
     messagesToProduce: HogFunctionMonitoringMessage[] = []
+    eventsToCapture: InternalCaptureEvent[] = []
 
     constructor(private hub: Hub) {}
 
-    async produceQueuedMessages() {
+    async flush() {
         const messages = [...this.messagesToProduce]
         this.messagesToProduce = []
+        const eventsToCapture = [...this.eventsToCapture]
+        this.eventsToCapture = []
 
-        await Promise.all(
-            messages.map((x) => {
+        await Promise.all([
+            ...messages.map((x) => {
                 const value = x.value ? Buffer.from(safeClickhouseString(JSON.stringify(x.value))) : null
                 return this.hub.kafkaProducer
                     .produce({
@@ -76,8 +80,14 @@ export class HogFunctionMonitoringService {
 
                         captureException(error)
                     })
-            })
-        )
+            }),
+            eventsToCapture.map((event) =>
+                this.hub.internalCaptureService.capture(event).catch((error) => {
+                    logger.error('Error capturing internal event', { error })
+                    captureException(error)
+                })
+            ),
+        ])
     }
 
     queueAppMetric(metric: MinimalAppMetric, source: MetricLogSource) {
@@ -166,14 +176,13 @@ export class HogFunctionMonitoringService {
                         if (!team) {
                             continue
                         }
-                        this.messagesToProduce.push({
-                            topic: this.hub.HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC,
-                            value: convertToCaptureEvent(event, team),
-                            key: `${team.api_token}:${event.distinct_id}`,
-                            headers: {
-                                distinct_id: event.distinct_id,
-                                token: team.api_token,
-                            },
+
+                        this.eventsToCapture.push({
+                            team_token: team.api_token,
+                            event: event.event,
+                            distinct_id: event.distinct_id,
+                            timestamp: event.timestamp,
+                            properties: event.properties,
                         })
                     }
                 })

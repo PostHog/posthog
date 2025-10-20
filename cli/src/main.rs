@@ -1,4 +1,5 @@
-use posthog_cli::{cmd, utils::posthog::init_posthog};
+use posthog_cli::cmd;
+use rayon::ThreadPoolBuilder;
 use tracing::{error, info};
 
 fn main() {
@@ -10,9 +11,13 @@ fn main() {
         )
         .finish();
 
-    tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
+    // Init the rayon thread pool
+    ThreadPoolBuilder::new()
+        .num_threads(10)
+        .build_global()
+        .expect("We successfully install a global thread pool");
 
-    init_posthog();
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
 
     match cmd::Cli::run() {
         Ok(_) => info!("All done, happy hogging!"),

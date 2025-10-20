@@ -13,6 +13,26 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
+    @classmethod
+    def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
+        """
+        Google Ads campaigns can be tagged with various UTM sources.
+        Map all of them to the primary 'google' identifier.
+        """
+        return {
+            "google": [
+                "google",
+                "youtube",
+                "display",
+                "gmail",
+                "google_maps",
+                "google_play",
+                "google_discover",
+                "admob",
+                "waze",
+            ]
+        }
+
     def get_source_type(self) -> str:
         return "GoogleAds"
 
@@ -41,9 +61,6 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
         campaign_table_name = self.config.campaign_table.name
         return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "campaign_name"])])
 
-    def _get_source_name_field(self) -> ast.Expr:
-        return ast.Call(name="toString", args=[ast.Constant(value="google")])
-
     def _get_impressions_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
         sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_impressions"])])
@@ -52,6 +69,11 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
     def _get_clicks_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
         sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_clicks"])])
+        return ast.Call(name="toFloat", args=[sum])
+
+    def _get_reported_conversion_field(self) -> ast.Expr:
+        stats_table_name = self.config.stats_table.name
+        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_conversions"])])
         return ast.Call(name="toFloat", args=[sum])
 
     def _get_cost_field(self) -> ast.Expr:

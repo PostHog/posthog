@@ -14,6 +14,8 @@ import {
 
 import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
+import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
+import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
 import { SharingConfigurationType } from '~/types'
 
 import { getAvailableProductFeatures } from './features'
@@ -42,12 +44,13 @@ const hogFunctionTemplateRetrieveMock: MockSignature = (req, res, ctx) => {
 }
 
 const hogFunctionTemplatesMock: MockSignature = (req, res, ctx) => {
-    const results =
-        req.url.searchParams.get('types') === 'transformation'
-            ? _hogFunctionTemplatesTransformations
-            : _hogFunctionTemplatesDestinations
+    const results = req.url.searchParams.get('types')?.includes('transformation')
+        ? _hogFunctionTemplatesTransformations
+        : req.url.searchParams.get('types')?.includes('destination')
+          ? _hogFunctionTemplatesDestinations
+          : []
 
-    return res(ctx.json({ ...results }))
+    return res(ctx.json(results))
 }
 
 // this really returns MaybePromise<ResponseFunction<any>>
@@ -66,7 +69,7 @@ function posthogCORSResponse(req: RestRequest, res: ResponseComposition, ctx: Re
 
 export const defaultMocks: Mocks = {
     get: {
-        '/api/projects/:team_id/important_changes/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/my_notifications/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
@@ -106,7 +109,6 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/feature_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/': EMPTY_PAGINATED_RESPONSE,
-        '/api/environments/:team_id/explicit_members/': [],
         '/api/environments/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
@@ -211,9 +213,11 @@ export const defaultMocks: Mocks = {
         'api/environments/:team_id/error_tracking/grouping_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/suppression_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/symbol_sets': EMPTY_PAGINATED_RESPONSE,
-        'api/projects/@current/global_access_controls': EMPTY_PAGINATED_RESPONSE,
+        'api/projects/@current/resource_access_controls': EMPTY_PAGINATED_RESPONSE,
         'api/projects/@current/access_controls': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/notebooks/recording_comments': EMPTY_PAGINATED_RESPONSE,
+        '/api/sdk_versions/': sdkVersions,
+        '/api/team_sdk_versions/': teamSdkVersions,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
@@ -223,7 +227,7 @@ export const defaultMocks: Mocks = {
         '/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/flags/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         'https://us.i.posthog.com/engage/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
-        '/api/environments/:team_id/insights/:insight_id/viewed/': (): MockSignature => [201, null],
+        '/api/environments/:team_id/insights/viewed/': (): MockSignature => [201, null],
         'api/environments/:team_id/query': [200, { results: [] }],
     },
     patch: {

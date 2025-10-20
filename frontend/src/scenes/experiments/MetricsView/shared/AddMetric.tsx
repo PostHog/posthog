@@ -1,14 +1,11 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
 export function AddPrimaryMetric(): JSX.Element {
-    const { primaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
     const { openPrimaryMetricSourceModal } = useActions(modalsLogic)
 
     return (
@@ -19,11 +16,6 @@ export function AddPrimaryMetric(): JSX.Element {
             onClick={() => {
                 openPrimaryMetricSourceModal()
             }}
-            disabledReason={
-                primaryMetricsLengthWithSharedMetrics >= EXPERIMENT_MAX_PRIMARY_METRICS
-                    ? `You can only add up to ${EXPERIMENT_MAX_PRIMARY_METRICS} primary metrics.`
-                    : undefined
-            }
         >
             Add primary metric
         </LemonButton>
@@ -31,8 +23,8 @@ export function AddPrimaryMetric(): JSX.Element {
 }
 
 export function AddSecondaryMetric(): JSX.Element {
-    const { secondaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
     const { openSecondaryMetricSourceModal } = useActions(modalsLogic)
+
     return (
         <LemonButton
             icon={<IconPlus />}
@@ -41,11 +33,6 @@ export function AddSecondaryMetric(): JSX.Element {
             onClick={() => {
                 openSecondaryMetricSourceModal()
             }}
-            disabledReason={
-                secondaryMetricsLengthWithSharedMetrics >= EXPERIMENT_MAX_SECONDARY_METRICS
-                    ? `You can only add up to ${EXPERIMENT_MAX_SECONDARY_METRICS} secondary metrics.`
-                    : undefined
-            }
         >
             Add secondary metric
         </LemonButton>

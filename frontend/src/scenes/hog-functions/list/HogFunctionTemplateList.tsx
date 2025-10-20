@@ -4,10 +4,7 @@ import { useEffect } from 'react'
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
-import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-
-import { AvailableFeature } from '~/types'
 
 import { HogFunctionIcon } from '../configuration/HogFunctionIcon'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
@@ -19,7 +16,7 @@ export function HogFunctionTemplateList({
     hideFeedback = false,
     ...props
 }: HogFunctionTemplateListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
-    const { loading, filteredTemplates, filters, templates, canEnableHogFunction, urlForTemplate } = useValues(
+    const { loading, filteredTemplates, filters, templates, urlForTemplate } = useValues(
         hogFunctionTemplateListLogic(props)
     )
     const { loadHogFunctionTemplates, setFilters, resetFilters, registerInterest } = useActions(
@@ -30,8 +27,8 @@ export function HogFunctionTemplateList({
     useEffect(() => loadHogFunctionTemplates(), [props.type]) // oxlint-disable-line exhaustive-deps
 
     return (
-        <>
-            <div className="flex gap-2 items-center mb-2">
+        <div className="flex flex-col gap-4">
+            <div className="flex gap-2 items-center">
                 <LemonInput
                     type="search"
                     placeholder="Search..."
@@ -62,13 +59,13 @@ export function HogFunctionTemplateList({
                     {
                         title: 'Name',
                         sticky: true,
-                        sorter: true,
+                        sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
                         key: 'name',
                         dataIndex: 'name',
                         render: (_, template) => {
                             return (
                                 <LemonTableLink
-                                    to={urlForTemplate(template)}
+                                    to={urlForTemplate(template) ?? undefined}
                                     title={
                                         <>
                                             {template.name}
@@ -97,20 +94,16 @@ export function HogFunctionTemplateList({
                                     </LemonButton>
                                 )
                             }
-                            return canEnableHogFunction(template) ? (
+                            return (
                                 <LemonButton
                                     type="primary"
                                     data-attr="new-destination"
                                     icon={<IconPlusSmall />}
-                                    to={urlForTemplate(template)}
+                                    to={urlForTemplate(template) ?? undefined}
                                     fullWidth
                                 >
                                     Create
                                 </LemonButton>
-                            ) : (
-                                <span className="whitespace-nowrap">
-                                    <PayGateButton feature={AvailableFeature.DATA_PIPELINES} type="secondary" />
-                                </span>
                             )
                         },
                     },
@@ -125,6 +118,6 @@ export function HogFunctionTemplateList({
                     )
                 }
             />
-        </>
+        </div>
     )
 }

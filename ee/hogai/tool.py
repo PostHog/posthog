@@ -1,78 +1,24 @@
 import json
 import pkgutil
 import importlib
-from typing import Any, Literal
+from collections.abc import Sequence
+from typing import Any, Literal, Self
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantContextualTool, AssistantNavigateUrls
+from posthog.schema import AssistantContextualTool
 
 from posthog.models import Team, User
 
 import products
 
+from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
-
-
-# Lower casing matters here. Do not change it.
-class create_and_query_insight(BaseModel):
-    """
-    Retrieve results for a specific data question by creating a query (aka insight), or iterate on a previous query.
-    This tool only retrieves data for a single query at a time.
-    """
-
-    query_description: str = Field(
-        description=(
-            "A description of the query to generate, encapsulating the details of the user's request. "
-            "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
-            "If an existing insight has been used as a starting point, include that insight's filters and query in the description. "
-            "Don't be overly prescriptive with event or property names, unless the user indicated they mean this specific name (e.g. with quotes). "
-            "If the users seems to ask for a list of entities, rather than a count, state this explicitly."
-        )
-    )
-
-
-class search_insights(BaseModel):
-    """
-    Search through existing insights to find matches based on the user's query.
-    Use this tool when users ask to find, search for, or look up existing insights.
-    """
-
-    search_query: str = Field(
-        description="The user's query to search for insights. "
-        "Include all relevant context from earlier messages too, as the tool won't see that conversation history."
-    )
-
-
-class session_summarization(BaseModel):
-    """
-    Analyze sessions by finding relevant sessions based on user query and summarizing their events.
-    Use this tool for summarizing sessions, when users ask to summarize (e.g. watch, analyze) specific sessions (e.g. replays, recordings)
-    """
-
-    session_summarization_query: str = Field(
-        description="The user's complete query for session summarization. This will be used to find relevant sessions. Examples: 'summarize sessions from yesterday', 'watch what user X did on the checkout page', 'analyze mobile user sessions from last week'"
-    )
-
-
-class search_documentation(BaseModel):
-    """
-    Answer the question using the latest PostHog documentation. This performs a documentation search.
-    PostHog docs and tutorials change frequently, which makes this tool required.
-    Do NOT use this tool if the necessary information is already in the conversation or context (except when you need to check whether an assumption presented is correct or not).
-    """
-
-
-class retrieve_billing_information(BaseModel):
-    """
-    Retrieve detailed billing information for the current organization.
-    Use this tool when the user asks about billing, subscription, usage, or spending related questions.
-    """
-
+from ee.hogai.utils.types.base import AssistantMessageUnion
 
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantContextualTool, type["MaxTool"]] = {}
 
@@ -96,6 +42,12 @@ def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
     return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantContextualTool(tool_name)]
 
 
+class ToolMessagesArtifact(BaseModel):
+    """Return messages directly. Use with `artifact`."""
+
+    messages: Sequence[AssistantMessageUnion]
+
+
 class MaxTool(AssistantContextMixin, BaseTool):
     # LangChain's default is just "content", but we always want to return the tool call artifact too
     # - it becomes the `ui_payload`
@@ -105,17 +57,19 @@ class MaxTool(AssistantContextMixin, BaseTool):
     """The message shown to let the user know this tool is being used. One sentence, no punctuation.
     For example, "Updating filters"
     """
-    root_system_prompt_template: str = "No context provided for this tool."
-    """The template for context associated with this tool, that will be injected into the root node's system prompt.
+
+    context_prompt_template: str = "No context provided for this tool."
+    """The template for context associated with this tool, that will be injected into the root node's context messages.
     Use this if you need to strongly steer the root node in deciding _when_ and _whether_ to use the tool.
     It will be formatted like an f-string, with the tool context as the variables.
     For example, "The current filters the user is seeing are: {current_filters}."
     """
+
     show_tool_call_message: bool = Field(description="Whether to show tool call messages.", default=True)
 
-    _context: dict[str, Any]
     _config: RunnableConfig
     _state: AssistantState
+    _context_manager: AssistantContextManager
 
     # DEPRECATED: Use `_arun_impl` instead
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
@@ -126,11 +80,33 @@ class MaxTool(AssistantContextMixin, BaseTool):
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
 
-    def __init__(self, *, team: Team, user: User, state: AssistantState | None = None, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(
+        self,
+        *,
+        team: Team,
+        user: User,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+        name: str | None = None,
+        description: str | None = None,
+        args_schema: type[BaseModel] | None = None,
+        context_manager: AssistantContextManager | None = None,
+        **kwargs,
+    ):
+        tool_kwargs: dict[str, Any] = {}
+        if name is not None:
+            tool_kwargs["name"] = name
+        if description is not None:
+            tool_kwargs["description"] = description
+        if args_schema is not None:
+            tool_kwargs["args_schema"] = args_schema
+
+        super().__init__(**tool_kwargs, **kwargs)
         self._team = team
         self._user = user
         self._state = state if state else AssistantState(messages=[])
+        self._config = config if config else RunnableConfig(configurable={})
+        self._context_manager = context_manager or AssistantContextManager(team, user, self._config)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -147,71 +123,41 @@ class MaxTool(AssistantContextMixin, BaseTool):
             raise ValueError("You must set `thinking_message` on the tool, so that we can show the tool kicking off")
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
-        self._init_run(config)
         try:
             return self._run_impl(*args, **kwargs)
         except NotImplementedError:
-            return async_to_sync(self._arun_impl)(*args, **kwargs)
+            pass
+        return async_to_sync(self._arun_impl)(*args, **kwargs)
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
-        self._init_run(config)
         try:
             return await self._arun_impl(*args, **kwargs)
         except NotImplementedError:
-            return await super()._arun(*args, config=config, **kwargs)
-
-    def _init_run(self, config: RunnableConfig):
-        self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
-        self._team = config["configurable"]["team"]
-        self._user = config["configurable"]["user"]
-        self._config = {
-            "recursion_limit": 48,
-            "callbacks": config.get("callbacks", []),
-            "configurable": {
-                "thread_id": config["configurable"].get("thread_id"),
-                "trace_id": config["configurable"].get("trace_id"),
-                "distinct_id": config["configurable"].get("distinct_id"),
-                "team": self._team,
-                "user": self._user,
-            },
-        }
+            pass
+        return await super()._arun(*args, config=config, **kwargs)
 
     @property
     def context(self) -> dict:
-        if not hasattr(self, "_context"):
-            raise AttributeError("Tool has not been run yet")
-        return self._context
+        return self._context_manager.get_contextual_tools().get(self.get_name(), {})
 
-    def format_system_prompt_injection(self, context: dict[str, Any]) -> str:
+    def format_context_prompt_injection(self, context: dict[str, Any]) -> str:
         formatted_context = {
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
         }
-        return self.root_system_prompt_template.format(**formatted_context)
+        return self.context_prompt_template.format(**formatted_context)
 
+    @classmethod
+    async def create_tool_class(
+        cls,
+        *,
+        team: Team,
+        user: User,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+    ) -> Self:
+        """
+        Factory that creates a tool class.
 
-class NavigateToolArgs(BaseModel):
-    page_key: AssistantNavigateUrls = Field(
-        description="The specific key identifying the page to navigate to. Must be one of the predefined literal values."
-    )
-
-
-class NavigateTool(MaxTool):
-    name: str = "navigate"
-    description: str = (
-        "Navigates to a specified, predefined page or section within the PostHog application using a specific page key. "
-        "This tool uses a fixed list of page keys and cannot navigate to arbitrary URLs or pages requiring dynamic IDs not already encoded in the page key. "
-        "After navigating, you'll be able to use that page's tools."
-    )
-    root_system_prompt_template: str = (
-        "You're currently on the {current_page} page. "
-        "You can navigate to one of the available pages using the 'navigate' tool. "
-        "Some of these pages have tools that you can use to get more information or perform actions. "
-        "After navigating to a new page, you'll have access to that page's specific tools."
-    )
-    thinking_message: str = "Navigating"
-    args_schema: type[BaseModel] = NavigateToolArgs
-
-    def _run_impl(self, page_key: AssistantNavigateUrls) -> tuple[str, Any]:
-        # Note that page_key should get replaced by a nicer breadcrumbs-based name in the frontend
-        # but it's useful for the LLM to still have the page_key in chat history
-        return f"Navigated to **{page_key}**.", {"page_key": page_key}
+        Override this factory to dynamically modify the tool name, description, args schema, etc.
+        """
+        return cls(team=team, user=user, state=state, config=config)

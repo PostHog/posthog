@@ -13,12 +13,14 @@ type CompareFilterProps = {
     compareFilter?: CompareFilterType | null
     updateCompareFilter: (compareFilter: CompareFilterType) => void
     disabled?: boolean
+    disableReason?: string | null
 }
 
 export function CompareFilter({
     compareFilter,
     updateCompareFilter,
     disabled,
+    disableReason,
 }: CompareFilterProps): JSX.Element | null {
     // This keeps the state of the rolling date range filter, even when different drop down options are selected
     // The default value for this is one month
@@ -32,11 +34,6 @@ export function CompareFilter({
             setTentativeCompareTo(newCompareTo)
         }
     }, [compareFilter?.compare_to]) // oxlint-disable-line react-hooks/exhaustive-deps
-
-    // Hide compare filter control when disabled to avoid states where control is "disabled but checked"
-    if (disabled) {
-        return null
-    }
 
     const options = [
         {
@@ -113,6 +110,8 @@ export function CompareFilter({
             data-attr="compare-filter"
             options={options}
             size="small"
+            disabled={disabled}
+            disabledReason={disableReason}
         />
     )
 }

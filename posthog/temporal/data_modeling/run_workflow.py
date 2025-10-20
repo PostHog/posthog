@@ -541,13 +541,6 @@ async def materialize_model(
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
-        elif "no log files" in error_message:
-            error_message = f"Query did not return rows. Try changing your time range or query."
-            saved_query.latest_error = error_message
-            await logger.ainfo("Query did not return results for model %s, reverting materialization", model_label)
-            await revert_materialization(saved_query, logger)
-            await mark_job_as_failed(job, error_message, logger)
-            raise Exception(f"Query did not return results for model {model_label}: {error_message}") from e
         elif "Memory limit" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
@@ -579,11 +572,29 @@ async def materialize_model(
     file_uris = delta_table.file_uris()
 
     await logger.adebug("Copying query files in S3")
-    prepare_s3_files_for_querying(saved_query.folder_path, saved_query.normalized_name, file_uris, True)
+    folder_path = prepare_s3_files_for_querying(
+        folder_path=saved_query.folder_path,
+        table_name=saved_query.normalized_name,
+        file_uris=file_uris,
+        preserve_table_name_casing=True,
+        existing_queryable_folder=saved_query.table.queryable_folder if saved_query.table else None,
+        logger=logger,
+    )
+
+    saved_query.is_materialized = True
+    await database_sync_to_async(saved_query.save)()
+
+    await logger.adebug("Creating DataWarehouseTable model")
+    dwh_table = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
+
+    await database_sync_to_async(saved_query.refresh_from_db)()
+    saved_query.table = dwh_table
+    await database_sync_to_async(saved_query.save)()
 
     await update_table_row_count(saved_query, row_count, logger)
 
     # Update the job record with the row count and completed status
+    await database_sync_to_async(job.refresh_from_db)()
     job.rows_materialized = row_count
     job.status = DataModelingJob.Status.COMPLETED
     job.last_run_at = dt.datetime.now(dt.UTC)
@@ -613,26 +624,12 @@ async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: F
     unrecoverable error, like a table reference no longer existing.
     """
     try:
-        from posthog.warehouse.data_load.saved_query_service import delete_saved_query_schedule
-
-        await database_sync_to_async(delete_saved_query_schedule)(str(saved_query.id))
-
-        saved_query.sync_frequency_interval = None
-        saved_query.status = None
-        saved_query.last_run_at = None
-        saved_query.latest_error = None
-
-        # Clear the table reference so consumers will use the on-demand view instead
-        if saved_query.table is not None:
-            saved_query.table = None
-            table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
-            await database_sync_to_async(table.soft_delete)()
-
-        await database_sync_to_async(saved_query.save)()
+        await database_sync_to_async(saved_query.revert_materialization)()
 
         await logger.ainfo("Successfully reverted materialization for saved query %s", saved_query.name)
 
     except Exception as e:
+        capture_exception(e)
         await logger.aexception("Failed to revert materialization for saved query %s: %s", saved_query.name, str(e))
 
 
@@ -1272,55 +1269,6 @@ async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
         raise
 
 
-@dataclasses.dataclass
-class CreateTableActivityInputs:
-    models: list[str]
-    team_id: int
-
-    @property
-    def properties_to_log(self) -> dict[str, typing.Any]:
-        return {
-            "team_id": self.team_id,
-        }
-
-
-@temporalio.activity.defn
-async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
-    """Create/attach tables and persist their row-count."""
-    tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
-    bind_contextvars(team_id=inputs.team_id)
-    logger = LOGGER.bind()
-
-    for model in inputs.models:
-        try:
-            model_id = uuid.UUID(model)
-        except ValueError:
-            await logger.aerror(
-                f"Invalid model identifier '{model}': expected UUID format - this indicates a race condition or data integrity issue"
-            )
-            continue  # Skip this model if it's not a valid UUID
-
-        await create_table_from_saved_query(model, inputs.team_id)
-
-        try:
-            saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.select_related("table").get)(
-                id=model_id, team_id=inputs.team_id
-            )
-
-            if not saved_query.table:
-                await logger.aerror(
-                    f"Saved query {saved_query.name} (ID: {saved_query.id}) has no table - this indicates a data integrity issue"
-                )
-                continue
-
-            table = saved_query.table
-
-            table.row_count = await database_sync_to_async(table.get_count)()
-            await database_sync_to_async(table.save)()
-        except Exception as err:
-            await logger.aexception(f"Failed to update table row count for {model}: {err}")
-
-
 async def update_saved_query_status(
     label: str, status: DataWarehouseSavedQuery.Status, run_at: dt.datetime | None, team_id: int
 ):
@@ -1471,7 +1419,7 @@ class RunWorkflow(PostHogWorkflow):
                 run_dag_activity,
                 run_model_activity_inputs,
                 start_to_close_timeout=dt.timedelta(hours=1),
-                heartbeat_timeout=dt.timedelta(minutes=1),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=1,
                 ),
@@ -1528,21 +1476,6 @@ class RunWorkflow(PostHogWorkflow):
             get_data_modeling_finished_metric(status="failed").add(1)
         elif completed:
             get_data_modeling_finished_metric(status="completed").add(1)
-
-        selected_labels = [selector.label for selector in inputs.select]
-        create_table_activity_inputs = CreateTableActivityInputs(
-            models=[label for label in completed if label in selected_labels], team_id=inputs.team_id
-        )
-        await temporalio.workflow.execute_activity(
-            create_table_activity,
-            create_table_activity_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=1,
-            ),
-        )
 
         finish_run_activity_inputs = FinishRunActivityInputs(
             completed=[label for label in completed if dag[label].selected is True],

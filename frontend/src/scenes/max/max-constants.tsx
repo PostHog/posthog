@@ -47,20 +47,30 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
         description: string
     }
     /** Optional: When in context, the tool can add items to the pool of Max's suggested questions */
-    suggestions?: string[] // TODO: Suggestions aren't used yet, pending a refactor of maxLogic's allSuggestions
+    suggestions?: string[]
     /** The callback function that will be executed with the LLM's tool call output */
-    callback?: (toolOutput: any) => void | Promise<void>
+    callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
 }
 
 export const TOOL_DEFINITIONS: Omit<
     Record<AssistantContextualTool, ToolDefinition>,
-    'fix_hogql_query' | 'search_insights'
+    'fix_hogql_query' | 'search_insights' | 'read_data' | 'read_taxonomy' | 'todo_write'
 > = {
+    search: {
+        name: 'Search',
+        description: 'Search documentation and your data in PostHog',
+        product: null,
+    },
     session_summarization: {
         name: 'Summarize sessions',
         description: 'Summarize sessions to analyze real user behavior',
         product: null,
         flag: 'max-session-summarization',
+    },
+    create_dashboard: {
+        name: 'Create dashboards',
+        description: 'Create dashboards with insights based on your requirements',
+        product: null,
     },
     search_docs: {
         name: 'Search docs',
@@ -117,7 +127,7 @@ export const TOOL_DEFINITIONS: Omit<
         name: 'Find impactful issues',
         description: 'Find impactful issues affecting your conversion, activation, or any other events',
         product: Scene.ErrorTracking,
-        flag: FEATURE_FLAGS.ERROR_TRACKING_IMPACT_MAX_TOOL,
+        flag: FEATURE_FLAGS.ERROR_TRACKING_ISSUE_CORRELATION,
     },
     experiment_results_summary: {
         name: 'Summarize experiment results',
@@ -130,10 +140,25 @@ export const TOOL_DEFINITIONS: Omit<
         description: 'Create surveys in seconds',
         product: Scene.Surveys,
     },
+    analyze_survey_responses: {
+        name: 'Analyze survey responses',
+        description: 'Analyze survey responses to extract themes and actionable insights',
+        product: Scene.Surveys,
+    },
     create_message_template: {
         name: 'Create email templates',
         description: 'Create email templates from scratch or using a URL for inspiration',
-        product: Scene.Messaging,
+        product: Scene.Workflows,
+    },
+    edit_current_dashboard: {
+        name: 'Add insight to the dashboard',
+        description: "Add insight to the dashboard you're viewing",
+        product: Scene.Dashboard,
+    },
+    filter_revenue_analytics: {
+        name: 'Filter revenue analytics',
+        description: 'Filter revenue analytics to find the most impactful revenue insights',
+        product: Scene.RevenueAnalytics,
     },
 }
 

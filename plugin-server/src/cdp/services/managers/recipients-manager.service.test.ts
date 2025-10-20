@@ -25,7 +25,7 @@ describe('RecipientsManager', () => {
         await closeHub(hub)
     })
 
-    async function createRecipient(teamId: number, identifier: string, preferences: Record<string, string> = {}) {
+    const createRecipient = async (teamId: number, identifier: string, preferences: Record<string, string> = {}) => {
         const id = new UUIDT().toString()
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,

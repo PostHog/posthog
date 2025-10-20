@@ -1,95 +1,158 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { urls } from 'scenes/urls'
 
-import { errorTrackingDataNodeLogic } from '../../errorTrackingDataNodeLogic'
-import { AssigneeLabelDisplay } from '../Assignee/AssigneeDisplay'
-import { AssigneeSelect } from '../Assignee/AssigneeSelect'
-import { GenericSelect } from '../GenericSelect'
-import { LabelIndicator, StatusIndicator } from '../Indicator'
-import { issueQueryOptionsLogic } from './issueQueryOptionsLogic'
+import { groupsModel } from '~/models/groupsModel'
+import { GroupTypeIndex, ProductKey } from '~/types'
+
+import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
+
+import { issuesDataNodeLogic } from '../../logics/issuesDataNodeLogic'
+import {
+    ErrorTrackingQueryOrderBy,
+    ErrorTrackingQueryRevenueEntity,
+    issueQueryOptionsLogic,
+} from './issueQueryOptionsLogic'
+
+const labels = {
+    last_seen: 'Last seen',
+    first_seen: 'First seen',
+    occurrences: 'Occurrences',
+    users: 'Users',
+    sessions: 'Sessions',
+    revenue: 'Revenue',
+}
+
+type GroupOptions = Record<`group_${GroupTypeIndex}`, string>
 
 export const IssueQueryOptions = (): JSX.Element => {
-    const { assignee, orderBy, status, orderDirection } = useValues(issueQueryOptionsLogic)
-    const { setAssignee, setOrderBy, setStatus, setOrderDirection } = useActions(issueQueryOptionsLogic)
+    const { groupTypes } = useValues(groupsModel)
+    const { orderBy, orderDirection, revenuePeriod, revenueEntity } = useValues(issueQueryOptionsLogic)
+    const { setOrderBy, setRevenueEntity, setOrderDirection, setRevenuePeriod } = useActions(issueQueryOptionsLogic)
+    const { hasRevenueTables, hasRevenueEvents } = useValues(revenueAnalyticsLogic)
+    const hasRevenueSorting = useFeatureFlag('ERROR_TRACKING_REVENUE_SORTING')
+
+    const hasRevenueAnalytics = hasRevenueTables || hasRevenueEvents
+
+    const onSelectRevenueEntity = (entity: ErrorTrackingQueryRevenueEntity): void => {
+        posthog.capture('error_tracking_sort_by_revenue_clicked', { entity })
+        setOrderBy('revenue')
+        setRevenueEntity(entity)
+    }
+
+    const groupOptions = Object.fromEntries(
+        Array.from(groupTypes.values()).map(({ group_type, group_type_index }) => [
+            `group_${group_type_index}`,
+            group_type,
+        ])
+    ) as GroupOptions
 
     return (
         <span className="flex items-center justify-between gap-2 self-end">
             <Reload />
             <div className="flex items-center gap-2 self-end">
-                <GenericSelect<ErrorTrackingIssue['status'] | 'all' | null>
-                    values={['all', 'active', 'resolved', 'suppressed']}
-                    current={status || null}
-                    renderValue={(key) => {
-                        switch (key) {
-                            case 'all':
-                            case null:
-                                return <LabelIndicator intent="muted" label="All" size="small" />
-                            default:
-                                return <StatusIndicator status={key} size="small" />
-                        }
-                    }}
-                    placeholder="Select status"
-                    onChange={(value) => setStatus(value || undefined)}
-                    size="small"
-                />
                 <div className="flex items-center gap-1">
                     <span>Sort by:</span>
-                    <LemonSelect
-                        onChange={setOrderBy}
-                        value={orderBy}
-                        options={[
+
+                    <LemonMenu
+                        items={[
                             {
-                                value: 'last_seen',
-                                label: 'Last seen',
+                                label: labels['last_seen'],
+                                onClick: () => setOrderBy('last_seen'),
                             },
                             {
-                                value: 'first_seen',
-                                label: 'First seen',
+                                label: labels['first_seen'],
+                                onClick: () => setOrderBy('first_seen'),
                             },
                             {
-                                value: 'occurrences',
-                                label: 'Occurrences',
+                                label: labels['occurrences'],
+                                onClick: () => setOrderBy('occurrences'),
                             },
                             {
-                                value: 'users',
-                                label: 'Users',
+                                label: labels['users'],
+                                onClick: () => setOrderBy('users'),
                             },
                             {
-                                value: 'sessions',
-                                label: 'Sessions',
+                                label: labels['sessions'],
+                                onClick: () => setOrderBy('sessions'),
+                            },
+                            hasRevenueSorting && {
+                                label: 'Revenue',
+                                ...(hasRevenueAnalytics
+                                    ? {
+                                          placement: 'right-start',
+                                          items: [
+                                              {
+                                                  label: 'Persons',
+                                                  onClick: () => onSelectRevenueEntity('person'),
+                                              },
+                                              ...Object.entries(groupOptions).map(([value, label]) => ({
+                                                  label: capitalizeFirstLetter(label),
+                                                  onClick: () =>
+                                                      onSelectRevenueEntity(value as ErrorTrackingQueryRevenueEntity),
+                                              })),
+                                          ],
+                                      }
+                                    : {
+                                          onClick: () => {
+                                              posthog.capture('error_tracking_sort_by_revenue_clicked')
+                                              addProductIntentForCrossSell({
+                                                  from: ProductKey.ERROR_TRACKING,
+                                                  to: ProductKey.REVENUE_ANALYTICS,
+                                                  intent_context: ProductIntentContext.ERROR_TRACKING_ISSUE_SORTING,
+                                              })
+                                              router.actions.push(urls.revenueAnalytics())
+                                          },
+                                      }),
                             },
                         ]}
-                        size="small"
-                    />
-                    <LemonSelect
-                        onChange={setOrderDirection}
-                        value={orderDirection}
-                        options={[
-                            {
-                                value: 'DESC',
-                                label: 'Descending',
-                            },
-                            {
-                                value: 'ASC',
-                                label: 'Ascending',
-                            },
-                        ]}
-                        size="small"
-                    />
-                </div>
-                <div className="flex items-center gap-1">
-                    <span>Assigned to:</span>
-                    <AssigneeSelect assignee={assignee ?? null} onChange={(assignee) => setAssignee(assignee)}>
-                        {(displayAssignee) => (
-                            <LemonButton type="secondary" size="small">
-                                <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Any user" />
-                            </LemonButton>
-                        )}
-                    </AssigneeSelect>
+                    >
+                        <LemonButton size="small" type="secondary">
+                            {sortByLabel(orderBy, revenueEntity, groupOptions)}
+                        </LemonButton>
+                    </LemonMenu>
+
+                    {orderBy === 'revenue' ? (
+                        <LemonSelect
+                            onChange={setRevenuePeriod}
+                            value={revenuePeriod}
+                            options={[
+                                {
+                                    value: 'last_30_days',
+                                    label: 'Last 30 days',
+                                },
+                                {
+                                    value: 'all_time',
+                                    label: 'All time',
+                                },
+                            ]}
+                            size="small"
+                        />
+                    ) : (
+                        <LemonSelect
+                            onChange={setOrderDirection}
+                            value={orderDirection}
+                            options={[
+                                {
+                                    value: 'DESC',
+                                    label: 'Descending',
+                                },
+                                {
+                                    value: 'ASC',
+                                    label: 'Ascending',
+                                },
+                            ]}
+                            size="small"
+                        />
+                    )}
                 </div>
             </div>
         </span>
@@ -97,8 +160,8 @@ export const IssueQueryOptions = (): JSX.Element => {
 }
 
 const Reload = (): JSX.Element => {
-    const { responseLoading } = useValues(errorTrackingDataNodeLogic)
-    const { reloadData, cancelQuery } = useActions(errorTrackingDataNodeLogic)
+    const { responseLoading } = useValues(issuesDataNodeLogic)
+    const { reloadData, cancelQuery } = useActions(issuesDataNodeLogic)
 
     return (
         <LemonButton
@@ -116,4 +179,18 @@ const Reload = (): JSX.Element => {
             {responseLoading ? 'Cancel' : 'Reload'}
         </LemonButton>
     )
+}
+
+const sortByLabel = (
+    orderBy: ErrorTrackingQueryOrderBy,
+    revenueEntity: ErrorTrackingQueryRevenueEntity,
+    groupOptions: Record<string, string>
+): string => {
+    if (orderBy === 'revenue' && revenueEntity) {
+        const entity = revenueEntity === 'person' ? 'person' : groupOptions[revenueEntity]
+
+        return `Revenue (by ${entity})`
+    }
+
+    return labels[orderBy]
 }

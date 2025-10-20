@@ -2,7 +2,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
@@ -19,6 +19,35 @@ from dags.common import JobOwners
 
 NO_SHARD_PATH = "noshard"
 
+
+def get_max_backup_bandwidth() -> str:
+    """
+    Get max backup bandwidth based on the current environment.
+
+    Returns different bandwidth limits based on CLOUD_DEPLOYMENT:
+    - US: i7ie.metal-48xl instances (192 vCPUs, 768GB RAM, 100 Gbps network)
+    - EU: m8g.8xlarge instances (32 vCPUs, 128GB RAM, 12 Gbps network)
+    - DEV/E2E/None: Conservative limits for development/self-hosted
+
+    Target: Complete backups within ~20 hours while preserving network capacity
+    """
+    cloud_deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
+
+    if cloud_deployment == "US":
+        # i7ie.metal-48xl instances - can handle higher bandwidth
+        # 3000 MB/s = 24 Gbps (24% of 100 Gbps network)
+        # For 208TB: ~20 hour backup time
+        return "3000000000"  # 3000MB/s
+    elif cloud_deployment == "EU":
+        # m8g.8xlarge instances - moderate bandwidth
+        # 700 MB/s = 5.6 Gbps (47% of 12 Gbps network)
+        # For 48TB: ~20 hour backup time
+        return "700000000"  # 700MB/s
+    else:
+        # DEV/self-hosted - conservative limits
+        return "100000000"  # 100MB/s to prevent resource exhaustion
+
+
 SHARDED_TABLES = [
     "sharded_app_metrics",
     "sharded_app_metrics2",
@@ -28,8 +57,8 @@ SHARDED_TABLES = [
     "sharded_raw_sessions",
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
-    "sharded_session_replay_events_v2_test",
     "sharded_sessions",
+    "sharded_events",
 ]
 
 NON_SHARDED_TABLES = [
@@ -111,6 +140,7 @@ class Backup:
     def create(self, client: Client):
         backup_settings = {
             "async": "1",
+            "max_backup_bandwidth": get_max_backup_bandwidth(),
         }
         if self.base_backup:
             backup_settings["base_backup"] = "S3('{bucket_base_path}/{path}')".format(
@@ -279,8 +309,21 @@ def check_latest_backup_status(
     else:
         most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
         if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
+            # Check if the backup is stuck (CREATING_BACKUP with no active process)
+            if most_recent_status.status == "CREATING_BACKUP":
+                # Check how old the backup status is
+                time_since_status = datetime.now(UTC) - most_recent_status.event_time_microseconds.replace(tzinfo=UTC)
+                if time_since_status > timedelta(hours=2):
+                    context.log.warning(
+                        f"Previous backup {latest_backup.path} is stuck in CREATING_BACKUP status for {time_since_status}. "
+                        f"This usually happens when the server was restarted during backup. "
+                        f"Proceeding with new backup as the old one is no longer active."
+                    )
+                    # Don't raise an error - the backup is dead and won't interfere
+                    return None
+            # For other unexpected statuses (like BACKUP_FAILED), still raise an error
             raise ValueError(
-                f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
+                f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please check the backup logs."
             )
         else:
             context.log.info(f"Latest backup {latest_backup.path} finished successfully")
@@ -352,13 +395,23 @@ def wait_for_backup(
             )
         return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=config.workload)
 
+    done = False
+    tries = 0
     if backup:
-        map_hosts(backup.wait).result().values()
-        most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
-        if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
-            raise ValueError(
-                f"Latest backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
-            )
+        while not done:
+            tries += 1
+            map_hosts(backup.wait).result().values()
+            most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
+            if most_recent_status and most_recent_status.status == "CREATING_BACKUP":
+                continue
+            if most_recent_status and most_recent_status.status == "BACKUP_CREATED":
+                done = True
+            if (most_recent_status and most_recent_status.status != "BACKUP_CREATED") or (
+                most_recent_status and tries >= 5
+            ):
+                raise ValueError(
+                    f"Backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}."
+                )
     else:
         context.log.info("No backup to wait for")
 
@@ -376,9 +429,10 @@ def sharded_backup():
     """
 
     def run_backup_for_shard(shard: int):
-        latest_backup = get_latest_backup(shard)
-        new_backup = run_backup(check_latest_backup_status(latest_backup), shard)
-        wait_for_backup(new_backup)
+        latest_backup = get_latest_backup(shard=shard)
+        checked_backup = check_latest_backup_status(latest_backup=latest_backup)
+        new_backup = run_backup(latest_backup=checked_backup, shard=shard)
+        wait_for_backup(backup=new_backup)
 
     shards: dagster.DynamicOutput = get_shards()
     shards.map(run_backup_for_shard)

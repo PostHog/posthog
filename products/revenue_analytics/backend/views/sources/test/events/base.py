@@ -18,6 +18,9 @@ class EventsSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
     including sample event configurations and helper methods.
     """
 
+    PURCHASE_EVENT_NAME = "purchase"
+    SUBSCRIPTION_CHARGE_EVENT_NAME = "subscription_charge"
+
     def setup_revenue_analytics_events(self):
         """
         Configure default revenue analytics events for testing.
@@ -28,16 +31,16 @@ class EventsSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
 
         This needs to be explicitly called in the test class setUp method.
         """
-        self.configure_events(
+        return self.configure_events(
             [
                 {
-                    "eventName": "purchase",
+                    "eventName": self.PURCHASE_EVENT_NAME,
                     "revenueProperty": "amount",
                     "currencyAwareDecimal": True,
                     "revenueCurrencyProperty": {"static": "USD"},
                 },
                 {
-                    "eventName": "subscription_charge",
+                    "eventName": self.SUBSCRIPTION_CHARGE_EVENT_NAME,
                     "revenueProperty": "price",
                     "currencyAwareDecimal": False,
                     "revenueCurrencyProperty": {"property": "currency"},
@@ -65,10 +68,12 @@ class EventsSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
                 currency_config = config_copy["revenueCurrencyProperty"]
                 config_copy["revenueCurrencyProperty"] = RevenueCurrencyPropertyConfig.model_validate(currency_config)
 
-            validated_events.append(RevenueAnalyticsEventItem.model_validate(config_copy).model_dump())
+            validated_events.append(RevenueAnalyticsEventItem.model_validate(config_copy))
 
         self.team.revenue_analytics_config.events = validated_events
         self.team.revenue_analytics_config.save()
+
+        return validated_events
 
     def clear_events(self):
         """Clear all revenue analytics events for the test team."""

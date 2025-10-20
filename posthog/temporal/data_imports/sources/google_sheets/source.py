@@ -29,7 +29,9 @@ class GoogleSheetsSource(BaseSource[GoogleSheetsSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLESHEETS
 
-    def get_schemas(self, config: GoogleSheetsSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: GoogleSheetsSourceConfig, team_id: int, with_counts: bool = False
+    ) -> list[SourceSchema]:
         sheets = get_google_sheets_schemas(config)
 
         schemas: list[SourceSchema] = []
@@ -79,6 +81,8 @@ class GoogleSheetsSource(BaseSource[GoogleSheetsSourceConfig]):
             label="Google Sheets",
             caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets)",
             betaSource=True,
+            iconPath="/static/services/Google_Sheets.svg",
+            docsUrl="https://posthog.com/docs/cdp/sources/google-sheets",
             fields=cast(
                 list[FieldType],
                 [

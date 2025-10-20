@@ -29,7 +29,7 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ZENDESK
 
-    def get_schemas(self, config: ZendeskSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: ZendeskSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -56,6 +56,8 @@ class ZendeskSource(BaseSource[ZendeskSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.ZENDESK,
             caption="Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data warehouse.",
+            iconPath="/static/services/zendesk.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/zendesk",
             fields=cast(
                 list[FieldType],
                 [

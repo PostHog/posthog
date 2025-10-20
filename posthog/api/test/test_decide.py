@@ -2504,11 +2504,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=6)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
-        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=5)
+        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=8)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2580,7 +2580,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=6)
+        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=9)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2650,7 +2650,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=6)
+        response = self._post_decide(api_version=3, distinct_id=person1_distinct_id, assert_num_queries=9)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2680,7 +2680,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=7)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=10)
         self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False, "simple-flag": True})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
@@ -2831,7 +2831,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # 2. Select 99999 cohort
         # 3. Select deleted cohort
         # 4. Select cohort from other team
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=12)
         self.assertEqual(
             response.json()["featureFlags"],
             {
@@ -2881,11 +2881,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=2)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
-        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=1)
+        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=8)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
@@ -4435,7 +4435,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         # make sure we have the flags in cache
         response = self._post_decide(api_version=3)
 
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="cohort_founder")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
@@ -4453,7 +4453,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="example_id")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
@@ -4471,7 +4471,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-        with self.assertNumQueries(5, using="replica"), self.assertNumQueries(0, using="default"):
+        with self.assertNumQueries(8, using="replica"), self.assertNumQueries(0, using="default"):
             response = self._post_decide(api_version=3, distinct_id="cohort_secondary")
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 600
@@ -5041,7 +5041,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature",
@@ -5070,10 +5070,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            },
-            sorted_flags[0],
+            }.items(),
+            sorted_flags[0].items(),
         )
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Beta feature",
                 "key": "beta-feature",
@@ -5088,10 +5088,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            },
-            sorted_flags[1],
+            }.items(),
+            sorted_flags[1].items(),
         )
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Group feature",
                 "key": "group-feature",
@@ -5102,11 +5102,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            },
-            sorted_flags[2],
+            }.items(),
+            sorted_flags[2].items(),
         )
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Inactive feature",
                 "key": "inactive-flag",
@@ -5114,8 +5114,8 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": False,
                 "ensure_experience_continuity": False,
-            },
-            sorted_flags[3],
+            }.items(),
+            sorted_flags[3].items(),
         )
 
         self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company"})
@@ -5297,7 +5297,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature",
@@ -5337,11 +5337,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            },
-            sorted_flags[0],
+            }.items(),
+            sorted_flags[0].items(),
         )
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Beta feature",
                 "key": "beta-feature",
@@ -5362,13 +5362,13 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            },
-            sorted_flags[1],
+            }.items(),
+            sorted_flags[1].items(),
         )
 
         # When send_cohorts is true, no transformations happen, so all relevant cohorts are returned
         self.assertEqual(
-            response_data["cohorts"],
+            response_data["cohorts"].items(),
             {
                 str(cohort_valid_for_ff.pk): {
                     "type": "OR",
@@ -5405,7 +5405,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                         }
                     ],
                 },
-            },
+            }.items(),
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -5568,7 +5568,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
         self.assertEqual(
-            response_data["cohorts"],
+            response_data["cohorts"].items(),
             {
                 str(cohort_valid_for_ff.pk): {
                     "type": "OR",
@@ -5616,10 +5616,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                         }
                     ],
                 },
-            },
+            }.items(),
         )
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature",
@@ -5653,11 +5653,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            },
-            sorted_flags[0],
+            }.items(),
+            sorted_flags[0].items(),
         )
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature-2",
@@ -5678,8 +5678,8 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            },
-            sorted_flags[1],
+            }.items(),
+            sorted_flags[1].items(),
         )
 
 

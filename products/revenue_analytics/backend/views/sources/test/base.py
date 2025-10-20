@@ -38,7 +38,6 @@ class RevenueAnalyticsViewSourceBaseTest(ClickhouseTestMixin, QueryMatchingTest,
             expected_key: Expected key value
             expected_prefix: Expected prefix value
         """
-
         self.assertEqual(built_query.key, expected_key)
         self.assertEqual(built_query.prefix, expected_prefix)
 

@@ -30,7 +30,7 @@ FROM
     FROM
         query_log_archive
     WHERE
-        and(equals(query_log_archive.team_id, {self.team.pk}), equals(%(hogql_val_1)s, query_log_archive.lc_query__kind))) AS query_log
+        equals(query_log_archive.team_id, {self.team.pk})) AS query_log
 LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"""
 
         from unittest.mock import ANY
@@ -39,7 +39,6 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             ch_query,
             {
                 "hogql_val_0": "UTC",
-                "hogql_val_1": "HogQLQuery",
             },
             with_column_types=True,
             workload=ANY,

@@ -15,6 +15,7 @@ from posthog.rbac.user_access_control import (
     UserAccessControl,
     default_access_level,
     highest_access_level,
+    minimum_access_level,
     ordered_access_levels,
 )
 from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
@@ -65,10 +66,18 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
     # Validate that access control is a valid option
     def validate_access_level(self, access_level):
-        if access_level and access_level not in ordered_access_levels(self.initial_data["resource"]):
-            raise serializers.ValidationError(
-                f"Invalid access level. Must be one of: {', '.join(ordered_access_levels(self.initial_data['resource']))}"
-            )
+        resource = self.initial_data["resource"]
+        levels = ordered_access_levels(resource)
+
+        if access_level and access_level not in levels:
+            raise serializers.ValidationError(f"Invalid access level. Must be one of: {', '.join(levels)}")
+
+        if access_level:
+            min_level = minimum_access_level(resource)
+            if levels.index(access_level) < levels.index(min_level):
+                raise serializers.ValidationError(
+                    f"Access level cannot be set below the minimum '{min_level}' for {resource}."
+                )
 
         return access_level
 
@@ -156,13 +165,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
         """
         if request.method == "GET" and self.action in [
             "access_controls",
-            "global_access_controls",
+            "resource_access_controls",
+            "global_access_controls",  # DEPRECATED - use resource_access_controls instead.
             "users_with_access",
         ]:
             return ["access_control:read"]
         elif request.method == "PUT" and self.action in [
             "access_controls",
-            "global_access_controls",
+            "resource_access_controls",
+            "global_access_controls",  # DEPRECATED - use resource_access_controls instead.
         ]:
             return ["access_control:write"]
 
@@ -172,19 +183,25 @@ class AccessControlViewSetMixin(_GenericViewSet):
         kwargs.setdefault("context", self.get_serializer_context())
         return AccessControlSerializer(*args, **kwargs)
 
-    def _get_access_controls(self, request: Request, is_global=False):
+    def _get_access_controls(self, request: Request, is_resource_level=False):
         resource = cast(APIScopeObjectOrNotSupported, getattr(self, "scope_object", None))
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
         team = cast(Team, self.team)  # type: ignore
 
-        if is_global and resource != "project" or not resource or resource == "INTERNAL":
-            raise exceptions.NotFound("Role based access controls are only available for projects.")
+        if not resource:
+            raise exceptions.NotFound("Access controls are not available for this resource type.")
+
+        if resource == "INTERNAL":
+            raise exceptions.NotFound("Access controls are not available for internal resources.")
+
+        if is_resource_level and resource != "project":
+            raise exceptions.ValidationError("Resource-level access controls can only be configured for projects.")
 
         obj = self.get_object()
         resource_id = obj.id
 
-        if is_global:
-            # If role based then we are getting all controls for the project that aren't specific to a resource
+        if is_resource_level:
+            # If resource level then we are getting all controls for the project that aren't specific to a resource
             access_controls = AccessControl.objects.filter(team=team, resource_id=None).all()
         else:
             # Otherwise we are getting all controls for the specific resource
@@ -196,11 +213,12 @@ class AccessControlViewSetMixin(_GenericViewSet):
         return Response(
             {
                 "access_controls": serializer.data,
-                # NOTE: For Role based controls we are always configuring resource level items
+                # NOTE: For resource level based controls we are always configuring resource level items
                 "available_access_levels": ACCESS_CONTROL_LEVELS_RESOURCE
-                if is_global
+                if is_resource_level
                 else ordered_access_levels(resource),
-                "default_access_level": "editor" if is_global else default_access_level(resource),
+                "default_access_level": "editor" if is_resource_level else default_access_level(resource),
+                "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
                 "user_access_level": user_access_level,
                 "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
             }
@@ -263,15 +281,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
             }
         )
 
-    def _update_access_controls(self, request: Request, is_global=False):
+    def _update_access_controls(self, request: Request, is_resource_level=False):
         resource = getattr(self, "scope_object", None)
         obj = self.get_object()
         resource_id = str(obj.id)
         team = cast(Team, self.team)  # type: ignore
 
         # Generically validate the incoming data
-        if not is_global:
-            # If not role based we are deriving from the viewset
+        if not is_resource_level:
+            # If not resource based we are deriving from the viewset
             data = request.data
             data["resource"] = resource
             data["resource_id"] = resource_id
@@ -318,14 +336,25 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "PUT"], detail=True)
-    def global_access_controls(self, request: Request, *args, **kwargs):
+    def resource_access_controls(self, request: Request, *args, **kwargs):
         """
-        Get or update global access controls for the project.
+        Get or update resource access controls for the project.
         """
         if request.method == "PUT":
-            return self._update_access_controls(request, is_global=True)
+            return self._update_access_controls(request, is_resource_level=True)
 
-        return self._get_access_controls(request, is_global=True)
+        return self._get_access_controls(request, is_resource_level=True)
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET", "PUT"], detail=True)
+    def global_access_controls(self, request: Request, *args, **kwargs):
+        """
+        DEPRECATED - use resource_access_controls instead.
+        """
+        if request.method == "PUT":
+            return self._update_access_controls(request, is_resource_level=True)
+
+        return self._get_access_controls(request, is_resource_level=True)
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True)

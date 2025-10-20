@@ -54,8 +54,8 @@ function CategoryPill({
             disabledReason={!canInteract ? 'No results' : null}
             className="font-normal"
         >
-            {group?.render ? (
-                group?.name
+            {group?.categoryLabel ? (
+                group.categoryLabel(totalResultCount)
             ) : (
                 <>
                     {group?.name}
@@ -158,7 +158,8 @@ export function InfiniteSelectResults({
         useValues(taxonomicFilterLogic)
 
     const openTab = activeTab || taxonomicGroups[0].type
-    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: openTab })
+    const infiniteListLogicProps = { ...taxonomicFilterLogicProps, listGroupType: openTab }
+    const logic = infiniteListLogic(infiniteListLogicProps)
 
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
 
@@ -173,6 +174,7 @@ export function InfiniteSelectResults({
             {...(activeTaxonomicGroup?.componentProps ?? {})}
             value={value}
             onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item, items.originalQuery)}
+            infiniteListLogicProps={infiniteListLogicProps}
         />
     ) : (
         <>
@@ -236,6 +238,17 @@ export function InfiniteSelectResults({
                             >
                                 {showEmptyState && <TaxonomicFilterEmptyState groupType={groupType} />}
                                 {!showEmptyState && listComponent}
+                                {!showEmptyState &&
+                                    (() => {
+                                        const currentGroup = taxonomicGroups.find((g) => g.type === groupType)
+                                        return (
+                                            currentGroup?.footerMessage && (
+                                                <div className="p-2 border-t border-border">
+                                                    {currentGroup.footerMessage}
+                                                </div>
+                                            )
+                                        )
+                                    })()}
                             </BindLogic>
                         </div>
                     )

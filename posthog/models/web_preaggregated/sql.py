@@ -1,3 +1,7 @@
+import uuid
+
+from django.conf import settings
+
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -5,11 +9,17 @@ from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
 
 
-def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
+def is_eu_cluster() -> bool:
+    return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
+
+
+def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, force_unique_zk_path=False, replace=False):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+    if force_unique_zk_path:
+        engine.set_zookeeper_path_key(str(uuid.uuid4()))
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -22,13 +32,17 @@ def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
     """
 
 
-def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None, on_cluster=True):
+def HOURLY_TABLE_TEMPLATE(
+    table_name, columns, order_by, ttl=None, on_cluster=True, force_unique_zk_path=False, replace=False
+):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+    if force_unique_zk_path:
+        engine.set_zookeeper_path_key(str(uuid.uuid4()))
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
+    {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -40,6 +54,211 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None, on_cluster=Tr
     PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
     {ttl_clause}
     """
+
+
+def _DROP_TABLE_TEMPLATE(table_name: str):
+    return f"DROP TABLE IF EXISTS {table_name} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_WEB_STATS_SQL():
+    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_stats")
+
+
+def DROP_WEB_BOUNCES_SQL():
+    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_bounces")
+
+
+def DROP_WEB_STATS_DAILY_SQL():
+    return _DROP_TABLE_TEMPLATE("web_stats_daily")
+
+
+def DROP_WEB_BOUNCES_DAILY_SQL():
+    return _DROP_TABLE_TEMPLATE("web_bounces_daily")
+
+
+def DROP_WEB_STATS_HOURLY_SQL():
+    return _DROP_TABLE_TEMPLATE("web_stats_hourly")
+
+
+def DROP_WEB_BOUNCES_HOURLY_SQL():
+    return _DROP_TABLE_TEMPLATE("web_bounces_hourly")
+
+
+def DROP_WEB_STATS_STAGING_SQL():
+    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_stats_staging")
+
+
+def DROP_WEB_BOUNCES_STAGING_SQL():
+    return _DROP_TABLE_TEMPLATE("web_pre_aggregated_bounces_staging")
+
+
+def REPLACE_WEB_BOUNCES_HOURLY_STAGING_SQL():
+    return HOURLY_TABLE_TEMPLATE(
+        "web_bounces_hourly_staging",
+        WEB_BOUNCES_COLUMNS,
+        WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"),
+        ttl="24 HOUR",
+        force_unique_zk_path=True,
+        replace=True,
+        on_cluster=False,
+    )
+
+
+def REPLACE_WEB_STATS_HOURLY_STAGING_SQL():
+    return HOURLY_TABLE_TEMPLATE(
+        "web_stats_hourly_staging",
+        WEB_STATS_COLUMNS,
+        WEB_STATS_ORDER_BY_FUNC("period_bucket"),
+        ttl="24 HOUR",
+        force_unique_zk_path=True,
+        replace=True,
+        on_cluster=False,
+    )
+
+
+# Hardcoded production column definitions to match exact table structure
+#
+# NOTE: These definitions exist because the production destination tables have a different
+# column order than what our WEB_STATS_COLUMNS/WEB_BOUNCES_COLUMNS generate. Specifically,
+# mat_metadata_loggedIn appears at the END of the production tables (due to migration via
+# ALTER TABLE ADD COLUMN), but our code generates it in the middle. For REPLACE PARTITION
+# to work, staging and destination tables must have identical column order and types.
+#
+# Production table schemas extracted from DESCRIBE TABLE commands:
+WEB_STATS_V2_PRODUCTION_COLUMNS = """
+    pathname String,
+    entry_pathname String,
+    end_pathname String,
+    browser String,
+    os String,
+    viewport_width Int64,
+    viewport_height Int64,
+    referring_domain String,
+    utm_source String,
+    utm_medium String,
+    utm_campaign String,
+    utm_term String,
+    utm_content String,
+    country_code String,
+    city_name String,
+    region_code String,
+    region_name String,
+    has_gclid Bool,
+    has_gad_source_paid_search Bool,
+    has_fbclid Bool,
+    mat_metadata_backend Nullable(String),
+    persons_uniq_state AggregateFunction(uniq, UUID),
+    sessions_uniq_state AggregateFunction(uniq, String),
+    pageviews_count_state AggregateFunction(sum, UInt64),
+    mat_metadata_loggedIn Nullable(Bool)
+"""
+
+WEB_BOUNCES_V2_PRODUCTION_COLUMNS = """
+    entry_pathname String,
+    end_pathname String,
+    browser String,
+    os String,
+    viewport_width Int64,
+    viewport_height Int64,
+    referring_domain String,
+    utm_source String,
+    utm_medium String,
+    utm_campaign String,
+    utm_term String,
+    utm_content String,
+    country_code String,
+    city_name String,
+    region_code String,
+    region_name String,
+    has_gclid Bool,
+    has_gad_source_paid_search Bool,
+    has_fbclid Bool,
+    mat_metadata_backend Nullable(String),
+    persons_uniq_state AggregateFunction(uniq, UUID),
+    sessions_uniq_state AggregateFunction(uniq, String),
+    pageviews_count_state AggregateFunction(sum, UInt64),
+    bounces_count_state AggregateFunction(sum, UInt64),
+    total_session_duration_state AggregateFunction(sum, Int64),
+    total_session_count_state AggregateFunction(sum, UInt64),
+    mat_metadata_loggedIn Nullable(Bool)
+"""
+
+# Production ORDER BY clauses extracted from production tables
+# These exclude nullable columns to avoid ClickHouse "Sorting key contains nullable columns" error
+WEB_STATS_V2_PRODUCTION_ORDER_BY = """(
+    team_id,
+    period_bucket,
+    host,
+    device_type,
+    pathname,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid
+)"""
+
+WEB_BOUNCES_V2_PRODUCTION_ORDER_BY = """(
+    team_id,
+    period_bucket,
+    host,
+    device_type,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid
+)"""
+
+
+def REPLACE_WEB_STATS_V2_STAGING_SQL():
+    return TABLE_TEMPLATE(
+        "web_pre_aggregated_stats_staging",
+        WEB_STATS_V2_PRODUCTION_COLUMNS,
+        WEB_STATS_V2_PRODUCTION_ORDER_BY,
+        force_unique_zk_path=True,
+        replace=True,
+        on_cluster=False,
+    )
+
+
+def REPLACE_WEB_BOUNCES_V2_STAGING_SQL():
+    return TABLE_TEMPLATE(
+        "web_pre_aggregated_bounces_staging",
+        WEB_BOUNCES_V2_PRODUCTION_COLUMNS,
+        WEB_BOUNCES_V2_PRODUCTION_ORDER_BY,
+        force_unique_zk_path=True,
+        replace=True,
+        on_cluster=False,
+    )
 
 
 WEB_ANALYTICS_DIMENSIONS = [
@@ -62,6 +281,8 @@ WEB_ANALYTICS_DIMENSIONS = [
     "has_gclid",
     "has_gad_source_paid_search",
     "has_fbclid",
+    "mat_metadata_loggedIn",
+    "mat_metadata_backend",
 ]
 
 WEB_STATS_DIMENSIONS = ["pathname", *WEB_ANALYTICS_DIMENSIONS]
@@ -73,7 +294,7 @@ def get_dimension_columns(dimensions):
     for d in dimensions:
         if d in ["viewport_width", "viewport_height"]:
             column_definitions.append(f"{d} Int64")
-        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid"]:
+        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid", "mat_metadata_loggedIn"]:
             column_definitions.append(f"{d} Bool")
         else:
             column_definitions.append(f"{d} String")
@@ -242,6 +463,26 @@ def get_date_filters(date_start: str, date_end: str, timezone: str, granularity:
     }
 
 
+def get_mat_custom_fields_expressions() -> dict[str, str]:
+    if is_eu_cluster():
+        return {
+            "mat_metadata_loggedIn_expr": "mat_metadata_loggedIn",
+            "mat_metadata_loggedIn_inner_expr": "any(IF(e.mat_metadata_loggedIn IS NULL, NULL, e.mat_metadata_loggedIn = 'true')) AS mat_metadata_loggedIn",
+            "mat_metadata_backend_expr": "mat_metadata_backend",
+            "mat_metadata_backend_inner_expr": "any(e.mat_metadata_backend) AS mat_metadata_backend",
+            "mat_custom_fields_group_by": "mat_metadata_loggedIn, mat_metadata_backend",
+        }
+    else:
+        # Those are no-ops to keep the same query structure on US
+        return {
+            "mat_metadata_loggedIn_expr": "mat_metadata_loggedIn",
+            "mat_metadata_loggedIn_inner_expr": "CAST(NULL AS Nullable(Bool)) AS mat_metadata_loggedIn",
+            "mat_metadata_backend_expr": "mat_metadata_backend",
+            "mat_metadata_backend_inner_expr": "CAST(NULL AS Nullable(String)) AS mat_metadata_backend",
+            "mat_custom_fields_group_by": "mat_metadata_loggedIn, mat_metadata_backend",
+        }
+
+
 def get_all_filters(
     date_start: str,
     date_end: str,
@@ -252,6 +493,7 @@ def get_all_filters(
 ) -> dict[str, str]:
     team_filters = get_team_filters(team_ids)
     date_filters = get_date_filters(date_start, date_end, timezone, granularity)
+    mat_custom_fields_expressions = get_mat_custom_fields_expressions()
 
     time_bucket_func = "toStartOfHour" if granularity == "hourly" else "toStartOfDay"
     settings_clause = f"SETTINGS {settings}" if settings else ""
@@ -266,6 +508,12 @@ def get_all_filters(
         "date_start": date_start,
         "date_end": date_end,
         **date_filters,
+        **mat_custom_fields_expressions,
+        "mat_custom_fields_outer_group_by_placeholder": (
+            f",\n        {mat_custom_fields_expressions['mat_custom_fields_group_by']}"
+            if mat_custom_fields_expressions["mat_custom_fields_group_by"]
+            else ""
+        ),
     }
 
 
@@ -279,7 +527,6 @@ def WEB_STATS_INSERT_SQL(
     granularity: str = "daily",
     select_only: bool = False,
 ) -> str:
-    # Get all filters and parameters in one place
     filters = get_all_filters(date_start, date_end, timezone, team_ids, granularity, settings)
 
     query = """
@@ -308,6 +555,8 @@ def WEB_STATS_INSERT_SQL(
         has_gclid,
         has_gad_source_paid_search,
         has_fbclid,
+        {mat_metadata_loggedIn_expr},
+        {mat_metadata_backend_expr},
         uniqState(assumeNotNull(session_person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state
@@ -338,6 +587,8 @@ def WEB_STATS_INSERT_SQL(
             events__session.has_gclid AS has_gclid,
             events__session.has_gad_source_paid_search AS has_gad_source_paid_search,
             events__session.has_fbclid AS has_fbclid,
+            {mat_metadata_loggedIn_inner_expr},
+            {mat_metadata_backend_inner_expr},
             countIf(e.event IN ('$pageview', '$screen')) AS pageview_count,
             e.team_id AS team_id,
             min(events__session.start_timestamp) AS start_timestamp
@@ -441,17 +692,15 @@ def WEB_STATS_INSERT_SQL(
         region_name,
         has_gclid,
         has_gad_source_paid_search,
-        has_fbclid
+        has_fbclid{mat_custom_fields_outer_group_by_placeholder}
     {settings_clause}
     """
 
-    # Format the query with all parameters from centralized filters
     formatted_query = query.format(**filters)
 
     if select_only:
         return formatted_query
     else:
-        # Explicitly specify column names to protect against column order changes
         columns = get_web_stats_insert_columns()
         column_list = ",\n    ".join(columns)
         return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{formatted_query}"
@@ -467,7 +716,6 @@ def WEB_BOUNCES_INSERT_SQL(
     granularity: str = "daily",
     select_only: bool = False,
 ) -> str:
-    # Get all filters and parameters in one place
     filters = get_all_filters(date_start, date_end, timezone, team_ids, granularity, settings)
 
     query = """
@@ -495,6 +743,8 @@ def WEB_BOUNCES_INSERT_SQL(
         has_gclid,
         has_gad_source_paid_search,
         has_fbclid,
+        {mat_metadata_loggedIn_expr},
+        {mat_metadata_backend_expr},
         uniqState(assumeNotNull(person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state,
@@ -527,6 +777,8 @@ def WEB_BOUNCES_INSERT_SQL(
             any(events__session.has_gclid) AS has_gclid,
             any(events__session.has_gad_source_paid_search) AS has_gad_source_paid_search,
             any(events__session.has_fbclid) AS has_fbclid,
+            {mat_metadata_loggedIn_inner_expr},
+            {mat_metadata_backend_inner_expr},
             any(events__session.is_bounce) AS is_bounce,
             any(events__session.session_duration) AS session_duration,
             toUInt64(1) AS total_session_count_state,
@@ -615,7 +867,7 @@ def WEB_BOUNCES_INSERT_SQL(
         viewport_height,
         has_gclid,
         has_gad_source_paid_search,
-        has_fbclid
+        has_fbclid{mat_custom_fields_outer_group_by_placeholder}
     {settings_clause}
     """
 
@@ -624,7 +876,6 @@ def WEB_BOUNCES_INSERT_SQL(
     if select_only:
         return formatted_query
     else:
-        # Explicitly specify column names to protect against column order changes
         columns = get_web_bounces_insert_columns()
         column_list = ",\n    ".join(columns)
         return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{formatted_query}"

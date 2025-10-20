@@ -1,8 +1,23 @@
+from typing import cast
+
 from django.test import TestCase
 
-from posthog.schema import Mark, ProsemirrorJSONContent
+from posthog.schema import (
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
+    AssistantTrendsEventsNode,
+    AssistantTrendsQuery,
+    Mark,
+    ProsemirrorJSONContent,
+)
 
-from ee.hogai.notebook.notebook_serializer import MarkdownTokenizer, NotebookSerializer
+from ee.hogai.notebook.notebook_serializer import (
+    MarkdownTokenizer,
+    NotebookContext,
+    NotebookSerializer,
+    cast_assistant_query,
+)
+from ee.hogai.utils.types.base import InsightArtifact
 
 
 class TestNotebookSerializer(TestCase):
@@ -879,3 +894,245 @@ code here
                     assert mark_types == expected_marks, f"Node {i}: expected marks {expected_marks}, got {mark_types}"
                 else:
                     assert not node.get("marks"), f"Node {i}: expected no marks but got {node.get('marks')}"
+
+    def test_assistant_query_conversion_to_insight_viz_node(self):
+        """Test that AssistantQuery objects are properly converted to InsightVizNode format for frontend compatibility."""
+        # Test AssistantTrendsQuery conversion
+        assistant_trends_query = AssistantTrendsQuery(kind="TrendsQuery", series=[])
+
+        serializer = NotebookSerializer()
+        converted = serializer._convert_assistant_query_to_insight_viz_node(assistant_trends_query)
+
+        assert isinstance(converted, dict), "Converted query should be a dict"
+        assert converted["kind"] == "InsightVizNode", "Should wrap AssistantQuery in InsightVizNode"
+        assert converted["source"].kind == "TrendsQuery", "Source should be converted to regular TrendsQuery"
+        assert type(converted["source"]).__name__ == "TrendsQuery", "Source should be TrendsQuery type"
+
+        # Test AssistantFunnelsQuery conversion
+        assistant_funnels_query = AssistantFunnelsQuery(kind="FunnelsQuery", series=[])
+
+        converted_funnels = serializer._convert_assistant_query_to_insight_viz_node(assistant_funnels_query)
+
+        assert isinstance(converted_funnels, dict), "Converted funnel query should be a dict"
+        assert converted_funnels["kind"] == "InsightVizNode", "Should wrap AssistantFunnelsQuery in InsightVizNode"
+        assert converted_funnels["source"].kind == "FunnelsQuery", "Source should be converted to regular FunnelsQuery"
+        assert type(converted_funnels["source"]).__name__ == "FunnelsQuery", "Source should be FunnelsQuery type"
+
+        assistant_hogql_query = AssistantHogQLQuery(kind="HogQLQuery", query="SELECT * FROM events")
+
+        converted_hogql = serializer._convert_assistant_query_to_insight_viz_node(assistant_hogql_query)
+
+        assert isinstance(converted_hogql, dict), "Converted HogQL query should be a dict"
+        assert (
+            converted_hogql["kind"] == "DataTableNode"
+        ), "Should wrap AssistantHogQLQuery in DataTableNode, NOT InsightVizNode"
+        assert converted_hogql["source"].kind == "HogQLQuery", "Source should be converted to regular HogQLQuery"
+        assert type(converted_hogql["source"]).__name__ == "HogQLQuery", "Source should be HogQLQuery type"
+
+        # Test that non-Assistant queries pass through unchanged
+        regular_query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
+        unchanged = serializer._convert_assistant_query_to_insight_viz_node(regular_query)
+
+        assert unchanged == regular_query, "Non-Assistant queries should pass through unchanged"
+
+    def test_ph_query_node_creation_with_assistant_query(self):
+        """Test that ph-query nodes are properly created with InsightVizNode wrapping for AssistantQuery objects."""
+        # Create an AssistantTrendsQuery
+        assistant_query = AssistantTrendsQuery(kind="TrendsQuery", series=[])
+
+        # Create an InsightArtifact with the AssistantQuery
+        artifact = InsightArtifact(
+            id=None, task_id="test-insight-1", query=assistant_query, content="Test trends query"
+        )
+
+        # Create context and serializer
+        context = NotebookContext(insights={"test-insight-1": artifact})
+        serializer = NotebookSerializer(context=context)
+
+        # Create ph-query node
+        ph_query_node = serializer._create_ph_query_node("test-insight-1")
+
+        assert ph_query_node is not None, "Should create a ph-query node"
+        assert ph_query_node.type == "ph-query", "Should have ph-query type"
+        assert "query" in cast(dict, ph_query_node.attrs), "Should have query in attrs"
+
+        query_attr = cast(dict, ph_query_node.attrs)["query"]
+        assert isinstance(query_attr, dict), "Query attr should be a dict"
+        assert query_attr["kind"] == "InsightVizNode", "Query should be wrapped in InsightVizNode"
+        assert "source" in query_attr, "Query should have source field"
+        assert query_attr["source"].kind == "TrendsQuery", "Source should be converted to regular TrendsQuery"
+        assert type(query_attr["source"]).__name__ == "TrendsQuery", "Source should be TrendsQuery type"
+
+    def test_markdown_to_json_with_insight_tags_uses_insight_viz_node(self):
+        """Test that markdown with insight tags creates ph-query nodes with proper InsightVizNode structure."""
+        # Create an AssistantTrendsQuery
+        assistant_query = AssistantTrendsQuery(kind="TrendsQuery", series=[])
+
+        # Create artifact and context
+        artifact = InsightArtifact(
+            id=None, task_id="test-insight-123", query=assistant_query, content="Test insight for markdown conversion"
+        )
+        context = NotebookContext(insights={"test-insight-123": artifact})
+        serializer = NotebookSerializer(context=context)
+
+        # Test markdown with insight tag
+        markdown = "Analysis shows:\n\n<insight>test-insight-123</insight>\n\nThis demonstrates the trend."
+
+        # Convert to JSON
+        prosemirror_json = serializer.from_markdown_to_json(markdown)
+
+        # Verify structure
+        assert prosemirror_json.type == "doc", "Should be a document"
+        assert prosemirror_json.content, "Document should have content"
+
+        # Find the ph-query node
+        ph_query_node = None
+        for node in prosemirror_json.content:
+            if node.type == "ph-query":
+                ph_query_node = node
+                break
+
+        assert ph_query_node is not None, "Should find a ph-query node in the converted content"
+        assert "query" in cast(dict, ph_query_node.attrs), "ph-query node should have query attr"
+
+        query_attr = cast(dict, ph_query_node.attrs)["query"]
+        assert isinstance(query_attr, dict), "Query attr should be a dict"
+        assert query_attr["kind"] == "InsightVizNode", "Should have InsightVizNode structure"
+        assert "source" in query_attr, "Should have source field"
+        assert query_attr["source"].kind == "TrendsQuery", "Source should be converted to regular TrendsQuery"
+        assert type(query_attr["source"]).__name__ == "TrendsQuery", "Source should be TrendsQuery type"
+
+    def test_deep_research_report_query_visualization_crash_fix(self):
+        """Test that the specific crash scenario from deep research reports is fixed.
+
+        This test simulates the exact scenario where:
+        1. Deep research creates InsightArtifact with AssistantQuery
+        2. Report node passes it to notebook serializer
+        3. Frontend expects InsightVizNode format but was getting raw AssistantQuery
+
+        This test ensures the crash is fixed by verifying the full pipeline works.
+        """
+        # Simulate the deep research report scenario
+        # 1. Create an AssistantQuery like the report node would generate
+        assistant_trends_query = AssistantTrendsQuery(
+            kind="TrendsQuery", series=[AssistantTrendsEventsNode(kind="EventsNode", event="$pageview", math="total")]
+        )
+
+        # 2. Create InsightArtifact like DeepResearchReportNode._create_context() does
+        insight_artifact = InsightArtifact(
+            id=None,
+            task_id="crash-test-insight",
+            query=assistant_trends_query,  # This was causing the crash
+            content="Test query that was crashing frontend visualization",
+        )
+
+        # 3. Create context like report node does
+        context = NotebookContext(insights={"crash-test-insight": insight_artifact})
+        serializer = NotebookSerializer(context=context)
+
+        # 4. Simulate report generating markdown with insight tag
+        report_markdown = """# Deep Research Report
+
+Based on the analysis, here are the key findings:
+
+<insight>crash-test-insight</insight>
+
+The data shows clear trends in user behavior."""
+
+        # 5. Convert to JSON (this is where the crash would happen)
+        try:
+            prosemirror_json = serializer.from_markdown_to_json(report_markdown)
+            conversion_successful = True
+        except Exception:
+            conversion_successful = False
+
+        # 6. Verify conversion succeeded (no crash)
+        assert conversion_successful, "Notebook serialization should not crash with AssistantQuery"
+
+        # 7. Verify the output has the correct structure for frontend
+        assert prosemirror_json.type == "doc"
+        assert prosemirror_json.content is not None
+
+        # Find the ph-query node that would be sent to frontend
+        ph_query_node = None
+        for node in prosemirror_json.content:
+            if node.type == "ph-query":
+                ph_query_node = node
+                break
+
+        assert ph_query_node is not None, "Should create ph-query node for insight"
+
+        # 8. Verify the ph-query has the format frontend expects (preventing visualization crash)
+        query_data = cast(dict, ph_query_node.attrs)["query"]
+
+        # This is the key fix - query must be wrapped in InsightVizNode
+        assert isinstance(query_data, dict), "Query data should be a dict"
+        assert query_data["kind"] == "InsightVizNode", "Query must be wrapped in InsightVizNode for frontend"
+        assert "source" in query_data, "InsightVizNode must have source field"
+        assert query_data["source"].kind == "TrendsQuery", "Source should be converted to regular TrendsQuery"
+        assert type(query_data["source"]).__name__ == "TrendsQuery", "Source should be TrendsQuery type"
+
+        # 9. Verify this matches the format frontend expects (like in notebook templates)
+        # The frontend expects this structure based on migrate.test.ts examples:
+        # { "kind": "InsightVizNode", "source": { "kind": "TrendsQuery", ... } }
+        assert query_data["source"].kind == "TrendsQuery", "Source should maintain TrendsQuery kind"
+
+        # 10. This test proves the crash is fixed:
+        # - Before fix: ph-query node would have raw AssistantQuery causing frontend crash
+        # - After fix: ph-query node has InsightVizNode wrapper that frontend can handle
+
+    def test_converted_query_caching(self):
+        """Test that converted queries are cached to avoid repeated conversions during streaming."""
+        assistant_query = AssistantTrendsQuery(kind="TrendsQuery", series=[])
+        serializer = NotebookSerializer()
+
+        # First conversion should log and cache
+        result1 = serializer._convert_assistant_query_to_insight_viz_node(assistant_query)
+
+        # Verify cache is populated
+        query_id = id(assistant_query)
+        assert query_id in serializer._converted_query_cache
+        assert serializer._converted_query_cache[query_id] == result1
+
+        # Second conversion should use cache (same object reference)
+        result2 = serializer._convert_assistant_query_to_insight_viz_node(assistant_query)
+
+        # Should return the exact same cached object
+        assert result2 is result1
+        assert result2 == result1
+
+        # Verify structure is correct
+        assert result2["kind"] == "InsightVizNode"
+        # The source should now be a regular TrendsQuery, not the original AssistantTrendsQuery
+        assert result2["source"].kind == "TrendsQuery"
+        assert type(result2["source"]).__name__ == "TrendsQuery"
+
+    def test_cast_assistant_query(self):
+        """Test that cast_assistant_query properly converts AssistantQuery types to regular Query types."""
+        # Test AssistantTrendsQuery -> TrendsQuery
+        assistant_trends = AssistantTrendsQuery(kind="TrendsQuery", series=[])
+        regular_trends = cast_assistant_query(assistant_trends)
+        assert type(regular_trends).__name__ == "TrendsQuery"
+        assert regular_trends.kind == "TrendsQuery"
+
+        # Test AssistantFunnelsQuery -> FunnelsQuery
+        assistant_funnels = AssistantFunnelsQuery(kind="FunnelsQuery", series=[])
+        regular_funnels = cast_assistant_query(assistant_funnels)
+        assert type(regular_funnels).__name__ == "FunnelsQuery"
+        assert regular_funnels.kind == "FunnelsQuery"
+
+        # Test AssistantHogQLQuery -> HogQLQuery
+        assistant_hogql = AssistantHogQLQuery(kind="HogQLQuery", query="SELECT 1")
+        regular_hogql = cast_assistant_query(assistant_hogql)
+        assert type(regular_hogql).__name__ == "HogQLQuery"
+        assert regular_hogql.kind == "HogQLQuery"
+        assert regular_hogql.query == "SELECT 1"
+
+        # Test unsupported query type
+        class UnsupportedQuery:
+            def __init__(self):
+                self.kind = "UnsupportedQuery"
+
+        with self.assertRaises(ValueError) as context:
+            cast_assistant_query(UnsupportedQuery())  # type: ignore
+        assert "Unsupported query type: UnsupportedQuery" in str(context.exception)

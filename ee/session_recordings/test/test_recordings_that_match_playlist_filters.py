@@ -57,7 +57,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         count_recordings_that_match_playlist_filters(playlist.id)
         mock_capture_exception.assert_not_called()
 
-        assert json.loads(self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")) == {
+        assert self._get_counts_from_redis(playlist) == {
             "session_ids": [],
             "previous_ids": None,
             "has_more": False,
@@ -89,7 +89,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         count_recordings_that_match_playlist_filters(playlist.id)
         mock_capture_exception.assert_not_called()
 
-        assert json.loads(self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")) == {
+        assert self._get_counts_from_redis(playlist) == {
             "session_ids": ["123"],
             "previous_ids": None,
             "has_more": True,
@@ -124,7 +124,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         count_recordings_that_match_playlist_filters(playlist.id)
         mock_capture_exception.assert_not_called()
 
-        assert json.loads(self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")) == {
+        assert self._get_counts_from_redis(playlist) == {
             "session_ids": ["123"],
             "has_more": True,
             "previous_ids": ["245"],
@@ -153,9 +153,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_list_recordings_from_query.assert_not_called()
         mock_capture_exception.assert_not_called()
 
-        assert self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}").decode("utf-8") == json.dumps(
-            existing_value
-        )
+        assert self._get_counts_from_redis(playlist) == existing_value
 
     @patch("posthoganalytics.capture_exception")
     @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
@@ -372,9 +370,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_list_recordings_from_query.assert_not_called()
         mock_capture_exception.assert_not_called()
 
-        assert self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}").decode("utf-8") == json.dumps(
-            existing_value
-        )
+        assert self._get_counts_from_redis(playlist) == existing_value
 
     @patch("posthoganalytics.capture_exception")
     @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
@@ -396,9 +392,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_list_recordings_from_query.assert_not_called()
         mock_capture_exception.assert_not_called()
 
-        assert self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}").decode("utf-8") == json.dumps(
-            existing_value
-        )
+        assert self._get_counts_from_redis(playlist) == existing_value
 
     @patch("posthoganalytics.capture_exception")
     @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
@@ -448,12 +442,17 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         assert recordings_query.date_to is None
 
         # And the results should be merged with the existing sessions
-        stored_data = json.loads(self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}"))
+        stored_data = self._get_counts_from_redis(playlist)
         assert sorted(stored_data["session_ids"]) == ["session1", "session2", "session3"]
         assert stored_data["has_more"] is False
         assert stored_data["refreshed_at"] > last_count_time.isoformat()
 
         mock_capture_exception.assert_not_called()
+
+    def _get_counts_from_redis(self, playlist: SessionRecordingPlaylist) -> dict:
+        counts = self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
+        assert counts is not None
+        return json.loads(counts.decode("utf-8"))
 
     @patch("posthoganalytics.capture_exception")
     @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")

@@ -14,6 +14,7 @@ import mimesis.random
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.models import Team, User
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.utils import UUIDT, uuid7
 
 from .models import Effect, SimPerson, SimServerClient
@@ -149,8 +150,9 @@ class Cluster(ABC):
                     effect.callback(target)
 
     @property
-    def people(self) -> set[SimPerson]:
-        return {person for row in self.people_matrix for person in row}
+    def people(self) -> list[SimPerson]:
+        # Return deterministically ordered list to ensure consistent random number sequence consumption.
+        return [person for row in self.people_matrix for person in row]
 
     @property
     def kernel(self) -> SimPerson:
@@ -265,6 +267,14 @@ class Matrix(ABC):
     def set_project_up(self, team: Team, user: User):
         """Project setup, such as relevant insights, dashboards, feature flags, etc."""
         team.name = self.PRODUCT_NAME
+        FeatureFlag.objects.create(
+            team=team,
+            key="llm-observability",
+            name="Breaking the fourth wall: PostHog's LLM analytics flag.",
+            filters={"groups": [{"variant": None, "properties": [], "rollout_percentage": 100}]},
+            created_by=user,
+            created_at=dt.datetime.fromtimestamp(0),  # Epoch
+        )
 
     def simulate(self):
         if self.is_complete is not None:

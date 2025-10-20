@@ -1,12 +1,11 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
-import { IconFilter, IconGear, IconGlobe } from '@posthog/icons'
+import { IconGear, IconGlobe } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FilterBar } from 'lib/components/FilterBar'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { IconBranch, IconMonitor, IconPhone } from 'lib/lemon-ui/icons/icons'
 import { urls } from 'scenes/urls'
@@ -22,71 +21,44 @@ import { WebPropertyFilters } from './WebPropertyFilters'
 import { ProductTab } from './common'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
-export const WebAnalyticsFilters = (): JSX.Element => {
-    const [expanded, setExpanded] = useState(false)
-
-    return (
-        <div className="flex flex-col md:flex-row md:justify-between gap-2">
-            <div className="flex items-start shrink-0">
-                <div className="flex flex-1 flex-row gap-2 items-center">
-                    <div className="flex flex-row gap-1 items-center flex-1 md:flex-none">
-                        <ReloadAll iconOnly />
-
-                        <WebAnalyticsDomainSelector />
-                        <WebAnalyticsDeviceToggle />
-                    </div>
-
-                    <div className="hidden md:flex items-center gap-2">
-                        <span className="text-muted-alt">|</span>
-                        <WebAnalyticsLiveUserCount />
-                    </div>
-
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        className="sm:hidden"
-                        onClick={() => setExpanded((expanded) => !expanded)}
-                        icon={<IconFilter />}
-                    />
-                </div>
-            </div>
-
-            {/* On more than mobile, just display Foldable Fields, on smaller delegate displaying it to the expanded state */}
-            <div className="hidden sm:flex gap-2">
-                <FoldableFilters />
-            </div>
-
-            <div
-                className={clsx(
-                    'flex sm:hidden flex-col gap-2 overflow-hidden transition-all duration-200',
-                    expanded ? 'max-h-[500px]' : 'max-h-0'
-                )}
-            >
-                <FoldableFilters />
-            </div>
-        </div>
-    )
-}
-
-const FoldableFilters = (): JSX.Element => {
+export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {
         dateFilter: { dateTo, dateFrom },
         preAggregatedEnabled,
     } = useValues(webAnalyticsLogic)
     const { setDates } = useActions(webAnalyticsLogic)
+
     return (
-        <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full">
-            <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-            <WebAnalyticsCompareFilter />
+        <FilterBar
+            top={tabs}
+            left={
+                <>
+                    <ReloadAll iconOnly />
 
-            {!preAggregatedEnabled && <WebConversionGoal />}
-            <TableSortingIndicator />
+                    <WebAnalyticsDomainSelector />
+                    <WebAnalyticsDeviceToggle />
 
-            <WebVitalsPercentileToggle />
-            <PathCleaningToggle />
+                    <div className="hidden ml-2 md:flex items-center gap-2">
+                        <span className="text-muted-alt">|</span>
+                        <WebAnalyticsLiveUserCount />
+                    </div>
+                </>
+            }
+            right={
+                <>
+                    <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                    <WebAnalyticsCompareFilter />
 
-            <WebPropertyFilters />
-        </div>
+                    {!preAggregatedEnabled && <WebConversionGoal />}
+                    <TableSortingIndicator />
+
+                    <WebVitalsPercentileToggle />
+                    <PathCleaningToggle />
+
+                    <WebPropertyFilters />
+                </>
+            }
+        />
     )
 }
 

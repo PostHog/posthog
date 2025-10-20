@@ -2,6 +2,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta charset="utf-8">
 
+
 <!-- Favicons & OS-theme configurations -->
 <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2023-07-07">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2023-07-07">
@@ -17,7 +18,7 @@
 <meta name="application-name" content="PostHog">
 
 {% if not opt_out_capture and js_posthog_api_key %}
-    <script>
+    <script nonce="{{ request.csp_nonce }}">
         window.JS_POSTHOG_API_KEY = "{{ js_posthog_api_key|escapejs }}";
         window.JS_POSTHOG_HOST = "{{ js_posthog_host|escapejs }}";
         if (window.JS_POSTHOG_HOST.trim().length === 0) {
@@ -31,18 +32,19 @@
     </script>
 {% endif %}
 {% if stripe_public_key %}
-    <script>
+    <script nonce="{{ request.csp_nonce }}">
         window.STRIPE_PUBLIC_KEY = '{{ stripe_public_key | escapejs }}';
     </script>
 {% endif %}
-<script id='posthog-app-user-preload'>
+<script nonce="{{ request.csp_nonce }}" id='posthog-app-user-preload'>
     window.POSTHOG_APP_CONTEXT = JSON.parse("{{ posthog_app_context | escapejs }}");
-    // Inject the expected location of JS bundle, use to allow the location of
-    // he bundle to be set at runtime, e.g. for PostHog Cloud we serve the
-    // frontent JS from a CDN
+    // Inject the expected location of JS bundle,
+    // use to allow the location of the bundle to be set at runtime,
+    // e.g. for PostHog Cloud we serve the frontend JS from a CDN
     window.JS_URL = "{{ js_url|default:"" }}";
     window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
     window.JS_KEA_VERBOSE_LOGGING = {{js_kea_verbose_logging | yesno:"true,false"}};
+    window.APP_STATE_LOGGING_SAMPLE_RATE = {{  js_app_state_logging_sample_rate|default:"0" }};
 </script>
 
 {% if debug and not e2e_testing %}

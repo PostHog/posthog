@@ -103,7 +103,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         receiveExampleGlobals: (globals: CyclotronJobInvocationGlobals | null) => ({ globals }),
         setJsonError: (error: string | null) => ({ error }),
         validateJson: (value: string, editor: editor.IStandaloneCodeEditor, decorations: string[]) =>
-            ({ value, editor, decorations }) as CodeEditorValidation,
+            ({
+                value,
+                editor,
+                decorations,
+            }) as CodeEditorValidation,
         setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
         cancelSampleGlobalsLoading: true,
     }),
@@ -291,7 +295,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 if (values.configurationHasErrors) {
                     // Get the configuration logic instance
                     const configLogic = hogFunctionConfigurationLogic(props)
-                    const inputErrors = configLogic.values.inputFormErrors?.inputs || {}
+                    const inputErrors = configLogic.values.inputFormErrors || {}
 
                     // Create a simple list of errors
                     const errorMessages = Object.entries(inputErrors).map(([key, error]) => {
@@ -340,8 +344,12 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                     }
 
                     actions.setTestResult(res)
-                } catch (e) {
-                    lemonToast.error(`An unexpected server error occurred while testing the function. ${e}`)
+                } catch (e: any) {
+                    if (e?.data?.configuration?.filters?.non_field_errors) {
+                        lemonToast.error(`Testing failed: ${e.data.configuration.filters.non_field_errors}`)
+                        return
+                    }
+                    lemonToast.error(`An unexpected server error occurred while testing the function: ${e}`)
                 }
             },
         },

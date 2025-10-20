@@ -188,7 +188,6 @@ export const signupLogic = kea<signupLogicType>([
                 const isRegionOverrideValid =
                     isString(regionOverrideFlag) && regionsAllowList.includes(regionOverrideFlag)
                 // KLUDGE: the backend can technically return null
-                // but definitely does in Cypress tests
                 // and, we don't want to redirect to the app unless the preflight region is valid
                 const isPreflightRegionValid =
                     values.preflight?.region && regionsAllowList.includes(values.preflight?.region)

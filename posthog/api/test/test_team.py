@@ -16,7 +16,7 @@ from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog, EarlyAccessFeature
+from posthog.models import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
@@ -30,6 +30,8 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
+
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -177,22 +179,22 @@ def team_api_test_factory():
             get_geoip_properties_mock.return_value = {}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test World"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertDictContainsSubset({"name": "Test World", "week_start_day": None}, response.json())
+            self.assertLessEqual({"name": "Test World", "week_start_day": None}.items(), response.json().items())
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "US"}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test US"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertDictContainsSubset({"name": "Test US", "week_start_day": 0}, response.json())
+            self.assertLessEqual({"name": "Test US", "week_start_day": 0}.items(), response.json().items())
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "PL"}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test PL"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertDictContainsSubset({"name": "Test PL", "week_start_day": 1}, response.json())
+            self.assertLessEqual({"name": "Test PL", "week_start_day": 1}.items(), response.json().items())
 
             get_geoip_properties_mock.return_value = {"$geoip_country_code": "IR"}
             response = self.client.post("/api/projects/@current/environments/", {"name": "Test IR"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertDictContainsSubset({"name": "Test IR", "week_start_day": 0}, response.json())
+            self.assertLessEqual({"name": "Test IR", "week_start_day": 0}.items(), response.json().items())
 
         def test_cant_create_team_without_license_on_selfhosted(self):
             with self.is_cloud(False):
@@ -357,6 +359,27 @@ def team_api_test_factory():
             expected_activity = [
                 {
                     "_state": ANY,
+                    "id": ANY,
+                    "team_id": team.pk,
+                    "organization_id": ANY,
+                    "user_id": None,
+                    "was_impersonated": False,
+                    "is_system": True,
+                    "activity": "created",
+                    "item_id": ANY,
+                    "scope": "Dashboard",
+                    "detail": {
+                        "name": "My App Dashboard",
+                        "type": "dashboard",
+                        "changes": [],
+                        "context": None,
+                        "short_id": None,
+                        "trigger": None,
+                    },
+                    "created_at": ANY,
+                },
+                {
+                    "_state": ANY,
                     "activity": "deleted",
                     "created_at": ANY,
                     "detail": {
@@ -379,7 +402,7 @@ def team_api_test_factory():
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
                 expected_activity.insert(
-                    0,
+                    1,
                     {
                         "_state": ANY,
                         "activity": "deleted",
@@ -509,9 +532,6 @@ def team_api_test_factory():
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
-            ]
             self.organization.save()
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
@@ -1471,16 +1491,25 @@ def team_api_test_factory():
         def test_can_complete_product_onboarding_as_member(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
-            from ee.models import ExplicitTeamMembership
+            from ee.models.rbac.access_control import AccessControl
 
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
-            ExplicitTeamMembership.objects.create(
+
+            # Set up new access control system - restrict project to no default access
+            AccessControl.objects.create(
                 team=self.team,
-                parent_membership=self.organization_membership,
-                level=ExplicitTeamMembership.Level.MEMBER,
+                access_level="none",
+                resource="project",
+                resource_id=str(self.team.id),
+            )
+            # Grant specific member access to this user
+            AccessControl.objects.create(
+                team=self.team,
+                access_level="member",
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=self.organization_membership,
             )
 
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -1606,6 +1635,108 @@ def team_api_test_factory():
             response = self.client.patch("/api/environments/@current/", {"session_recording_linked_flag": config})
             assert response.status_code == expected_status, response.json()
             return response
+
+        @patch("posthoganalytics.capture_exception")
+        def test_access_control_field_deprecated_on_create(self, mock_capture_exception):
+            """Test that access_control field is deprecated and cannot be used when creating a team."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "limit": 100},
+                {"key": AvailableFeature.ENVIRONMENTS, "limit": 100},
+            ]
+            self.organization.save()
+
+            response = self.client.post(
+                "/api/projects/@current/environments/",
+                {"name": "Test Environment", "access_control": True},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            error_data = response.json()
+            self.assertIn("deprecated", error_data["detail"])
+            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+
+            # Verify that the exception was captured
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
+            self.assertEqual(call_args[1]["properties"]["value"], "True")
+            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+
+        @patch("posthoganalytics.capture_exception")
+        def test_access_control_field_deprecated_on_update(self, mock_capture_exception):
+            """Test that access_control field is deprecated and cannot be used when updating a team."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"name": "Updated Name", "access_control": False},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            error_data = response.json()
+            self.assertIn("deprecated", error_data["detail"])
+            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+
+            # Verify that the exception was captured
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
+            self.assertEqual(call_args[1]["properties"]["value"], "False")
+            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+
+        @patch("posthoganalytics.capture_exception")
+        def test_access_control_field_deprecated_on_partial_update(self, mock_capture_exception):
+            """Test that access_control field is deprecated and cannot be used when partially updating a team."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"access_control": True},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            error_data = response.json()
+            self.assertIn("deprecated", error_data["detail"])
+            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+
+            # Verify that the exception was captured
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
+            self.assertEqual(call_args[1]["properties"]["value"], "True")
+            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+
+        @patch("posthoganalytics.capture_exception")
+        def test_access_control_field_deprecated_with_other_valid_fields(self, mock_capture_exception):
+            """Test that access_control field is deprecated even when other valid fields are provided."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/London", "access_control": True},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            error_data = response.json()
+            self.assertIn("deprecated", error_data["detail"])
+            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
+
+            # Verify that the exception was captured
+            mock_capture_exception.assert_called_once()
+            call_args = mock_capture_exception.call_args
+            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
+            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
+            self.assertEqual(call_args[1]["properties"]["value"], "True")
+            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
+
+            # Verify that no changes were made to the team
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "UTC")  # Should remain unchanged
 
         @parameterized.expand(
             [

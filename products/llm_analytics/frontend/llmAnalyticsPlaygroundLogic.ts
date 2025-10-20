@@ -10,6 +10,7 @@ import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import type { llmAnalyticsPlaygroundLogicType } from './llmAnalyticsPlaygroundLogicType'
+import { normalizeRole } from './utils'
 
 export interface ModelOption {
     id: string
@@ -28,11 +29,51 @@ export interface PlaygroundResponse {
     }
 }
 
-export type MessageRole = 'user' | 'assistant' | 'system'
+enum NormalizedMessageRole {
+    User = 'user',
+    Assistant = 'assistant',
+    System = 'system',
+}
+
+export type MessageRole = `${NormalizedMessageRole}`
 
 export interface Message {
     role: MessageRole
     content: string
+}
+
+interface RawMessage {
+    role: string
+    content: unknown
+}
+
+enum InputMessageRole {
+    User = 'user',
+    Assistant = 'assistant',
+    AI = 'ai',
+    Model = 'model',
+    System = 'system',
+}
+
+type ConversationRole = NormalizedMessageRole.User | NormalizedMessageRole.Assistant
+
+function extractConversationMessage(rawMessage: RawMessage): Message {
+    const normalizedRole = normalizeRole(rawMessage.role, NormalizedMessageRole.User)
+    const enumMap: Partial<Record<string, ConversationRole>> = {
+        [InputMessageRole.User]: NormalizedMessageRole.User,
+        [InputMessageRole.Assistant]: NormalizedMessageRole.Assistant,
+    }
+
+    const enumRole: ConversationRole | undefined = enumMap[normalizedRole]
+
+    // Default to 'user' role when we don't understand the role
+    // Better to show the message as a user message than to drop it entirely
+    const roleToUse = enumRole ?? NormalizedMessageRole.User
+
+    return {
+        role: roleToUse,
+        content: typeof rawMessage.content === 'string' ? rawMessage.content : JSON.stringify(rawMessage.content),
+    }
 }
 
 export interface ComparisonItem {
@@ -48,6 +89,32 @@ export interface ComparisonItem {
     }
     ttftMs?: number | null
     latencyMs?: number | null
+}
+
+const DEFAULT_MODEL = 'gpt-4.1'
+
+function pickByPrefix(query: string, idList: string[]): string | null {
+    let best = null
+    for (const s of idList) {
+        if (query.startsWith(s)) {
+            if (best === null || s.length > best.length) {
+                best = s
+            }
+        }
+    }
+    return best
+}
+
+function matchClosestModel(targetModel: string, availableModels: ModelOption[]): string {
+    const ids = availableModels.map((m) => m.id)
+    if (ids.includes(targetModel)) {
+        return targetModel
+    }
+    const match = pickByPrefix(targetModel, ids)
+    if (match) {
+        return match
+    }
+    return DEFAULT_MODEL
 }
 
 export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>([
@@ -218,10 +285,15 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             loadModelOptions: async () => {
                 try {
                     const response = await api.get('/api/llm_proxy/models/')
-                    if (!values.model && (response as ModelOption[])?.length > 0) {
-                        llmAnalyticsPlaygroundLogic.actions.setModel((response as ModelOption[])[0].id)
+                    if (!response) {
+                        return []
                     }
-                    return response as ModelOption[]
+                    const options = response as ModelOption[]
+                    const closestMatch = matchClosestModel(values.model, options)
+                    if (values.model !== closestMatch) {
+                        llmAnalyticsPlaygroundLogic.actions.setModel(closestMatch)
+                    }
+                    return options
                 } catch (error) {
                     console.error('Error loading model options:', error)
                     return values.modelOptions
@@ -378,9 +450,8 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         setupPlaygroundFromEvent: ({ payload }) => {
             const { model, input, tools } = payload
 
-            // Set model if available
             if (model) {
-                actions.setModel(model)
+                actions.setModel(matchClosestModel(model, values.modelOptions))
             }
 
             // Set tools if available
@@ -402,13 +473,10 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                             systemPromptContent = systemMessage.content
                         }
 
-                        // Extract user and assistant messages for history
+                        // Extract user and assistant messages for history (skip system messages as they're handled separately)
                         conversationMessages = input
-                            .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
-                            .map((msg) => ({
-                                role: msg.role as 'user' | 'assistant',
-                                content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-                            }))
+                            .filter((msg: RawMessage) => msg.role !== 'system')
+                            .map((msg: RawMessage) => extractConversationMessage(msg))
                     }
                     // Case 2: Input is just a single string prompt
                     else if (typeof input === 'string') {

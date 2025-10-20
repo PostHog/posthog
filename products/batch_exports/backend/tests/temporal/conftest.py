@@ -8,13 +8,14 @@ import pytest
 from django.conf import settings
 
 import psycopg
-import pytest_asyncio
 import temporalio.worker
 from asgiref.sync import sync_to_async
+from infi.clickhouse_orm import Database
 from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
 from posthog import constants
+from posthog.conftest import create_clickhouse_tables
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -27,6 +28,24 @@ from posthog.temporal.tests.utils.persons import (
 )
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
+
+
+@pytest.fixture(scope="package", autouse=True)
+def clickhouse_create_db_and_tables():
+    database = Database(
+        settings.CLICKHOUSE_DATABASE,
+        db_url=settings.CLICKHOUSE_HTTP_URL,
+        username=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
+        randomize_replica_paths=True,
+    )
+
+    database.create_database()  # Create database if it doesn't exist
+    create_clickhouse_tables()  # Create all expected tables
+
+    yield
 
 
 @pytest.fixture
@@ -53,7 +72,7 @@ def team(organization):
     team.delete()
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def aorganization():
     name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
     org = await sync_to_async(Organization.objects.create)(name=name, is_ai_data_processing_approved=True)
@@ -63,7 +82,7 @@ async def aorganization():
     await sync_to_async(org.delete)()
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def ateam(aorganization):
     name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
@@ -79,7 +98,7 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest_asyncio.fixture(scope="module")
+@pytest.fixture(scope="module")
 async def clickhouse_client(event_loop):
     """Provide a ClickHouseClient to use in tests."""
     async with ClickHouseClient(
@@ -96,7 +115,7 @@ async def clickhouse_client(event_loop):
         yield client
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def temporal_client():
     """Provide a temporalio.client.Client to use in tests."""
     client = await connect(
@@ -111,7 +130,7 @@ async def temporal_client():
     yield client
 
 
-@pytest_asyncio.fixture()
+@pytest.fixture()
 async def workflows(request):
     """Return Temporal workflows to initialize a test worker.
 
@@ -126,7 +145,7 @@ async def workflows(request):
         return WORKFLOWS
 
 
-@pytest_asyncio.fixture()
+@pytest.fixture()
 async def activities(request):
     """Return Temporal activities to initialize a test worker.
 
@@ -148,7 +167,7 @@ def event_loop():
     loop.close()
 
 
-@pytest_asyncio.fixture(autouse=True, scope="module")
+@pytest.fixture(autouse=True, scope="module")
 async def configure_logger_auto() -> None:
     """Configure logger when running in a Temporal activity environment."""
     configure_logger(cache_logger_on_first_use=False)
@@ -184,38 +203,6 @@ def exclude_events(request) -> list[str] | None:
         return None
 
 
-@pytest_asyncio.fixture(autouse=True)
-async def truncate_events(clickhouse_client):
-    """Fixture to automatically truncate sharded_events after a test.
-
-    This is useful if during the test setup we insert a lot of events we wish to clean-up.
-    """
-    yield
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS sharded_events")
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS events_recent")
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def truncate_persons(clickhouse_client):
-    """Fixture to automatically truncate person and person_distinct_id2 after a test.
-
-    This is useful if during the test setup we insert a lot of persons we wish to clean-up.
-    """
-    yield
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS person")
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS person_distinct_id2")
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def truncate_sessions(clickhouse_client):
-    """Fixture to automatically truncate raw_sessions after a test.
-
-    This is useful if during the test setup we insert a lot of sessions we wish to clean-up.
-    """
-    yield
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS raw_sessions")
-
-
 @pytest.fixture
 def batch_export_schema(request) -> dict | None:
     """A parametrizable fixture to configure a batch export schema.
@@ -229,7 +216,7 @@ def batch_export_schema(request) -> dict | None:
         return None
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def setup_postgres_test_db(postgres_config):
     """Fixture to manage a database for Redshift and Postgres export testing.
 
@@ -297,7 +284,7 @@ async def setup_postgres_test_db(postgres_config):
     await connection.close()
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def temporal_worker(temporal_client, workflows, activities):
     worker = temporalio.worker.Worker(
         temporal_client,
@@ -314,45 +301,6 @@ async def temporal_worker(temporal_client, workflows, activities):
 
     worker_run.cancel()
     await asyncio.wait([worker_run])
-
-
-@pytest_asyncio.fixture(scope="module", autouse=True)
-async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup):
-    from posthog.batch_exports.sql import (
-        CREATE_EVENTS_BATCH_EXPORT_VIEW,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_RECENT,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
-        CREATE_PERSONS_BATCH_EXPORT_VIEW,
-        CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
-    )
-    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
-
-    create_view_queries = (
-        CREATE_EVENTS_BATCH_EXPORT_VIEW,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_RECENT,
-        CREATE_PERSONS_BATCH_EXPORT_VIEW,
-        CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
-    )
-
-    clickhouse_tasks = set()
-    for query in create_view_queries + tuple(map(build_query, CREATE_KAFKA_TABLE_QUERIES)):
-        task = asyncio.create_task(clickhouse_client.execute_query(query))
-        clickhouse_tasks.add(task)
-        task.add_done_callback(clickhouse_tasks.discard)
-
-    done, pending = await asyncio.wait(clickhouse_tasks)
-
-    if len(pending) > 0:
-        raise ValueError("Not all required tables and views were created in time")
-
-    for task in done:
-        if exc := task.exception():
-            raise exc
-
-    return
 
 
 @pytest.fixture
@@ -432,7 +380,7 @@ def test_person_properties(request):
     return {"utm_medium": "referral", "$initial_os": "Linux"}
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def generate_test_data(
     ateam,
     clickhouse_client,
@@ -524,7 +472,7 @@ async def generate_test_data(
     return (events_to_export_created, persons_to_export_created)
 
 
-@pytest_asyncio.fixture
+@pytest.fixture
 async def generate_test_persons_data(ateam, clickhouse_client, data_interval_start, data_interval_end):
     """Generate test persons data in ClickHouse."""
     persons, _ = await generate_test_persons_in_clickhouse(

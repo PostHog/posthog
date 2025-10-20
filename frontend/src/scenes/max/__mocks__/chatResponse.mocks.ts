@@ -60,17 +60,8 @@ export const chatMidwayResponseChunk = generateChunk([
 ])
 
 const generationFailure: AssistantGenerationStatusEvent = { type: AssistantGenerationStatusType.GenerationError }
-const responseWithReasoningStepsOnly = {
-    ...visualizationMessage,
-    answer: null,
-}
 
-export const generationFailureChunk = generateChunk([
-    'event: message',
-    `data: ${JSON.stringify(responseWithReasoningStepsOnly)}`,
-    'event: status',
-    `data: ${JSON.stringify(generationFailure)}`,
-])
+export const generationFailureChunk = generateChunk(['event: status', `data: ${JSON.stringify(generationFailure)}`])
 
 export const failureChunk = generateChunk(['event: message', `data: ${JSON.stringify(failureMessage)}`])
 

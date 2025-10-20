@@ -46,6 +46,8 @@ type ButtonBaseProps = {
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
+    tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
+    tooltipVisible?: boolean
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     // Like disabled but doesn't show the disabled state or focus state (still shows tooltip)
     inert?: boolean
@@ -121,7 +123,9 @@ ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 /*                              Button Base Component                         */
 /* -------------------------------------------------------------------------- */
 
-export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {}
+export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {
+    'data-attr'?: string
+}
 
 export const buttonPrimitiveVariants = cva({
     base: 'button-primitive group/button-primitive',
@@ -166,7 +170,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         menuItem: {
-            true: 'rounded-sm button-primitive--full-width justify-start shrink-0 text-left',
+            true: 'rounded button-primitive--full-width justify-start shrink-0 text-left',
             false: '',
         },
         truncate: {
@@ -216,7 +220,7 @@ export const buttonPrimitiveVariants = cva({
         {
             hasSideActionRight: true,
             menuItem: true,
-            className: 'rounded-sm',
+            className: 'rounded',
         },
     ],
 })
@@ -257,8 +261,10 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         hasSideActionRight,
         isSideActionRight,
         tooltip,
+        tooltipCloseDelayMs,
         tooltipPlacement,
         tooltipDocLink,
+        tooltipVisible,
         autoHeight,
         inert,
         ...rest
@@ -309,7 +315,9 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                         : tooltip
                 }
                 placement={tooltipPlacement}
+                closeDelayMs={tooltipCloseDelayMs}
                 docLink={tooltipDocLink}
+                visible={tooltipVisible}
             >
                 {buttonComponent}
             </Tooltip>

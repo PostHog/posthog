@@ -2,22 +2,28 @@ import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconPin, IconPinFilled, IconX } from '@posthog/icons'
+import { IconEllipsis, IconPin, IconX } from '@posthog/icons'
 
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 interface PanelLayoutPanelProps {
     searchPlaceholder?: string
-    panelActions?: React.ReactNode
+    panelActionsNewSceneLayout?: (ButtonPrimitiveProps | null | undefined)[]
     children: React.ReactNode
     filterDropdown?: React.ReactNode
     searchField?: React.ReactNode
@@ -77,7 +83,7 @@ const panelLayoutPanelVariants = cva({
 
 export function PanelLayoutPanel({
     searchField,
-    panelActions,
+    panelActionsNewSceneLayout,
     children,
     filterDropdown,
     sortDropdown,
@@ -89,7 +95,7 @@ export function PanelLayoutPanel({
         panelWidth: computedPanelWidth,
         panelWillHide,
     } = useValues(panelLayoutLogic)
-    const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { closePanel } = useActions(panelLayoutLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
@@ -107,61 +113,74 @@ export function PanelLayoutPanel({
             )}
             ref={containerRef}
         >
-            <div className="flex justify-between p-1 gap-px bg-surface-tertiary">
-                <ProjectDropdownMenu />
-
-                <div className="flex gap-px items-center justify-end shrink-0">
-                    {!isMobileLayout && (
-                        <ButtonPrimitive
-                            iconOnly
-                            onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
-                            tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
-                            data-attr={`tree-navbar-${isLayoutPanelPinned ? 'unpin' : 'pin'}-panel-button`}
-                            active={isLayoutPanelPinned}
-                            size="sm"
-                            aria-pressed={isLayoutPanelPinned}
-                        >
-                            {isLayoutPanelPinned ? (
-                                <IconPinFilled className="size-3 text-primary" />
-                            ) : (
-                                <IconPin className="size-3 text-tertiary" />
-                            )}
-                        </ButtonPrimitive>
-                    )}
-
-                    {panelActions ?? null}
-
-                    <ButtonPrimitive
-                        onClick={() => {
-                            showLayoutPanel(false)
-                            clearActivePanelIdentifier()
-                        }}
-                        tooltip="Close panel"
-                        iconOnly
-                        data-attr="tree-panel-close-panel-button"
-                        size="sm"
-                    >
-                        <IconX className="text-tertiary size-3" />
-                    </ButtonPrimitive>
-                </div>
-            </div>
-            <div className="border-b border-primary h-px" />
-            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true">
+            <div
+                className={cn(
+                    'z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true',
+                    'bg-surface-tertiary'
+                )}
+            >
                 {searchField || filterDropdown || sortDropdown ? (
                     <>
                         <div className="flex gap-1 p-1 items-center justify-between">
                             {searchField ?? null}
 
-                            {filterDropdown || sortDropdown ? (
-                                <div className="flex gap-px">
-                                    {filterDropdown ?? null}
-                                    {sortDropdown ?? null}
-                                </div>
-                            ) : null}
+                            <div className="flex gap-px">
+                                {filterDropdown || sortDropdown ? (
+                                    <div className="flex gap-px">
+                                        {filterDropdown ?? null}
+                                        {sortDropdown ?? null}
+                                    </div>
+                                ) : null}
+
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <ButtonPrimitive iconOnly>
+                                            <IconEllipsis className="text-tertiary size-3" />
+                                        </ButtonPrimitive>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent side="bottom" align="start">
+                                        <DropdownMenuGroup>
+                                            <DropdownMenuItem asChild>
+                                                <ButtonPrimitive
+                                                    menuItem
+                                                    active={isLayoutPanelPinned}
+                                                    onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
+                                                >
+                                                    <IconPin className="text-tertiary size-3" />{' '}
+                                                    {isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                                                </ButtonPrimitive>
+                                            </DropdownMenuItem>
+                                            {panelActionsNewSceneLayout?.map(
+                                                (action) =>
+                                                    action &&
+                                                    action['data-attr'] && (
+                                                        <DropdownMenuItem key={action['data-attr']} asChild>
+                                                            <ButtonPrimitive menuItem {...action} size="base">
+                                                                {action.children}
+                                                            </ButtonPrimitive>
+                                                        </DropdownMenuItem>
+                                                    )
+                                            )}
+                                        </DropdownMenuGroup>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+
+                                <ButtonPrimitive
+                                    onClick={() => {
+                                        closePanel()
+                                    }}
+                                    tooltip="Close panel"
+                                    iconOnly
+                                    data-attr="tree-panel-close-panel-button"
+                                    size="sm"
+                                >
+                                    <IconX className="text-tertiary size-3" />
+                                </ButtonPrimitive>
+                            </div>
                         </div>
-                        <div className="border-b border-primary h-px" />
                     </>
                 ) : null}
+
                 {children}
             </div>
         </nav>

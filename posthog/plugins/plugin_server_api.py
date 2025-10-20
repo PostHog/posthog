@@ -85,6 +85,18 @@ def patch_hog_function_status(team_id: int, hog_function_id: UUIDT, state: int) 
     )
 
 
+def generate_messaging_preferences_token(team_id: int, identifier: str) -> str:
+    payload = {"team_id": team_id, "identifier": identifier}
+    response = requests.post(CDP_API_URL + "/api/messaging/generate_preferences_token", json=payload)
+    if response.status_code == 200:
+        return response.json().get("token")
+    return ""
+
+
+def validate_messaging_preferences_token(token: str) -> requests.Response:
+    return requests.get(CDP_API_URL + f"/api/messaging/validate_preferences_token/{token}")
+
+
 def get_hog_function_templates() -> requests.Response:
     return requests.get(CDP_API_URL + f"/api/hog_function_templates")
 

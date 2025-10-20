@@ -6,7 +6,7 @@
   FROM (
   SELECT DISTINCT cohortpeople.person_id AS cohort_people___person_id, cohortpeople.person_id AS person_id, cohortpeople.cohort_id AS cohort_id 
   FROM cohortpeople 
-  WHERE and(equals(cohortpeople.team_id, 420), 0)) AS cohort_people GLOBAL LEFT JOIN (
+  WHERE 0) AS cohort_people LEFT JOIN (
   SELECT persons.id AS id, id AS cohort_people__new_person___id 
   FROM (
   SELECT person.id AS id 
@@ -28,7 +28,7 @@
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)) 
-  SETTINGS optimize_aggregation_in_order=1) AS persons GLOBAL LEFT JOIN (
+  SETTINGS optimize_aggregation_in_order=1) AS persons LEFT JOIN (
   SELECT events.event AS event, event AS persons__events___event 
   FROM events 
   WHERE equals(events.team_id, 420)) AS persons__events ON equals(persons.persons___properties___email, persons__events.persons__events___event) 
@@ -42,7 +42,7 @@
   FROM (
   SELECT DISTINCT cohortpeople.person_id AS cohort_people___person_id, cohortpeople.person_id AS person_id, cohortpeople.cohort_id AS cohort_id 
   FROM cohortpeople 
-  WHERE and(equals(cohortpeople.team_id, 420), 0)) AS cohort_people GLOBAL LEFT JOIN (
+  WHERE 0) AS cohort_people LEFT JOIN (
   SELECT persons.id AS id, persons.properties___email AS cohort_people__new_person___properties___email 
   FROM (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___email, person.id AS id 

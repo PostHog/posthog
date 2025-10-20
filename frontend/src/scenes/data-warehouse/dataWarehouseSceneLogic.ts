@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -183,7 +183,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],
             (views: any[], dataWarehouseSavedQueryMapById: any) => {
                 return views
-                    .filter((view: any) => dataWarehouseSavedQueryMapById[view.id]?.status)
+                    .filter((view: any) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
                     .map((view: any) => ({
                         ...view,
                         type: 'materialized_view',
@@ -199,7 +199,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             },
         ],
     }),
-    listeners(({ cache, values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         setActivityCurrentPage: () => {
             actions.checkAutoLoadMore()
         },
@@ -228,12 +228,16 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             }
         },
         loadSourcesSuccess: () => {
-            clearTimeout(cache.refreshTimeout)
+            // Remove any existing refresh timeout
+            cache.disposables.dispose('refreshTimeout')
 
             if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadSources(null)
-                }, REFRESH_INTERVAL)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources(null)
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
             }
         },
     })),
@@ -241,8 +245,5 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         actions.loadSources(null)
         actions.loadRecentActivityResponse()
         actions.loadTotalRowsStats()
-    }),
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.refreshTimeout)
     }),
 ])

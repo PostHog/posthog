@@ -12,6 +12,7 @@ import {
     PropertiesLastUpdatedAt,
     RawPerson,
     Team,
+    TeamId,
 } from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult, PersonPropertiesSize } from '../../../../utils/db/db'
 import {
@@ -26,7 +27,7 @@ import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../../utils/uti
 import { oversizedPersonPropertiesTrimmedCounter, personPropertiesSizeViolationCounter } from '../metrics'
 import { canTrimProperty } from '../person-property-utils'
 import { PersonUpdate } from '../person-update-batch'
-import { PersonPropertiesSizeViolationError, PersonRepository } from './person-repository'
+import { InternalPersonWithDistinctId, PersonPropertiesSizeViolationError, PersonRepository } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { PostgresPersonRepositoryTransaction } from './postgres-person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
@@ -249,6 +250,54 @@ export class PostgresPersonRepository
         if (rows.length > 0) {
             return this.toPerson(rows[0])
         }
+    }
+
+    async fetchPersonsByDistinctIds(
+        teamPersons: { teamId: TeamId; distinctId: string }[]
+    ): Promise<InternalPersonWithDistinctId[]> {
+        if (teamPersons.length === 0) {
+            return []
+        }
+
+        // Build the WHERE clause for multiple team_id, distinct_id pairs
+        const conditions = teamPersons
+            .map((_, index) => {
+                const teamIdParam = index * 2 + 1
+                const distinctIdParam = index * 2 + 2
+                return `(posthog_persondistinctid.team_id = $${teamIdParam} AND posthog_persondistinctid.distinct_id = $${distinctIdParam})`
+            })
+            .join(' OR ')
+
+        const queryString = `SELECT
+                posthog_person.id,
+                posthog_person.uuid,
+                posthog_person.created_at,
+                posthog_person.team_id,
+                posthog_person.properties,
+                posthog_person.properties_last_updated_at,
+                posthog_person.properties_last_operation,
+                posthog_person.is_user_id,
+                posthog_person.version,
+                posthog_person.is_identified,
+                posthog_persondistinctid.distinct_id
+            FROM posthog_person
+            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            WHERE ${conditions}`
+
+        // Flatten the parameters: [teamId1, distinctId1, teamId2, distinctId2, ...]
+        const params = teamPersons.flatMap((person) => [person.teamId, person.distinctId])
+
+        const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
+            PostgresUse.PERSONS_READ,
+            queryString,
+            params,
+            'fetchPersonsByDistinctIds'
+        )
+
+        return rows.map((row) => ({
+            ...this.toPerson(row),
+            distinct_id: row.distinct_id,
+        }))
     }
 
     async createPerson(

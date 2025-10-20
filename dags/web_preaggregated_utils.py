@@ -1,4 +1,5 @@
 import os
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Optional
@@ -6,6 +7,7 @@ from typing import Optional
 import dagster
 from dagster import Array, Backoff, DagsterRunStatus, Field, Jitter, RetryPolicy, RunsFilter, SkipReason
 
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.settings.base_variables import DEBUG
 
@@ -72,7 +74,9 @@ def get_partitions(
         end_partition = end_datetime.strftime("%Y%m%d")
         partition_query += f" AND partition >= '{start_partition}' AND partition < '{end_partition}'"
 
-    partitions_result = cluster.any_host(lambda client: client.execute(partition_query)).result()
+    partitions_result = cluster.any_host_by_roles(
+        lambda client: client.execute(partition_query), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+    ).result()
     context.log.info(f"Found {len(partitions_result)} partitions for {table_name}: {partitions_result}")
     return sorted([partition_row[0] for partition_row in partitions_result if partition_row and len(partition_row) > 0])
 
@@ -90,12 +94,24 @@ def drop_partitions_for_date_range(
             return client.execute(f"ALTER TABLE {table_name} DROP PARTITION '{pid}'")
 
         try:
-            cluster.any_host(partial(drop_partition, pid=partition_id)).result()
+            cluster.any_host_by_roles(
+                partial(drop_partition, pid=partition_id), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+            ).result()
             context.log.info(f"Dropped partition {partition_id} from {table_name}")
         except Exception as e:
             context.log.info(f"Partition {partition_id} doesn't exist or couldn't be dropped: {e}")
 
         current_date += timedelta(days=1)
+
+
+def sync_partitions_on_replicas(
+    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str
+) -> None:
+    context.log.info(f"Syncing replicas for {target_table} on all hosts")
+    cluster.map_hosts_by_roles(
+        lambda client: client.execute(f"SYSTEM SYNC REPLICA {target_table}"),
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+    ).result()
 
 
 def swap_partitions_from_staging(
@@ -108,7 +124,9 @@ def swap_partitions_from_staging(
         return client.execute(f"ALTER TABLE {target_table} REPLACE PARTITION '{pid}' FROM {staging_table}")
 
     for partition_id in staging_partitions:
-        cluster.any_host(partial(replace_partition, pid=partition_id)).result()
+        cluster.any_host_by_roles(
+            partial(replace_partition, pid=partition_id), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+        ).result()
 
 
 def clear_all_staging_partitions(
@@ -127,10 +145,30 @@ def clear_all_staging_partitions(
 
     for partition_id in all_partitions:
         try:
-            cluster.any_host(partial(drop_partition, pid=partition_id)).result()
+            cluster.any_host_by_roles(
+                partial(drop_partition, pid=partition_id), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+            ).result()
             context.log.info(f"Dropped partition {partition_id} from {staging_table}")
         except Exception as e:
             context.log.warning(f"Failed to drop partition {partition_id} from {staging_table}: {e}")
+
+
+def recreate_staging_table(
+    context: dagster.AssetExecutionContext,
+    cluster: ClickhouseCluster,
+    staging_table: str,
+    replace_sql_func: Callable[[], str],
+) -> None:
+    """Recreate staging table on all hosts using REPLACE TABLE."""
+    context.log.info(f"Recreating staging table {staging_table}")
+    # We generate a uuid with force_unique_zk_path=True, which we want to be unique per the cluster
+    # so we must get the result statement string here instead of inside the lambda to run the
+    # exact command on each host, otherwise we would get a new uuid per host and replication
+    # woudn't kick in.
+    sql_statement = replace_sql_func()
+    cluster.map_hosts_by_roles(
+        lambda client: client.execute(sql_statement), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+    ).result()
 
 
 # Shared config schema for daily processing

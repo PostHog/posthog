@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { Group, InsightShortId, PersonType, SearchResponse, SearchableEntity } from '~/types'
 
 import { commandBarLogic } from './commandBarLogic'
@@ -57,7 +57,9 @@ function rankProductTreeItems(treeItems: FileSystemImport[], query: string): Tre
                 result_id: item.href || item.path,
                 extra_fields: {
                     ...item,
-                    icon: item.iconType ? iconForType(item.iconType) : iconForType(item.type),
+                    icon: item.iconType
+                        ? iconForType(item.iconType as FileSystemIconType)
+                        : iconForType(item.type as FileSystemIconType),
                     description: `Category: ${item.category}`,
                 },
                 rank,
@@ -67,6 +69,7 @@ function rankProductTreeItems(treeItems: FileSystemImport[], query: string): Tre
 
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
+
     connect(() => ({
         values: [
             commandBarLogic,
@@ -308,20 +311,6 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 activeTab,
                 featureFlags
             ) => {
-                if (
-                    !searchResponse &&
-                    !personsResponse &&
-                    !group0Response &&
-                    !group1Response &&
-                    !group2Response &&
-                    !group3Response &&
-                    !group4Response &&
-                    activeTab !== Tab.Products &&
-                    activeTab !== Tab.All
-                ) {
-                    return null
-                }
-
                 const results = []
 
                 // Add regular search results (not for Products tab)
@@ -372,6 +361,55 @@ export const searchBarLogic = kea<searchBarLogicType>([
             },
         ],
         combinedSearchLoading: [
+            (s) => [
+                s.rawSearchResponseLoading,
+                s.rawPersonsResponseLoading,
+                s.rawGroup0ResponseLoading,
+                s.rawGroup1ResponseLoading,
+                s.rawGroup2ResponseLoading,
+                s.rawGroup3ResponseLoading,
+                s.rawGroup4ResponseLoading,
+                s.activeTab,
+            ],
+            (
+                searchLoading: boolean,
+                personsLoading: boolean,
+                group0Loading: boolean,
+                group1Loading: boolean,
+                group2Loading: boolean,
+                group3Loading: boolean,
+                group4Loading: boolean,
+                activeTab: Tab
+            ) => {
+                // For individual tabs, only check the relevant loading state
+                if (activeTab === Tab.Person) {
+                    return personsLoading
+                }
+                if (activeTab === Tab.Group0) {
+                    return group0Loading
+                }
+                if (activeTab === Tab.Group1) {
+                    return group1Loading
+                }
+                if (activeTab === Tab.Group2) {
+                    return group2Loading
+                }
+                if (activeTab === Tab.Group3) {
+                    return group3Loading
+                }
+                if (activeTab === Tab.Group4) {
+                    return group4Loading
+                }
+                if (activeTab !== Tab.All && activeTab !== Tab.Products) {
+                    return searchLoading
+                }
+
+                // For "All" tab, only show loading if the primary search is loading
+                // This allows other results to show while slow group searches are still running
+                return searchLoading
+            },
+        ],
+        anySearchLoading: [
             (s) => [
                 s.rawSearchResponseLoading,
                 s.rawPersonsResponseLoading,
@@ -553,7 +591,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
             actions.loadGroup4Response(_)
         },
         openResult: ({ index }) => {
-            const result = values.combinedSearchResults![index]
+            const results = values.combinedSearchResults
+            if (!results || !results[index]) {
+                return // Early exit if no valid result
+            }
+            const result = results[index]
             router.actions.push(urlForResult(result))
             actions.hideCommandBar()
             actions.reportCommandBarSearchResultOpened(result.type)
@@ -578,52 +620,51 @@ export const searchBarLogic = kea<searchBarLogicType>([
     })),
     afterMount(({ actions, values, cache }) => {
         // register keyboard shortcuts
-        cache.onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Enter') {
-                // open result
-                event.preventDefault()
-                actions.openResult(values.activeResultIndex)
-            } else if (event.key === 'ArrowDown') {
-                // navigate to next result
-                event.preventDefault()
-                actions.onArrowDown(values.activeResultIndex, values.maxIndex)
-            } else if (event.key === 'ArrowUp') {
-                // navigate to previous result
-                event.preventDefault()
-                actions.onArrowUp(values.activeResultIndex, values.maxIndex)
-            } else if (event.key === 'Escape' && event.repeat === false) {
-                // hide command bar
-                actions.hideCommandBar()
-            } else if (event.key === '>') {
-                const { value, selectionStart, selectionEnd } = event.target as HTMLInputElement
-                if (
-                    values.searchQuery.length === 0 ||
-                    (selectionStart !== null &&
-                        selectionEnd !== null &&
-                        (value.substring(0, selectionStart) + value.substring(selectionEnd)).length === 0)
-                ) {
-                    // transition to actions when entering '>' with empty input, or when replacing the whole input
+        cache.disposables.add(() => {
+            const onKeyDown = (event: KeyboardEvent): void => {
+                if (event.key === 'Enter') {
+                    // open result
                     event.preventDefault()
-                    actions.setCommandBar(BarStatus.SHOW_ACTIONS)
-                }
-            } else if (event.key === 'Tab') {
-                event.preventDefault()
+                    actions.openResult(values.activeResultIndex)
+                } else if (event.key === 'ArrowDown') {
+                    // navigate to next result
+                    event.preventDefault()
+                    actions.onArrowDown(values.activeResultIndex, values.maxIndex)
+                } else if (event.key === 'ArrowUp') {
+                    // navigate to previous result
+                    event.preventDefault()
+                    actions.onArrowUp(values.activeResultIndex, values.maxIndex)
+                } else if (event.key === 'Escape' && event.repeat === false) {
+                    // hide command bar
+                    actions.hideCommandBar()
+                } else if (event.key === '>') {
+                    const { value, selectionStart, selectionEnd } = event.target as HTMLInputElement
+                    if (
+                        values.searchQuery.length === 0 ||
+                        (selectionStart !== null &&
+                            selectionEnd !== null &&
+                            (value.substring(0, selectionStart) + value.substring(selectionEnd)).length === 0)
+                    ) {
+                        // transition to actions when entering '>' with empty input, or when replacing the whole input
+                        event.preventDefault()
+                        actions.setCommandBar(BarStatus.SHOW_ACTIONS)
+                    }
+                } else if (event.key === 'Tab') {
+                    event.preventDefault()
 
-                const currentIndex = values.tabs.findIndex((tab) => tab === values.activeTab)
-                if (event.shiftKey) {
-                    const prevIndex = currentIndex === 0 ? values.tabs.length - 1 : currentIndex - 1
-                    actions.setActiveTab(values.tabs[prevIndex])
-                } else {
-                    const nextIndex = currentIndex === values.tabs.length - 1 ? 0 : currentIndex + 1
-                    actions.setActiveTab(values.tabs[nextIndex])
+                    const currentIndex = values.tabs.findIndex((tab) => tab === values.activeTab)
+                    if (event.shiftKey) {
+                        const prevIndex = currentIndex === 0 ? values.tabs.length - 1 : currentIndex - 1
+                        actions.setActiveTab(values.tabs[prevIndex])
+                    } else {
+                        const nextIndex = currentIndex === values.tabs.length - 1 ? 0 : currentIndex + 1
+                        actions.setActiveTab(values.tabs[nextIndex])
+                    }
                 }
             }
-        }
-        window.addEventListener('keydown', cache.onKeyDown)
-    }),
-    beforeUnmount(({ cache }) => {
-        // unregister keyboard shortcuts
-        window.removeEventListener('keydown', cache.onKeyDown)
+            window.addEventListener('keydown', onKeyDown)
+            return () => window.removeEventListener('keydown', onKeyDown)
+        }, 'searchNavigationKeys')
     }),
 ])
 

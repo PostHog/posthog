@@ -19,6 +19,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME as STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
@@ -33,6 +34,7 @@ from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as S
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+from posthog.warehouse.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -81,6 +83,11 @@ class TestExternalDataSource(APIBaseTest):
                         {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {
                             "name": STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "full_refresh",
+                        },
+                        {
+                            "name": STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
                             "should_sync": True,
                             "sync_type": "full_refresh",
                         },
@@ -505,7 +512,7 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(24):
+        with self.assertNumQueries(25):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
@@ -543,10 +550,10 @@ class TestExternalDataSource(APIBaseTest):
                 "source_type",
                 "latest_error",
                 "prefix",
-                "revenue_analytics_enabled",
                 "last_run_at",
                 "schemas",
                 "job_inputs",
+                "revenue_analytics_config",
             ],
         )
         self.assertEqual(
@@ -1338,3 +1345,97 @@ class TestExternalDataSource(APIBaseTest):
         payload = response.json()
         assert response.status_code == 200
         assert payload is not None
+
+    def test_revenue_analytics_config_created_automatically(self):
+        """Test that revenue analytics config is created automatically when external data source is created."""
+        source = self._create_external_data_source()
+
+        # Config should be created automatically
+        assert hasattr(source, "revenue_analytics_config")
+        config = source.revenue_analytics_config
+        assert isinstance(config, ExternalDataSourceRevenueAnalyticsConfig)
+        assert config.external_data_source == source
+        assert config.enabled is True  # Stripe should be enabled by default
+        assert config.include_invoiceless_charges is True
+
+    def test_revenue_analytics_config_safe_property(self):
+        """Test that the safe property always returns a config even if it doesn't exist."""
+        source = self._create_external_data_source()
+
+        # Delete the config to test fallback
+        ExternalDataSourceRevenueAnalyticsConfig.objects.filter(external_data_source=source).delete()
+
+        # Safe property should recreate it
+        config = source.revenue_analytics_config_safe
+        assert isinstance(config, ExternalDataSourceRevenueAnalyticsConfig)
+        assert config.external_data_source == source
+        assert config.enabled is True  # Stripe should be enabled by default
+
+    def test_revenue_analytics_config_in_api_response(self):
+        """Test that revenue analytics config is included in API responses."""
+        source = self._create_external_data_source()
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        payload = response.json()
+
+        assert response.status_code == 200
+        assert "revenue_analytics_config" in payload
+        config_data = payload["revenue_analytics_config"]
+        assert config_data["enabled"] is True
+        assert config_data["include_invoiceless_charges"] is True
+
+    def test_update_revenue_analytics_config(self):
+        """Test updating revenue analytics config via PATCH endpoint."""
+        source = self._create_external_data_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={
+                "enabled": False,
+                "include_invoiceless_charges": False,
+            },
+        )
+
+        assert response.status_code == 200
+
+        # Check the response includes updated config
+        payload = response.json()
+        assert "revenue_analytics_config" in payload
+        config_data = payload["revenue_analytics_config"]
+        assert config_data["enabled"] is False
+        assert config_data["include_invoiceless_charges"] is False
+
+        # Verify in database
+        source.refresh_from_db()
+        config = source.revenue_analytics_config
+        assert config.enabled is False
+        assert config.include_invoiceless_charges is False
+
+    def test_revenue_analytics_config_partial_update(self):
+        """Test partial update of revenue analytics config."""
+        source = self._create_external_data_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/revenue_analytics_config/",
+            data={"enabled": False},
+        )
+
+        assert response.status_code == 200
+
+        # Check only enabled was updated
+        source.refresh_from_db()
+        config = source.revenue_analytics_config
+        assert config.enabled is False
+        assert config.include_invoiceless_charges is True  # Should remain unchanged
+
+    def test_revenue_analytics_config_queryset_optimization(self):
+        """Test that the manager uses select_related for efficient queries."""
+        self._create_external_data_source()
+        self._create_external_data_source()
+
+        # This should use select_related to fetch configs efficiently
+        with self.assertNumQueries(1):
+            sources = list(ExternalDataSource.objects.all())
+            for source in sources:
+                # This should not trigger additional queries due to select_related
+                _ = source.revenue_analytics_config.enabled

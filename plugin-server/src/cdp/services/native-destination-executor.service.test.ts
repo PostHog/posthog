@@ -1,8 +1,9 @@
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { DateTime, Settings } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { FetchResponse, fetch } from '~/utils/request'
 
 import { createHogFunction } from '../_tests/fixtures'
 import { createExampleNativeInvocation } from '../_tests/fixtures-native'
@@ -22,18 +23,18 @@ const inputs = {
 
 describe('NativeDestinationExecutorService', () => {
     let service: NativeDestinationExecutorService
-    let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
 
     beforeEach(() => {
         Settings.defaultZone = 'UTC'
         service = new NativeDestinationExecutorService(defaultConfig)
 
-        service.fetch = mockFetch = jest.fn((_url, _options) =>
+        mockFetch.mockImplementation((_url, _options) =>
             Promise.resolve({
                 status: 200,
                 json: () => Promise.resolve({}),
                 text: () => Promise.resolve(JSON.stringify({})),
                 headers: {},
+                dump: () => Promise.resolve(),
             } as any)
         )
 
@@ -67,6 +68,7 @@ describe('NativeDestinationExecutorService', () => {
                         })
                     ),
                 headers: {},
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -111,6 +113,7 @@ describe('NativeDestinationExecutorService', () => {
                 json: () => Promise.resolve({ error: 'Forbidden' }),
                 text: () => Promise.resolve(JSON.stringify({ error: 'Forbidden' })),
                 headers: { 'retry-after': '60' },
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)
@@ -171,6 +174,7 @@ describe('NativeDestinationExecutorService', () => {
                 json: () => Promise.resolve({ error: 'Too many requests' }),
                 text: () => Promise.resolve(JSON.stringify({ error: 'Too many requests' })),
                 headers: { 'retry-after': '60' },
+                dump: () => Promise.resolve(),
             })
 
             const result = await service.execute(invocation)

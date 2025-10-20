@@ -91,7 +91,7 @@ function ShowOnlyMatching(): JSX.Element {
                     : 'Show only events that match the current filters'
             }
             label="Show only matching events"
-            active={hasEventsToDisplay && showOnlyMatching}
+            active={hasEventsToDisplay && showOnlyMatching && allowMatchingEventsFilter}
             onClick={() => {
                 setShowOnlyMatching(!showOnlyMatching)
             }}

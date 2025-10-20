@@ -4,9 +4,12 @@ from typing import Any, Literal, Optional, cast
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, clean_varying_query_parts, materialized
+from unittest import mock
 from unittest.mock import patch
 
 from django.test import override_settings
+
+from parameterized import parameterized
 
 from posthog.schema import (
     HogQLQueryModifiers,
@@ -567,7 +570,7 @@ class TestPrinter(BaseTest):
             self.assertEqual(printed_expr % context.values, unoptimized_expr % unoptimized_context.values)
 
         if expected_context_values is not None:
-            self.assertDictContainsSubset(expected_context_values, context.values)
+            self.assertLessEqual(expected_context_values.items(), context.values.items())
 
         if expected_skip_indexes_used is not None:
             # The table needs some data to be able get a `EXPLAIN` result that includes index information -- otherwise
@@ -853,6 +856,17 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(self._expr("quantile(0.95)( event )"), "quantile(0.95)(events.event)")
 
+        self.assertEqual(self._expr("groupArraySample(5)(event)"), "groupArraySample(5)(events.event)")
+        self.assertEqual(self._expr("groupArraySample(5, 123456)(event)"), "groupArraySample(5, 123456)(events.event)")
+        self.assertEqual(
+            self._expr("groupArraySampleIf(5)(event, event is not null)"),
+            "groupArraySampleIf(5)(events.event, isNotNull(events.event))",
+        )
+        self.assertEqual(
+            self._expr("groupArraySampleIf(5, 123456)(event, event is not null)"),
+            "groupArraySampleIf(5, 123456)(events.event, isNotNull(events.event))",
+        )
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
@@ -927,6 +941,50 @@ class TestPrinter(BaseTest):
         self._assert_expr_error("b.a(bla)", "You can only call simple functions in HogQL, not expressions")
         self._assert_expr_error("a -> { print(2) }", "You can not use placeholders here")
 
+    def test_boolean_and_optimization(self):
+        self.assertEqual(
+            self._expr("team_id=1 AND 1 AND event='name'"),
+            "and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 AND 1"),
+            "equals(events.team_id, 1)",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 AND 0"),
+            "0",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 AND (1=1 AND event='name')"),
+            "and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 AND (0=1 AND event='name')"),
+            "0",
+        )
+
+    def test_boolean_or_optimization(self):
+        self.assertEqual(
+            self._expr("team_id=1 OR 0 OR event='name'"),
+            "or(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 OR 0"),
+            "equals(events.team_id, 1)",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 OR 1"),
+            "1",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 OR (1=1 OR event='name')"),
+            "1",
+        )
+        self.assertEqual(
+            self._expr("team_id=1 OR (0=1 OR event='name')"),
+            "or(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s))",
+        )
+
     def test_logic(self):
         self.assertEqual(
             self._expr("event or timestamp"),
@@ -937,8 +995,12 @@ class TestPrinter(BaseTest):
             "and(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''))",
         )
         self.assertEqual(
+            self._expr("event or timestamp or count()"),
+            "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), count())",
+        )
+        self.assertEqual(
             self._expr("event or timestamp or true or count()"),
-            "or(events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), 1, count())",
+            "1",
         )
         self.assertEqual(
             self._expr("event or not timestamp"),
@@ -1129,8 +1191,18 @@ class TestPrinter(BaseTest):
 
     def test_select_where(self):
         self.assertEqual(
+            self._select("select 1 from events where 1 == 1"),
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+        self.assertEqual(
             self._select("select 1 from events where 1 == 2"),
-            f"SELECT 1 FROM events WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT 1 FROM events WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+        self.assertEqual(
+            self._select("select 1 from events where event='name'"),
+            f"SELECT 1 FROM events WHERE and(equals(events.team_id, {self.team.pk}), equals(events.event, %(hogql_val_0)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_select_having(self):
@@ -1141,12 +1213,16 @@ class TestPrinter(BaseTest):
 
     def test_select_prewhere(self):
         self.assertEqual(
+            self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
+            f"SELECT 1 FROM events PREWHERE 0 WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+        self.assertEqual(
             self._select("select 1 from events prewhere 1 == 2"),
             f"SELECT 1 FROM events PREWHERE 0 WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
-            self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
-            f"SELECT 1 FROM events PREWHERE 0 WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            self._select("select 1 from events prewhere 1 == 2 where event='name'"),
+            f"SELECT 1 FROM events PREWHERE 0 WHERE and(equals(events.team_id, {self.team.pk}), equals(events.event, %(hogql_val_0)s)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_select_order_by(self):
@@ -1232,13 +1308,13 @@ class TestPrinter(BaseTest):
     def test_select_union_all(self):
         self.assertEqual(
             self._select("SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE 0 LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             self._select(
-                "SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2 UNION ALL SELECT events.event FROM events WHERE 1 = 2"
+                "SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 1 UNION ALL SELECT events.event FROM events WHERE 1 = 1"
             ),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), 0) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} UNION ALL SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             self._select("SELECT 1 UNION ALL (SELECT 1 UNION ALL SELECT 1) UNION ALL SELECT 1"),
@@ -1496,6 +1572,14 @@ class TestPrinter(BaseTest):
             f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
         )
 
+        # No rows but order by exists
+        self.assertEqual(
+            self._select(
+                "SELECT distinct_id, lag(event) OVER (PARTITION BY distinct_id ORDER BY timestamp) FROM events"
+            ),
+            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(events.event)) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_0)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        )
+
     def test_window_functions_with_window(self):
         self.assertEqual(
             self._select(
@@ -1684,6 +1768,69 @@ class TestPrinter(BaseTest):
             "hogql_val_4": ["true", "false"],
             "hogql_val_5": [1, 0],
         }
+
+    @patch("posthog.hogql.printer.get_materialized_column_for_property")
+    def test_ai_trace_id_optimizations(self, mock_get_mat_col):
+        """Test that $ai_trace_id gets special treatment for bloom filter index optimization"""
+
+        from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
+
+        mock_mat_col = MaterializedColumn(
+            name="mat_$ai_trace_id",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="$ai_trace_id", is_disabled=False
+            ),
+            is_nullable=True,
+        )
+
+        # Basic equality comparison - no ifNull wrapping
+        mock_get_mat_col.return_value = mock_mat_col
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id = 'trace123'", context)
+
+        # Should generate: equals(mat_$ai_trace_id, 'trace123') without ifNull wrapper
+        # Check that the WHERE clause contains the direct equals check for $ai_trace_id
+        self.assertIn("equals(events.`mat_$ai_trace_id`, %(hogql_val_4)s)", sql)
+        # Verify the equals for $ai_trace_id is NOT wrapped in ifNull (it appears directly in WHERE clause)
+        self.assertIn("WHERE and(equals(events.team_id,", sql)
+        self.assertIn("equals(events.`mat_$ai_trace_id`, %(hogql_val_4)s))", sql)
+
+        # Verify the placeholder value (it's hogql_val_4 due to other parameters in the query)
+        self.assertEqual(context.values["hogql_val_4"], "trace123")
+
+        # With materialized column - no nullIf wrapping
+        context = HogQLContext(team_id=self.team.pk)
+        sql = self._expr("properties.$ai_trace_id", context)
+
+        # Should be: events.mat_$ai_trace_id
+        # NOT: nullIf(nullIf(events.mat_$ai_trace_id, ''), 'null')
+        self.assertEqual(sql.strip(), "events.`mat_$ai_trace_id`")
+        self.assertNotIn("nullIf", sql)
+
+        # IN operations - no ifNull wrapping
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id IN ('trace1', 'trace2')", context)
+
+        # Should generate clean IN without ifNull wrapper
+        self.assertIn("in(events.`mat_$ai_trace_id`, tuple(%(hogql_val_4)s, %(hogql_val_5)s))", sql)
+        self.assertNotIn("ifNull(in", sql)
+
+        # Verify the placeholder values
+        self.assertEqual(context.values["hogql_val_4"], "trace1")
+        self.assertEqual(context.values["hogql_val_5"], "trace2")
+
+        # Verify other properties still get normal treatment
+        mock_get_mat_col.return_value = None  # No materialized column for other props
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        sql = self._select("SELECT * FROM events WHERE properties.other_prop = 'value'", context)
+
+        # Other properties should still have null handling with ifNull wrapping
+        self.assertIn(
+            "ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_7)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_8)s), 0)",
+            sql,
+        )
 
     def test_field_nullable_like(self):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
@@ -2103,6 +2250,34 @@ class TestPrinter(BaseTest):
             printed,
         )
 
+    def test_sortable_semver(self):
+        # Also test different capitalizations
+        query = parse_select(
+            """
+                SELECT
+                    sortableSemVer('1.2.3') AS semver1,
+                    sortableSemver('1.2.3') AS semver2,
+                    sortablesemver('1.2.3') AS semver3,
+                    sOrTaBlEsEmVeR('1.2.3') AS semver4
+            """
+        )
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            (
+                f"SELECT arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_0)s), '(\\d+(\\.\\d+)+)'))) AS semver1, "
+                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_1)s), '(\\d+(\\.\\d+)+)'))) AS semver2, "
+                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_2)s), '(\\d+(\\.\\d+)+)'))) AS semver3, "
+                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_3)s), '(\\d+(\\.\\d+)+)'))) AS semver4 "
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1"
+            ),
+            printed,
+        )
+
     def test_get_survey_response(self):
         # Test with just question index
         with patch("posthog.hogql.printer.get_survey_response_clickhouse_query") as mock_get_survey_response:
@@ -2495,126 +2670,170 @@ class TestPrinter(BaseTest):
                 dialect="clickhouse",
             )
 
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_with_cte(self):
-        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
-        DataWarehouseTable.objects.create(
-            team=self.team,
-            name="test_table",
-            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-            url_pattern="http://s3/folder/",
-            credential=credential,
-            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+    def test_team_id_guarding_events(self):
+        sql = self._select(
+            "SELECT event FROM events",
         )
-        printed = self._select("""
-            WITH some_remote_table AS
-            (
-                SELECT * FROM test_table
+        assert (
+            sql == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
+        )
+
+    @parameterized.expand([[True], [False]])
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_with_cte(self, using_global_joins):
+        with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
+            credential = DataWarehouseCredential.objects.create(
+                team=self.team, access_key="key", access_secret="secret"
             )
-            SELECT event FROM events
-            JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
-
-        assert "GLOBAL JOIN" in printed
-
-        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_with_cte_nested(self):
-        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
-        DataWarehouseTable.objects.create(
-            team=self.team,
-            name="test_table",
-            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-            url_pattern="http://s3/folder/",
-            credential=credential,
-            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
-        )
-        printed = self._select("""
-            WITH some_remote_table AS
-            (
-                SELECT e.event, t.id FROM events e
-                JOIN test_table t on toString(t.id) = e.event
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name="test_table",
+                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                url_pattern="http://s3/folder/",
+                credential=credential,
+                columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
-            SELECT some_remote_table.event FROM events
-            JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
-
-        assert "GLOBAL JOIN" in printed
-
-        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_with_multiple_joins(self):
-        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
-        DataWarehouseTable.objects.create(
-            team=self.team,
-            name="test_table",
-            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-            url_pattern="http://s3/folder/",
-            credential=credential,
-            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
-        )
-        printed = self._select("""
-            SELECT e.event, s.event, t.id
-            FROM events e
-            JOIN (SELECT event from events) as s ON e.event = s.event
-            LEFT JOIN test_table t on e.event = toString(t.id)""")
-
-        assert "GLOBAL JOIN" in printed  # Join #1
-        assert "GLOBAL LEFT JOIN" in printed  # Join #2
-
-        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_with_in_and_property_type(self):
-        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
-        DataWarehouseTable.objects.create(
-            team=self.team,
-            name="test_table",
-            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-            url_pattern="http://s3/folder/",
-            credential=credential,
-            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
-        )
-
-        printed = self._select("""
-            SELECT event FROM events
-            WHERE properties.$browser IN (
-                SELECT id FROM test_table
-            )""")
-
-        assert "globalIn" in printed
-
-        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
-
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_anonymous_tables(self):
-        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
-        DataWarehouseTable.objects.create(
-            team=self.team,
-            name="test_table",
-            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-            url_pattern="http://s3/folder/",
-            credential=credential,
-            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
-        )
-
-        printed = self._select("""
-            select e.event, ij.remote_id
-            from events e
-            inner join (
-                select *
-                from (
-                    select p.id as person_id, rt.id as remote_id
-                    from persons p
-                    left join (
-                        select * from test_table
-                    ) rt on rt.id = p.id
+            printed = self._select("""
+                WITH some_remote_table AS
+                (
+                    SELECT * FROM test_table
                 )
-            ) as ij on e.event = ij.remote_id""")
+                SELECT event FROM events
+                JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
 
-        assert "GLOBAL INNER JOIN" in printed
+            if using_global_joins:
+                assert "GLOBAL JOIN" in printed
+            else:
+                assert "GLOBAL JOIN" not in printed
 
-        assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @parameterized.expand([[True], [False]])
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_with_cte_nested(self, using_global_joins):
+        with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
+            credential = DataWarehouseCredential.objects.create(
+                team=self.team, access_key="key", access_secret="secret"
+            )
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name="test_table",
+                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                url_pattern="http://s3/folder/",
+                credential=credential,
+                columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+            )
+            printed = self._select("""
+                WITH some_remote_table AS
+                (
+                    SELECT e.event, t.id FROM events e
+                    JOIN test_table t on toString(t.id) = e.event
+                )
+                SELECT some_remote_table.event FROM events
+                JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
+
+            if using_global_joins:
+                assert "GLOBAL JOIN" in printed
+            else:
+                assert "GLOBAL JOIN" not in printed
+
+            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @parameterized.expand([[True], [False]])
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_with_multiple_joins(self, using_global_joins):
+        with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
+            credential = DataWarehouseCredential.objects.create(
+                team=self.team, access_key="key", access_secret="secret"
+            )
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name="test_table",
+                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                url_pattern="http://s3/folder/",
+                credential=credential,
+                columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+            )
+            printed = self._select("""
+                SELECT e.event, s.event, t.id
+                FROM events e
+                JOIN (SELECT event from events) as s ON e.event = s.event
+                LEFT JOIN test_table t on e.event = toString(t.id)""")
+
+            if using_global_joins:
+                assert "GLOBAL JOIN" in printed  # Join #1
+                assert "GLOBAL LEFT JOIN" in printed  # Join #2
+            else:
+                assert "GLOBAL JOIN" not in printed  # Join #1
+                assert "GLOBAL LEFT JOIN" not in printed  # Join #2
+
+            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @parameterized.expand([[True], [False]])
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_with_in_and_property_type(self, using_global_joins):
+        with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
+            credential = DataWarehouseCredential.objects.create(
+                team=self.team, access_key="key", access_secret="secret"
+            )
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name="test_table",
+                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                url_pattern="http://s3/folder/",
+                credential=credential,
+                columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+            )
+
+            printed = self._select("""
+                SELECT event FROM events
+                WHERE properties.$browser IN (
+                    SELECT id FROM test_table
+                )""")
+
+            if using_global_joins:
+                assert "globalIn" in printed
+            else:
+                assert "globalIn" not in printed
+
+            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
+
+    @parameterized.expand([[True], [False]])
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_s3_tables_global_join_anonymous_tables(self, using_global_joins):
+        with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
+            credential = DataWarehouseCredential.objects.create(
+                team=self.team, access_key="key", access_secret="secret"
+            )
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name="test_table",
+                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                url_pattern="http://s3/folder/",
+                credential=credential,
+                columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+            )
+
+            printed = self._select("""
+                select e.event, ij.remote_id
+                from events e
+                inner join (
+                    select *
+                    from (
+                        select p.id as person_id, rt.id as remote_id
+                        from persons p
+                        left join (
+                            select * from test_table
+                        ) rt on rt.id = p.id
+                    )
+                ) as ij on e.event = ij.remote_id""")
+
+            if using_global_joins:
+                assert "GLOBAL INNER JOIN" in printed
+            else:
+                assert "GLOBAL INNER JOIN" not in printed
+
+            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
 
 class TestPrinted(APIBaseTest):

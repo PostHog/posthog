@@ -2,7 +2,7 @@ import { EventType, PersonType } from '~/types'
 
 export interface ErrorTrackingException {
     stacktrace?: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace
-    module: string
+    module?: string
     id: string
     type: string
     value: string
@@ -49,6 +49,7 @@ export interface ErrorTrackingStackFrameRecord {
     context: ErrorTrackingStackFrameContext | null
     contents: ErrorTrackingStackFrame // For now, while we're not 100% on content structure
     symbol_set_ref: ErrorTrackingSymbolSet['ref']
+    release: ErrorTrackingRelease | null
 }
 
 export type ErrorTrackingStackFrameContext = {
@@ -69,6 +70,13 @@ export interface ErrorTrackingStackFrame {
     lang: string
     resolved: boolean
     resolve_failure: string | null
+    module: string | null
+}
+
+export interface ErrorTrackingFingerprint {
+    fingerprint: string
+    issue_id: string
+    created_at: string
 }
 
 export interface ErrorTrackingSymbolSet {
@@ -114,6 +122,22 @@ export interface ExceptionAttributes {
     level?: string
     url?: string
     handled?: boolean
+    appNamespace?: string
+    appVersion?: string
+}
+
+export interface ErrorTrackingRelease {
+    id: string
+    metadata?: {
+        git?: {
+            commit_id?: string
+            remote_url?: string
+            repo_name?: string
+            branch?: string
+        }
+    }
+    version: string
+    timestamp: string
 }
 
 export type SymbolSetStatus = 'valid' | 'invalid'

@@ -28,10 +28,11 @@ Available Insights:
 
 Instructions:
 1. {selection_instruction}
-2. Use select_insight for each relevant match with brief explanation
+2. Use select_insight for the only one relevant match with brief explanation
 3. Use reject_all_insights if none match
 4. Focus on conceptual relevance (name/description) over technical details
 5. Priority: exact matches > specific insights > generic ones
+6. Do not be too eager to match an insight to the user's query. If the insight is not relevant or it does not satisfy the properties or filters the user has asked for, reject it.
 """
 
 NO_INSIGHTS_FOUND_MESSAGE = (

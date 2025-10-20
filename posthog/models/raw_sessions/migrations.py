@@ -20,7 +20,7 @@ def update_raw_sessions_table(migration: str):
                 table_name=SHARDED_RAW_SESSIONS_DATA_TABLE(),
                 on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
-            node_role=NodeRole.DATA,
+            node_roles=[NodeRole.DATA],
             sharded=True,
         ),
         # writable
@@ -29,7 +29,7 @@ def update_raw_sessions_table(migration: str):
                 table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE(),
                 on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
-            node_role=NodeRole.DATA,
+            node_roles=[NodeRole.DATA],
         ),
         # update the MV
         run_sql_with_exceptions(RAW_SESSION_TABLE_UPDATE_SQL()),
@@ -39,7 +39,7 @@ def update_raw_sessions_table(migration: str):
                 table_name=TABLE_BASE_NAME,
                 on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
-            node_role=NodeRole.ALL,
+            node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
         ),
         # recreate the view
         run_sql_with_exceptions(RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL()),

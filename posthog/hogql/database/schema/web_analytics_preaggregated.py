@@ -48,6 +48,8 @@ SHARED_SCHEMA_FIELDS = {
     **UTM_FIELDS,
     **ATTRIBUTION_FIELDS,
     **PATH_FIELDS,
+    "mat_metadata_loggedIn": BooleanDatabaseField(name="mat_metadata_loggedIn", nullable=True),
+    "mat_metadata_backend": StringDatabaseField(name="mat_metadata_backend", nullable=True),
 }
 
 

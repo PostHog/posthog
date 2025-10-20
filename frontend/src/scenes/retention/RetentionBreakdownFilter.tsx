@@ -7,7 +7,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionLogic } from './retentionLogic'
 
 export function RetentionBreakdownFilter(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { breakdownValues, selectedBreakdownValue, breakdownDisplayNames } = useValues(retentionLogic(insightProps))
     const { setSelectedBreakdownValue } = useActions(retentionLogic(insightProps))
 
@@ -33,6 +33,7 @@ export function RetentionBreakdownFilter(): JSX.Element | null {
             placeholder="Select breakdown value"
             size="small"
             data-attr="retention-breakdown-filter"
+            disabledReason={editingDisabledReason}
         />
     )
 }

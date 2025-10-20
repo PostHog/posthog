@@ -9,7 +9,13 @@ import EXPERIMENT_WITH_MULTIPLE_METRICS from '~/mocks/fixtures/api/experiments/e
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
 import FUNNEL_METRIC_RESULT from '~/mocks/fixtures/api/experiments/funnel_metric_result.json'
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
-import { NodeKind, isExperimentFunnelMetric, isExperimentMeanMetric } from '~/queries/schema/schema-general'
+import RATIO_METRIC_RESULT from '~/mocks/fixtures/api/experiments/ratio_metric_result.json'
+import {
+    NodeKind,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '~/queries/schema/schema-general'
 
 const meta: Meta = {
     component: App,
@@ -43,6 +49,8 @@ const meta: Meta = {
                         return res(ctx.json(FUNNEL_METRIC_RESULT))
                     } else if (isExperimentMeanMetric(body.query.metric)) {
                         return res(ctx.json(MEAN_METRIC_RESULT))
+                    } else if (isExperimentRatioMetric(body.query.metric)) {
+                        return res(ctx.json(RATIO_METRIC_RESULT))
                     }
                 },
             },

@@ -18,3 +18,8 @@
 <!-- Docs reminder: If this change requires updated docs, please do that! Engineers are the primary people responsible for their documentation. 🙌 -->
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
+
+## Changelog: (features only) Is this feature complete?
+
+<!-- Optional, but helpful for our content team! -->
+<!-- Yes if this is okay to go in the changelog. No if it's still hidden behind a feature flag, or part of a feature that's not complete yet, etc.  -->

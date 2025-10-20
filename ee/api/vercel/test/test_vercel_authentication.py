@@ -23,7 +23,7 @@ from ee.api.vercel.types import VercelUser
 class TestVercelAuthentication(SimpleTestCase):
     def setUp(self):
         super().setUp()
-        self.installation_id = "inst_123456789"
+        self.installation_id = "icfg_9bceb8ccT32d3U417ezb5c8p"
         self.account_id = "acc987654321"
         self.user_id = "111222333abc"
 
@@ -113,8 +113,8 @@ class TestVercelAuthentication(SimpleTestCase):
         assert result is not None
         user, auth_data = result
         assert isinstance(user, VercelUser)
-        assert user.claims["account_id"] == self.account_id
-        assert user.claims["installation_id"] == self.installation_id
+        assert user.claims.account_id == self.account_id
+        assert user.claims.installation_id == self.installation_id
 
     def test_system_auth_valid_token(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
@@ -126,20 +126,19 @@ class TestVercelAuthentication(SimpleTestCase):
         assert result is not None
         user, auth_data = result
         assert isinstance(user, VercelUser)
-        assert user.claims["account_id"] == self.account_id
-        assert user.claims["installation_id"] == self.installation_id
+        assert user.claims.account_id == self.account_id
+        assert user.claims.installation_id == self.installation_id
 
     def test_missing_authorization_header(self, mock_get_jwks):
         request = self.factory.get("/", HTTP_X_VERCEL_AUTH="user")
-        result = self.auth.authenticate(request)
-        assert result is None
+        with self.assertRaises(AuthenticationFailed):
+            self.auth.authenticate(request)
 
     def test_missing_vercel_auth_header(self, mock_get_jwks):
         token = self._token()
         request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
-        with self.assertRaises(AuthenticationFailed) as cm:
+        with self.assertRaises(AuthenticationFailed):
             self.auth.authenticate(request)
-        assert "Missing or invalid X-Vercel-Auth header" in str(cm.exception)
 
     def test_invalid_vercel_auth_header(self, mock_get_jwks):
         token = self._token()

@@ -24,10 +24,10 @@ operations = [
     # 5. Distributed table (for reading)
     run_sql_with_exceptions(
         ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-        node_role=NodeRole.ALL,
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     ),
     # 6. Recreate the Kafka table with the updated schema
     run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL()),
     # 7. Recreate the materialized view with the updated schema
-    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL()),
+    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL(exclude_columns=["retention_period_days"])),
 ]

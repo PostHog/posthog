@@ -32,7 +32,6 @@ import {
     ActivationTaskStatus,
     EventDefinitionType,
     OnboardingStepKey,
-    PipelineStage,
     ProductKey,
     ReplayTabs,
     TeamBasicType,
@@ -326,7 +325,7 @@ export const activationLogic = kea<activationLogicType>([
 
                 // Data Warehouse
                 case ActivationTask.ConnectSource:
-                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                    router.actions.push(urls.dataWarehouseSourceNew())
                     break
 
                 // Surveys
@@ -516,21 +515,21 @@ export enum ActivationSection {
 export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; icon: ReactNode }> = {
     [ActivationSection.QuickStart]: {
         title: 'Get Started',
-        icon: <IconFeatures className="h-5 w-5 text-accent" />,
+        icon: <IconFeatures className="w-5 h-5 text-accent" />,
     },
     [ActivationSection.ProductAnalytics]: {
         title: 'Product analytics',
-        icon: <IconGraph className="h-5 w-5" color={availableOnboardingProducts.product_analytics.iconColor} />,
+        icon: <IconGraph className="w-5 h-5" color={availableOnboardingProducts.product_analytics.iconColor} />,
     },
     [ActivationSection.WebAnalytics]: {
         title: 'Web analytics',
-        icon: <IconPieChart className="h-5 w-5" color={availableOnboardingProducts.web_analytics.iconColor} />,
+        icon: <IconPieChart className="w-5 h-5" color={availableOnboardingProducts.web_analytics.iconColor} />,
     },
     [ActivationSection.SessionReplay]: {
         title: 'Session replay',
         icon: (
             <IconRewindPlay
-                className="h-5 w-5 text-brand-yellow"
+                className="w-5 h-5 text-brand-yellow"
                 color={availableOnboardingProducts.session_replay.iconColor}
             />
         ),
@@ -538,24 +537,24 @@ export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; ico
     [ActivationSection.FeatureFlags]: {
         title: 'Feature flags',
         icon: (
-            <IconToggle className="h-5 w-5 text-seagreen" color={availableOnboardingProducts.feature_flags.iconColor} />
+            <IconToggle className="w-5 h-5 text-seagreen" color={availableOnboardingProducts.feature_flags.iconColor} />
         ),
     },
     [ActivationSection.Experiments]: {
         title: 'Experiments',
         icon: (
-            <IconTestTube className="h-5 w-5 text-purple" color={availableOnboardingProducts.experiments.iconColor} />
+            <IconTestTube className="w-5 h-5 text-purple" color={availableOnboardingProducts.experiments.iconColor} />
         ),
     },
     [ActivationSection.DataWarehouse]: {
         title: 'Data warehouse',
         icon: (
-            <IconDatabase className="h-5 w-5 text-lilac" color={availableOnboardingProducts.data_warehouse.iconColor} />
+            <IconDatabase className="w-5 h-5 text-lilac" color={availableOnboardingProducts.data_warehouse.iconColor} />
         ),
     },
     [ActivationSection.Surveys]: {
         title: 'Surveys',
-        icon: <IconMessage className="h-5 w-5 text-salmon" color={availableOnboardingProducts.surveys.iconColor} />,
+        icon: <IconMessage className="w-5 h-5 text-salmon" color={availableOnboardingProducts.surveys.iconColor} />,
     },
 }
 

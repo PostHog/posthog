@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { PipelineResultType, isOkResult } from '~/ingestion/pipelines/results'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub, Team } from '../../../../src/types'
@@ -59,7 +60,7 @@ describe('processPersonsStep()', () => {
 
     it('creates person', async () => {
         const processPerson = true
-        const [resEvent, resPerson] = await processPersonsStep(
+        const result = await processPersonsStep(
             runner as EventPipelineRunner,
             pluginEvent,
             team,
@@ -71,21 +72,28 @@ describe('processPersonsStep()', () => {
             )
         )
 
-        expect(resEvent).toEqual(pluginEvent)
-        expect(resPerson).toEqual(
-            expect.objectContaining({
-                id: expect.any(String),
-                uuid: expect.any(String),
-                properties: { a: 5, $creator_event_uuid: expect.any(String) },
-                version: 0,
-                is_identified: false,
-                team_id: teamId,
-            })
-        )
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
+            const [resEvent, resPerson, kafkaAck] = result.value
+            expect(resEvent).toEqual(pluginEvent)
+            expect(resPerson).toEqual(
+                expect.objectContaining({
+                    id: expect.any(String),
+                    uuid: expect.any(String),
+                    properties: { a: 5, $creator_event_uuid: expect.any(String) },
+                    version: 0,
+                    is_identified: false,
+                    team_id: teamId,
+                })
+            )
 
-        // Check PG state
-        const persons = await fetchPostgresPersons(runner.hub.db, teamId)
-        expect(persons).toEqual([resPerson])
+            // Wait for kafka ack
+            await kafkaAck
+
+            // Check PG state
+            const persons = await fetchPostgresPersons(runner.hub.db, teamId)
+            expect(persons).toEqual([resPerson])
+        }
     })
 
     it('creates event with normalized properties set by plugins', async () => {
@@ -101,7 +109,7 @@ describe('processPersonsStep()', () => {
 
         const processPerson = true
         const [normalizedEvent, timestamp] = await normalizeEventStep(event, processPerson)
-        const [resEvent, resPerson] = await processPersonsStep(
+        const result = await processPersonsStep(
             runner as EventPipelineRunner,
             normalizedEvent,
             team,
@@ -113,36 +121,43 @@ describe('processPersonsStep()', () => {
             )
         )
 
-        expect(resEvent).toEqual({
-            ...event,
-            properties: {
-                $browser: 'Chrome',
-                $set: {
-                    someProp: 'value',
-                    $browser: 'Chrome',
-                },
-                $set_once: {
-                    $initial_browser: 'Chrome',
-                },
-            },
-        })
-        expect(resPerson).toEqual(
-            expect.objectContaining({
-                id: expect.any(String),
-                uuid: expect.any(String),
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
+            const [resEvent, resPerson, kafkaAck] = result.value
+            expect(resEvent).toEqual({
+                ...event,
                 properties: {
-                    $initial_browser: 'Chrome',
-                    someProp: 'value',
-                    $creator_event_uuid: expect.any(String),
                     $browser: 'Chrome',
+                    $set: {
+                        someProp: 'value',
+                        $browser: 'Chrome',
+                    },
+                    $set_once: {
+                        $initial_browser: 'Chrome',
+                    },
                 },
-                version: 0,
-                is_identified: false,
             })
-        )
+            expect(resPerson).toEqual(
+                expect.objectContaining({
+                    id: expect.any(String),
+                    uuid: expect.any(String),
+                    properties: {
+                        $initial_browser: 'Chrome',
+                        someProp: 'value',
+                        $creator_event_uuid: expect.any(String),
+                        $browser: 'Chrome',
+                    },
+                    version: 0,
+                    is_identified: false,
+                })
+            )
 
-        // Check PG state
-        const persons = await fetchPostgresPersons(runner.hub.db, teamId)
-        expect(persons).toEqual([resPerson])
+            // Wait for kafka ack
+            await kafkaAck
+
+            // Check PG state
+            const persons = await fetchPostgresPersons(runner.hub.db, teamId)
+            expect(persons).toEqual([resPerson])
+        }
     })
 })

@@ -23,7 +23,7 @@ import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
 
 export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
-    const { experiment, isExperimentRunning, editingPrimaryMetricIndex, editingSecondaryMetricIndex } =
+    const { experiment, isExperimentRunning, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
         useValues(experimentLogic)
     const { setTrendsMetric, setTrendsExposureMetric, setExperiment } = useActions(experimentLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -31,13 +31,17 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
     const [activeTab, setActiveTab] = useState('main')
 
     const metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
-    const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
+    const metricUuid = isSecondary ? editingSecondaryMetricUuid : editingPrimaryMetricUuid
 
-    if (!metricIdx && metricIdx !== 0) {
+    if (!metricUuid) {
         return <></>
     }
 
-    const currentMetric = metrics[metricIdx] as ExperimentTrendsQuery
+    const currentMetric = metrics.find((m) => m.uuid === metricUuid) as ExperimentTrendsQuery
+
+    if (!currentMetric) {
+        return <></>
+    }
 
     const isDataWarehouseMetric = currentMetric.count_query?.series[0]?.kind === NodeKind.DataWarehouseNode
 
@@ -57,8 +61,11 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     <LemonInput
                                         value={currentMetric.name}
                                         onChange={(newName) => {
+                                            if (!currentMetric.uuid) {
+                                                return
+                                            }
                                             setTrendsMetric({
-                                                metricIdx,
+                                                uuid: currentMetric.uuid,
                                                 name: newName,
                                                 isSecondary,
                                             })
@@ -80,16 +87,19 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
                                             setExperiment({
                                                 ...experiment,
-                                                [metricsField]: metrics.map((metric, idx) =>
-                                                    idx === metricIdx
+                                                [metricsField]: metrics.map((metric) =>
+                                                    metric.uuid === metricUuid
                                                         ? { ...metric, exposure_query: undefined }
                                                         : metric
                                                 ),
                                             })
                                         }
 
+                                        if (!currentMetric.uuid) {
+                                            return
+                                        }
                                         setTrendsMetric({
-                                            metricIdx,
+                                            uuid: currentMetric.uuid,
                                             series,
                                             isSecondary,
                                         })
@@ -106,8 +116,11 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     <TestAccountFilterSwitch
                                         checked={hasFilters ? !!currentMetric.count_query?.filterTestAccounts : false}
                                         onChange={(checked: boolean) => {
+                                            if (!currentMetric.uuid) {
+                                                return
+                                            }
                                             setTrendsMetric({
-                                                metricIdx,
+                                                uuid: currentMetric.uuid,
                                                 filterTestAccounts: checked,
                                                 isSecondary,
                                             })
@@ -157,8 +170,8 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
                                             setExperiment({
                                                 ...experiment,
-                                                [metricsField]: metrics.map((metric, idx) =>
-                                                    idx === metricIdx
+                                                [metricsField]: metrics.map((metric) =>
+                                                    metric.uuid === metricUuid
                                                         ? { ...metric, exposure_query: undefined }
                                                         : metric
                                                 ),
@@ -180,8 +193,8 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
                                             setExperiment({
                                                 ...experiment,
-                                                [metricsField]: metrics.map((metric, idx) =>
-                                                    idx === metricIdx
+                                                [metricsField]: metrics.map((metric) =>
+                                                    metric.uuid === metricUuid
                                                         ? {
                                                               ...metric,
                                                               exposure_query: {
@@ -234,8 +247,11 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                     MathAvailability.All
                                                 )
 
+                                                if (!currentMetric.uuid) {
+                                                    return
+                                                }
                                                 setTrendsExposureMetric({
-                                                    metricIdx,
+                                                    uuid: currentMetric.uuid,
                                                     series,
                                                     isSecondary,
                                                 })
@@ -254,8 +270,11 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                     return hasFilters ? !!val : false
                                                 })()}
                                                 onChange={(checked: boolean) => {
+                                                    if (!currentMetric.uuid) {
+                                                        return
+                                                    }
                                                     setTrendsExposureMetric({
-                                                        metricIdx,
+                                                        uuid: currentMetric.uuid,
                                                         filterTestAccounts: checked,
                                                         isSecondary,
                                                     })

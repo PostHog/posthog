@@ -1,19 +1,19 @@
 import { useActions } from 'kea'
-import { router } from 'kea-router'
 
 import MaxTool from 'scenes/max/MaxTool'
-import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssueImpactToolOutput } from '~/queries/schema/schema-general'
 
-import { errorTrackingImpactSceneLogic } from '../impact/errorTrackingImpactSceneLogic'
+import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
+import { errorTrackingImpactListLogic } from '../scenes/ErrorTrackingScene/tabs/impact/errorTrackingImpactListLogic'
 
 export function ErrorTrackingIssueImpactTool(): JSX.Element {
-    const { setEvents } = useActions(errorTrackingImpactSceneLogic)
+    const { setEvents } = useActions(errorTrackingImpactListLogic)
+    const { setActiveTab } = useActions(errorTrackingSceneLogic)
 
     const callback = (toolOutput: ErrorTrackingIssueImpactToolOutput): void => {
+        setActiveTab('impact')
         setEvents(toolOutput.events)
-        router.actions.push(urls.errorTrackingImpact())
     }
 
     return (

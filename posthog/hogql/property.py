@@ -1,3 +1,4 @@
+import re
 from typing import Literal, Optional, cast
 
 from django.db import models
@@ -50,11 +51,7 @@ from posthog.utils import get_from_dict_or_attr
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
-from products.revenue_analytics.backend.views import (
-    RevenueAnalyticsCustomerView,
-    RevenueAnalyticsProductView,
-    RevenueAnalyticsRevenueItemView,
-)
+GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -93,7 +90,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         property_types = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         ).filter(
-            effective_project_id=team.project_id,  # type: ignore
+            effective_project_id=team.project_id,
             name=property.key,
             type=PropertyDefinition.Type.PERSON,
         )
@@ -101,7 +98,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         property_types = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         ).filter(
-            effective_project_id=team.project_id,  # type: ignore
+            effective_project_id=team.project_id,
             name=property.key,
             type=PropertyDefinition.Type.GROUP,
             group_type_index=property.group_type_index,
@@ -144,7 +141,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         property_types = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         ).filter(
-            effective_project_id=team.project_id,  # type: ignore
+            effective_project_id=team.project_id,
             name=property.key,
             type=PropertyDefinition.Type.EVENT,
         )
@@ -382,6 +379,33 @@ def property_to_expr(
 
     if property.type == "hogql":
         return parse_expr(property.key)
+    elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
+        group_type_index = property.key.split("_")[1]
+        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+        value = property.value
+        if isinstance(property.value, list):
+            if len(property.value) > 1:
+                raise QueryError(f"The '{property.key}' property filter only supports one value in 'group' scope")
+            value = property.value[0]
+
+        # For groups table, $group_N filters should match both index and key
+        # index should equal N, and key should match the value
+        index_condition = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["index"]),
+            right=ast.Constant(value=int(group_type_index)),
+        )
+
+        key_condition = _expr_to_compare_op(
+            expr=ast.Field(chain=["key"]),
+            value=value,
+            operator=operator,
+            property=property,
+            is_json_field=False,
+            team=team,
+        )
+
+        return ast.And(exprs=[key_condition, index_condition])
     elif (
         property.type == "event"
         or property.type == "event_metadata"
@@ -459,6 +483,8 @@ def property_to_expr(
             chain = []
         elif property.type == "log":
             chain = ["attributes"]
+        elif property.type == "revenue_analytics":
+            *chain, property.key = property.key.split(".")
         else:
             chain = ["properties"]
 
@@ -472,9 +498,6 @@ def property_to_expr(
 
         if property.type == "recording" and property.key == "snapshot_source":
             expr = ast.Call(name="argMinMerge", args=[field])
-
-        if property.type == "revenue_analytics":
-            expr = create_expr_for_revenue_analytics_property(cast(RevenueAnalyticsPropertyFilter, property))
 
         is_exception_string_array_property = property.type == "event" and property.key in [
             "$exception_types",
@@ -667,29 +690,6 @@ def map_virtual_properties(e: ast.Expr):
         # we pretend virtual properties are regular properties, but they should map to the same field directly on the parent table
         return ast.Field(chain=e.chain[:-2] + [e.chain[-1]])
     return e
-
-
-def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropertyFilter) -> ast.Expr:
-    if property.key == "amount":
-        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"])
-    elif property.key == "country":
-        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "country"])
-    elif property.key == "cohort":
-        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "cohort"])
-    elif property.key == "coupon":
-        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "coupon"])
-    elif property.key == "coupon_id":
-        return ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "coupon_id"])
-    elif property.key == "initial_coupon":
-        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "initial_coupon"])
-    elif property.key == "initial_coupon_id":
-        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "initial_coupon_id"])
-    elif property.key == "product":
-        return ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "name"])
-    elif property.key == "source":
-        return ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "source_label"])
-    else:
-        raise QueryError(f"Revenue analytics property filter key {property.key} not implemented")
 
 
 def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:

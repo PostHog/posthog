@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
-import { Insight } from 'scenes/insights/Insight'
+import { InsightAsScene } from 'scenes/insights/InsightAsScene'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -12,9 +12,15 @@ import { urls } from 'scenes/urls'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ItemMode } from '~/types'
 
-export function InsightScene(): JSX.Element {
-    const { insightId, insight, insightLogicRef, insightMode } = useValues(insightSceneLogic)
+export interface InsightSceneProps {
+    tabId?: string
+}
 
+export function InsightScene({ tabId }: InsightSceneProps = {}): JSX.Element {
+    if (!tabId) {
+        throw new Error('<InsightScene /> must receive a tabId prop')
+    }
+    const { insightId, insight, insightLogicRef, insightMode } = useValues(insightSceneLogic({ tabId }))
     useEffect(() => {
         // Redirect data viz nodes to the sql editor
         if (insightId && insight?.query?.kind === NodeKind.DataVisualizationNode && insightMode === ItemMode.Edit) {
@@ -24,12 +30,13 @@ export function InsightScene(): JSX.Element {
 
     if (
         insightId === 'new' ||
+        insightId?.startsWith('new-') ||
         (insightId &&
             insight?.id &&
             insight?.short_id &&
             (insight?.query?.kind !== NodeKind.DataVisualizationNode || insightMode !== ItemMode.Edit))
     ) {
-        return <Insight insightId={insightId} />
+        return <InsightAsScene insightId={insightId} tabId={tabId} attachTo={insightSceneLogic({ tabId })} />
     }
 
     if (insightLogicRef?.logic?.values?.insightLoading) {

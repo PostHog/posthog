@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { IconServer } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 import {
@@ -22,6 +23,7 @@ import {
     GolangSnippet,
     IOSSnippet,
     JSSnippet,
+    JavaSnippet,
     NodeJSSnippet,
     PHPSnippet,
     PythonSnippet,
@@ -132,6 +134,14 @@ export const OPTIONS = [
         Snippet: RubySnippet,
         type: LibraryType.Server,
     },
+    {
+        value: 'Java',
+        key: SDKKey.JAVA,
+        documentationLink: `${DOC_BASE_URL}libraries/java${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconServer,
+        Snippet: JavaSnippet,
+        type: LibraryType.Server,
+    },
 ]
 
 export function CodeLanguageSelect({
@@ -195,7 +205,6 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
 
     return (
         <div className="mb-4">
-            <h2 className="font-semibold text-lg mb-2">Implementation</h2>
             <div className="border rounded bg-surface-primary">
                 <div className="p-6 deprecated-space-y-4">
                     <div className="flex justify-between">

@@ -7,14 +7,17 @@ import type {
     ExperimentTrendsQuery,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
+    NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
     ExperimentDataWarehouseNode,
     ExperimentMetricType,
+    ExperimentStatsValidationFailure,
     NodeKind,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
+import { ExperimentMetricGoal } from '~/types'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
@@ -273,4 +276,96 @@ export function getMetricSubtitleValues(
         numerator: variant.sum,
         denominator: variant.number_of_samples || 0,
     }
+}
+
+export function isWinning(
+    result: ExperimentVariantResult,
+    goal: 'increase' | 'decrease' | undefined
+): boolean | undefined {
+    const deltaPositive = isDeltaPositive(result)
+    if (deltaPositive === undefined) {
+        return undefined
+    }
+
+    if (goal === 'decrease') {
+        return !deltaPositive
+    }
+    return deltaPositive
+}
+
+export function getChanceToWin(
+    result: ExperimentVariantResult,
+    goal: 'increase' | 'decrease' | undefined
+): number | undefined {
+    if (!isBayesianResult(result)) {
+        return undefined
+    }
+    const chanceToWin = result.chance_to_win
+    if (chanceToWin == null) {
+        return chanceToWin
+    }
+    // When goal is to decrease, invert chance to win because lower values are better
+    if (goal === 'decrease') {
+        return 1 - chanceToWin
+    }
+    return chanceToWin
+}
+
+export function formatChanceToWinForGoal(
+    result: ExperimentVariantResult,
+    goal: ExperimentMetricGoal | undefined
+): string {
+    const chanceToWin = getChanceToWin(result, goal)
+    return formatChanceToWin(chanceToWin)
+}
+
+export interface MetricColors {
+    positive: string
+    negative: string
+}
+
+/**
+ * Returns colors mapped according to the metric goal.
+ * When goal is decrease, positive and negative colors are swapped.
+ */
+export function getMetricColors(
+    colors: { BAR_POSITIVE: string; BAR_NEGATIVE: string },
+    goal: ExperimentMetricGoal | undefined
+): MetricColors {
+    if (goal === 'decrease') {
+        // Swap colors for decrease goal
+        return {
+            positive: colors.BAR_NEGATIVE,
+            negative: colors.BAR_POSITIVE,
+        }
+    }
+    return {
+        positive: colors.BAR_POSITIVE,
+        negative: colors.BAR_NEGATIVE,
+    }
+}
+
+export function hasValidationFailures(result: NewExperimentQueryResponse | null): boolean {
+    if (!result) {
+        return false
+    }
+    return !!(
+        result.baseline?.validation_failures?.length ||
+        result.variant_results?.some((v) => v.validation_failures?.length)
+    )
+}
+
+export function getValidationFailureType(variant: ExperimentStatsBaseValidated): 'not-enough-data' | 'error' | null {
+    if (!variant.validation_failures || variant.validation_failures.length === 0) {
+        return null
+    }
+
+    if (
+        variant.validation_failures.includes(ExperimentStatsValidationFailure.NotEnoughExposures) ||
+        variant.validation_failures.includes(ExperimentStatsValidationFailure.NotEnoughMetricData)
+    ) {
+        return 'not-enough-data'
+    }
+
+    return 'error'
 }

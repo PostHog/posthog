@@ -1,3 +1,4 @@
+import Fuse from 'fuse.js'
 import { BuiltLogic, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
@@ -11,12 +12,15 @@ import {
     DataWarehousePopoverField,
     ExcludedProperties,
     ListStorage,
+    SelectedProperties,
     SimpleOption,
+    TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { Link } from 'lib/lemon-ui/Link'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
 import {
@@ -26,13 +30,18 @@ import {
     getRevenueAnalyticsDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
+import { getInternalEventFilterOptions } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
-import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
+import {
+    ReplayTaxonomicFilters,
+    replayTaxonomicFiltersProperties,
+} from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES_BY_GROUP } from 'scenes/web-analytics/WebPropertyFilters'
 
@@ -114,7 +123,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['currentProjectId'],
             groupsModel,
             ['groupTypes', 'aggregationLabel'],
-            dataWarehouseSceneLogic, // This logic needs to be connected to stop the popover from erroring out
+            dataWarehouseSettingsSceneLogic, // This logic needs to be connected to stop the popover from erroring out
             ['dataWarehouseTables'],
             dataWarehouseJoinsLogic,
             ['columnsJoinedToPersons'],
@@ -173,6 +182,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     })),
     selectors({
         selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
+        showNumericalPropsOnly: [
+            () => [(_, props) => props.showNumericalPropsOnly],
+            (showNumericalPropsOnly) => showNumericalPropsOnly ?? false,
+        ],
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
@@ -196,6 +209,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => (excludedProperties ?? {}) as ExcludedProperties,
         ],
+        selectedProperties: [
+            () => [(_, props) => props.selectedProperties],
+            (selectedProperties) => (selectedProperties ?? {}) as SelectedProperties,
+        ],
         propertyAllowList: [
             () => [(_, props) => props.propertyAllowList],
             (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
@@ -212,6 +229,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.enablePreaggregatedTableHints],
             (enablePreaggregatedTableHints) => !!enablePreaggregatedTableHints,
         ],
+        hideBehavioralCohorts: [
+            () => [(_, props) => props.hideBehavioralCohorts],
+            (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeam,
@@ -226,6 +247,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventOrdering,
                 s.maxContextOptions,
                 s.enablePreaggregatedTableHints,
+                s.hideBehavioralCohorts,
             ],
             (
                 currentTeam: TeamType,
@@ -239,7 +261,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 eventOrdering: string | null,
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
-                enablePreaggregatedTableHints: boolean
+                enablePreaggregatedTableHints: boolean,
+                hideBehavioralCohorts: boolean
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -251,8 +274,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         options: [{ name: 'All events', value: null }].filter(
                             (o) => !excludedProperties[TaxonomicFilterGroupType.Events]?.includes(o.value)
                         ),
-                        // the default ordering for the API is "both"
-                        // so we don't need to add an ordering param in that case
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
                             exclude_hidden: true,
@@ -262,7 +283,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
                         getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
                         getValue: (eventDefinition: Record<string, any>) =>
-                            // Use the property's "name" when available, or "value" if a local option
+                            'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
+                        ...eventTaxonomicGroupProps,
+                    },
+                    {
+                        name: 'Internal Events',
+                        searchPlaceholder: 'internal events',
+                        type: TaxonomicFilterGroupType.InternalEvents,
+                        options: [
+                            { name: 'All internal events', value: null },
+                            ...getInternalEventFilterOptions('standard').map((item) => ({
+                                name: item.label,
+                                value: item.value,
+                            })),
+                        ],
+                        getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
+                        getValue: (eventDefinition: Record<string, any>) =>
                             'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
                         ...eventTaxonomicGroupProps,
                     },
@@ -281,7 +317,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Data warehouse tables',
                         searchPlaceholder: 'data warehouse tables',
                         type: TaxonomicFilterGroupType.DataWarehouse,
-                        logic: dataWarehouseSceneLogic,
+                        logic: dataWarehouseSettingsSceneLogic,
                         value: 'dataWarehouseTablesAndViews',
                         getName: (table: DatabaseSchemaTable) => table.name,
                         getValue: (table: DatabaseSchemaTable) => table.name,
@@ -364,7 +400,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         excludedProperties:
                             excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
-                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties],
+                        propertyAllowList:
+                            propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(),
                     },
                     {
@@ -537,7 +574,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }).url,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
-                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties],
+                        propertyAllowList:
+                            propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(true),
                     },
                     {
@@ -552,6 +590,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
+                        footerMessage: hideBehavioralCohorts ? (
+                            <>
+                                <Link to={COHORT_BEHAVIORAL_LIMITATIONS_URL} target="_blank">
+                                    Some cohorts excluded due to containing behavioral filters.
+                                </Link>
+                            </>
+                        ) : undefined,
                     },
                     {
                         name: 'Cohorts',
@@ -674,8 +719,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.SessionProperties,
                         ...(propertyAllowList
                             ? {
-                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]?.map(
-                                      (property: string) => ({
+                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]
+                                      ?.filter(isString)
+                                      ?.map((property: string) => ({
                                           name: property,
                                           value: property,
                                           supported_by_preaggregated_tables: enablePreaggregatedTableHints
@@ -683,8 +729,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                                     TaxonomicFilterGroupType.SessionProperties
                                                 ].includes(property)
                                               : false,
-                                      })
-                                  ),
+                                      })),
                               }
                             : {
                                   endpoint: combineUrl(
@@ -700,6 +745,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'SQL expression',
                         searchPlaceholder: null,
+                        categoryLabel: () => 'SQL expression',
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'SQL expression',
@@ -708,8 +754,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Replay',
                         searchPlaceholder: 'Replay',
+                        categoryLabel: (count: number) => 'Replay' + (count > 0 ? `: ${count}` : ''),
                         type: TaxonomicFilterGroupType.Replay,
                         render: ReplayTaxonomicFilters,
+                        localItemsSearch: (
+                            items: TaxonomicDefinitionTypes[],
+                            q: string
+                        ): TaxonomicDefinitionTypes[] => {
+                            if (q.trim() === '') {
+                                return items
+                            }
+                            const fuse = new Fuse(replayTaxonomicFiltersProperties, {
+                                keys: ['label', 'key'],
+                                threshold: 0.3,
+                            })
+                            return fuse.search(q).map((result) => result.item)
+                        },
                         valuesEndpoint: (key) => {
                             if (key === 'visited_page') {
                                 return (
@@ -942,13 +1002,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         setSearchQuery: async ({ searchQuery }, breakpoint) => {
             const { activeTaxonomicGroup, infiniteListCounts } = values
 
-            // Taxonomic group with a local data source, zero results after searching.
-            // Open the next tab.
-            if (
+            // does replay have 0 results
+            // if you have a render function, and replay does, then infiniteListCounts will always be 1 or more 🤷
+            const shouldTabRightBecauseReplay =
+                activeTaxonomicGroup &&
+                activeTaxonomicGroup.type === TaxonomicFilterGroupType.Replay &&
+                infiniteListCounts[activeTaxonomicGroup.type] === 1
+            // or is this a Taxonomic group with a local data source, zero results after searching.
+            const shouldOtherwiseTabRight =
                 activeTaxonomicGroup &&
                 !activeTaxonomicGroup.endpoint &&
                 infiniteListCounts[activeTaxonomicGroup.type] === 0
-            ) {
+            if (shouldTabRightBecauseReplay || shouldOtherwiseTabRight) {
                 actions.tabRight()
             }
 
@@ -964,10 +1029,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         infiniteListResultsReceived: ({ groupType, results }) => {
             // Open the next tab if no results on an active tab.
             const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
-            const onReplayTabWithSomeSearchResults =
-                values.activeTab === TaxonomicFilterGroupType.Replay && results.count > 0 && values.searchQuery
 
-            if (activeTabHasNoResults || onReplayTabWithSomeSearchResults) {
+            if (activeTabHasNoResults) {
                 actions.tabRight()
             }
 

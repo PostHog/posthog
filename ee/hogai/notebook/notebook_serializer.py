@@ -3,9 +3,25 @@ import logging
 from typing import Optional
 from urllib.parse import unquote, urlparse
 
-from posthog.schema import Mark, ProsemirrorJSONContent
+from pydantic import BaseModel
+
+from posthog.schema import (
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
+    Mark,
+    ProsemirrorJSONContent,
+)
+
+from ee.hogai.utils.helpers import cast_assistant_query
+from ee.hogai.utils.types import InsightArtifact
 
 logger = logging.getLogger(__name__)
+
+
+class NotebookContext(BaseModel):
+    insights: dict[str, InsightArtifact]
 
 
 class MarkdownTokenizer:
@@ -266,17 +282,44 @@ class NotebookSerializer:
         (re.compile(r"\[([^\]]*)\]\(([^)]*)\)"), "link"),
     ]
 
+    def __init__(self, context: Optional[NotebookContext] = None):
+        self.context = context
+        # Cache for converted queries to avoid repeated conversions during streaming
+        self._converted_query_cache: dict[int, dict] = {}
+
     def to_json_paragraph(self, input: str | list[ProsemirrorJSONContent]) -> ProsemirrorJSONContent:
+        if isinstance(input, list):
+            # Filter out empty text nodes
+            content = [node for node in input if node.type != "text" or (node.text and node.text.strip())]
+            # If no content left, add a single space to avoid empty paragraph
+            if not content:
+                content = [ProsemirrorJSONContent(type="text", text=" ")]
+        else:
+            # Ensure text is not empty
+            text = input if input and input.strip() else " "
+            content = [ProsemirrorJSONContent(type="text", text=text)]
+
         return ProsemirrorJSONContent(
             type="paragraph",
-            content=input if isinstance(input, list) else [ProsemirrorJSONContent(type="text", text=input)],
+            content=content,
         )
 
     def to_json_heading(self, input: str | list[ProsemirrorJSONContent], level: int) -> ProsemirrorJSONContent:
+        if isinstance(input, list):
+            # Filter out empty text nodes
+            content = [node for node in input if node.type != "text" or (node.text and node.text.strip())]
+            # If no content left, add a single space
+            if not content:
+                content = [ProsemirrorJSONContent(type="text", text=" ")]
+        else:
+            # Ensure text is not empty
+            text = input if input and input.strip() else " "
+            content = [ProsemirrorJSONContent(type="text", text=text)]
+
         return ProsemirrorJSONContent(
             type="heading",
             attrs={"level": level},
-            content=input if isinstance(input, list) else [ProsemirrorJSONContent(type="text", text=input)],
+            content=content,
         )
 
     def to_json_bullet_list(self, items: list[ProsemirrorJSONContent]) -> ProsemirrorJSONContent:
@@ -304,6 +347,9 @@ class NotebookSerializer:
         """
         Parse markdown and convert to TipTap notebook schema.
         """
+        # First, extract and replace <insight> tags with placeholders
+        input, insight_placeholders = self._extract_insight_tags(input)
+
         # Tokenize the markdown
         tokenizer = MarkdownTokenizer()
         tokens = tokenizer.tokenize(input)
@@ -313,6 +359,10 @@ class NotebookSerializer:
         for token in tokens:
             nodes = self._convert_markdown_token(token)
             json_result.extend(nodes)
+
+        # Process all nodes at once to handle insight placeholders
+        if insight_placeholders:
+            json_result = self._process_insight_placeholders(json_result, insight_placeholders)
 
         return ProsemirrorJSONContent(type="doc", content=json_result)
 
@@ -381,40 +431,53 @@ class NotebookSerializer:
             # Add text before the pattern
             if match_start > pos:
                 before_text = text[pos:match_start]
-                if before_text:
+                # Only add non-empty text
+                if before_text and before_text.strip():
                     content.append(ProsemirrorJSONContent(type="text", text=before_text))
 
-            # Add the formatted content
+            # Add the formatted content (only if not empty)
             if pattern_type == "bold":
                 inner_text = pattern_data["text"]
-                content.append(ProsemirrorJSONContent(type="text", text=inner_text, marks=[Mark(type="bold")]))
+                if inner_text:  # Only add if not empty
+                    content.append(ProsemirrorJSONContent(type="text", text=inner_text, marks=[Mark(type="bold")]))
             elif pattern_type == "italic":
                 inner_text = pattern_data["text"]
-                content.append(ProsemirrorJSONContent(type="text", text=inner_text, marks=[Mark(type="italic")]))
+                if inner_text:  # Only add if not empty
+                    content.append(ProsemirrorJSONContent(type="text", text=inner_text, marks=[Mark(type="italic")]))
             elif pattern_type == "code":
                 inner_text = pattern_data["text"]
-                content.append(ProsemirrorJSONContent(type="text", text=inner_text, marks=[Mark(type="code")]))
+                if inner_text:  # Only add if not empty
+                    content.append(ProsemirrorJSONContent(type="text", text=inner_text, marks=[Mark(type="code")]))
             elif pattern_type == "strikethrough":
                 inner_text = pattern_data["text"]
-                content.append(ProsemirrorJSONContent(type="text", text=inner_text, marks=[Mark(type="strike")]))
+                if inner_text:  # Only add if not empty
+                    content.append(ProsemirrorJSONContent(type="text", text=inner_text, marks=[Mark(type="strike")]))
             elif pattern_type == "link":
                 link_text = pattern_data["text"]
                 href = pattern_data["href"]
-                if self._is_safe_url(href):
-                    content.append(
-                        ProsemirrorJSONContent(
-                            type="text",
-                            text=link_text,
-                            marks=[Mark(type="link", attrs={"href": href, "target": "_blank"})],
+                if link_text:  # Only add if link text is not empty
+                    if self._is_safe_url(href):
+                        content.append(
+                            ProsemirrorJSONContent(
+                                type="text",
+                                text=link_text,
+                                marks=[Mark(type="link", attrs={"href": href, "target": "_blank"})],
+                            )
                         )
-                    )
-                else:
-                    # Unsafe URL, just add as text
-                    content.append(ProsemirrorJSONContent(type="text", text=link_text))
+                    else:
+                        # Unsafe URL, just add as text
+                        content.append(ProsemirrorJSONContent(type="text", text=link_text))
 
             pos = match_end
 
-        return content if content else [ProsemirrorJSONContent(type="text", text=text)]
+        # Return content if we have any, otherwise return the original text (or empty list)
+        if content:
+            return content
+        elif text and text.strip():
+            return [ProsemirrorJSONContent(type="text", text=text)]
+        else:
+            # Return empty list for truly empty content (paragraph handler will add space if needed)
+            return []
 
     def _find_next_markdown_pattern(self, text: str, start_pos: int) -> Optional[tuple[int, int, str, dict]]:
         """Find the next markdown formatting pattern in text."""
@@ -452,7 +515,7 @@ class NotebookSerializer:
             nodes = self._convert_markdown_token(token)
             result.extend(nodes)
 
-        return result if result else [self.to_json_paragraph("")]
+        return result if result else [self.to_json_paragraph(" ")]
 
     def _is_safe_url(self, url: str) -> bool:
         """Check if URL is safe (no javascript:, data:, etc)."""
@@ -482,6 +545,175 @@ class NotebookSerializer:
             )
         except Exception:
             return False
+
+    def _extract_insight_tags(self, text: str) -> tuple[str, dict[str, str]]:
+        """
+        Extract <insight>artifact_id</insight> tags and replace with placeholders.
+        Also removes incomplete insight tags (for streaming support).
+
+        Returns:
+            Tuple of (modified text, dict mapping placeholders to artifact_ids)
+        """
+        insight_placeholders = {}
+        placeholder_counter = 0
+
+        def replace_insight(match):
+            nonlocal placeholder_counter
+            insight_id = match.group(1)
+            # Use a placeholder that won't be interpreted as markdown
+            placeholder = f"[[INSIGHT-PLACEHOLDER-{placeholder_counter}]]"
+            insight_placeholders[placeholder] = insight_id
+            placeholder_counter += 1
+            return placeholder
+
+        # Replace complete <insight>insight_id</insight> tags with placeholders
+        modified_text = re.sub(r"<insight>([^<]+)</insight>", replace_insight, text)
+
+        # Remove incomplete insight tags (for streaming)
+        # This handles cases like: "<insig", "<insight>", "<insight>123", "<insight>123</insi"
+        # Remove partial opening tags at the end of text: <i, <in, <ins, <insi, <insig, <insigh, <insight
+        modified_text = re.sub(r"<i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", modified_text)
+        # Remove <insight> tags that don't have a complete closing tag
+        modified_text = re.sub(r"<insight>[^<]*$", "", modified_text)
+        # Remove partial closing tags at the end: </i, </in, </ins, </insi, </insig, </insigh, </insight
+        modified_text = re.sub(r"</i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", modified_text)
+        # Remove <insight> with partial closing tag
+        modified_text = re.sub(r"<insight>[^<]*</i(?:n(?:s(?:i(?:g(?:h(?:t)?)?)?)?)?)?$", "", modified_text)
+
+        return modified_text, insight_placeholders
+
+    def _process_insight_placeholders(
+        self, nodes: list[ProsemirrorJSONContent], placeholders: dict[str, str]
+    ) -> list[ProsemirrorJSONContent]:
+        """
+        Process nodes to replace insight placeholders with ph-query nodes.
+        """
+        if not placeholders:
+            return nodes
+
+        result = []
+        for node in nodes:
+            if node.type == "paragraph" and node.content:
+                # Check if the whole paragraph is just a placeholder
+                if len(node.content) == 1 and node.content[0].type == "text":
+                    text = node.content[0].text or ""
+                    text_stripped = text.strip()
+
+                    # Check if this is exactly a placeholder
+                    if text_stripped in placeholders:
+                        # Replace entire paragraph with ph-query node
+                        insight_id = placeholders[text_stripped]
+                        query_node = self._create_ph_query_node(insight_id)
+                        if query_node:
+                            result.append(query_node)
+                            continue
+
+                # Process paragraph content for inline placeholders
+                paragraph_text = ""
+                for content_node in node.content:
+                    if content_node.type == "text":
+                        paragraph_text += content_node.text or ""
+
+                # Check if paragraph contains any placeholders
+                has_placeholder = False
+                for placeholder in placeholders:
+                    if placeholder in paragraph_text:
+                        has_placeholder = True
+                        break
+
+                if has_placeholder:
+                    # Split paragraph by placeholders
+                    remaining_text = paragraph_text
+                    while remaining_text:
+                        found_placeholder = False
+                        for placeholder, insight_id in placeholders.items():
+                            if placeholder in remaining_text:
+                                found_placeholder = True
+                                parts = remaining_text.split(placeholder, 1)
+
+                                # Add text before placeholder as paragraph
+                                if parts[0].strip():
+                                    result.append(
+                                        ProsemirrorJSONContent(
+                                            type="paragraph",
+                                            content=[ProsemirrorJSONContent(type="text", text=parts[0].strip())],
+                                        )
+                                    )
+
+                                # Add ph-query node
+                                query_node = self._create_ph_query_node(insight_id)
+                                if query_node:
+                                    result.append(query_node)
+
+                                # Continue with remaining text
+                                remaining_text = parts[1] if len(parts) > 1 else ""
+                                break
+
+                        if not found_placeholder:
+                            # No more placeholders, add remaining text
+                            if remaining_text.strip():
+                                result.append(
+                                    ProsemirrorJSONContent(
+                                        type="paragraph",
+                                        content=[ProsemirrorJSONContent(type="text", text=remaining_text.strip())],
+                                    )
+                                )
+                            break
+                else:
+                    # No placeholders in this paragraph, keep as is
+                    result.append(node)
+            else:
+                # Non-paragraph nodes pass through unchanged
+                result.append(node)
+
+        return result
+
+    def _convert_assistant_query_to_insight_viz_node(self, query) -> dict:
+        """
+        Convert AssistantQuery types to InsightVizNode format for frontend compatibility.
+        """
+        query_id = id(query)
+        if query_id in self._converted_query_cache:
+            return self._converted_query_cache[query_id]
+
+        if isinstance(
+            query, AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+        ):
+            regular_query = cast_assistant_query(query)
+
+            if isinstance(query, AssistantHogQLQuery):
+                converted = {"kind": "DataTableNode", "source": regular_query}
+            else:
+                converted = {"kind": "InsightVizNode", "source": regular_query}
+
+            self._converted_query_cache[query_id] = converted
+            return converted
+
+        # Return non-Assistant queries unchanged
+        return query
+
+    def _create_ph_query_node(self, insight_id: str) -> Optional[ProsemirrorJSONContent]:
+        """
+        Create a ph-query node for the given insight id.
+        """
+        # Look up the query in the insights context
+        if not self.context or not self.context.insights or not self.context.insights.get(insight_id):
+            logger.warning(f"No notebook context available for insight {insight_id}")
+            return None
+        query = self.context.insights[insight_id].query
+        if not query:
+            logger.warning(
+                f"No query found for insight {insight_id} in context with keys: {list(self.context.insights.keys())}"
+            )
+            # Return a placeholder text node if query not found
+            return ProsemirrorJSONContent(
+                type="paragraph", content=[ProsemirrorJSONContent(type="text", text=f"[Insight: {insight_id}]")]
+            )
+
+        # Create the ph-query node
+        return ProsemirrorJSONContent(
+            type="ph-query", attrs={"query": self._convert_assistant_query_to_insight_viz_node(query)}
+        )
 
     def from_json_to_markdown(self, input: ProsemirrorJSONContent) -> str:
         """

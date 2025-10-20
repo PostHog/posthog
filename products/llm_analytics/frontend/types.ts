@@ -76,7 +76,7 @@ export interface CompatToolCall {
     id?: string
     function: {
         name: string
-        arguments: Record<string, any>
+        arguments: Record<string, any> | string // Allow string for unparsed/malformed JSON
     }
 }
 
@@ -84,4 +84,22 @@ export interface CompatMessage extends RoleBasedMessage {
     tool_calls?: CompatToolCall[]
     [additionalKey: string]: any
     tool_call_id?: string
+}
+
+export interface LiteLLMChoice {
+    finish_reason: string
+    index: number
+    message: {
+        annotations?: any[]
+        content: string | null
+        function_call?: any
+        role: string
+        tool_calls?: any[] | null
+    }
+    provider_specific_fields?: Record<string, any>
+}
+
+export interface LiteLLMResponse {
+    choices?: LiteLLMChoice[]
+    [additionalKey: string]: any
 }

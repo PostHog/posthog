@@ -1,6 +1,7 @@
 import re
 import csv
 import json
+import random
 import typing
 import asyncio
 import datetime as dt
@@ -13,6 +14,7 @@ from django.conf import settings
 import psycopg
 import pyarrow as pa
 from psycopg import sql
+from psycopg.errors import SerializationFailure
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -26,10 +28,11 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
+    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
@@ -71,7 +74,7 @@ UNPAIRED_SURROGATE_PATTERN_2 = re.compile(
 )
 
 LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on errors that are related to database operation.
@@ -113,6 +116,10 @@ NON_RETRYABLE_ERROR_TYPES = (
     "DatatypeMismatch",
     # Exceeded limits for indexes that we do not maintain.
     "ProgramLimitExceeded",
+    # Raised when the destination table schema is incompatible with the schema of the data we are trying to export.
+    "PostgreSQLIncompatibleSchemaError",
+    # Raised when a transaction fails to complete after a certain number of retries.
+    "PostgreSQLTransactionError",
 )
 
 
@@ -123,6 +130,20 @@ class PostgreSQLConnectionError(Exception):
 class MissingPrimaryKeyError(Exception):
     def __init__(self, table: sql.Identifier, primary_key: sql.Composed):
         super().__init__(f"An operation could not be completed as '{table}' is missing a primary key on {primary_key}")
+
+
+class PostgreSQLIncompatibleSchemaError(Exception):
+    """Raised when the destination table schema is incompatible with the schema of the data we are trying to export."""
+
+    def __init__(self, err_msg: str):
+        super().__init__(f"The data being exported is incompatible with the schema of the destination table: {err_msg}")
+
+
+class PostgreSQLTransactionError(Exception):
+    """Raised when a transaction fails to complete after a certain number of retries."""
+
+    def __init__(self, max_attempts: int, err_msg: str):
+        super().__init__(f"A transaction failed to complete after {max_attempts} attempts: {err_msg}")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -137,6 +158,46 @@ class PostgresInsertInputs(BatchExportInsertInputs):
     schema: str = "public"
     table_name: str
     has_self_signed_cert: bool = False
+
+
+async def run_in_retryable_transaction(
+    connection: psycopg.AsyncConnection,
+    fn: collections.abc.Callable[[], collections.abc.Awaitable[typing.Any]],
+    max_attempts: int = 3,
+) -> typing.Any:
+    """Run a callable inside a transaction with retry logic for serialization failures.
+
+    Inspiration: https://github.com/cockroachdb/example-app-python-psycopg3/blob/main/example.py#L70-L105
+
+    Args:
+        connection: The PostgreSQL connection to use
+        fn: An async callable to execute within the transaction
+        max_attempts: Maximum number of retry attempts
+    Returns:
+        The return value of fn
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with connection.transaction():
+                return await fn()
+
+        except SerializationFailure as e:
+            if attempt == max_attempts:
+                raise PostgreSQLTransactionError(max_attempts, str(e)) from e
+
+            LOGGER.debug("SerializationFailure caught in transaction (attempt %d/%d): %s", attempt, max_attempts, e)
+            sleep_seconds = (2**attempt) * 0.1 * (random.random() + 0.5)
+            LOGGER.debug("Sleeping %s seconds", sleep_seconds)
+            await asyncio.sleep(sleep_seconds)
+
+
+class _PostgreSQLClientInputsProtocol(typing.Protocol):
+    user: str
+    password: str
+    host: str
+    port: int
+    database: str
+    has_self_signed_cert: bool
 
 
 class PostgreSQLClient:
@@ -163,7 +224,7 @@ class PostgreSQLClient:
         self._connection: None | psycopg.AsyncConnection = None
 
     @classmethod
-    def from_inputs(cls, inputs: PostgresInsertInputs) -> typing.Self:
+    def from_inputs(cls, inputs: _PostgreSQLClientInputsProtocol) -> typing.Self:
         """Initialize `PostgreSQLClient` from `PostgresInsertInputs`."""
         return cls(
             user=inputs.user,
@@ -238,6 +299,7 @@ class PostgreSQLClient:
         fields: Fields,
         exists_ok: bool = True,
         primary_key: Fields | None = None,
+        log_statements: bool = False,
     ) -> None:
         """Create a table in PostgreSQL.
 
@@ -247,6 +309,7 @@ class PostgreSQLClient:
             fields: An iterable of PostgreSQL fields for the table.
             exists_ok: Whether to ignore if the table already exists.
             primary_key: Optionally set a primary key on these fields, needed for merges.
+            log_statements: If `True`, log the statements executed (useful for debugging)
         """
         if schema:
             table_identifier = sql.Identifier(schema, table_name)
@@ -267,19 +330,22 @@ class PostgreSQLClient:
             async with self.connection.cursor() as cursor:
                 await cursor.execute("SET TRANSACTION READ WRITE")
 
-                await cursor.execute(
-                    sql.SQL(base_query).format(
-                        pkey=primary_key_clause if primary_key else sql.SQL(""),
-                        table=table_identifier,
-                        fields=sql.SQL(",").join(
-                            sql.SQL("{field} {type}").format(
-                                field=sql.Identifier(field),
-                                type=sql.SQL(field_type),
-                            )
-                            for field, field_type in fields
-                        ),
-                    )
+                query = sql.SQL(base_query).format(
+                    pkey=primary_key_clause if primary_key else sql.SQL(""),
+                    table=table_identifier,
+                    fields=sql.SQL(",").join(
+                        sql.SQL("{field} {type}").format(
+                            field=sql.Identifier(field),
+                            type=sql.SQL(field_type),
+                        )
+                        for field, field_type in fields
+                    ),
                 )
+
+                if log_statements:
+                    LOGGER.info("Executing create table statement: %s", query.as_string(cursor))
+
+                await cursor.execute(query)
 
     async def adelete_table(self, schema: str | None, table_name: str, not_found_ok: bool = True) -> None:
         """Delete a table in PostgreSQL.
@@ -337,6 +403,7 @@ class PostgreSQLClient:
         not_found_ok: bool = True,
         delete: bool = True,
         create: bool = True,
+        log_statements: bool = False,
     ) -> collections.abc.AsyncGenerator[str, None]:
         """Manage a table in PostgreSQL by ensure it exists while in context.
 
@@ -352,9 +419,12 @@ class PostgreSQLClient:
             not_found_ok: Whether to ignore if the table doesn't exist.
             delete: If `False`, do not delete the table on exiting context manager.
             create: If `False`, do not attempt to create the table.
+            log_statements: If `True`, log the statements executed (useful for debugging)
         """
         if create is True:
-            await self.acreate_table(schema, table_name, fields, exists_ok, primary_key=primary_key)
+            await self.acreate_table(
+                schema, table_name, fields, exists_ok, primary_key=primary_key, log_statements=log_statements
+            )
 
         try:
             yield table_name
@@ -461,7 +531,7 @@ class PostgreSQLClient:
         """
         tsv_file.seek(0)
 
-        async with self.connection.transaction():
+        async def _copy_tsv_in_transaction():
             async with self.connection.cursor() as cursor:
                 if schema:
                     await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
@@ -478,6 +548,8 @@ class PostgreSQLClient:
                     while data := await asyncio.to_thread(tsv_file.read):
                         data = remove_invalid_json(data)
                         await copy.write(data)
+
+        await run_in_retryable_transaction(self.connection, _copy_tsv_in_transaction)
 
 
 def remove_invalid_json(data: bytes) -> bytes:
@@ -764,17 +836,23 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchEx
         # NOTE: PostgreSQL has a 63 byte limit on identifiers.
         # With a 6 digit `team_id`, this leaves 30 bytes for a table name input.
         # TODO: That should be enough, but we should add a proper check and alert on larger inputs.
-        stagle_table_name = (
+        stage_table_name = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
             if requires_merge
             else inputs.table_name
         )[:63]
 
         async with PostgreSQLClient.from_inputs(inputs).connect() as pg_client:
+            table_exists = False
             # handle the case where the final table doesn't contain all the fields present in the record batch schema
             try:
                 columns = await pg_client.aget_table_columns(inputs.schema, inputs.table_name)
+                table_exists = True
                 table_fields = [field for field in table_fields if field[0] in columns]
+                if not table_fields:
+                    raise PostgreSQLIncompatibleSchemaError(
+                        f"No matching columns found in the destination table '{inputs.schema}.{inputs.table_name}'"
+                    )
             except psycopg.errors.InsufficientPrivilege:
                 external_logger.warning(
                     "Insufficient privileges to get table columns for table '%s.%s'; "
@@ -792,11 +870,17 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> BatchEx
 
             async with (
                 pg_client.managed_table(
-                    inputs.schema, inputs.table_name, table_fields, delete=False, primary_key=primary_key
+                    inputs.schema,
+                    inputs.table_name,
+                    table_fields,
+                    create=not table_exists,
+                    delete=False,
+                    primary_key=primary_key,
+                    log_statements=True,
                 ) as pg_table,
                 pg_client.managed_table(
                     inputs.schema,
-                    stagle_table_name,
+                    stage_table_name,
                     table_fields,
                     create=requires_merge,
                     delete=requires_merge,
@@ -877,17 +961,20 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
-        run_id = await workflow.execute_activity(
-            start_batch_export_run,
-            start_batch_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-            ),
-        )
+        try:
+            run_id = await workflow.execute_activity(
+                start_batch_export_run,
+                start_batch_export_run_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
+                ),
+            )
+        except OverBillingLimitError:
+            return
 
         finish_inputs = FinishBatchExportRunInputs(
             id=run_id,

@@ -1,36 +1,43 @@
-import { IconApps } from '@posthog/icons'
-
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { cn } from 'lib/utils/css-classes'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { AttributionSettings } from './AttributionSettings'
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
 import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourceConfiguration'
 import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
 import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExternalDataSourceConfiguration'
 
-export function MarketingAnalyticsSettings(): JSX.Element {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
+export function MarketingAnalyticsSettings({
+    hideTitle = false,
+    hideBaseCurrency = false,
+}: {
+    hideTitle?: boolean
+    hideBaseCurrency?: boolean
+}): JSX.Element {
     return (
-        <SceneContent className={cn(!newSceneLayout && 'gap-8 mb-10')}>
-            {newSceneLayout && (
+        <SceneContent>
+            {!hideTitle && (
                 <SceneTitleSection
-                    name="Marketing analytics"
-                    description={null}
+                    name={sceneConfigurations[Scene.WebAnalyticsMarketing].name}
+                    description={sceneConfigurations[Scene.WebAnalyticsMarketing].description}
                     resourceType={{
-                        type: 'marketing',
-                        typePlural: 'marketing',
-                        forceIcon: <IconApps />,
+                        type: sceneConfigurations[Scene.WebAnalyticsMarketing].iconType || 'default_icon_type',
                     }}
                 />
             )}
+            {!hideBaseCurrency && (
+                <>
+                    <SceneDivider />
+                    <BaseCurrency />
+                </>
+            )}
             <SceneDivider />
-            <BaseCurrency />
+            <AttributionSettings />
             <SceneDivider />
             <ConversionGoalsConfiguration />
             <SceneDivider />

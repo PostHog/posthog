@@ -4,10 +4,10 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../../../config/config'
-import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST } from '../../../config/kafka-topics'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import {
+    HealthCheckResult,
     PluginServerService,
     PluginsServerConfig,
     RedisPool,
@@ -128,7 +128,7 @@ export class SessionRecordingIngester {
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(
             producer,
-            this.config.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC || KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST
+            this.config.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC
         )
         const consoleLogStore = new SessionConsoleLogStore(
             producer,
@@ -148,6 +148,7 @@ export class SessionRecordingIngester {
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.config.SESSION_RECORDING_MAX_BATCH_AGE_MS,
+            maxEventsPerSessionPerBatch: this.config.SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH,
             offsetManager,
             fileStorage: this.fileStorage,
             metadataStore,
@@ -317,7 +318,7 @@ export class SessionRecordingIngester {
         return promiseResults
     }
 
-    public isHealthy(): boolean {
+    public isHealthy(): HealthCheckResult {
         // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
         return this.kafkaConsumer.isHealthy()
     }

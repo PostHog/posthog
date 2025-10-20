@@ -32,7 +32,10 @@ export function LLMAnalyticsUsers(): JSX.Element {
 
     return (
         <DataTable
-            query={usersQuery}
+            query={{
+                ...usersQuery,
+                showSavedFilters: true,
+            }}
             setQuery={(query) => {
                 if (!isHogQLQuery(query.source)) {
                     console.warn('LLMAnalyticsUsers received a non-events query:', query.source)
