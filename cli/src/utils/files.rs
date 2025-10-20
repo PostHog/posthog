@@ -1,9 +1,8 @@
 use anyhow::{Context, Result};
 use sha2::Digest;
 use std::path::PathBuf;
-use walkdir::DirEntry;
 
-use crate::sourcemaps::source_pair::SourceMapContent;
+use crate::sourcemaps::content::SourceMapContent;
 
 pub struct SourceFile<T: SourceContent> {
     pub path: PathBuf,
@@ -88,12 +87,4 @@ where
         hasher.update(data.as_ref());
     }
     format!("{:x}", hasher.finalize())
-}
-
-pub fn is_javascript_file(entry: &DirEntry) -> bool {
-    entry.file_type().is_file()
-        && entry
-            .path()
-            .extension()
-            .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs")
 }
