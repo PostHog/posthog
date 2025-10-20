@@ -40,9 +40,10 @@ describe('manualCosts', () => {
             const openrouterAuto = manualCosts.find((model) => model.model === 'openrouter/auto')
 
             expect(openrouterAuto).toBeDefined()
-            expect(openrouterAuto?.provider).toBe('openrouter')
-            expect(openrouterAuto?.cost.prompt_token).toBe(0)
-            expect(openrouterAuto?.cost.completion_token).toBe(0)
+            expect(openrouterAuto?.cost.default.prompt_token).toBe(0)
+            expect(openrouterAuto?.cost.default.completion_token).toBe(0)
+            expect(openrouterAuto?.cost.openrouter?.prompt_token).toBe(0)
+            expect(openrouterAuto?.cost.openrouter?.completion_token).toBe(0)
         })
     })
 
@@ -51,9 +52,10 @@ describe('manualCosts', () => {
             const mistralModel = manualCosts.find((entry) => entry.model === model)
 
             expect(mistralModel).toBeDefined()
-            expect(mistralModel?.provider).toBe('mistral')
-            expect(mistralModel?.cost.prompt_token).toBe(expected.prompt_token)
-            expect(mistralModel?.cost.completion_token).toBe(expected.completion_token)
+            expect(mistralModel?.cost.default.prompt_token).toBe(expected.prompt_token)
+            expect(mistralModel?.cost.default.completion_token).toBe(expected.completion_token)
+            expect(mistralModel?.cost.mistral?.prompt_token).toBe(expected.prompt_token)
+            expect(mistralModel?.cost.mistral?.completion_token).toBe(expected.completion_token)
         })
     })
 })
