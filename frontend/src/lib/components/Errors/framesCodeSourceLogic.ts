@@ -9,6 +9,11 @@ import { ErrorPropertiesLogicProps } from './errorPropertiesLogic'
 import type { framesCodeSourceLogicType } from './framesCodeSourceLogicType'
 import { stackFrameLogic } from './stackFrameLogic'
 
+export interface SourceData {
+    url: string | null
+    provider: string | null
+}
+
 export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
     path(['components', 'Errors', 'framesCodeSourceLogic']),
 
@@ -19,17 +24,17 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
     }),
 
     actions({
-        setSourceUrl: (rawId: string, url: string | null) => ({ rawId, url }),
+        setSourceData: (rawId: string, data: SourceData | null) => ({ rawId, data }),
         computeSourceUrls: true,
     }),
 
     reducers({
         frameSourceUrls: [
-            {} as Record<string, string | null>,
+            {} as Record<string, SourceData | null>,
             {
-                setSourceUrl: (state, { rawId, url }) => ({
+                setSourceData: (state, { rawId, data }) => ({
                     ...state,
-                    [rawId]: url,
+                    [rawId]: data,
                 }),
             },
         ],
@@ -67,7 +72,10 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                         codeSample,
                         fileName
                     )
-                    actions.setSourceUrl(rawId, result.found && result.url ? result.url : null)
+                    actions.setSourceData(rawId, {
+                        url: result.found && result.url ? result.url : null,
+                        provider: parsed.provider,
+                    })
                 }
             })
 
@@ -84,9 +92,9 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
     })),
 
     selectors({
-        getSourceUrlForFrame: [
+        getSourceDataForFrame: [
             (s) => [s.frameSourceUrls],
-            (frameSourceUrls: Record<string, string | null>) => (rawId: string) => frameSourceUrls[rawId] || null,
+            (frameSourceUrls: Record<string, SourceData | null>) => (rawId: string) => frameSourceUrls[rawId] || null,
         ],
     }),
 ])

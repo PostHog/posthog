@@ -1,5 +1,7 @@
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 
+export type GitProvider = 'github' | 'unknown'
+
 export class GitMetadataParser {
     static getViewCommitLink(release: ErrorTrackingRelease): string | undefined {
         const hasRemoteUrl = release.metadata?.git?.remote_url !== undefined
@@ -11,9 +13,7 @@ export class GitMetadataParser {
         return hasRemoteUrl && hasCommitId ? this.resolveRemoteUrlWithCommitToLink(remoteUrl, commitId) : undefined
     }
 
-    static parseRemoteUrl(
-        remoteUrl: string
-    ): { provider: 'github' | string; owner: string; repository: string } | null {
+    static parseRemoteUrl(remoteUrl: string): { provider: GitProvider; owner: string; repository: string } | null {
         const parsed = this.parseSshRemoteUrl(remoteUrl) || this.parseHttpsRemoteUrl(remoteUrl)
 
         if (!parsed) {
@@ -29,7 +29,7 @@ export class GitMetadataParser {
         }
 
         return {
-            provider: parsed.providerUrl,
+            provider: 'unknown',
             owner: parsed.user,
             repository: parsed.path,
         }

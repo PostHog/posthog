@@ -26,6 +26,11 @@ def get_github_file_url(code_sample: str, token: str, owner: str, repository: st
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
+    print(search_query)
+    print(encoded_query)
+    print(url)
+    print(headers)
+
     try:
         response = requests.get(url, headers=headers, timeout=10)
 

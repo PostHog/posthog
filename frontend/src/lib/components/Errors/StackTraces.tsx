@@ -158,11 +158,13 @@ function Trace({
 export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }): JSX.Element {
     const { raw_id, source, line, column, resolved, resolve_failure, in_app } = frame
     const { getFrameFingerprint } = useValues(errorPropertiesLogic)
-    const { getSourceUrlForFrame } = useValues(framesCodeSourceLogic)
+    const { getSourceDataForFrame } = useValues(framesCodeSourceLogic)
 
     const part = getFrameFingerprint(raw_id)
     const resolvedName = formatResolvedName(frame)
-    const sourceUrl = getSourceUrlForFrame(raw_id)
+    const sourceData = getSourceDataForFrame(raw_id)
+
+    console.log(sourceData)
 
     return (
         <div className="flex flex-1 justify-between items-center h-full">
@@ -186,7 +188,7 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
                 </div>
             </div>
             <div className="flex gap-x-1 items-center justify-end">
-                {in_app && sourceUrl && <GitProviderFileLink url={sourceUrl} />}
+                {in_app && sourceData?.url && <GitProviderFileLink sourceData={sourceData} />}
                 {resolved && source && (
                     <span onClick={cancelEvent} className="text-secondary">
                         <CopyToClipboardInline
