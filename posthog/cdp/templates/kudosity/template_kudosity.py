@@ -80,7 +80,7 @@ if (inputs.debug) {
             "type": "string",
             "label": "Sender Number or ID",
             "description": "Your approved sender number or alphanumeric ID. Use E.164 format (e.g. +61412345678) for numbers. Alphanumeric IDs (max 11 characters, e.g. 'MyCompany') are allowed. Must be pre-approved in your Kudosity account.",
-            "default": "61416579157",
+            "default": "61XXXXXXXXX",
             "secret": False,
             "required": True,
         },
