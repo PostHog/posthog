@@ -105,7 +105,6 @@ async def test_task(ateam, auser, github_integration):
         title="Test Task for Temporal Activities",
         description="This is a test task for testing temporal activities",
         origin_product=Task.OriginProduct.USER_CREATED,
-        stage="backlog",
         position=0,
         github_integration=github_integration,
         repository_config={"organization": "PostHog", "repository": "posthog-js"},

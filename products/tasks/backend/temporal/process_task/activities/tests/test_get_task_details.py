@@ -16,7 +16,6 @@ class TestGetTaskDetailsActivity:
             title="Test Task",
             description="Test task description",
             origin_product=Task.OriginProduct.USER_CREATED,
-            stage="backlog",
             position=0,
             github_integration=github_integration,
             repository_config=repo_config,
