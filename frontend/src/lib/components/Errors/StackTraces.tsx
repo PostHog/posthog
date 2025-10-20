@@ -193,6 +193,7 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
                             tooltipMessage="Copy file name"
                             iconSize="xsmall"
                             explicitValue={source}
+                            iconMargin={false}
                         />
                     </span>
                 )}
