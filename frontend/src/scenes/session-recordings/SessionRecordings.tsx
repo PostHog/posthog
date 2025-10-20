@@ -208,10 +208,8 @@ function MainPanel(): JSX.Element {
             {!tab ? (
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
-                // <div className="SessionRecordingPlaylistHeightWrapper">
                 <SessionRecordingsPlaylist updateSearchParams />
-            ) : // </div>
-            tab === ReplayTabs.Playlists ? (
+            ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
             ) : tab === ReplayTabs.Templates ? (
                 <SessionRecordingTemplates />

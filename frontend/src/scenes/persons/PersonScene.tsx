@@ -202,6 +202,7 @@ export function PersonScene(): JSX.Element | null {
                 contentClassName={cn({
                     'flex flex-col grow': currentTab === PersonsTabType.SESSION_RECORDINGS,
                 })}
+                sceneInset
                 tabs={[
                     feedEnabled
                         ? {
