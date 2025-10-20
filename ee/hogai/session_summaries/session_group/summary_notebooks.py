@@ -209,7 +209,9 @@ async def create_empty_notebook_for_summary(user: User, team: Team, summary_titl
     """Create an empty notebook for a summary."""
     notebook = await Notebook.objects.acreate(
         team=team,
-        title=_create_notebook_title(team_name=team.name, summary_title=summary_title),
+        title=summary_title,
+        # TODO: Revert after tests
+        # title=_create_notebook_title(team_name=team.name, summary_title=summary_title),
         content="",
         created_by=user,
         last_modified_by=user,

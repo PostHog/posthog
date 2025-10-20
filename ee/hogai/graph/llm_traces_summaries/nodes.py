@@ -1,52 +1,28 @@
 import json
 import time
-import asyncio
-from typing import Any, cast
+from typing import Any
 from uuid import uuid4
 
+from django.utils import timezone
+
 import structlog
-from langchain_core.agents import AgentAction
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.traces_summaries.search_summaries_embeddings import EmbeddingSearcher
-from posthog.schema import (
-    AssistantToolCallMessage,
-    MaxRecordingUniversalFilters,
-    NotebookUpdateMessage,
-    RecordingsQuery,
-)
+from posthog.schema import AssistantToolCallMessage
 
-from posthog.models.team.team import check_is_feature_available_for_team
-from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
-from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.ai.session_summary.summarize_session_group import (
-    SessionSummaryStreamUpdate,
-    execute_summarize_session_group,
+from products.notebooks.backend.util import (
+    TipTapNode,
+    create_heading_with_text,
+    create_paragraph_with_content,
+    create_text_content,
 )
-
-from products.notebooks.backend.models import Notebook
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.session_summaries.prompts import GENERATE_FILTER_QUERY_PROMPT
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.session_summaries.constants import (
-    GROUP_SUMMARIES_MIN_SESSIONS,
-    MAX_SESSIONS_TO_SUMMARIZE,
-    SESSION_SUMMARIES_STREAMING_MODEL,
-)
-from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
-from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
-    SummaryNotebookIntermediateState,
     create_empty_notebook_for_summary,
-    generate_notebook_content_from_summary,
     update_notebook_from_summary_content,
 )
-from ee.hogai.session_summaries.utils import logging_session_ids
-from ee.hogai.utils.state import prepare_reasoning_progress_message
+from ee.hogai.traces_summaries.search_summaries_embeddings import EmbeddingSearcher
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
@@ -75,6 +51,17 @@ class LLMTracesSummarizationNode(AssistantNode):
             )
             if not similar_documents:
                 return self._create_error_response("No similar traces found", state)
+            notebook_content = _prepare_basic_llm_summary_notebook_content(
+                summaries=similar_documents, query=llm_traces_summarization_query
+            )
+            notebook = await create_empty_notebook_for_summary(
+                user=self._user,
+                team=self._team,
+                summary_title=_create_notebook_title(query=llm_traces_summarization_query),
+            )
+            await update_notebook_from_summary_content(
+                notebook=notebook, summary_content=notebook_content, session_ids=[]
+            )
             # Return traces for Max to process
             # TODO: Return more structured data
             return PartialAssistantState(
@@ -120,3 +107,54 @@ class LLMTracesSummarizationNode(AssistantNode):
     @property
     def _base_error_instructions(self) -> str:
         return "INSTRUCTIONS: Tell the user that you encountered an issue while summarizing the LLM traces and suggest they try again with a different question."
+
+
+def _create_notebook_title(query: str) -> str:
+    title = f'LLM traces summaries report - "{query}"'
+    timestamp = timezone.now().strftime("%Y-%m-%d")
+    title += f" ({timestamp})"
+    return title
+
+
+def _prepare_basic_llm_summary_notebook_content(summaries: list[dict[str, str]], query: str) -> TipTapNode:
+    content = []
+    # Title
+    content.append(create_heading_with_text(_create_notebook_title(query=query), 1))
+    # Add summaries
+    content.append({"type": "horizontalRule"})
+    for summary in summaries:
+        content.append(
+            create_paragraph_with_content(
+                [
+                    create_text_content("Trace ID: ", is_bold=True),
+                    create_text_content(summary["trace_id"]),
+                ]
+            )
+        )
+        content.append(
+            create_paragraph_with_content(
+                [
+                    create_text_content("Trace summary: ", is_bold=True),
+                    create_text_content(summary["trace_summary"]),
+                ]
+            )
+        )
+        content.append({"type": "horizontalRule"})
+    return {
+        "type": "doc",
+        "content": content,
+    }
+
+
+# async def create_notebook_from_summary_content(
+#     user: User, team: Team, summary_content: TipTapNode, query: str
+# ) -> Notebook:
+#     """Create a notebook with session summary patterns."""
+#     notebook = await Notebook.objects.acreate(
+#         team=team,
+#         title=_create_notebook_title(query=query),
+#         content=summary_content,
+#         created_by=user,
+#         last_modified_by=user,
+#     )
+#     return notebook
