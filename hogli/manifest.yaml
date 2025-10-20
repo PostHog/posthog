@@ -154,6 +154,10 @@ deploy:
 build:
     build:frontend:
         description: Build frontend packages and run TypeScript compilation
+    build:schema:
+        cmd: pnpm schema:build
+        description: Generate schema definitions (frontend, python, latest versions)
+        # TODO: candidate for conversion to hogli steps
     build:schema-python:
         bin_script: build-schema-python.sh
         description: Generate Pydantic schema.py from schema.json with datamodel-codegen
@@ -163,6 +167,10 @@ build:
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
+    build:grammar:
+        cmd: pnpm grammar:build
+        description: Generate HogQL grammar definitions (Python and C++)
+        # TODO: candidate for conversion to hogli steps
 docker:
     docker:services:up:
         description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
@@ -241,6 +249,10 @@ code_quality:
         description: Fix code quality issues automatically
     fmt:code:
         description: Format Python and JavaScript code
+    fmt:all:
+        cmd: pnpm format
+        description: Format both backend and frontend code
+        # TODO: candidate for conversion to hogli steps
 tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker

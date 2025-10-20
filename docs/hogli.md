@@ -60,16 +60,120 @@ hogli follows these principles:
 | `hogli worktree …`    | [`bin/phw`](../bin/phw) wrapper (delegates to `phw` + `bin/posthog-worktree`)                        |
 | `hogli products list` | Reads packages from `products/*/package.json` and Python modules from `products/*`                   |
 
+## Architecture
+
+hogli is built with [Click](https://click.palletsprojects.com/) and discovers all commands from a single manifest:
+
+**Key Components:**
+
+- `hogli/manifest.yaml` - Single source of truth: all command definitions, service metadata, and category grouping
+- `hogli/cli.py` - Click CLI framework with dynamic command registration
+- `hogli/commands.py` - Command class hierarchy (BinScriptCommand, DirectCommand, CompositeCommand)
+- `hogli/manifest.py` - Manifest loading with singleton pattern
+- `hogli/validate.py` - Auto-discovery and validation for missing commands
+- `bin/` - Executable shell scripts that hogli wraps
+- `package.json` - High-level npm commands exposed through hogli
+
+**Help Organization:**
+Commands are grouped into categories (see `hogli --help`), auto-formatted in git-style sections. Categories and their display order are defined in the manifest's metadata section.
+
 ## Extending the CLI
 
-The CLI is implemented with [Typer](https://typer.tiangolo.com/), so adding new commands is straightforward:
+### Adding a new command
 
-1. Edit [`hogli/cli.py`](../hogli/cli.py).
-2. Add a new function decorated with `@app.command()` (or add a new Typer sub-app for larger feature areas).
-3. Use the helper `_run([...])` to execute existing repository scripts or external tools. The helper automatically prints the command and converts failures into friendly error messages.
-4. Document the new command in this file so developers can discover it quickly.
+1. **Create the script** in `bin/` or add to `package.json`
+2. **Register in manifest.yaml** under the appropriate category:
 
-When wrapping new workflows prefer calling the existing bash scripts or package.json tasks. This keeps `hogli` as a thin compatibility layer and reduces churn when the underlying implementation changes.
+```yaml
+build:
+    build:my-feature:
+        bin_script: my-feature-script
+        description: What this command does
+        services: [docker, postgresql] # optional: which services it relates to
+```
+
+3. **Optional: mark composition candidates** with a TODO for future conversion to `steps`:
+
+```yaml
+docker:
+    bin_script: docker
+    description: Run all services
+    # TODO: candidate for conversion to hogli steps
+```
+
+hogli automatically discovers missing bin scripts on every invocation (unless running `meta:check`). Use `hogli meta:check` in CI to enforce manifest completeness.
+
+### Command types
+
+**bin_script** - Delegates to a shell script, always accepts extra args:
+
+```yaml
+tool:ruff:
+    bin_script: ruff.sh
+    description: Python linter
+```
+
+**cmd** - Executes a shell command directly:
+
+```yaml
+flox:activate:
+    cmd: flox activate
+    description: Enter dev environment
+```
+
+**steps** - Composes multiple hogli commands in sequence:
+
+```yaml
+quality:check:
+    steps:
+        - lint:check
+        - build:frontend
+    description: Quick quality checks
+```
+
+### High-level npm commands
+
+Only expose npm commands that are high-level workflow entry points:
+
+✅ **Good candidates:**
+
+- `pnpm format` - formats all code (backend + frontend together)
+- `pnpm schema:build` - orchestrates schema generation pipeline
+- `pnpm grammar:build` - generates grammar definitions
+
+❌ **Keep internal:**
+
+- `pnpm build:esbuild` - internal dev server plumbing
+- `pnpm typegen:watch` - developer tool
+- `pnpm start-http` - implementation detail
+
+Add these to manifest with `cmd:` type and mark with TODO if they orchestrate multiple steps:
+
+```yaml
+fmt:all:
+    cmd: pnpm format
+    description: Format backend and frontend code
+    # TODO: candidate for conversion to hogli steps
+```
+
+### Service metadata
+
+Commands can declare which services they relate to. This enables `hogli meta:concepts` to show which commands work with each service.
+
+```yaml
+command:
+    bin_script: script
+    services: [docker, kafka, postgresql]
+```
+
+Available services are defined in `manifest.yaml` metadata and auto-linked to commands for help text generation.
+
+### CLI-only metadata commands
+
+Two special commands manage hogli itself:
+
+- `hogli meta:check` - Validates manifest, exits with code 1 if scripts are missing. Use in CI.
+- `hogli meta:concepts` - Shows all services and which commands use them
 
 ## Product utilities
 
