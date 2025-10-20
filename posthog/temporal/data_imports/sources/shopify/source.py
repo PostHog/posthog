@@ -82,12 +82,13 @@ The simplest setup for permissions is to only allow **read** permissions for the
         schemas = []
         for object_name in SHOPIFY_GRAPHQL_OBJECTS:
             incremental = INCREMENTAL_SETTINGS.get(object_name)
+            incremental_fields = incremental.fields if incremental else []
             schemas.append(
                 SourceSchema(
                     name=object_name,
-                    supports_incremental=True,
-                    supports_append=True,
-                    incremental_fields=incremental.fields if incremental else [],
+                    supports_incremental=len(incremental_fields) > 0,
+                    supports_append=len(incremental_fields) > 0,
+                    incremental_fields=incremental_fields,
                 )
             )
         return schemas

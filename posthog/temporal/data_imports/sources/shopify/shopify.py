@@ -130,35 +130,32 @@ def shopify_source(
             yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger)
             return
 
-        # NOTE: we use inclusive comparisons below because upon testing the shopify APIs with query filters
-        # >= and <= behave the same as > and < for datetime fields... which is a crime against humanity
         incremental = INCREMENTAL_SETTINGS.get(graphql_object_name)
         query_filter = incremental.query_filter if incremental else "created_at"
 
         # check for any objects less than the minimum object we already have
         if db_incremental_field_earliest_value is not None:
             logger.debug(
-                f"Shopify: iterating earliest objects from source: createdAt <= {db_incremental_field_earliest_value}"
+                f"Shopify: iterating earliest objects from source: {query_filter} < {db_incremental_field_earliest_value}"
             )
-            query = f"{query_filter}:<='{db_incremental_field_earliest_value}'"
+            query = f"{query_filter}:<'{db_incremental_field_earliest_value}'"
             yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger, query=query)
 
         # check for any objects more than the maximum object we already have
         if db_incremental_field_last_value is not None:
             logger.debug(
-                f"Shopify: iterating latest objects from source: createdAt >= {db_incremental_field_last_value}"
+                f"Shopify: iterating latest objects from source: {query_filter} > {db_incremental_field_last_value}"
             )
-            query = f"{query_filter}:>='{db_incremental_field_last_value}'"
+            query = f"{query_filter}:>'{db_incremental_field_last_value}'"
             yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger, query=query)
 
     incremental = INCREMENTAL_SETTINGS.get(graphql_object_name)
-    partition_key = incremental.fields[0]["field"] if incremental else "createdAt"
+    partition_key = incremental.partition_keys[0] if incremental and incremental.partition_keys else "created_at"
 
     return SourceResponse(
         items=get_rows(),
         primary_keys=["id"],
         name=graphql_object_name,
-        sort_mode="desc",
         partition_count=1,  # this enables partitioning
         partition_size=1,  # this enables partitioning
         partition_mode="datetime",

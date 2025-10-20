@@ -4,7 +4,7 @@ ARTICLES_QUERY = f"""
 query PaginatedArticles($pageSize: Int!, $cursor: String, $query: String) {{
     articles(
         first: $pageSize, after: $cursor, sortKey: {ARTICLES_SORTKEY},
-        reverse: true, query: $query
+        query: $query
     ) {{
         nodes {{
             author {{

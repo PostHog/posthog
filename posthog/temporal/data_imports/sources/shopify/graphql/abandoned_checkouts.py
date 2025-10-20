@@ -7,7 +7,7 @@ ABANDONED_CHECKOUTS_QUERY = f"""
 query PaginatedAbandonedCheckouts($pageSize: Int!, $cursor: String, $query: String) {{
     abandonedCheckouts(
         first: $pageSize, after: $cursor, sortKey: {ABANDONED_CHECKOUTS_SORTKEY},
-        reverse: true, query: $query
+        query: $query
     ) {{
         nodes {{
             abandonedCheckoutUrl
