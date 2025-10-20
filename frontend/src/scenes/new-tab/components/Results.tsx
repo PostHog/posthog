@@ -56,7 +56,9 @@ function Category({
     return (
         <>
             <div
-                className={cn('mb-8', { 'mb-4 @lg/main-content:flex @lg/main-content:flex-row': newTabSceneData })}
+                className={cn('mb-8', {
+                    'mb-4 @lg/main-content:flex @lg/main-content:flex-row @lg/main-content:gap-x-4': newTabSceneData,
+                })}
                 key={category}
             >
                 <div className={cn('mb-4', { 'mb-2 @lg/main-content:min-w-[300px]': newTabSceneData })}>
@@ -144,7 +146,7 @@ function Category({
                         {category === 'recents' && isSearching && <Spinner size="small" />}
                     </div>
                 </div>
-                <div className="flex flex-col gap-2">
+                <div className={cn('flex flex-col gap-2', { '@lg/main-content:grow': newTabSceneData })}>
                     {category === 'recents' && typedItems.length === 0 ? (
                         // Special handling for empty project items and persons
                         <div className="flex flex-col gap-2 text-tertiary text-balance">

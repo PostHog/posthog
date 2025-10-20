@@ -261,11 +261,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         const newState = state.filter((i) => i !== item)
                         // If no items left, default back to "all"
                         return newState.length === 0 ? ['all'] : newState
-                    } else {
-                        // Add the item and remove "all" if it was selected
-                        const newState = state.filter((i) => i !== 'all')
-                        return [...newState, item]
                     }
+                    // Add the item and remove "all" if it was selected
+                    const newState = state.filter((i) => i !== 'all')
+                    return [...newState, item]
                 },
             },
         ],
@@ -405,7 +404,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         personSearchItems: [
             (s) => [s.personSearchResults],
             (personSearchResults): NewTabTreeDataItem[] => {
-                const items = personSearchResults.map((person) => {
+                const items = personSearchResults.slice(0, 5).map((person) => {
                     const personId = person.distinct_ids?.[0] || person.uuid || 'unknown'
                     const displayName = person.properties?.email || personId
                     const item = {
@@ -430,7 +429,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         eventDefinitionSearchItems: [
             (s) => [s.eventDefinitionSearchResults],
             (eventDefinitionSearchResults): NewTabTreeDataItem[] => {
-                const items = eventDefinitionSearchResults.map((eventDef) => {
+                const items = eventDefinitionSearchResults.slice(0, 5).map((eventDef) => {
                     const item = {
                         id: `event-definition-${eventDef.id}`,
                         name: eventDef.name,
@@ -451,7 +450,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         propertyDefinitionSearchItems: [
             (s) => [s.propertyDefinitionSearchResults],
             (propertyDefinitionSearchResults): NewTabTreeDataItem[] => {
-                const items = propertyDefinitionSearchResults.map((propDef) => {
+                const items = propertyDefinitionSearchResults.slice(0, 5).map((propDef) => {
                     const item = {
                         id: `property-definition-${propDef.id}`,
                         name: propDef.name,
