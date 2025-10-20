@@ -21,21 +21,8 @@
         },
         {
             "name": "data_warehouse",
-            "source_files": [
-                "external_data_source.py",
-                "external_data_job.py",
-                "datawarehouse_saved_query.py",
-                "datawarehouse_saved_query_draft.py",
-                "table.py",
-                "data_modeling_job.py",
-                "join.py",
-                "revenue_analytics_config.py",
-                "external_data_schema.py",
-                "query_tab_state.py",
-                "credential.py",
-                "modeling.py"
-            ],
-            "source_base_path": "posthog/warehouse/models",
+            "move_entire_directory": true,
+            "source_base_path": "posthog/warehouse",
             "target_app": "data_warehouse",
             "create_backend_dir": true,
             "product_already_exists": true,
@@ -57,7 +44,7 @@
                 "DataWarehouseCredential",
                 "DataWarehouseModelPath"
             ],
-            "notes": "13 models, 13 changes (highest TODO). Using no-merge mode to preserve 1:1 file structure. All from posthog/warehouse/models/: ExternalDataSource, ExternalDataJob, DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseTable, DataModelingJob, DataWarehouseJoin, ExternalDataSourceRevenueAnalyticsConfig, ExternalDataSchema, QueryTabState, DataWarehouseCredential, DataWarehouseModelPath, DataWarehouseViewLink"
+            "notes": "Moving entire posthog/warehouse directory to products/data_warehouse/backend/. 13 models with no-merge mode to preserve file structure."
         },
         {
             "name": "cdp",

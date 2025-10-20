@@ -92,7 +92,16 @@ class ImportTransformer(cst.CSTTransformer):
         self.changed = True
 
         # Transform each import name individually
-        all_items_to_transform = moved_items if self.merge_models else (moved_items + remaining_items)
+        # In no-merge mode: only transform non-model items if we have a source file (file-specific import)
+        # Package-level imports of non-model items can't be transformed without deeper analysis
+        if self.merge_models:
+            all_items_to_transform = moved_items
+        else:
+            # No-merge mode: transform moved items always, remaining items only if source_file is known
+            if parts.source_file:
+                all_items_to_transform = moved_items + remaining_items
+            else:
+                all_items_to_transform = moved_items
 
         for import_name in all_items_to_transform:
             # Resolve the target path for this import
@@ -104,13 +113,14 @@ class ImportTransformer(cst.CSTTransformer):
             new_import = cst.ImportFrom(module=target_module, names=[import_alias])
             self.imports_to_add.append(new_import)
 
-        # Handle remaining imports in merge mode
-        if self.merge_models and remaining_items:
+        # Handle remaining imports
+        # Keep remaining items that weren't transformed (non-model items in package-level imports for no-merge mode)
+        if remaining_items and (self.merge_models or not parts.source_file):
             # Keep original import with remaining items
             remaining_aliases = [cst.ImportAlias(name=cst.Name(name)) for name in remaining_items]
             return node.with_changes(names=remaining_aliases)
         else:
-            # No-merge mode or no remaining items: Remove this import
+            # Remove this import (all items were transformed)
             return cst.RemovalSentinel.REMOVE
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
