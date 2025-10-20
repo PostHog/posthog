@@ -198,10 +198,11 @@ jobs:
                   echo "Starting PostHog using the container image ${{ needs.container.outputs.tag }}"
                   DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --add-host clickhouse:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
 
-                  # Run Django migrations (./bin/migrate will skip Rust migrations since rust/bin doesn't exist in container)
-                  $DOCKER_RUN ./bin/migrate
+                  # Run migrations in background and foreground, similar to main playwright tests
+                  $DOCKER_RUN python manage.py migrate_clickhouse &
+                  $DOCKER_RUN python manage.py migrate --noinput
 
-                  # Now run Rust migrations using dedicated container
+                  # Run Rust migrations using dedicated container
                   docker build -f rust/Dockerfile.persons-migrate -t posthog-migrations:latest ./rust
                   docker run --rm --network host \
                     -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
@@ -209,6 +210,7 @@ jobs:
                     posthog-migrations:latest
 
                   $DOCKER_RUN python manage.py setup_dev
+                  wait
 
                   # only starts the plugin server so that the "wait for PostHog" step passes
                   $DOCKER_RUN ./bin/docker-worker &> /tmp/logs/worker.txt &
