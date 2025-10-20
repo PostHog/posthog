@@ -63,11 +63,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         events_query = self._get_events_subquery()
 
         if self._trends_display.is_total_value():
-            wrapper_query = self._get_wrapper_query(events_query)
-            return wrapper_query
+            return self._get_wrapper_query(events_query)
 
-        inner_select = self._inner_select_query(inner_query=events_query)
-        return self._outer_select_query(inner_query=inner_select)
+        return self._outer_select_query(inner_query=self._inner_select_query(inner_query=events_query))
 
     def _get_wrapper_query(self, events_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         if not self.breakdown.enabled:
