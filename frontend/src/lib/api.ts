@@ -1036,6 +1036,12 @@ export class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
+    public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId)
+            .addPathComponent('error_tracking')
+            .addPathComponent('git-provider-file-links')
+    }
+
     public errorTrackingStackFrames(): ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
@@ -2992,6 +2998,21 @@ const api = {
             issueId: ErrorTrackingIssue['id']
         ): Promise<Array<{ id: string; title: string; description: string }>> {
             return await new ApiRequest().errorTrackingSimilarIssues(issueId).get()
+        },
+    },
+
+    gitProviderFileLinks: {
+        async resolveGithub(
+            owner: string,
+            repository: string,
+            codeSample: string,
+            fileName: string
+        ): Promise<{ found: boolean; url?: string }> {
+            return await new ApiRequest()
+                .gitProviderFileLinks()
+                .withAction('resolve_github')
+                .withQueryString({ owner, repository, code_sample: codeSample, file_name: fileName })
+                .get()
         },
     },
 
