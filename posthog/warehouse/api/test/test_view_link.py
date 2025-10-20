@@ -611,7 +611,7 @@ class TestViewLinkValidation(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         data = response.json()
         self.assertEqual(data["attr"], None)
         self.assertEqual(data["code"], "validation_error")

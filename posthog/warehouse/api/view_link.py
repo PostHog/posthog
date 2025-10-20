@@ -1,5 +1,6 @@
 from typing import Optional
 
+from clickhouse_driver.errors import ServerException
 from rest_framework import filters, response, serializers, status, viewsets
 
 from posthog.hogql import ast
@@ -15,6 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.errors import look_up_error_code_meta
 from posthog.warehouse.models import DataWarehouseJoin
 
 
@@ -184,6 +186,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=False)
     def validate(self, request, *args, **kwargs):
         response_data = {"is_valid": False, "msg": None, "hogql": None, "results": []}
+        status_code = status.HTTP_200_OK
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -219,18 +222,21 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             response_data["hogql"] = query_response.hogql
             response_data["results"] = query_response.results
+            response_data["is_valid"] = True
             if len(query_response.results) == 0:
                 response_data["msg"] = "Validation query returned no results"
-        except Exception as e:
-            return response.Response(
-                {
-                    "attr": None,
-                    "code": "validation_error",
-                    "detail": str(e),
-                    "type": "query_error",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        except ServerException as e:
+            response_data = {
+                "attr": None,
+                "code": "validation_error",
+                "detail": "An internal error occurred while validating.",
+                "type": "query_error",
+            }
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            response_data["is_valid"] = False
 
-        response_data["is_valid"] = True
-        return response.Response(response_data)
+            is_safe = look_up_error_code_meta(e).user_safe
+            if is_safe:
+                response_data["detail"] = str(e)
+
+        return response.Response(response_data, status=status_code)
