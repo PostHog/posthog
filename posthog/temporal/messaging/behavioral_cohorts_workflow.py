@@ -492,7 +492,7 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
         result = await temporalio.workflow.execute_activity(
             process_condition_batch_activity,
             batch_inputs,
-            start_to_close_timeout=dt.timedelta(hours=30),
+            start_to_close_timeout=dt.timedelta(minutes=30),
             heartbeat_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=2),
