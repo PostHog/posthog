@@ -447,7 +447,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     if (isAnthropicThinkingMessage(rawMessage)) {
         return [
             {
-                role: normalizeRole('assistant (thinking)', defaultRole),
+                role: normalizeRole('assistant (thinking)', roleToUse),
                 content: rawMessage.thinking,
             },
         ]
