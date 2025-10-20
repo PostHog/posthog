@@ -60,7 +60,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         self.limit_context = limit_context
 
     def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        breakdown = self.breakdown
         events_query = self._get_events_subquery()
 
         if self._trends_display.is_total_value():
@@ -68,7 +67,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return wrapper_query
 
         inner_select = self._inner_select_query(inner_query=events_query)
-        return self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
+        return self._outer_select_query(inner_query=inner_select)
 
     def _get_wrapper_query(self, events_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         if not self.breakdown.enabled:
@@ -307,9 +306,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         return default_query
 
-    def _outer_select_query(
-        self, breakdown: Breakdown, inner_query: ast.SelectQuery
-    ) -> ast.SelectQuery | ast.SelectSetQuery:
+    def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         total_array = parse_expr(
             """
             arrayMap(
@@ -380,7 +377,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         query.order_by = []
 
-        if breakdown.enabled:
+        if self.breakdown.enabled:
             query.select.append(
                 ast.Alias(
                     alias="breakdown_value",
@@ -391,7 +388,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.select.append(ast.Alias(alias="row_number", expr=parse_expr("rowNumberInAllBlocks()")))
             query.group_by = [ast.Field(chain=["breakdown_value"])]
 
-            query.order_by.append(ast.OrderExpr(expr=self._breakdown_query_order_by(breakdown), order="ASC"))
+            query.order_by.append(ast.OrderExpr(expr=self._breakdown_query_order_by(self.breakdown), order="ASC"))
             query.order_by.append(
                 ast.OrderExpr(expr=ast.Call(name="arraySum", args=[ast.Field(chain=["total"])]), order="DESC")
             )
@@ -428,10 +425,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     breakdown_value ASC
             """,
                 {
-                    "breakdown_select": self._breakdown_outer_query_select(breakdown),
+                    "breakdown_select": self._breakdown_outer_query_select(self.breakdown),
                     "outer_query": query,
-                    "breakdown_filter": self._breakdown_outer_query_filter(breakdown),
-                    "breakdown_order_by": self._breakdown_query_order_by(breakdown),
+                    "breakdown_filter": self._breakdown_outer_query_filter(self.breakdown),
+                    "breakdown_order_by": self._breakdown_query_order_by(self.breakdown),
                 },
             )
 
