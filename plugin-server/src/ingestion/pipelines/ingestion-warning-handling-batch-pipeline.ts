@@ -12,15 +12,15 @@ export class IngestionWarningHandlingBatchPipeline<
 {
     constructor(
         private kafkaProducer: KafkaProducerWrapper,
-        private subPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>
+        private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>
     ) {}
 
     feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
-        this.subPipeline.feed(elements)
+        this.previousPipeline.feed(elements)
     }
 
     async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
-        const results = await this.subPipeline.next()
+        const results = await this.previousPipeline.next()
         if (results === null) {
             return null
         }
