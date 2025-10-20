@@ -10,25 +10,39 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, NoReturn, Optional
 
+import yaml
 import typer
 
-HEDGEHOG_ART = (
-    """
-    ╭────────────────────────────────────────────────╮
-    │                                                │
-    │          .-"""
-    """.                hogli        │
-    │        .'           '.                         │
-    │       /   O      O    \\      PostHog          │
-    │      |                 |     Developer         │
-    │      |    \\.  ,  ./    |     CLI              │
-    │       \\    " `--' "    /                      │
-    │        '.           .'                         │
-    │          `-......-'                            │
-    │                                                │
-    ╰────────────────────────────────────────────────╯
+HEDGEHOG_ART = r"""
+
+
+
+
+
+
+                           00     0
+                      000F  F0FF  0000  00
+                000FF 00  FF00  FFF0 FF F0F
+                 FF   000         00   00 0F 00
+           FF00FF000                        000
+             F0                               F
+          00F0                                00
+        FFF0                   0FFFF   FFFFFFF0F
+          00                  0F    FF         00
+        00                     0F               0F
+      FFFF0                      F0       0F0     FFF
+        F0                      00         0         F000
+       0F                      F0                     F00
+      00FF0                   F0                     F0
+         F                  FF                000FFFF
+        0F00              FF                  000
+        00F0           FFF                0FF
+          F       FFFFF         0    00 FFF
+          0FF00FF               00   0F0  FF
+             00    00000000FFFFF00F   0FF0  000
+              0FFFF00000000       0FF   00FF00
+                                     FFF0
 """
-)
 
 app = typer.Typer(
     name="hogli",
@@ -40,12 +54,21 @@ app = typer.Typer(
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BIN_DIR = REPO_ROOT / "bin"
 PHW_SCRIPT = BIN_DIR / "phw"
+MANIFEST_FILE = Path(__file__).parent / "scripts_manifest.yaml"
 
 EMOJI_SPARKLE = "✨"
 EMOJI_RUNNING = "🚀"
 EMOJI_OK = "✅"
 EMOJI_HOG = "🐗"
 EMOJI_ERROR = "💥"
+
+
+def _load_manifest() -> dict:
+    """Load scripts manifest from YAML file."""
+    if not MANIFEST_FILE.exists():
+        return {}
+    with open(MANIFEST_FILE) as f:
+        return yaml.safe_load(f) or {}
 
 
 class CommandError(RuntimeError):
@@ -458,6 +481,64 @@ def _discover_products() -> list[ProductInfo]:
         has_backend = importlib.util.find_spec(module_name) is not None
         infos.append(ProductInfo(candidate.name, package_name, has_frontend, has_backend))
     return infos
+
+
+def _register_script_commands() -> None:
+    """Dynamically register commands from scripts_manifest.yaml."""
+    manifest = _load_manifest()
+    if not manifest:
+        return
+
+    for _category, scripts in manifest.items():
+        if not isinstance(scripts, dict):
+            continue
+
+        for script_name, config in scripts.items():
+            if not isinstance(config, dict):
+                continue
+
+            bin_script = config.get("bin_script")
+            description = config.get("description", "")
+            allow_extra_args = config.get("allow_extra_args", False)
+
+            if not bin_script:
+                continue
+
+            script_path = BIN_DIR / bin_script
+            if not script_path.exists():
+                continue
+
+            # Create a closure to capture the current values
+            def make_command(name: str, path: Path, desc: str, extra_args: bool):
+                if extra_args:
+
+                    def command(ctx: typer.Context) -> None:
+                        """Dynamic command from bin/ script."""
+                        _run([str(path), *ctx.args])
+                else:
+
+                    def command() -> None:
+                        """Dynamic command from bin/ script."""
+                        _run([str(path)])
+
+                # Set docstring for help
+                command.__doc__ = desc
+                return command
+
+            # Use normalized name (replace underscores with hyphens for CLI)
+            cli_name = script_name.replace("_", "-")
+
+            # Register the command
+            context_settings = {"allow_extra_args": True, "ignore_unknown_options": True} if allow_extra_args else {}
+            app.command(
+                cli_name,
+                context_settings=context_settings if context_settings else None,
+                help=description,
+            )(make_command(script_name, script_path, description, allow_extra_args))
+
+
+# Register all script commands from manifest before app runs
+_register_script_commands()
 
 
 if __name__ == "__main__":
