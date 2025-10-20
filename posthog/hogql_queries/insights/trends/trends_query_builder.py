@@ -64,16 +64,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         events_query = self._get_events_subquery()
 
         if self._trends_display.is_total_value():
-            wrapper_query = self._get_wrapper_query(events_query, breakdown=breakdown)
+            wrapper_query = self._get_wrapper_query(events_query)
             return wrapper_query
 
         inner_select = self._inner_select_query(inner_query=events_query, breakdown=breakdown)
         return self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
 
-    def _get_wrapper_query(
-        self, events_query: ast.SelectQuery, breakdown: Breakdown
-    ) -> ast.SelectQuery | ast.SelectSetQuery:
-        if not breakdown.enabled:
+    def _get_wrapper_query(self, events_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        if not self.breakdown.enabled:
             return events_query
 
         inner_query = cast(
@@ -90,7 +88,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     breakdown_value ASC
                 """,
                 placeholders={
-                    "events_query": self._inner_select_query(inner_query=events_query, breakdown=breakdown),
+                    "events_query": self._inner_select_query(inner_query=events_query, breakdown=self.breakdown),
                 },
             ),
         )
@@ -111,12 +109,12 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             """,
             placeholders={
                 "breakdown_select": self._breakdown_outer_query_select(
-                    breakdown, breakdown_limit=self._get_breakdown_limit() + 1
+                    self.breakdown, breakdown_limit=self._get_breakdown_limit() + 1
                 ),
                 "inner_query": inner_query,
                 "events_query": events_query,
-                "breakdown_filter": self._breakdown_outer_query_filter(breakdown),
-                "breakdown_order_by": self._breakdown_query_order_by(breakdown),
+                "breakdown_filter": self._breakdown_outer_query_filter(self.breakdown),
+                "breakdown_order_by": self._breakdown_query_order_by(self.breakdown),
             },
         )
 
