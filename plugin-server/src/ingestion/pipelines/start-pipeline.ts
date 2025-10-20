@@ -2,7 +2,7 @@ import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { StepPipeline } from './step-pipeline'
 import { ProcessingStep } from './steps'
 
-export class StartPipeline<T, C = unknown> implements Pipeline<T, T, C> {
+export class StartPipeline<T, C> implements Pipeline<T, T, C> {
     async process(input: PipelineResultWithContext<T, C>): Promise<PipelineResultWithContext<T, C>> {
         return Promise.resolve(input)
     }
