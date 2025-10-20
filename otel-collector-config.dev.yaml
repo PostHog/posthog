@@ -33,7 +33,7 @@ exporters:
         tls:
             insecure: true
         headers:
-            authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoiMiIsImV4cCI6OTIyMzM3MjAzNjg1NDc3Nn0._HnjzroZ52kR9_7rKauMgnuCKU_ouwdvF_Jv--i9PTc
+            authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoiMSIsImV4cCI6OTIyMzM3MjAzNjg1NDc3Nn0.M2CClSDIm9T6aDUjffL1BjI2lHEsXYLkt_pShIgItrU
 
 extensions: # Declaring the extensions
     health_check: # Default configuration is usually fine
