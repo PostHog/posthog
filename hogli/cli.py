@@ -11,7 +11,7 @@ from collections import defaultdict
 import click
 
 from hogli.commands import BinScriptCommand, CompositeCommand, DirectCommand
-from hogli.manifest import REPO_ROOT, get_category_for_command, load_manifest
+from hogli.manifest import REPO_ROOT, load_manifest
 
 HEDGEHOG_ART = r"""
 
@@ -48,39 +48,43 @@ class CategorizedGroup(click.Group):
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Format commands grouped by category, git-style."""
-        manifest = load_manifest()
-        metadata = manifest.get("metadata", {}).get("categories", {})
+        from hogli.manifest import (
+            get_category_for_command as get_cat_for_cmd,
+            get_manifest,
+        )
 
-        # Group commands by category
-        grouped: dict[str, list[tuple[str, str]]] = defaultdict(list)
+        manifest_obj = get_manifest()
+        categories_list = manifest_obj.categories
+
+        # Build a mapping from category key to title
+        category_key_to_title = {cat.get("key"): cat.get("title") for cat in categories_list}
+
+        # Group commands by category, storing (key, title) tuple
+        grouped: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
         for cmd_name, cmd in self.commands.items():
-            category = get_category_for_command(cmd_name)
+            category_title = get_cat_for_cmd(cmd_name)
             help_text = cmd.get_short_help_str(100) if hasattr(cmd, "get_short_help_str") else (cmd.help or "")
-            grouped[category].append((cmd_name, help_text))
 
-        # Sort categories by their order in metadata
-        def get_category_order(category: str) -> int:
-            if category == "commands":  # Default category
-                return 999
-            return metadata.get(category, {}).get("order", 999)
+            # Find the key for this title
+            category_key = next(
+                (key for key, title in category_key_to_title.items() if title == category_title), "commands"
+            )
+            grouped[(category_key, category_title)].append((cmd_name, help_text))
 
-        sorted_categories = sorted(grouped.items(), key=lambda x: get_category_order(x[0]))
+        # Build category order from the list
+        category_order = {idx: cat.get("key") for idx, cat in enumerate(categories_list)}
+
+        def get_category_sort_key(cat_tuple: tuple[str, str]) -> int:
+            key = cat_tuple[0]
+            if key == "commands":  # Default category goes last
+                return len(category_order) + 1
+            return next((idx for idx, k in category_order.items() if k == key), 999)
+
+        sorted_categories = sorted(grouped.items(), key=get_category_sort_key)
 
         # Format each category section
-        for category, commands in sorted_categories:
-            # Get category title from metadata
-            if category == "commands":
-                category_title = "commands"
-            else:
-                category_title = metadata.get(category, {}).get("title", category.replace("_", " "))
-
-            # Format commands in this category
-            rows = []
-            for cmd_name in sorted(c[0] for c in commands):
-                cmd = self.commands[cmd_name]
-                help_text = cmd.get_short_help_str(100) if hasattr(cmd, "get_short_help_str") else (cmd.help or "")
-                rows.append((cmd_name, help_text))
-
+        for (_category_key, category_title), commands in sorted_categories:
+            rows = [(cmd_name, help_text) for cmd_name, help_text in sorted(commands, key=lambda x: x[0])]
             if rows:
                 with formatter.section(category_title):
                     formatter.write_dl(rows)

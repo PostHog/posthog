@@ -31,9 +31,16 @@ class Manifest:
         return self._data
 
     @property
-    def categories(self) -> dict[str, Any]:
-        """Get category metadata."""
-        return self._data.get("metadata", {}).get("categories", {})
+    def categories(self) -> list[dict[str, Any]]:
+        """Get category metadata as list."""
+        return self._data.get("metadata", {}).get("categories", [])
+
+    def get_category_title(self, category_key: str) -> str:
+        """Get title for a category key."""
+        for cat in self.categories:
+            if cat.get("key") == category_key:
+                return cat.get("title", category_key.replace("_", " "))
+        return category_key.replace("_", " ")
 
     @property
     def services(self) -> dict[str, Any]:
@@ -62,8 +69,7 @@ class Manifest:
             for cmd_name in commands.keys():
                 if cmd_name.startswith(f"{prefix}:") or cmd_name == prefix:
                     # Found category containing this prefix! Return its title
-                    category_title = self.categories.get(category_key, {}).get("title", category_key.replace("_", " "))
-                    return category_title
+                    return self.get_category_title(category_key)
 
         # Fallback if prefix not found in any category
         return "commands"

@@ -1,45 +1,32 @@
 # Metadata: Category descriptions and help formatting
 metadata:
     categories:
-        health_checks:
-            title: 'Verify infrastructure readiness'
-            order: 1
-        start:
-            title: 'Start services and background workers'
-            order: 2
-        deploy:
-            title: 'Deploy PostHog to remote instances'
-            order: 3
-        build:
-            title: 'Build and generate code'
-            order: 4
-        docker:
-            title: 'Docker-based service orchestration'
-            order: 5
-        migration:
-            title: 'Database migrations'
-            order: 6
-        testing:
-            title: 'Run tests'
-            order: 7
-        code_quality:
-            title: 'Code quality and formatting'
-            order: 7
-        tools:
-            title: 'Developer tools and utilities'
-            order: 8
-        utilities:
-            title: 'Git worktrees and admin'
-            order: 9
-        compositions:
-            title: 'Multi-step workflows'
-            order: 10
-        environment:
-            title: 'Environment and shell'
-            order: 11
-        core:
-            title: 'Core development commands'
-            order: 0
+        - key: core
+          title: 'Core development commands'
+        - key: health_checks
+          title: 'Verify infrastructure readiness'
+        - key: start
+          title: 'Start services and background workers'
+        - key: deploy
+          title: 'Deploy PostHog to remote instances'
+        - key: build
+          title: 'Build and generate code'
+        - key: docker
+          title: 'Docker-based service orchestration'
+        - key: migration
+          title: 'Database migrations'
+        - key: testing
+          title: 'Run tests'
+        - key: code_quality
+          title: 'Code quality and formatting'
+        - key: tools
+          title: 'Developer tools and utilities'
+        - key: utilities
+          title: 'Git worktrees and admin'
+        - key: compositions
+          title: 'Multi-step workflows'
+        - key: environment
+          title: 'Environment and shell'
     services:
         flox:
             name: Flox
