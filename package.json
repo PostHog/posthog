@@ -81,7 +81,7 @@
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": "hogli format:plugin-server",
         "funnel-udf/**/*.rs": "hogli format:rust",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
-            "hogli lint:fix:python",
+            "hogli lint:python:fix",
             "hogli format:python"
         ],
         "*.{md,mdx}": "hogli format:markdown"

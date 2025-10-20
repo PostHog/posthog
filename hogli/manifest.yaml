@@ -265,7 +265,7 @@ quality:
     format:python:
         cmd: ./bin/ruff.sh format
         description: Format Python files
-    lint:fix:python:
+    lint:python:fix:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
     format:markdown:
