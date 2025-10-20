@@ -231,7 +231,7 @@ class TaxonomyAgentToolsNode(
 
         return self._partial_state_class(
             tool_progress_messages=[*old_msg, *tool_msgs],
-            intermediate_steps=[*steps],
+            intermediate_steps=steps,
             iteration_count=state.iteration_count,
         )
 
