@@ -92,7 +92,7 @@ export function ConfigureSCIMModal(): JSX.Element {
                     <div className="space-y-1">
                         <LemonLabel>Enable SCIM</LemonLabel>
                         <LemonSwitch
-                            checked={scimConfig.scim_enabled}
+                            checked={scimConfig.scim_enabled ?? false}
                             onChange={handleToggleScim}
                             disabled={scimConfigLoading}
                             label={

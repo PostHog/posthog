@@ -135,7 +135,7 @@ class PostHogSCIMUser(SCIMUser):
                 )
 
             # Ensure user has membership in this organization
-            membership, created = OrganizationMembership.objects.get_or_create(
+            OrganizationMembership.objects.get_or_create(
                 user=user,
                 organization=organization_domain.organization,
                 defaults={"level": OrganizationMembership.Level.MEMBER},
