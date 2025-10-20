@@ -5856,6 +5856,7 @@ export interface HeatmapScreenshotType {
     updated_at: string
     exception?: string
     error?: string // Added for error responses from content endpoint
+    created_by: UserBasicType
 }
 
 export type HeatmapScreenshotContentResponse =

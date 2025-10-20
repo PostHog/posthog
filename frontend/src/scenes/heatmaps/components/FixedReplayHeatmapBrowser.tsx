@@ -4,7 +4,7 @@ import React, { useEffect } from 'react'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { heatmapsBrowserLogic } from 'scenes/heatmaps/heatmapsBrowserLogic'
+import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 
 export function FixedReplayHeatmapBrowser({
     iframeRef,

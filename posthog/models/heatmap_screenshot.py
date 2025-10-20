@@ -9,9 +9,16 @@ class HeatmapScreenshot(UUIDTModel):
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
 
+    class Type(models.TextChoices):
+        SCREENSHOT = "screenshot", "Screenshot"
+        IFRAME = "iframe", "Iframe"
+        RECORDING = "recording", "Recording"
+
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     url = models.URLField(max_length=2000)
+    data_url = models.URLField(max_length=2000, null=True, blank=True, help_text="URL for fetching heatmap data")
     width = models.IntegerField(default=1400)
+    type = models.CharField(max_length=20, choices=Type.choices, default=Type.SCREENSHOT)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PROCESSING)
 
     # Content storage (similar to ExportedAsset)
@@ -31,7 +38,9 @@ class HeatmapScreenshot(UUIDTModel):
             models.Index(fields=["team", "url", "width"]),
             models.Index(fields=["status"]),
         ]
-        constraints = [models.UniqueConstraint(fields=["team", "url", "width"], name="unique_team_url_width")]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "url", "width", "type"], name="unique_team_url_width_type")
+        ]
 
     @property
     def has_content(self) -> bool:
@@ -41,6 +50,8 @@ class HeatmapScreenshot(UUIDTModel):
         return {
             "team_id": self.team_id,
             "url": self.url,
+            "data_url": self.data_url,
             "width": self.width,
+            "type": self.type,
             "status": self.status,
         }

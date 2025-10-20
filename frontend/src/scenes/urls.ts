@@ -147,6 +147,7 @@ export const urls = {
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    heatmap: (id: string): string => `/heatmaps/${id}`,
     links: (params?: string): string =>
         `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     link: (id: string): string => `/link/${id}`,

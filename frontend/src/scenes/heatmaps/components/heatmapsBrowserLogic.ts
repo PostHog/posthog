@@ -501,6 +501,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                             actions.setScreenshotUrl(
                                 `/api/environments/${teamId}/heatmap_screenshots/${screenshot.id}/content/`
                             )
+                            actions.loadHeatmap()
                             break
                         } else if (screenshot.status === 'failed') {
                             actions.setScreenshotError(
@@ -513,6 +514,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     attempts++
                 } catch (error) {
                     actions.setScreenshotError('Failed to check screenshot status')
+                    actions.setGeneratingScreenshot(false)
                     console.error(error)
                     break
                 }

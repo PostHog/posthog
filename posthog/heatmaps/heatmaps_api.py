@@ -299,8 +299,26 @@ class HeatmapScreenshotRequestSerializer(serializers.Serializer):
 class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
     class Meta:
         model = HeatmapScreenshot
-        fields = ["id", "url", "width", "status", "has_content", "created_at", "updated_at", "exception"]
-        read_only_fields = ["id", "status", "has_content", "created_at", "updated_at", "exception"]
+        fields = [
+            "id",
+            "url",
+            "data_url",
+            "width",
+            "type",
+            "status",
+            "has_content",
+            "created_at",
+            "updated_at",
+            "exception",
+        ]
+        read_only_fields = [
+            "id",
+            "status",
+            "has_content",
+            "created_at",
+            "updated_at",
+            "exception",
+        ]
 
 
 class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -392,3 +410,106 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return response.Response(
                 {**response_serializer.data, "error": "No content available"}, status=status.HTTP_404_NOT_FOUND
             )
+
+
+class HeatmapSavedRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HeatmapScreenshot
+        fields = ["url", "data_url", "width", "type"]
+        extra_kwargs = {
+            "url": {"required": True},
+            "data_url": {"required": False, "allow_null": True},
+            "width": {"required": False, "default": 1400},
+            "type": {"required": False, "default": HeatmapScreenshot.Type.SCREENSHOT},
+        }
+
+
+class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "INTERNAL"
+    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    serializer_class = HeatmapScreenshotResponseSerializer
+    authentication_classes = [TemporaryTokenAuthentication]
+    queryset = HeatmapScreenshot.objects.all()
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team=self.team)
+
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        qs = self.safely_get_queryset(self.get_queryset()).order_by("-updated_at")
+
+        type_param = request.query_params.get("type")
+        status_param = request.query_params.get("status")
+        search = request.query_params.get("search")
+
+        if type_param:
+            qs = qs.filter(type=type_param)
+        if status_param:
+            qs = qs.filter(status=status_param)
+        if search:
+            qs = qs.filter(url__icontains=search)
+
+        limit = int(request.query_params.get("limit", 100))
+        offset = int(request.query_params.get("offset", 0))
+        count = qs.count()
+        results = qs[offset : offset + limit]
+
+        data = HeatmapScreenshotResponseSerializer(results, many=True).data
+        return response.Response({"results": data, "count": count}, status=status.HTTP_200_OK)
+
+    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = HeatmapSavedRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        url = serializer.validated_data["url"]
+        data_url = serializer.validated_data.get("data_url") or url
+        width = serializer.validated_data.get("width", 1400)
+        heatmap_type = serializer.validated_data.get("type", HeatmapScreenshot.Type.SCREENSHOT)
+
+        screenshot = HeatmapScreenshot.objects.create(
+            team=self.team,
+            url=url,
+            data_url=data_url,
+            width=width,
+            type=heatmap_type,
+            created_by=request.user,
+            status=HeatmapScreenshot.Status.PROCESSING
+            if heatmap_type == HeatmapScreenshot.Type.SCREENSHOT
+            else HeatmapScreenshot.Status.COMPLETED,
+        )
+
+        if heatmap_type == HeatmapScreenshot.Type.SCREENSHOT:
+            generate_heatmap_screenshot.delay(screenshot.id)
+
+        return response.Response(HeatmapScreenshotResponseSerializer(screenshot).data, status=status.HTTP_201_CREATED)
+
+    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+
+    def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+        serializer = HeatmapSavedRequestSerializer(obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        updated = serializer.save()
+        return response.Response(HeatmapScreenshotResponseSerializer(updated).data, status=status.HTTP_200_OK)
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+        obj.delete()
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=["POST"], detail=True)
+    def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+        if obj.type != HeatmapScreenshot.Type.SCREENSHOT:
+            return response.Response(
+                {"detail": "Regenerate only supported for screenshot type"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        obj.status = HeatmapScreenshot.Status.PROCESSING
+        obj.content = None
+        obj.content_location = None
+        obj.exception = None
+        obj.save()
+        generate_heatmap_screenshot.delay(obj.id)
+        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_202_ACCEPTED)

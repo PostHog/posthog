@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from 'react'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
-import { heatmapsBrowserLogic } from 'scenes/heatmaps/heatmapsBrowserLogic'
+import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 
 export function ScreenshotHeatmapBrowser(): JSX.Element {
     const logic = heatmapsBrowserLogic()

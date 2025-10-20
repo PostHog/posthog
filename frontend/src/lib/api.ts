@@ -1546,6 +1546,15 @@ export class ApiRequest {
     public heatmapScreenshot(id: number, teamId?: TeamType['id']): ApiRequest {
         return this.heatmapScreenshots(teamId).addPathComponent(id)
     }
+
+    public heatmapScreenshotsSaved(teamId?: TeamType['id']): ApiRequest {
+        // Deprecated path: kept for potential fallback during rollout
+        return this.environmentsDetail(teamId).addPathComponent('saved')
+    }
+
+    public heatmapScreenshotSaved(id: number | string, teamId?: TeamType['id']): ApiRequest {
+        return this.heatmapScreenshotsSaved(teamId).addPathComponent(id)
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -4433,6 +4442,53 @@ const api = {
             // 202/404/501: JSON with screenshot metadata
             const jsonData = await response.json()
             return { success: false, data: jsonData }
+        },
+    },
+
+    heatmapSaved: {
+        async list(
+            params: {
+                type?: 'screenshot' | 'iframe' | 'recording'
+                status?: 'processing' | 'completed' | 'failed'
+                search?: string
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<HeatmapScreenshotType>> {
+            return await new ApiRequest().heatmapScreenshotsSaved().withQueryString(params).get()
+        },
+
+        async create(data: {
+            url: string
+            data_url?: string | null
+            width?: number
+            type?: 'screenshot' | 'iframe' | 'recording'
+        }): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotsSaved().create({ data })
+        },
+
+        async get(id: number | string): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotSaved(id).get()
+        },
+
+        async update(
+            id: number | string,
+            data: Partial<{
+                url: string
+                data_url: string | null
+                width: number
+                type: 'screenshot' | 'iframe' | 'recording'
+            }>
+        ): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotSaved(id).update({ data })
+        },
+
+        async delete(id: number | string): Promise<void> {
+            return await new ApiRequest().heatmapScreenshotSaved(id).delete()
+        },
+
+        async regenerate(id: number | string): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotSaved(id).withAction('regenerate').create()
         },
     },
 
