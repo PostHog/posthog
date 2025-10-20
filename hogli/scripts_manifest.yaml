@@ -50,16 +50,16 @@ metadata:
         migration:
             name: Database migrations
             about: 'Schema updates and data migrations across PostgreSQL, ClickHouse, and async systems.'
-        ClickHouse:
+        clickhouse:
             name: ClickHouse
             about: 'Analytics database used for metrics, events, and funnel analysis throughout PostHog.'
-        PostgreSQL:
+        postgresql:
             name: PostgreSQL
             about: 'Primary relational database for application data, authentication, and feature flags.'
-        Redis:
+        redis:
             name: Redis
             about: 'In-memory cache and queue backend for fast data access and job processing.'
-        Kafka:
+        kafka:
             name: Kafka
             about: 'Event streaming platform for reliable event processing and data pipelines.'
         temporal:
@@ -82,7 +82,7 @@ health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
         description: Poll ClickHouse HTTP port until service is ready
-        services: [ClickHouse]
+        services: [clickhouse]
         args: none
     check:dagster-graphql:
         bin_script: check_dagster_graphql_up
@@ -96,12 +96,12 @@ health_checks:
     check:kafka-clickhouse:
         bin_script: check_kafka_clickhouse_up
         description: Wait for both Kafka and ClickHouse services to be ready
-        services: [Kafka, ClickHouse]
+        services: [kafka, clickhouse]
         args: none
     check:postgres:
         bin_script: check_postgres_up
         description: Poll PostgreSQL connection until database is available
-        services: [PostgreSQL]
+        services: [postgresql]
         args: optional
     check:temporal:
         bin_script: check_temporal_up
@@ -116,18 +116,18 @@ start:
     start:
         bin_script: start
         description: Main entry point that launches all dev services via mprocs orchestrator
-        services: [docker, PostgreSQL, Redis, Kafka, ClickHouse, temporal]
+        services: [docker, postgresql, redis, kafka, clickhouse, temporal]
         allow_extra_args: true
         args: optional
     start:backend:
         bin_script: start-backend
         description: Run Django development server on port 8000 with auto-reload
-        services: [PostgreSQL, Redis]
+        services: [postgresql, redis]
         args: none
     start:celery:
         bin_script: start-celery
         description: Start Celery worker or beat scheduler with auto-reload
-        services: [Redis, Kafka]
+        services: [redis, kafka]
         args: required (worker|beat)
     start:frontend:
         bin_script: start-frontend
@@ -143,7 +143,7 @@ start:
     start:worker:
         bin_script: start-worker
         description: Launch all background workers (Celery worker, beat scheduler, plugin-server)
-        services: [Kafka, temporal, Redis]
+        services: [kafka, temporal, redis]
         args: none
     start:rust-service:
         bin_script: start-rust-service
