@@ -34,6 +34,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
+        self.dispatcher.message(AssistantMessage(content="Checking PostHog documentation...", id=str(uuid4())))
         messages = self._construct_messages(
             state.messages, state.root_conversation_start_id, state.root_tool_calls_count
         )
