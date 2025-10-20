@@ -160,6 +160,7 @@ build:
     build:schema:
         cmd: pnpm schema:build
         description: Generate schema definitions (frontend, python, latest versions)
+        # TODO: candidate for conversion to hogli steps
     build:schema-python:
         bin_script: build-schema-python.sh
         description: Generate Pydantic schema.py from schema.json with datamodel-codegen
@@ -172,6 +173,7 @@ build:
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (Python and C++)
+        # TODO: candidate for conversion to hogli steps
 docker:
     docker:services:up:
         description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
