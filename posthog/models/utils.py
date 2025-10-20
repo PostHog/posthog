@@ -23,6 +23,7 @@ from django.utils.text import slugify
 from posthog.hogql import ast
 
 from posthog.constants import MAX_SLUG_LENGTH
+from posthog.person_db_router import PERSONS_DB_MODELS
 
 if TYPE_CHECKING:
     from random import Random
@@ -468,11 +469,14 @@ class RootTeamMixin(models.Model):
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        if self._meta.model_name in PERSONS_DB_MODELS:
+            return self._save_in_persons_db(*args, **kwargs)
+
         if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
             self.team = self.team.parent_team  # type: ignore
         super().save(*args, **kwargs)
 
-    def save_in_persons_db(self, *args, **kwargs) -> None:
+    def _save_in_persons_db(self, *args, **kwargs) -> None:
         """
         If the model is stored in persons db, referencing the foreign key will raise an error.
         Reference the actual table column instead and query `team` manually.
