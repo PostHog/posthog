@@ -82,6 +82,7 @@ health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
         description: Poll ClickHouse HTTP port until service is ready
+        services: [ClickHouse]
         args: none
     check:dagster-graphql:
         bin_script: check_dagster_graphql_up
@@ -95,14 +96,17 @@ health_checks:
     check:kafka-clickhouse:
         bin_script: check_kafka_clickhouse_up
         description: Wait for both Kafka and ClickHouse services to be ready
+        services: [Kafka, ClickHouse]
         args: none
     check:postgres:
         bin_script: check_postgres_up
         description: Poll PostgreSQL connection until database is available
+        services: [PostgreSQL]
         args: optional
     check:temporal:
         bin_script: check_temporal_up
         description: Wait for Temporal service port with 180s timeout
+        services: [temporal]
         args: none
     check:video-deps:
         bin_script: check_video_deps
