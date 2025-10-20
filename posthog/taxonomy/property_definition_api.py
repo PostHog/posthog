@@ -156,7 +156,6 @@ class QueryContext:
 
     posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
 
-    # preaggregated table hints parameters
     enable_preaggregated_table_hints: bool = False
 
     params: dict = dataclasses.field(default_factory=dict)

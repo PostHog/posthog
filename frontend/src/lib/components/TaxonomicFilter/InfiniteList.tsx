@@ -81,7 +81,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
 
 const preaggregatedTableSupportedIndicator = (): JSX.Element => {
     return (
-        <Tooltip title="This property is optimized for faster queries with the New Query Engine">
+        <Tooltip title="This property is optimized for faster queries with Web Analyics new query engine.">
             <IconBolt className="text-warning ml-1" />
         </Tooltip>
     )
