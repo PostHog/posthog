@@ -64,7 +64,7 @@ def _organize_issues_section(
         if issues_mentioned > limit:
             # Show limited amount of issues in the section
             break
-        issue_section_report += f"### {cluster.name}\n"
+        issue_section_report += f"#### {cluster.name}\n"
         issue_section_report += f"- Confidence: {_calculate_confidence(cluster.avg_distance)}\n"
         issue_section_report += f"- Linked traces: {len(cluster.suggestions)} ({_list_trace_ids(cluster.suggestions)})"
         issue_section_report += "\n\n"
@@ -85,17 +85,37 @@ if __name__ == "__main__":
         input_named_clusters: dict[str, ExplainedClusterizedSuggestionsGroup] = {
             key: ExplainedClusterizedSuggestionsGroup(**value) for key, value in input_named_clusters_raw.items()
         }
-    # Calculate total number of traces
-    analyzed_traces_count = 16000  # Can calculate from CSV rows, but feel lazy
+    # Calculate total number of traces and related numbers
+    # Can calculate from CSV rows, but feel lazy
+    analyzed_traces_count = 15112
+    non_interactive_traces_count = 6103
+    traces_too_large = 452
     # Calculate number of summarized traces
     stringified_traces_dir_path = Path("/Users/woutut/Documents/Code/posthog/playground/traces-summarization/output/")
     summarized_traces_count = len(list(stringified_traces_dir_path.iterdir()))
+    # Calculate traces with "No issues found"
+    no_issues_found_traces_count = 0
+    for dir_path in stringified_traces_dir_path.iterdir():
+        if not dir_path.is_dir():
+            continue
+        summary_file_path = dir_path / f"{dir_path.name}_summary.txt"
+        with open(summary_file_path) as f:
+            summary = f.read()
+        if summary.strip().lower() == "no issues found":
+            no_issues_found_traces_count += 1
     # Generate markdown report
     report = "# Traces Summarization Report (14.09.2025 - 17.09.2025)"
     report += "\n\n"
-    report += f"- Analyzed traces: {analyzed_traces_count}\n"
-    report += f"- Summarized traces: {summarized_traces_count}\n"
-    report += f"- Issues found: {len(input_named_clusters)}"
+    report += f"- **Analyzed traces:** {analyzed_traces_count}\n"
+    report += f"- **Non-interactive traces** (skipped)**:** {non_interactive_traces_count}/{analyzed_traces_count} / *no human messages after any AI response*\n"
+    report += f"- **Heavy/malformed traces** (skipped)**:** {traces_too_large}/{analyzed_traces_count} / *stringified conversation above 5k tokens*\n"
+    report += f"- **Summarized traces:** {summarized_traces_count}/{analyzed_traces_count}\n"
+    report += "---\n"
+    traces_with_no_issues = round(no_issues_found_traces_count / summarized_traces_count * 100, 2)
+    report += f"- **Traces with no issues:** {no_issues_found_traces_count}/{summarized_traces_count} ({traces_with_no_issues}%)\n"
+    report += f"- **Traces with issues/concerns:** {summarized_traces_count-no_issues_found_traces_count}/{summarized_traces_count} ({100-traces_with_no_issues}%)\n"
+    report += f"- **Issues found:** {len(input_named_clusters)}\n"
+    report += "---\n"
     report += "\n\n"
 
     # List often cases, with a lot of occurrences, but low confidence
@@ -110,7 +130,7 @@ if __name__ == "__main__":
 
     # List interesting cases with not a lot of occurences, but high confidence
     # Issues are sorted by confidendce by default, so we can take the first ones
-    interesting_cases_limit = 10
+    interesting_cases_limit = 5
     interesting_cases_section = _organize_issues_section(
         named_clusters={key: value for key, value in input_named_clusters.items() if len(value.suggestions) <= 5},
         limit=interesting_cases_limit,
@@ -119,6 +139,16 @@ if __name__ == "__main__":
     )
     report += interesting_cases_section
 
+    # List all other cases
+    other_cases_limit = 5
+    other_cases_section = _organize_issues_section(
+        named_clusters={key: value for key, value in input_named_clusters.items() if 5 < len(value.suggestions) <= 20},
+        limit=interesting_cases_limit,
+        header="Other cases",
+        description="Regular cases, with high enough occurences",
+    )
+    report += other_cases_section
+
     # # Keep topics with at least 5 linked traces
     # if len(cluster.suggestions) < 4:
     #     continue
@@ -126,6 +156,6 @@ if __name__ == "__main__":
     # Add stats on how many topics left
     report += "\n\n"
     report += "---\n"
-    report += f"*To check another {len(input_named_clusters) - interesting_cases_limit - heavy_cases_limit} issues, ask Alex for the full JSON file.*"
+    report += f"*To check other {len(input_named_clusters) - interesting_cases_limit - heavy_cases_limit - other_cases_limit}/{len(input_named_clusters)} issues, ask Alex for the full JSON file.*"
     with open(input_groups_dir_path / "report_25.md", "w") as f:
         f.write(report)
