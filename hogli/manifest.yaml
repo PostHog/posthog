@@ -66,6 +66,12 @@ core:
         description: Show all available commands grouped by category
     dev:up:
         description: Start full PostHog dev stack via mprocs
+    dev:setup:
+        cmd: python manage.py setup_dev
+        description: Initialize local development environment (one-time setup)
+    dev:demo-data:
+        cmd: python manage.py generate_demo_data
+        description: Generate demo data for local testing
     qa:check:
         description: Run pre-push quality checks (lint + build, ~5 min)
 health_checks:
@@ -282,6 +288,12 @@ tools:
         bin_script: unit_metrics.py
         description: WSGI app that aggregates Prometheus metrics from NGINX Unit status
             endpoint
+    tool:create-ch-migration:
+        cmd: python manage.py create_ch_migration
+        description: Generate new ClickHouse migration scaffold
+    tool:print-hog-stl:
+        cmd: python manage.py print_hog_stl_table
+        description: Print HogSQL standard library definitions for reference
     test:new:script:
         bin_script: test-new-script
         description: 'TODO: add description for test-new-script'
