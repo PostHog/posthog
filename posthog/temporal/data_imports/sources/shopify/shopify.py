@@ -56,7 +56,11 @@ def _get_retryable_error(payload: Any) -> ShopifyRetryableError | None:
 
 
 def _make_paginated_shopify_request(
-    url: str, sess: Session, graphql_object: ShopifyGraphQLObject, query: str | None = None
+    url: str,
+    sess: Session,
+    graphql_object: ShopifyGraphQLObject,
+    logger: FilteringBoundLogger,
+    query: str | None = None,
 ):
     @retry(
         retry=retry_if_exception_type(ShopifyRetryableError),
@@ -88,6 +92,7 @@ def _make_paginated_shopify_request(
         vars.update({"query": query})
     has_next_page = True
     while has_next_page:
+        logger.debug(f"Querying shopify endpoint {graphql_object.name} with vars: {vars}")
         payload = execute(vars)
         data_iter = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
         yield data_iter
@@ -122,7 +127,7 @@ def shopify_source(
             db_incremental_field_last_value is None and db_incremental_field_earliest_value is None
         ):
             logger.debug(f"Shopify: iterating all objects from source for {graphql_object_name}")
-            yield from _make_paginated_shopify_request(api_url, sess, graphql_object)
+            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger)
             return
 
         # NOTE: we use inclusive comparisons below because upon testing the shopify APIs with query filters
@@ -133,18 +138,18 @@ def shopify_source(
         # check for any objects less than the minimum object we already have
         if db_incremental_field_earliest_value is not None:
             logger.debug(
-                f"Shopify: iterating earliest objects from source: createdAt < {db_incremental_field_earliest_value}"
+                f"Shopify: iterating earliest objects from source: createdAt <= {db_incremental_field_earliest_value}"
             )
             query = f"{query_filter}:<='{db_incremental_field_earliest_value}'"
-            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, query)
+            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger, query=query)
 
         # check for any objects more than the maximum object we already have
         if db_incremental_field_last_value is not None:
             logger.debug(
                 f"Shopify: iterating latest objects from source: createdAt >= {db_incremental_field_last_value}"
             )
-            query = f"{query_filter}:>='{db_incremental_field_earliest_value}'"
-            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, query)
+            query = f"{query_filter}:>='{db_incremental_field_last_value}'"
+            yield from _make_paginated_shopify_request(api_url, sess, graphql_object, logger, query=query)
 
     incremental = INCREMENTAL_SETTINGS.get(graphql_object_name)
     partition_key = incremental.fields[0]["field"] if incremental else "createdAt"
