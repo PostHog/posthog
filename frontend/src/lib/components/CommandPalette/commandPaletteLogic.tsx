@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import {
+    IconAIText,
     IconCalculator,
     IconChat,
     IconCheck,
@@ -575,6 +576,17 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         icon: IconChat,
                         executor: () => {
                             push(urls.surveys())
+                        },
+                    },
+                    {
+                        display: 'LLMA Render Trace',
+                        icon: IconAIText,
+                        synonyms: ['llm', 'analytics', 'trace', 'debug', 'render'],
+                        executor: async () => {
+                            const { openLLMAnalyticsTraceDebugModal } = await import(
+                                '~/../../products/llm_analytics/frontend/LLMAnalyticsTraceDebugModal'
+                            )
+                            openLLMAnalyticsTraceDebugModal()
                         },
                     },
                     {

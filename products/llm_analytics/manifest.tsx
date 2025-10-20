@@ -69,6 +69,13 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
         },
+        LLMAnalyticsTraceDebug: {
+            import: () => import('./frontend/LLMAnalyticsTraceDebugScene'),
+            projectBased: true,
+            name: 'LLM analytics trace debug',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/traces',
+        },
     },
     routes: {
         '/llm-analytics': ['LLMAnalytics', 'llmAnalytics'],
@@ -76,6 +83,7 @@ export const manifest: ProductManifest = {
         '/llm-analytics/generations': ['LLMAnalytics', 'llmAnalyticsGenerations'],
         '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
         '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
+        '/llm-analytics/trace-debug': ['LLMAnalyticsTraceDebug', 'llmAnalytics'],
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
         '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
         '/llm-analytics/datasets': ['LLMAnalytics', 'llmAnalyticsDatasets'],
@@ -116,6 +124,7 @@ export const manifest: ProductManifest = {
             const stringifiedParams = queryParams.toString()
             return `/llm-analytics/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
+        llmAnalyticsTraceDebug: (): string => '/llm-analytics/trace-debug',
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
         llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
         llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',

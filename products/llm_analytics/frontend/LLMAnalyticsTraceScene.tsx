@@ -99,7 +99,7 @@ function getSessionFilterUrl(sessionId: string): string {
     return `${urls.llmAnalyticsTraces()}?${params.toString()}`
 }
 
-function TraceSceneWrapper(): JSX.Element {
+export function TraceSceneWrapper(): JSX.Element {
     const { eventId } = useValues(llmAnalyticsTraceLogic)
     const {
         enrichedTree,
@@ -179,7 +179,7 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
     ) : null
 }
 
-function TraceMetadata({
+export function TraceMetadata({
     trace,
     metricEvents,
     feedbackEvents,
@@ -228,7 +228,7 @@ function TraceMetadata({
     )
 }
 
-function TraceSidebar({
+export function TraceSidebar({
     trace,
     eventId,
     tree,
@@ -558,7 +558,7 @@ function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): Enric
     return null
 }
 
-const EventContent = React.memo(
+export const EventContent = React.memo(
     ({
         trace,
         event,
