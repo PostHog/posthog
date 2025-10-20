@@ -428,10 +428,13 @@ export function FeatureFlagReleaseConditions({
                                 {group.sort_key && affectedUsers[group.sort_key] !== undefined ? (
                                     <b>
                                         {`${
-                                            computeBlastRadiusPercentage(
-                                                group.rollout_percentage,
-                                                group.sort_key
-                                            ).toPrecision(2) * 1
+                                            Math.max(
+                                                computeBlastRadiusPercentage(
+                                                    group.rollout_percentage,
+                                                    group.sort_key
+                                                ).toPrecision(2) * 1,
+                                                0
+                                            )
                                             // Multiplying by 1 removes trailing zeros after the decimal
                                             // point added by toPrecision
                                         }% `}
