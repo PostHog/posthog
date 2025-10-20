@@ -9,15 +9,15 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 try:
-    from hogli.cli import app  # noqa: E402  (import after path modification)
+    from hogli.cli import cli  # noqa: E402  (import after path modification)
 except ModuleNotFoundError as exc:  # pragma: no cover - depends on environment state
     missing = exc.name
-    if missing == "typer":
+    if missing == "click":
         sys.stderr.write(
-            "Typer is not installed. Activate the Flox environment or run `uv sync` to install Python dependencies.\n"
+            "Click is not installed. Activate the Flox environment or run `uv sync` to install Python dependencies.\n"
         )
         sys.exit(1)
     raise
 
 if __name__ == "__main__":
-    app()
+    cli()
