@@ -14,6 +14,7 @@ use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
+use crate::early_access_features::early_access_feature_cache_manager::EarlyAccessFeatureCacheManager;
 use crate::router;
 use common_cookieless::CookielessManager;
 
@@ -82,6 +83,12 @@ where
     let cohort_cache = Arc::new(CohortCacheManager::new(
         database_pools.non_persons_reader.clone(),
         Some(config.cache_max_cohort_entries),
+        Some(config.cache_ttl_seconds),
+    ));
+
+    let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+        database_pools.non_persons_reader.clone(),
+        Some(config.cache_max_early_access_feature_entries),
         Some(config.cache_ttl_seconds),
     ));
 
@@ -157,6 +164,7 @@ where
         session_replay_billing_limiter,
         cookieless_manager,
         config,
+        early_access_feature_cache,
     );
 
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());

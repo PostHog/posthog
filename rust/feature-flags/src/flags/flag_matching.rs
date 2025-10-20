@@ -6,6 +6,8 @@ use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
 use crate::database::PostgresRouter;
+use crate::early_access_features::early_access_feature_cache_manager::EarlyAccessFeatureCacheManager;
+use crate::early_access_features::early_access_feature_models::EarlyAccessFeature;
 use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
@@ -93,6 +95,8 @@ pub struct FlagEvaluationState {
     static_cohort_matches: Option<HashMap<CohortId, bool>>,
     /// Cache of flag evaluation results to avoid repeated DB lookups
     flag_evaluation_results: HashMap<FeatureFlagId, FlagValue>,
+    /// Early access features for the current request
+    early_access_features: Option<Vec<EarlyAccessFeature>>,
 }
 
 impl FlagEvaluationState {
@@ -139,6 +143,10 @@ impl FlagEvaluationState {
     pub fn add_flag_evaluation_result(&mut self, flag_id: FeatureFlagId, flag_value: FlagValue) {
         self.flag_evaluation_results.insert(flag_id, flag_value);
     }
+
+    pub fn set_early_access_features(&mut self, early_access_features: Vec<EarlyAccessFeature>) {
+        self.early_access_features = Some(early_access_features);
+    }
 }
 
 /// Represents the group-related data needed for feature flag evaluation
@@ -184,6 +192,8 @@ pub struct FeatureFlagMatcher {
     ///     "customer" → "101"
     ///     "team" → "112"
     groups: HashMap<String, Value>,
+    /// Cache manager for early access features
+    pub early_access_feature_cache: Arc<EarlyAccessFeatureCacheManager>,
 }
 
 impl FeatureFlagMatcher {
@@ -195,6 +205,7 @@ impl FeatureFlagMatcher {
         cohort_cache: Arc<CohortCacheManager>,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         groups: Option<HashMap<String, Value>>,
+        early_access_feature_cache: Arc<EarlyAccessFeatureCacheManager>,
     ) -> Self {
         FeatureFlagMatcher {
             distinct_id,
@@ -206,6 +217,7 @@ impl FeatureFlagMatcher {
                 .unwrap_or_else(|| GroupTypeMappingCache::new(project_id)),
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
+            early_access_feature_cache,
         }
     }
 
@@ -1334,6 +1346,14 @@ impl FeatureFlagMatcher {
         let group_timer = common_metrics::timing_guard(FLAG_GROUP_CACHE_FETCH_TIME, &[]);
         let group_data = self.prepare_group_data(flags)?;
         group_timer.fin();
+
+        // Get early access features
+        let early_access_features = self
+            .early_access_feature_cache
+            .get_early_access_features(self.project_id)
+            .await?;
+        self.flag_evaluation_state
+            .set_early_access_features(early_access_features);
 
         // Single DB operation for properties and cohorts
         let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);

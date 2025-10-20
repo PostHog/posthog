@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use common_database::get_pool;
 use common_redis::MockRedisClient;
+use feature_flags::early_access_features::early_access_feature_cache_manager::EarlyAccessFeatureCacheManager;
 use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use reqwest::header::CONTENT_TYPE;
@@ -174,6 +175,12 @@ impl ServerHandle {
                 ),
             );
 
+            let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+                non_persons_reader.clone(),
+                Some(config.cache_max_cohort_entries),
+                Some(config.cache_ttl_seconds),
+            ));
+
             let health = health::HealthRegistry::new("liveness");
             let simple_loop = health
                 .register("simple_loop".to_string(), Duration::from_secs(30))
@@ -222,6 +229,7 @@ impl ServerHandle {
                 session_replay_billing_limiter,
                 cookieless_manager,
                 config,
+                early_access_feature_cache,
             );
 
             axum::serve(

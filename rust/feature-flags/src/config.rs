@@ -274,6 +274,9 @@ pub struct Config {
 
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: Level,
+
+    #[envconfig(from = "CACHE_MAX_EARLY_ACCESS_FEATURE_ENTRIES", default = "100000")]
+    pub cache_max_early_access_feature_entries: u64,
 }
 
 impl Config {
@@ -326,6 +329,7 @@ impl Config {
             object_storage_bucket: "posthog".to_string(),
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
+            cache_max_early_access_feature_entries: 100_000,
         }
     }
 

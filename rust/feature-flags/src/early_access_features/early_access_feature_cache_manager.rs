@@ -25,8 +25,8 @@ impl EarlyAccessFeatureCacheManager {
         ttl_seconds: Option<u64>,
     ) -> Self {
         let cache = Cache::builder()
-            .time_to_live((Duration::from_secs(ttl_seconds.unwrap_or(300))))
-            .max_capacity((max_capacity.unwrap_or(100_000)))
+            .time_to_live(Duration::from_secs(ttl_seconds.unwrap_or(300)))
+            .max_capacity(max_capacity.unwrap_or(100_000))
             .build();
 
         Self {
@@ -114,8 +114,9 @@ mod tests {
         let project_id = team.project_id;
         let team_id = team.id;
 
-        let _early_access_feature =
-            context.insert_early_access_feature(team_id, None, "flag".to_string()).await;
+        let _early_access_feature = context
+            .insert_early_access_feature(team_id, None, "flag".to_string())
+            .await;
 
         let cache =
             EarlyAccessFeatureCacheManager::new(context.non_persons_reader.clone(), None, None);

@@ -5,8 +5,7 @@ use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use uuid::Uuid;
 
 use crate::{
-    api::types::FlagsQueryParams, cohorts::cohort_cache_manager::CohortCacheManager,
-    flags::flag_models::FeatureFlagList, router,
+    api::types::FlagsQueryParams, cohorts::cohort_cache_manager::CohortCacheManager, early_access_features::early_access_feature_cache_manager::EarlyAccessFeatureCacheManager, flags::flag_models::FeatureFlagList, router
 };
 
 pub struct RequestContext {
@@ -56,4 +55,5 @@ pub struct FeatureFlagEvaluationContext {
     pub hash_key_override: Option<String>,
     /// Contains explicitly requested flag keys and their dependencies. If empty, all flags will be evaluated.
     pub flag_keys: Option<Vec<String>>,
+    pub early_access_feature_cache: Arc<EarlyAccessFeatureCacheManager>,
 }

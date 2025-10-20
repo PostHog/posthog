@@ -9,6 +9,7 @@ mod tests {
     use crate::{
         api::types::{FlagValue, LegacyFlagsResponse},
         cohorts::cohort_cache_manager::CohortCacheManager,
+        early_access_features::early_access_feature_cache_manager::EarlyAccessFeatureCacheManager,
         flags::{
             flag_group_type_mapping::GroupTypeMappingCache,
             flag_match_reason::FeatureFlagMatchReason,
@@ -29,6 +30,11 @@ mod tests {
     async fn test_fetch_properties_from_pg_to_match() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -89,6 +95,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -110,6 +117,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -131,6 +139,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -152,6 +161,13 @@ mod tests {
             None,
             None,
         ));
+
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
@@ -194,6 +210,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
 
         let flags = FeatureFlagList {
@@ -217,6 +234,13 @@ mod tests {
             None,
             None,
         ));
+
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
@@ -276,6 +300,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
+            early_access_feature_cache.clone(),
         );
 
         let flags = FeatureFlagList {
@@ -310,6 +335,11 @@ mod tests {
     async fn test_flags_that_depends_on_other_boolean_flag() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -359,6 +389,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
 
         let flags = FeatureFlagList {
@@ -428,6 +459,11 @@ mod tests {
     async fn test_flags_that_depends_on_other_multivariate_flag_variant_match() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -517,6 +553,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
         let flags = FeatureFlagList {
             flags: vec![leaf_flag.clone(), parent_flag.clone()],
@@ -598,6 +635,11 @@ mod tests {
             None,
             None,
         ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
         let _person_id = context
             .insert_person(
@@ -673,6 +715,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
 
         let flags = FeatureFlagList {
@@ -716,6 +759,11 @@ mod tests {
     ) {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -797,6 +845,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
 
         let flags = FeatureFlagList {
@@ -871,6 +920,11 @@ mod tests {
     async fn test_flags_that_depends_on_other_multivariate_flag_boolean_match() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -950,6 +1004,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
         let flags = FeatureFlagList {
             flags: vec![leaf_flag.clone(), parent_flag.clone()],
@@ -1027,6 +1082,11 @@ mod tests {
             None,
             None,
         ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(1);
         let group_types_to_indexes = [("group_type_1".to_string(), 1)].into_iter().collect();
         let indexes_to_types = [(1, "group_type_1".to_string())].into_iter().collect();
@@ -1042,6 +1102,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
+            early_access_feature_cache.clone(),
         );
         let variant = matcher.get_matching_variant(&flag, None).unwrap();
         assert!(variant.is_some(), "No variant was selected");
@@ -1055,6 +1116,11 @@ mod tests {
     async fn test_get_matching_variant_with_db() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -1078,6 +1144,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
+            early_access_feature_cache.clone(),
         );
 
         let variant = matcher.get_matching_variant(&flag, None).unwrap();
@@ -1089,6 +1156,11 @@ mod tests {
     async fn test_is_condition_match_empty_properties() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -1129,6 +1201,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, None, None)
@@ -1141,6 +1214,11 @@ mod tests {
     async fn test_is_condition_match_flag_value_operator() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -1188,6 +1266,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
         matcher
             .flag_evaluation_state
@@ -1252,6 +1331,11 @@ mod tests {
             None,
             None,
         ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
@@ -1295,6 +1379,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         reset_fetch_calls_count();
@@ -1336,6 +1421,11 @@ mod tests {
             None,
             None,
         ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
         let team = context.insert_new_team(None).await.unwrap();
         let flag = Arc::new(create_test_flag(
             None,
@@ -1364,6 +1454,7 @@ mod tests {
             let flag_clone = flag.clone();
             let router = context.create_postgres_router();
             let cohort_cache_clone = cohort_cache.clone();
+            let early_access_feature_clone = early_access_feature_cache.clone();
             handles.push(tokio::spawn(async move {
                 let matcher = FeatureFlagMatcher::new(
                     format!("test_user_{i}"),
@@ -1373,6 +1464,7 @@ mod tests {
                     cohort_cache_clone,
                     None,
                     None,
+                    early_access_feature_clone,
                 );
                 matcher.get_match(&flag_clone, None, None).unwrap()
             }));
@@ -1392,6 +1484,11 @@ mod tests {
     async fn test_property_operators() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -1455,6 +1552,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -1471,6 +1569,11 @@ mod tests {
     async fn test_empty_hashed_identifier() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -1505,6 +1608,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -1518,6 +1622,11 @@ mod tests {
     async fn test_rollout_percentage() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -1552,6 +1661,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -1570,6 +1680,11 @@ mod tests {
     async fn test_uneven_variant_distribution() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -1606,6 +1721,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
 
         let mut control_count = 0;
@@ -1635,6 +1751,11 @@ mod tests {
     async fn test_missing_properties_in_db() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -1684,6 +1805,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -1695,6 +1817,11 @@ mod tests {
     async fn test_malformed_property_data() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -1748,6 +1875,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -1760,6 +1888,11 @@ mod tests {
     async fn test_evaluation_reasons() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -1794,6 +1927,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
 
         let (is_match, reason) = matcher
@@ -1808,6 +1942,11 @@ mod tests {
     async fn test_complex_conditions() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -1874,6 +2013,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
 
         matcher
@@ -1890,6 +2030,11 @@ mod tests {
     async fn test_complex_cohort_conditions() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -2107,6 +2252,7 @@ mod tests {
                 cohort_cache.clone(),
                 None,
                 None,
+                early_access_feature_cache.clone(),
             );
 
             matcher
@@ -2129,6 +2275,11 @@ mod tests {
     async fn test_super_condition_matches_boolean() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -2222,6 +2373,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -2232,6 +2384,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
@@ -2242,6 +2395,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher_test_id
@@ -2275,6 +2429,11 @@ mod tests {
     async fn test_super_condition_matches_string() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -2358,6 +2517,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -2376,6 +2536,11 @@ mod tests {
     async fn test_super_condition_matches_and_false() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -2469,6 +2634,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -2479,6 +2645,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
@@ -2489,6 +2656,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher_test_id
@@ -2536,6 +2704,11 @@ mod tests {
     async fn test_basic_cohort_matching() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -2616,6 +2789,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -2632,6 +2806,11 @@ mod tests {
     async fn test_not_in_cohort_matching() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -2712,6 +2891,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -2728,6 +2908,11 @@ mod tests {
     async fn test_not_in_cohort_matching_user_in_cohort() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -2808,6 +2993,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -2820,6 +3006,11 @@ mod tests {
     async fn test_cohort_dependent_on_another_cohort() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -2925,6 +3116,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -2941,6 +3133,11 @@ mod tests {
     async fn test_in_cohort_matching_user_not_in_cohort() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -3021,6 +3218,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -3038,6 +3236,11 @@ mod tests {
     async fn test_static_cohort_matching_user_in_cohort() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -3117,6 +3320,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -3136,6 +3340,11 @@ mod tests {
     async fn test_static_cohort_matching_user_not_in_cohort() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -3205,6 +3414,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -3219,6 +3429,11 @@ mod tests {
     async fn test_static_cohort_not_in_matching_user_not_in_cohort() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -3288,6 +3503,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -3307,6 +3523,11 @@ mod tests {
     async fn test_static_cohort_not_in_matching_user_in_cohort() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -3386,6 +3607,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         let result = matcher.get_match(&flag, None, None).unwrap();
@@ -3400,6 +3622,11 @@ mod tests {
     async fn test_evaluate_feature_flags_with_experience_continuity() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -3478,6 +3705,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
+            early_access_feature_cache.clone(),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -3505,6 +3733,11 @@ mod tests {
     async fn test_evaluate_feature_flags_with_continuity_missing_override() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -3570,6 +3803,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
+            early_access_feature_cache.clone(),
         )
         .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None)
         .await;
@@ -3592,6 +3826,11 @@ mod tests {
     async fn test_evaluate_all_feature_flags_mixed_continuity() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -3699,6 +3938,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
+            early_access_feature_cache.clone(),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -3731,6 +3971,11 @@ mod tests {
     async fn test_variant_override_in_condition() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -3805,6 +4050,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -3881,6 +4127,11 @@ mod tests {
     async fn test_feature_flag_with_holdout_filter() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -4036,6 +4287,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -4058,6 +4310,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher2
@@ -4112,6 +4365,11 @@ mod tests {
         // Ported from posthog/test/test_feature_flag.py test_variants
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -4171,6 +4429,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
         let result = matcher.get_match(&flag, None, None).unwrap();
         assert_eq!(
@@ -4194,6 +4453,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
         let result = matcher.get_match(&flag, None, None).unwrap();
         assert_eq!(
@@ -4217,6 +4477,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
         let result = matcher.get_match(&flag, None, None).unwrap();
         assert_eq!(
@@ -4235,6 +4496,11 @@ mod tests {
     async fn test_static_cohort_evaluation_skips_dependency_graph() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -4312,6 +4578,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -4331,6 +4598,11 @@ mod tests {
     async fn test_no_person_id_with_overrides() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -4378,6 +4650,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache,
         );
 
         let result = matcher
@@ -4403,6 +4676,11 @@ mod tests {
     async fn test_numeric_group_keys() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -4449,6 +4727,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_numeric),
+            early_access_feature_cache.clone(),
         );
 
         matcher_numeric
@@ -4469,6 +4748,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_string),
+            early_access_feature_cache.clone(),
         );
 
         matcher_string
@@ -4501,6 +4781,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_float),
+            early_access_feature_cache.clone(),
         );
 
         matcher_float
@@ -4522,6 +4803,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_bool),
+            early_access_feature_cache.clone(),
         );
 
         matcher_bool
@@ -4541,6 +4823,11 @@ mod tests {
     async fn test_complex_super_condition_matching() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -4666,6 +4953,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -4691,6 +4979,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -4716,6 +5005,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -4735,6 +5025,11 @@ mod tests {
     async fn test_filters_with_distinct_id_exact() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -4788,6 +5083,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         matcher
@@ -4804,6 +5100,11 @@ mod tests {
     async fn test_partial_property_overrides_fallback_behavior() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -4908,6 +5209,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         let flags = FeatureFlagList {
@@ -4953,6 +5255,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         let result2 = matcher2
@@ -4987,6 +5290,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         let result3 = matcher3
@@ -5023,6 +5327,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         let result4 = matcher4
@@ -5045,6 +5350,11 @@ mod tests {
     async fn test_partial_group_property_overrides_fallback_behavior() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -5176,6 +5486,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
+            early_access_feature_cache.clone(),
         );
 
         let flags = FeatureFlagList {
@@ -5220,6 +5531,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
+            early_access_feature_cache.clone(),
         );
 
         let result2 = matcher2
@@ -5260,6 +5572,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
+            early_access_feature_cache.clone(),
         );
 
         let result3 = matcher3
@@ -5296,6 +5609,7 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
+            early_access_feature_cache.clone(),
         );
 
         let result4 = matcher4
@@ -5336,6 +5650,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             Some(groups),
+            early_access_feature_cache.clone(),
         );
 
         let result5 = matcher5
@@ -5363,6 +5678,11 @@ mod tests {
         // This test ensures that the order is maintained regardless of the presence of a variant override.
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
             context.non_persons_reader.clone(),
             None,
             None,
@@ -5439,6 +5759,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         // Pass email as a property override to avoid database lookup
@@ -5469,6 +5790,7 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
+            early_access_feature_cache.clone(),
         );
 
         let mut other_properties = HashMap::new();
@@ -5499,6 +5821,11 @@ mod tests {
             None,
             None,
         ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
 
         let team = context
             .insert_new_team(None)
@@ -5514,6 +5841,7 @@ mod tests {
             cohort_cache,
             None,
             None,
+            early_access_feature_cache,
         );
 
         // Create flags: one with experience continuity enabled, one without

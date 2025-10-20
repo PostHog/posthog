@@ -282,6 +282,7 @@ pub async fn evaluate_for_request(
         groups,
         hash_key_override,
         flag_keys,
+        early_access_feature_cache: state.early_access_cache_manager.clone(),
     };
 
     evaluation::evaluate_feature_flags(ctx, request_id).await

@@ -4,6 +4,7 @@ use std::sync::Arc;
 /// This ensures there are no mismatches between implementations.
 use feature_flags::{
     cohorts::cohort_cache_manager::CohortCacheManager,
+    early_access_features::early_access_feature_cache_manager::EarlyAccessFeatureCacheManager,
     flags::{
         flag_match_reason::FeatureFlagMatchReason,
         flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
@@ -115,6 +116,11 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+            reader.clone(),
+            None,
+            None,
+        ));
 
         let distinct_id = format!("distinct_id_{i}");
 
@@ -125,7 +131,16 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                 reader.clone(),
                 writer.clone(),
             );
-            FeatureFlagMatcher::new(distinct_id, 1, 1, router, cohort_cache, None, None)
+            FeatureFlagMatcher::new(
+                distinct_id,
+                1,
+                1,
+                router,
+                cohort_cache,
+                None,
+                None,
+                early_access_feature_cache,
+            )
         }
         .get_match(&flags[0], None, None)
         .unwrap();
@@ -1214,6 +1229,11 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
         let reader = setup_pg_reader_client(None).await;
         let writer = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+            reader.clone(),
+            None,
+            None,
+        ));
         let distinct_id = format!("distinct_id_{i}");
 
         let feature_flag_match = {
@@ -1223,7 +1243,16 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                 reader.clone(),
                 writer.clone(),
             );
-            FeatureFlagMatcher::new(distinct_id, 1, 1, router, cohort_cache, None, None)
+            FeatureFlagMatcher::new(
+                distinct_id,
+                1,
+                1,
+                router,
+                cohort_cache,
+                None,
+                None,
+                early_access_feature_cache,
+            )
         }
         .get_match(&flags[0], None, None)
         .unwrap();
