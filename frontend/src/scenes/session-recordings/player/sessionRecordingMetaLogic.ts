@@ -39,7 +39,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                 annotationsModel,
                 ['annotations', 'annotationsLoading'],
                 snapshotLogic,
-                ['snapshotSources', 'snapshotsBySources', 'snapshotsLoading', 'snapshotsLoaded'],
+                ['snapshotSources', 'snapshotsBySources', 'snapshotsLoading', 'snapshotsLoaded', 'isLoadingSnapshots'],
             ],
         }
     }),

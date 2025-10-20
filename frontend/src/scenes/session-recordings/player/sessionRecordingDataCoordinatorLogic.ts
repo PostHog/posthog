@@ -96,6 +96,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'currentTeam',
                     'annotations',
                     'annotationsLoading',
+                    'isLoadingSnapshots',
                 ],
                 eventsLogic,
                 [
@@ -218,15 +219,26 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         segments: [
-            (s) => [s.snapshots, s.start, s.end, s.trackedWindow, s.snapshotsByWindowId],
+            (s) => [s.snapshots, s.start, s.end, s.trackedWindow, s.snapshotsByWindowId, s.isLoadingSnapshots],
             (
                 snapshots: RecordingSnapshot[],
                 start: Dayjs | null,
                 end: Dayjs | null,
                 trackedWindow: string | null,
-                snapshotsByWindowId: Record<string, eventWithTime[]>
+                snapshotsByWindowId: Record<string, eventWithTime[]>,
+                isLoadingSnapshots: boolean
             ): RecordingSegment[] => {
-                return createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
+                const segments = createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
+
+                return segments.map((segment) => {
+                    if (segment.kind === 'buffer') {
+                        return {
+                            ...segment,
+                            isLoading: isLoadingSnapshots,
+                        }
+                    }
+                    return segment
+                })
             },
         ],
 

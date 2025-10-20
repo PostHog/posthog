@@ -30,7 +30,8 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
             className={cn(
                 'PlayerSeekbar__segments__item',
                 segment.isActive && 'PlayerSeekbar__segments__item--active',
-                segment.kind === 'buffer' && 'PlayerSeekbar__segments__item--buffer-loading'
+                segment.kind === 'buffer' && 'PlayerSeekbar__segments__item--buffer',
+                segment.isLoading && 'PlayerSeekbar__segments__item--buffer-loading'
             )}
             title={segment.kind === 'buffer' ? undefined : segment.isActive ? 'Active period' : 'Inactive period'}
             // eslint-disable-next-line react/forbid-dom-props

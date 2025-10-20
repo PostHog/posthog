@@ -64,6 +64,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 loadUntilTimestamp: (_, { targetBufferTimestampMillis }) => targetBufferTimestampMillis,
             },
         ],
+        loadingSources: [
+            [] as Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key' | 'start_timestamp' | 'end_timestamp'>[],
+            {
+                loadSnapshotsForSource: (_, { sources }) => sources,
+                loadSnapshotsForSourceSuccess: () => [],
+                loadSnapshotsForSourceFailure: () => [],
+            },
+        ],
     })),
     loaders(({ values, props, cache }) => ({
         snapshotSources: [
@@ -282,6 +290,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     return {}
                 }
                 return cache.snapshotsBySource
+            },
+        ],
+
+        isLoadingSnapshots: [
+            (s) => [s.loadingSources],
+            (loadingSources): boolean => {
+                return loadingSources.length > 0
             },
         ],
     })),
