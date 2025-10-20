@@ -251,12 +251,13 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(fu
                     </DropdownMenuContent>
                 </DropdownMenu>
 
-                <div className="h-full flex items-center py-1">
-                    <hr className="h-full w-px bg-border-primary" />
-                </div>
+                <label className="h-full flex items-center py-1" htmlFor="command-input">
+                    <hr className="h-full w-px bg-border-primary relative right-px" />
+                </label>
 
                 {/* Input Field */}
                 <TextInputPrimitive
+                    id="command-input"
                     ref={inputRef}
                     value={inputValue}
                     onChange={(e) => handleInputChange(e.target.value)}

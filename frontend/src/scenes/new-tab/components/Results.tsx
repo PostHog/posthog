@@ -55,8 +55,11 @@ function Category({
 
     return (
         <>
-            <div className={cn('mb-8', { 'mb-4': newTabSceneData })} key={category}>
-                <div className={cn('mb-4', { 'mb-2': newTabSceneData })}>
+            <div
+                className={cn('mb-8', { 'mb-4 @lg/main-content:flex @lg/main-content:flex-row': newTabSceneData })}
+                key={category}
+            >
+                <div className={cn('mb-4', { 'mb-2 @lg/main-content:min-w-[300px]': newTabSceneData })}>
                     <div className={cn('flex items-baseline gap-2', { 'gap-0': newTabSceneData })}>
                         <>
                             {newTabSceneData ? (
@@ -281,6 +284,7 @@ function Category({
                     )}
                 </div>
             </div>
+            {newTabSceneData && <div className="h-px w-full bg-border-primary" />}
         </>
     )
 }
