@@ -384,13 +384,20 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                     continue
 
         finally:
-            # Always flush the producer to ensure buffered messages are sent
+            # Always flush and close the producer to ensure buffered messages are sent
             if messages_produced > 0:
                 logger.info(f"Flushing Kafka producer with {messages_produced} total messages")
                 try:
                     await asyncio.to_thread(kafka_producer.flush, timeout=60)
                 except Exception as e:
                     logger.exception("Error flushing Kafka producer", error=str(e))
+
+            # Close the producer to clean up resources
+            try:
+                await asyncio.to_thread(kafka_producer.close)
+                logger.debug("Kafka producer closed successfully")
+            except Exception as e:
+                logger.exception("Error closing Kafka producer", error=str(e))
 
         heartbeater.details = (f"Completed batch {inputs.batch_number}: processed {len(inputs.conditions)} conditions",)
 
