@@ -42,10 +42,11 @@ _hogli() {{
   local -a commands
 
   # Parse output from hogli --help to get all commands
-  # hogli --help outputs: "  command:name    description here"
-  commands=(${{(f)"$(hogli --help 2>/dev/null | grep -E '^  [a-z:]' | sed -E 's/^  ([a-z:]+)[[:space:]]+(.*)$/\\1:\\2/')"}})
+  # Use tab separator since zsh treats colons specially
+  # Format: "command-name<tab>description text"
+  commands=(${{(f)"$(hogli --help 2>/dev/null | grep -E '^  [a-z]' | sed -E 's/^  ([a-z:0-9-]+)[[:space:]]+(.*)$/\\1\\t\\2/')"}})
 
-  # Use _describe to show commands with descriptions
+  # Use _describe with tab separator
   _describe 'hogli commands' commands
 }}
 
