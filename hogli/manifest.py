@@ -37,10 +37,8 @@ class Manifest:
 
     def get_category_title(self, category_key: str) -> str:
         """Get title for a category key."""
-        for cat in self.categories:
-            if cat.get("key") == category_key:
-                return cat.get("title", category_key.replace("_", " "))
-        return category_key.replace("_", " ")
+        cat = next((c for c in self.categories if c.get("key") == category_key), None)
+        return cat.get("title", category_key.replace("_", " ")) if cat else category_key.replace("_", " ")
 
     @property
     def services(self) -> dict[str, Any]:
@@ -60,16 +58,12 @@ class Manifest:
 
         # Search through manifest categories to find which one has commands with this prefix
         for category_key, commands in self._data.items():
-            if category_key == "metadata":
-                continue
-            if not isinstance(commands, dict):
+            if category_key == "metadata" or not isinstance(commands, dict):
                 continue
 
             # Check if any command in this category starts with the prefix
-            for cmd_name in commands.keys():
-                if cmd_name.startswith(f"{prefix}:") or cmd_name == prefix:
-                    # Found category containing this prefix! Return its title
-                    return self.get_category_title(category_key)
+            if any(cmd_name.startswith(f"{prefix}:") or cmd_name == prefix for cmd_name in commands.keys()):
+                return self.get_category_title(category_key)
 
         # Fallback if prefix not found in any category
         return "commands"
@@ -84,12 +78,11 @@ class Manifest:
         # If explicit services specified, use those
         explicit_services = command_config.get("services", [])
         if explicit_services:
-            result = []
-            for svc in explicit_services:
-                if svc in self.services:
-                    svc_info = self.services[svc]
-                    result.append((svc_info.get("name", svc), svc_info.get("about", "")))
-            return result
+            return [
+                (svc_info.get("name", svc), svc_info.get("about", ""))
+                for svc in explicit_services
+                if (svc_info := self.services.get(svc))
+            ]
 
         # Try to match command prefix to service
         prefix = command_name.split(":")[0]

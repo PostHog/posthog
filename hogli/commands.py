@@ -40,24 +40,20 @@ def _format_command_help(cmd_name: str, cmd_config: dict, underlying_cmd: str) -
     lines = []
 
     # Add main description
-    description = cmd_config.get("description", "")
-    if description:
+    if description := cmd_config.get("description", ""):
         lines.append(description)
 
     # Add service context if available
     services = get_services_for_command(cmd_name, cmd_config)
     if services:
         lines.append("")
-        for svc_name, about in services:
-            lines.append(f"{svc_name}: {about}")
+        lines.extend(f"{svc_name}: {about}" for svc_name, about in services)
 
     # Add underlying command
     if underlying_cmd:
         lines.append("")
-        if " && " in underlying_cmd:  # Composite command
-            lines.append(f"Runs: {underlying_cmd}")
-        else:
-            lines.append(f"Command: {underlying_cmd}")
+        cmd_prefix = "Runs" if " && " in underlying_cmd else "Command"
+        lines.append(f"{cmd_prefix}: {underlying_cmd}")
 
     return "\n".join(lines)
 

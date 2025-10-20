@@ -108,12 +108,15 @@ def concepts() -> None:
         click.echo("No services found in manifest.")
         return
 
+    # Build a reverse mapping: service_name -> service_key
+    service_name_to_key = {svc_info.get("name", key): key for key, svc_info in services_dict.items()}
+
     # Build a map of service_key -> list of commands that use it
-    service_commands: dict[str, list[str]] = {svc_key: [] for svc_key in services_dict}
+    service_commands: dict[str, set[str]] = {svc_key: set() for svc_key in services_dict}
 
     # Scan all commands for explicit services or prefix matching
-    for _category, scripts in manifest.items():
-        if _category == "metadata" or not isinstance(scripts, dict):
+    for category, scripts in manifest.items():
+        if category == "metadata" or not isinstance(scripts, dict):
             continue
         for cmd_name, config in scripts.items():
             if not isinstance(config, dict):
@@ -121,13 +124,10 @@ def concepts() -> None:
 
             # Get services for this command
             services = get_services_for_command(cmd_name, config)
-            if services:
-                # Extract service keys that match
-                for svc_name, _ in services:
-                    for svc_key, svc_info in services_dict.items():
-                        if svc_info.get("name", svc_key) == svc_name:
-                            service_commands[svc_key].append(cmd_name)
-                            break
+            for svc_name, _ in services:
+                svc_key = service_name_to_key.get(svc_name)
+                if svc_key:
+                    service_commands[svc_key].add(cmd_name)
 
     click.echo("\nInfrastructure Concepts:\n")
     for service_key in sorted(services_dict.keys()):
@@ -137,7 +137,7 @@ def concepts() -> None:
         click.echo(f"  {name}")
         click.echo(f"    {about}")
 
-        commands = service_commands.get(service_key, [])
+        commands = service_commands[service_key]
         if commands:
             click.echo(f"    Commands: {', '.join(sorted(commands))}")
         click.echo()
