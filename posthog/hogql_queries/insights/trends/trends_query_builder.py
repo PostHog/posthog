@@ -61,17 +61,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         events_query = self._base_events_query()
+        inner_query = self._inner_select_query(inner_query=events_query)
 
         if self._trends_display.is_total_value():
-            return self._total_value_wrapper_query(events_query)
+            if not self.breakdown.enabled:
+                return events_query
+            return self._total_value_for_breakdown_query(inner_query=inner_query)
 
-        return self._outer_select_query(inner_query=self._inner_select_query(inner_query=events_query))
+        return self._outer_select_query(inner_query=inner_query)
 
-    def _total_value_wrapper_query(self, events_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
-        if not self.breakdown.enabled:
-            return events_query
-
-        inner_query = cast(
+    def _total_value_for_breakdown_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        rank_query = cast(
             ast.SelectQuery,
             parse_select(
                 """
@@ -79,13 +79,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     count as total,
                     breakdown_value as breakdown_value,
                     row_number() OVER (ORDER BY total DESC) as row_number
-                FROM {events_query}
+                FROM {inner_query}
                 ORDER BY
                     total DESC,
                     breakdown_value ASC
                 """,
                 placeholders={
-                    "events_query": self._inner_select_query(inner_query=events_query),
+                    "inner_query": inner_query,
                 },
             ),
         )
@@ -96,7 +96,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 SUM(total) AS total,
                 {breakdown_select}
             FROM
-                {inner_query}
+                {rank_query}
             WHERE {breakdown_filter}
             GROUP BY breakdown_value
             ORDER BY
@@ -108,8 +108,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 "breakdown_select": self._breakdown_outer_query_select(
                     self.breakdown, breakdown_limit=self._get_breakdown_limit() + 1
                 ),
-                "inner_query": inner_query,
-                "events_query": events_query,
+                "rank_query": rank_query,
                 "breakdown_filter": self._breakdown_outer_query_filter(self.breakdown),
                 "breakdown_order_by": self._breakdown_query_order_by(self.breakdown),
             },
