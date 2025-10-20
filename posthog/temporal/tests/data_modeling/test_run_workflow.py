@@ -740,7 +740,7 @@ async def test_run_workflow_with_minio_bucket(
     expected_events_a = [event for event in all_expected_events if event["distinct_id"] == "a"]
     expected_events_b = [event for event in all_expected_events if event["distinct_id"] == "b"]
 
-    workflow_id = str(uuid.uuid4())
+    workflow_id_1 = str(uuid.uuid4())
     inputs = RunWorkflowInputs(
         team_id=ateam.pk,
         select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0) for saved_query in saved_queries],
@@ -776,7 +776,7 @@ async def test_run_workflow_with_minio_bucket(
             await temporal_client.execute_workflow(
                 RunWorkflow.run,
                 inputs,
-                id=workflow_id,
+                id=workflow_id_1,
                 task_queue=constants.DATA_MODELING_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
@@ -842,8 +842,19 @@ async def test_run_workflow_with_minio_bucket(
                     warehouse_table.size_in_s3_mib is not None and warehouse_table.size_in_s3_mib != 0
                 ), f"Table size in mib for {query.name} is not set"
 
-            job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
+            job = await DataModelingJob.objects.aget(workflow_id=workflow_id_1)
             assert job.storage_delta_mib is not None and job.storage_delta_mib != 0, f"Job storage delta is not set"
+
+            # Run the job a second time
+            workflow_id_2 = str(uuid.uuid4())
+            await temporal_client.execute_workflow(
+                RunWorkflow.run,
+                inputs,
+                id=workflow_id_2,
+                task_queue=constants.DATA_MODELING_TASK_QUEUE,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=30),
+            )
 
 
 async def test_run_workflow_with_minio_bucket_with_errors(
