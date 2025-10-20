@@ -240,6 +240,47 @@ class ModelMigrator:
         """
         return source_base_path.replace("/", ".")
 
+    def _scan_directory_for_files(self, source_base_path: str) -> list[str]:
+        """Scan a directory and return list of Python files relative to source_base_path.
+
+        Convention-based scanning:
+        - models/ subdirectory → List all .py files (will get model-specific operations)
+        - Other subdirectories → List all .py files (will just be moved + imports updated)
+        - Top-level .py files → Include them
+
+        Args:
+            source_base_path: Directory to scan (e.g., "posthog/warehouse")
+
+        Returns:
+            List of files relative to source_base_path (e.g., ["models/table.py", "api/saved_query.py"])
+        """
+        source_dir = self.root_dir / source_base_path
+
+        if not source_dir.exists() or not source_dir.is_dir():
+            logger.warning("⚠️  Source directory not found: %s", source_dir)
+            return []
+
+        files = []
+
+        # Scan for all Python files recursively
+        for py_file in source_dir.rglob("*.py"):
+            # Skip __pycache__ and __init__.py
+            if py_file.name == "__pycache__" or py_file.name == "__init__.py":
+                continue
+
+            # Calculate relative path from source_base_path
+            try:
+                relative_path = py_file.relative_to(source_dir)
+                files.append(str(relative_path))
+            except ValueError:
+                continue
+
+        # Sort for consistent ordering
+        files.sort()
+
+        logger.info("📁 Scanned directory %s: found %d Python files", source_base_path, len(files))
+        return files
+
     def _build_model_to_filename_mapping(self, source_files: list[str]) -> dict[str, str]:
         """Build mapping of model names to their actual filenames (without .py).
 
@@ -1650,10 +1691,10 @@ class {app_name.title()}Config(AppConfig):
     def migrate_models(self, migration_spec: dict) -> bool:
         """Execute a single model migration with optimized processing"""
         name = migration_spec["name"]
-        source_files = migration_spec["source_files"]
         target_app = migration_spec["target_app"]
         create_backend = migration_spec.get("create_backend_dir", False)
         source_base_path = migration_spec.get("source_base_path", "posthog/models")
+        move_entire_directory = migration_spec.get("move_entire_directory", False)
 
         # Check if migration spec has merge_models setting (override default)
         if "merge_models" in migration_spec:
@@ -1668,8 +1709,21 @@ class {app_name.title()}Config(AppConfig):
         # Derive and store import_base_path (filesystem path -> Python import path)
         self.import_base_path = self._derive_import_base_path(source_base_path)
 
+        # Determine source files: either scan directory or use provided list
+        if move_entire_directory:
+            logger.info("📁 Directory mode: scanning %s for all Python files", source_base_path)
+            source_files = self._scan_directory_for_files(source_base_path)
+            if not source_files:
+                logger.error("❌ No Python files found in directory %s", source_base_path)
+                return False
+        else:
+            source_files = migration_spec["source_files"]
+
         logger.info("\n🚀 Starting migration: %s", name)
-        logger.info("   Source files: %s", source_files)
+        logger.info(
+            "   Source files: %s",
+            source_files if len(source_files) <= 5 else f"{source_files[:5]} ... ({len(source_files)} total)",
+        )
         logger.info("   Target app: %s", target_app)
         if source_base_path != "posthog/models":
             logger.info("   Source base path: %s", source_base_path)
