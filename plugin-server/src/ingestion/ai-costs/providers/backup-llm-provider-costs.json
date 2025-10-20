@@ -2,8 +2,8 @@
     {
         "model": "afm-4.5b",
         "cost": {
-            "prompt_token": 1e-7,
-            "completion_token": 4e-7
+            "prompt_token": 4.8e-8,
+            "completion_token": 1.5e-7
         }
     },
     {
@@ -121,6 +121,15 @@
         }
     },
     {
+        "model": "claude-haiku-4.5",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000005,
+            "cache_read_token": 1e-7,
+            "cache_write_token": 0.00000125
+        }
+    },
+    {
         "model": "claude-opus-4",
         "cost": {
             "prompt_token": 0.000015,
@@ -235,7 +244,7 @@
     {
         "model": "cydonia-24b-v4.1",
         "cost": {
-            "prompt_token": 1.5e-7,
+            "prompt_token": 3e-7,
             "completion_token": 5e-7
         }
     },
@@ -366,13 +375,6 @@
         }
     },
     {
-        "model": "deepseek-r1-distill-llama-8b",
-        "cost": {
-            "prompt_token": 4e-8,
-            "completion_token": 4e-8
-        }
-    },
-    {
         "model": "deepseek-r1-distill-qwen-14b",
         "cost": {
             "prompt_token": 1.5e-7,
@@ -492,6 +494,13 @@
         }
     },
     {
+        "model": "ernie-4.5-21b-a3b-thinking",
+        "cost": {
+            "prompt_token": 7e-8,
+            "completion_token": 2.8e-7
+        }
+    },
+    {
         "model": "ernie-4.5-300b-a47b",
         "cost": {
             "prompt_token": 2.8e-7,
@@ -540,8 +549,15 @@
         "cost": {
             "prompt_token": 3e-7,
             "completion_token": 0.0000025,
-            "cache_read_token": 7.5e-8,
+            "cache_read_token": 3e-8,
             "cache_write_token": 3.833e-7
+        }
+    },
+    {
+        "model": "gemini-2.5-flash-image",
+        "cost": {
+            "prompt_token": 3e-7,
+            "completion_token": 0.0000025
         }
     },
     {
@@ -556,7 +572,7 @@
         "cost": {
             "prompt_token": 1e-7,
             "completion_token": 4e-7,
-            "cache_read_token": 2.5e-8,
+            "cache_read_token": 1e-8,
             "cache_write_token": 1.833e-7
         }
     },
@@ -590,7 +606,7 @@
         "cost": {
             "prompt_token": 0.00000125,
             "completion_token": 0.00001,
-            "cache_read_token": 3.1e-7,
+            "cache_read_token": 1.25e-7,
             "cache_write_token": 0.000001625
         }
     },
@@ -636,8 +652,8 @@
     {
         "model": "gemma-3-12b-it",
         "cost": {
-            "prompt_token": 4e-8,
-            "completion_token": 1.3e-7
+            "prompt_token": 3e-8,
+            "completion_token": 1e-7
         }
     },
     {
@@ -664,8 +680,8 @@
     {
         "model": "gemma-3-4b-it",
         "cost": {
-            "prompt_token": 4e-8,
-            "completion_token": 8e-8
+            "prompt_token": 1.703012e-8,
+            "completion_token": 6.81536e-8
         }
     },
     {
@@ -720,8 +736,8 @@
     {
         "model": "glm-4.5-air",
         "cost": {
-            "prompt_token": 0,
-            "completion_token": 0
+            "prompt_token": 1.4e-7,
+            "completion_token": 8.6e-7
         }
     },
     {
@@ -735,7 +751,8 @@
         "model": "glm-4.5v",
         "cost": {
             "prompt_token": 6e-7,
-            "completion_token": 0.0000018
+            "completion_token": 0.0000018,
+            "cache_read_token": 1.1e-7
         }
     },
     {
@@ -943,6 +960,14 @@
             "prompt_token": 0.00000125,
             "completion_token": 0.00001,
             "cache_read_token": 1.25e-7
+        }
+    },
+    {
+        "model": "gpt-5-image",
+        "cost": {
+            "prompt_token": 0.000005,
+            "completion_token": 0.00001,
+            "cache_read_token": 0.00000125
         }
     },
     {
@@ -1179,6 +1204,13 @@
         }
     },
     {
+        "model": "l3.1-70b-hanami-x1",
+        "cost": {
+            "prompt_token": 0.000003,
+            "completion_token": 0.000003
+        }
+    },
+    {
         "model": "l3.1-euryale-70b",
         "cost": {
             "prompt_token": 6.5e-7,
@@ -1204,6 +1236,13 @@
         "cost": {
             "prompt_token": 1e-8,
             "completion_token": 1e-8
+        }
+    },
+    {
+        "model": "ling-1t",
+        "cost": {
+            "prompt_token": 0,
+            "completion_token": 0
         }
     },
     {
@@ -1307,8 +1346,8 @@
     {
         "model": "llama-3.3-70b-instruct",
         "cost": {
-            "prompt_token": 4e-8,
-            "completion_token": 1.2e-7
+            "prompt_token": 1.3e-7,
+            "completion_token": 3.8e-7
         }
     },
     {
@@ -1323,6 +1362,13 @@
         "cost": {
             "prompt_token": 0,
             "completion_token": 0
+        }
+    },
+    {
+        "model": "llama-3.3-nemotron-super-49b-v1.5",
+        "cost": {
+            "prompt_token": 1e-7,
+            "completion_token": 4e-7
         }
     },
     {
@@ -1475,8 +1521,8 @@
     {
         "model": "minimax-m1",
         "cost": {
-            "prompt_token": 3e-7,
-            "completion_token": 0.00000165
+            "prompt_token": 4e-7,
+            "completion_token": 0.0000022
         }
     },
     {
@@ -1505,6 +1551,13 @@
         "cost": {
             "prompt_token": 1.1e-7,
             "completion_token": 1.9e-7
+        }
+    },
+    {
+        "model": "mistral-7b-instruct-v0.2",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 2e-7
         }
     },
     {
@@ -1757,6 +1810,14 @@
         }
     },
     {
+        "model": "o3-deep-research",
+        "cost": {
+            "prompt_token": 0.00001,
+            "completion_token": 0.00004,
+            "cache_read_token": 0.0000025
+        }
+    },
+    {
         "model": "o3-mini",
         "cost": {
             "prompt_token": 0.0000011,
@@ -1785,6 +1846,14 @@
             "prompt_token": 0.0000011,
             "completion_token": 0.0000044,
             "cache_read_token": 2.75e-7
+        }
+    },
+    {
+        "model": "o4-mini-deep-research",
+        "cost": {
+            "prompt_token": 0.000002,
+            "completion_token": 0.000008,
+            "cache_read_token": 5e-7
         }
     },
     {
@@ -2154,8 +2223,36 @@
     {
         "model": "qwen3-vl-235b-a22b-thinking",
         "cost": {
-            "prompt_token": 5e-7,
+            "prompt_token": 4.5e-7,
             "completion_token": 0.0000035
+        }
+    },
+    {
+        "model": "qwen3-vl-30b-a3b-instruct",
+        "cost": {
+            "prompt_token": 2.9e-7,
+            "completion_token": 9.9e-7
+        }
+    },
+    {
+        "model": "qwen3-vl-30b-a3b-thinking",
+        "cost": {
+            "prompt_token": 2.9e-7,
+            "completion_token": 0.000001
+        }
+    },
+    {
+        "model": "qwen3-vl-8b-instruct",
+        "cost": {
+            "prompt_token": 1.8e-7,
+            "completion_token": 6.9e-7
+        }
+    },
+    {
+        "model": "qwen3-vl-8b-thinking",
+        "cost": {
+            "prompt_token": 1.8e-7,
+            "completion_token": 0.0000021
         }
     },
     {
@@ -2177,13 +2274,6 @@
         "cost": {
             "prompt_token": 0,
             "completion_token": 0
-        }
-    },
-    {
-        "model": "r1-1776",
-        "cost": {
-            "prompt_token": 0.000002,
-            "completion_token": 0.000008
         }
     },
     {

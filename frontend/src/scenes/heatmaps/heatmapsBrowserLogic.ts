@@ -355,7 +355,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
     }),
 
-    listeners(({ actions, cache, props, values }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         setDisplayUrl: ({ url }) => {
             if (!values.dataUrl || values.dataUrl.trim() === '') {
                 actions.setDataUrl(url)
@@ -364,7 +364,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 actions.setDataUrl(null)
             }
         },
-
         setReplayIframeData: ({ replayIframeData }) => {
             if (replayIframeData && replayIframeData.url) {
                 actions.setHref(replayIframeData.url)
@@ -453,17 +452,23 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         startTrackingLoading: () => {
             actions.setIframeBanner(null)
 
-            clearTimeout(cache.errorTimeout)
-            cache.errorTimeout = setTimeout(() => {
-                actions.setIframeBanner({ level: 'error', message: 'The heatmap failed to load (or is very slow).' })
-            }, 7500)
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    actions.setIframeBanner({
+                        level: 'error',
+                        message: 'The heatmap failed to load (or is very slow).',
+                    })
+                }, 7500)
+                return () => clearTimeout(timerId)
+            }, 'errorTimeout')
         },
 
         stopTrackingLoading: () => {
             actions.setIframeBanner(null)
 
-            clearTimeout(cache.errorTimeout)
-            clearTimeout(cache.warnTimeout)
+            // Clear timeouts using disposables
+            cache.disposables.dispose('errorTimeout')
+            cache.disposables.dispose('warnTimeout')
         },
 
         generateScreenshotSuccess: ({ screenshot }) => {
@@ -592,13 +597,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
     })),
 
-    beforeUnmount(({ cache }) => {
-        // Clean up any pending error timeout to prevent memory leaks
-        if (cache.errorTimeout) {
-            clearTimeout(cache.errorTimeout)
-        }
-        if (cache.warnTimeout) {
-            clearTimeout(cache.warnTimeout)
-        }
+    beforeUnmount(() => {
+        // Disposables handle cleanup automatically
     }),
 ])

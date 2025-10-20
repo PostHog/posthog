@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -177,24 +177,21 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             }
         },
         setMainContentRef: ({ ref }) => {
-            // Clean up old ResizeObserver
-            if (cache.resizeObserver) {
-                cache.resizeObserver.disconnect()
-                cache.resizeObserver = null
-            }
-
             // Measure width immediately when container ref is set
             if (ref?.current) {
                 actions.setMainContentRect(ref.current.getBoundingClientRect())
 
                 // Set up new ResizeObserver for the new container
                 if (typeof ResizeObserver !== 'undefined') {
-                    cache.resizeObserver = new ResizeObserver(() => {
-                        if (ref?.current) {
-                            actions.setMainContentRect(ref.current.getBoundingClientRect())
-                        }
-                    })
-                    cache.resizeObserver.observe(ref.current)
+                    cache.disposables.add(() => {
+                        const observer = new ResizeObserver(() => {
+                            if (ref?.current) {
+                                actions.setMainContentRect(ref.current.getBoundingClientRect())
+                            }
+                        })
+                        observer.observe(ref.current!)
+                        return () => observer.disconnect()
+                    }, 'resizeObserver')
                 }
             }
         },
@@ -223,25 +220,18 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         pathname: [(s) => [s.location], (location): string => location.pathname],
     }),
     afterMount(({ actions, cache, values }) => {
-        const handleResize = (): void => {
-            const mainContentRef = values.mainContentRef
-            if (mainContentRef?.current) {
-                actions.setMainContentRect(mainContentRef.current.getBoundingClientRect())
-            }
-        }
-        cache.handleResize = handleResize
-
         // Watch for window resize
         if (typeof window !== 'undefined') {
-            window.addEventListener('resize', handleResize)
-        }
-    }),
-    beforeUnmount(({ cache }) => {
-        if (typeof window !== 'undefined' && cache.handleResize) {
-            window.removeEventListener('resize', cache.handleResize)
-        }
-        if (cache.resizeObserver) {
-            cache.resizeObserver.disconnect()
+            cache.disposables.add(() => {
+                const handleResize = (): void => {
+                    const mainContentRef = values.mainContentRef
+                    if (mainContentRef?.current) {
+                        actions.setMainContentRect(mainContentRef.current.getBoundingClientRect())
+                    }
+                }
+                window.addEventListener('resize', handleResize)
+                return () => window.removeEventListener('resize', handleResize)
+            }, 'windowResize')
         }
     }),
 ])
