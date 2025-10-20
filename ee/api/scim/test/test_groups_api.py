@@ -2,6 +2,7 @@ import uuid
 
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -13,6 +14,14 @@ from ee.models.rbac.role import Role, RoleMembership
 class TestSCIMGroupsAPI(APILicensedTest):
     def setUp(self):
         super().setUp()
+
+        # Ensure SCIM is in available features
+        if not self.organization.is_feature_available(AvailableFeature.SCIM):
+            features = self.organization.available_product_features or []
+            if not any(f.get("key") == AvailableFeature.SCIM for f in features):
+                features.append({"key": AvailableFeature.SCIM, "name": "SCIM"})
+            self.organization.available_product_features = features
+            self.organization.save()
 
         # Create organization domain with SCIM enabled
         self.domain = OrganizationDomain.objects.create(
@@ -349,7 +358,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
 
         patch_data = {
             "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
-            "Operations": [{"op": "add", "path": f'members[value eq "{user1.id}"]', "value": {"value": str(user1.id)}}],
+            "Operations": [{"op": "add", "path": f'members[value eq "{user1.id}"]'}],
         }
 
         response = self.client.patch(

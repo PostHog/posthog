@@ -195,12 +195,20 @@ class PostHogSCIMGroup(SCIMGroup):
                 self.obj.save()
 
             elif attr_name == "members":
-                members_to_add = value if isinstance(value, list) else [value]
+                if path.is_complex:
+                    # Handle filtered path: members[value eq "<user-id>"]
+                    user_id = path.params_by_attr_paths.get(("members", "value", None))
+                    if user_id:
+                        members_to_add = [{"value": user_id}]
+                elif isinstance(value, list):
+                    members_to_add = value
+                elif isinstance(value, dict):
+                    members_to_add = [value]
+                elif isinstance(value, str):
+                    members_to_add = [{"value": value}]
 
                 for member_data in members_to_add:
                     user_id = member_data.get("value")
-                    if not user_id:
-                        continue
 
                     try:
                         user = User.objects.get(id=user_id)

@@ -1,5 +1,6 @@
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -10,6 +11,14 @@ from ee.api.test.base import APILicensedTest
 class TestSCIMUsersAPI(APILicensedTest):
     def setUp(self):
         super().setUp()
+
+        # Ensure SCIM is in available features
+        if not self.organization.is_feature_available(AvailableFeature.SCIM):
+            features = self.organization.available_product_features or []
+            if not any(f.get("key") == AvailableFeature.SCIM for f in features):
+                features.append({"key": AvailableFeature.SCIM, "name": "SCIM"})
+            self.organization.available_product_features = features
+            self.organization.save()
 
         # Create organization domain with SCIM enabled
         self.domain = OrganizationDomain.objects.create(
