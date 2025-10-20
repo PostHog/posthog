@@ -155,6 +155,9 @@ pub async fn setup_pg_reader_client(config: Option<&Config>) -> Arc<dyn Client +
             None
         },
         test_before_acquire: *config.test_before_acquire,
+        statement_timeout: Some(std::time::Duration::from_millis(
+            config.statement_timeout_ms,
+        )),
     };
     Arc::new(
         get_pool_with_config(&config.read_database_url, pool_config)
@@ -180,6 +183,9 @@ pub async fn setup_pg_writer_client(config: Option<&Config>) -> Arc<dyn Client +
             None
         },
         test_before_acquire: *config.test_before_acquire,
+        statement_timeout: Some(std::time::Duration::from_millis(
+            config.statement_timeout_ms,
+        )),
     };
     Arc::new(
         get_pool_with_config(&config.write_database_url, pool_config)
@@ -210,6 +216,9 @@ pub async fn setup_dual_pg_readers(
             None
         },
         test_before_acquire: *config.test_before_acquire,
+        statement_timeout: Some(std::time::Duration::from_millis(
+            config.statement_timeout_ms,
+        )),
     };
 
     if config.is_persons_db_routing_enabled() {
@@ -261,6 +270,9 @@ pub async fn setup_dual_pg_writers(
             None
         },
         test_before_acquire: *config.test_before_acquire,
+        statement_timeout: Some(std::time::Duration::from_millis(
+            config.statement_timeout_ms,
+        )),
     };
 
     if config.is_persons_db_routing_enabled() {

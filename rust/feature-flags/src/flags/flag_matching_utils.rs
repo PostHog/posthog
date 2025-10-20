@@ -214,6 +214,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
     let (person_id, person_props): (Option<PersonId>, Option<Value>) = {
         let mut conn = reader.get_connection().await?;
+        // DUAL TIMEOUT APPROACH:
+        // 1. Client-side timeout (tokio::time::timeout) - fails fast, doesn't cancel server query
+        // 2. Server-side timeout (statement_timeout) - actually cancels long-running queries
+        // The server timeout is configured in the connection pool and is slightly higher
+        // than client timeouts to allow for network overhead.
         timeout(
             Duration::from_millis(config.flag_person_query_timeout_ms),
             sqlx::query_as(person_query)
@@ -264,6 +269,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
             let cohort_rows = {
                 let mut conn = reader.get_connection().await?;
+                // DUAL TIMEOUT APPROACH: Client-side fails fast, server-side cancels query
                 timeout(
                     Duration::from_millis(config.flag_cohort_query_timeout_ms),
                     sqlx::query(cohort_query)
@@ -355,6 +361,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
         let groups = {
             let mut conn = reader.get_connection().await?;
+            // DUAL TIMEOUT APPROACH: Client-side fails fast, server-side cancels query
             timeout(
                 Duration::from_millis(config.flag_group_query_timeout_ms),
                 sqlx::query(group_query)

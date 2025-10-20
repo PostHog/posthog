@@ -40,6 +40,7 @@ impl DatabasePools {
                 None
             },
             test_before_acquire: *config.test_before_acquire,
+            statement_timeout: Some(Duration::from_millis(config.statement_timeout_ms)),
         };
 
         let write_pool_config = PoolConfig {
@@ -57,6 +58,7 @@ impl DatabasePools {
                 None
             },
             test_before_acquire: *config.test_before_acquire,
+            statement_timeout: Some(Duration::from_millis(config.statement_timeout_ms)),
         };
 
         let non_persons_reader = Arc::new(

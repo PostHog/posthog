@@ -332,6 +332,12 @@ pub struct Config {
     #[envconfig(from = "FLAG_HASH_KEY_OVERRIDE_QUERY_TIMEOUT_MS", default = "500")]
     pub flag_hash_key_override_query_timeout_ms: u64,
 
+    // Server-side statement timeout (milliseconds)
+    // This sets PostgreSQL's statement_timeout to actually cancel long-running queries
+    // Should be slightly higher than client-side timeouts to allow for network overhead
+    #[envconfig(from = "STATEMENT_TIMEOUT_MS", default = "1000")]
+    pub statement_timeout_ms: u64,
+
     // Logging thresholds for slow queries (milliseconds)
     // Queries exceeding these thresholds will be logged at different severity levels
     #[envconfig(from = "FLAG_QUERY_SLOW_INFO_THRESHOLD_MS", default = "100")]
@@ -404,6 +410,7 @@ impl Config {
             flag_cohort_query_timeout_ms: 200,
             flag_group_query_timeout_ms: 300,
             flag_hash_key_override_query_timeout_ms: 500,
+            statement_timeout_ms: 1000,
             flag_query_slow_info_threshold_ms: 100,
             flag_query_slow_warn_threshold_ms: 500,
             flag_query_slow_error_threshold_ms: 1000,
