@@ -1,6 +1,5 @@
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { FilterOkBatchPipeline, OkResultWithContext } from './filter-ok-batch-pipeline'
-import { PipelineContext } from './pipeline.interface'
 
 export type MappingFunction<TInput, TOutput, CInput, COutput> = (
     element: OkResultWithContext<TInput, CInput>
@@ -10,7 +9,7 @@ export class MappingBatchPipeline<
     TInput,
     TIntermediate,
     TOutput,
-    CInput = PipelineContext,
+    CInput,
     CIntermediate = CInput,
     COutput = CIntermediate,
 > implements BatchPipeline<TInput, TOutput, CInput, COutput>
