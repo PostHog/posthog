@@ -92,15 +92,12 @@ if [ -d "$UV_PROJECT_ENVIRONMENT/bin" ]; then
   ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
 fi
 
-# Install shell completions for hogli (silent, non-blocking)
+# Install shell completions for hogli in flox environment cache
+HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
+mkdir -p "$HOGLI_COMPLETION_DIR"
 if command -v python &> /dev/null; then
-  if [[ "$SHELL" == *"bash"* ]] && ! grep -q "_hogli_completion" "$HOME/.bash_completion.d/hogli" 2>/dev/null; then
-    mkdir -p "$HOME/.bash_completion.d"
-    python -m hogli.completion --shell bash > "$HOME/.bash_completion.d/hogli" 2>/dev/null || true
-  elif [[ "$SHELL" == *"zsh"* ]] && [ ! -f "$HOME/.zsh/completions/_hogli" ]; then
-    mkdir -p "$HOME/.zsh/completions"
-    python -m hogli.completion --shell zsh > "$HOME/.zsh/completions/_hogli" 2>/dev/null || true
-  fi
+  python -m hogli.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
+  python -m hogli.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
 fi
 
 # Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)
@@ -174,16 +171,22 @@ bash = '''
   fi
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
+  # Source hogli bash completions if bash-completion is available
+  if [ -n "$BASH_COMPLETION_COMPAT_DIR" ]; then
+    source "$FLOX_ENV_CACHE/completions/hogli.bash" 2>/dev/null || true
+  fi
   source $UV_PROJECT_ENVIRONMENT/bin/activate
 '''
 zsh = '''
   if [[ -f "$HOME/.zshrc" ]]; then
     source "$HOME/.zshrc"
-    # ensure even with your shell prefs in place we know this is a Flox.dev env
+    # ensure even with your shell preps in place we know this is a Flox.dev env
     export PS1="%K{white}%F{black}(flox)%k%f $PS1"
   fi
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
+  # Add hogli completions to fpath for zsh
+  fpath=("$FLOX_ENV_CACHE/completions" $fpath)
   source $UV_PROJECT_ENVIRONMENT/bin/activate
 '''
 fish = '''
