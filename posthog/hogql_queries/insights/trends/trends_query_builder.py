@@ -66,11 +66,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if self._trends_display.is_total_value():
             if not self.breakdown.enabled:
                 return events_query
-            return self._total_value_for_breakdown_query(inner_query=inner_query)
+            return self._total_value_by_breakdown_query(inner_query=inner_query)
 
         return self._outer_select_query(inner_query=inner_query)
 
-    def _total_value_for_breakdown_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+    def _total_value_by_breakdown_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         rank_query = cast(
             ast.SelectQuery,
             parse_select(
