@@ -164,8 +164,6 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
     const resolvedName = formatResolvedName(frame)
     const sourceData = getSourceDataForFrame(raw_id)
 
-    console.log(sourceData)
-
     return (
         <div className="flex flex-1 justify-between items-center h-full">
             <div className="flex flex-wrap gap-x-1">
@@ -195,7 +193,6 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
                             tooltipMessage="Copy file name"
                             iconSize="xsmall"
                             explicitValue={source}
-                            className="ml-0"
                         />
                     </span>
                 )}

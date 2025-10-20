@@ -13,13 +13,7 @@ const PROVIDER_ICON_MAP: Record<string, React.ComponentType<{ className?: string
     github: IconGithub,
 }
 
-export function GitProviderFileLink({
-    sourceData,
-    className,
-}: {
-    sourceData: SourceData
-    className?: string
-}): JSX.Element {
+export function GitProviderFileLink({ sourceData }: { sourceData: SourceData }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
     const isHovering = useIsHovering(ref)
 
@@ -28,8 +22,8 @@ export function GitProviderFileLink({
 
     return (
         <Tooltip title="View source" placement="top">
-            <Link to={sourceData.url!} target="_blank" ref={ref}>
-                <Icon className={className} color={isHovering ? 'red' : 'gray'} />
+            <Link to={sourceData.url!} target="_blank" ref={ref} className="inline-flex items-center">
+                <Icon className="w-3.5 h-3.5" color={isHovering ? 'red' : 'gray'} />
             </Link>
         </Tooltip>
     )

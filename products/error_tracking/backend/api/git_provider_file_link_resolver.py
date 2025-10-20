@@ -14,9 +14,19 @@ from posthog.models.integration import GitHubIntegration, Integration
 logger = structlog.get_logger(__name__)
 
 
+def prepare_github_search_query(q):
+    if not q:
+        return ""
+    special_chars = ".,:;/\\`'\"=*!?#$&+^|~<>(){}[]"
+    for char in special_chars:
+        q = q.replace(char, " ")
+    return " ".join(q.split())
+
+
 def get_github_file_url(code_sample: str, token: str, owner: str, repository: str, file_name: str) -> str | None:
     """Search GitHub code using the Code Search API. Returns URL to first match or None."""
-    search_query = f"{code_sample} repo:{owner}/{repository} filename:{file_name}"
+    code_query = prepare_github_search_query(code_sample)
+    search_query = f"{code_query} repo:{owner}/{repository} filename:{file_name}"
     encoded_query = urllib.parse.quote(search_query)
     url = f"https://api.github.com/search/code?q={encoded_query}"
 
@@ -25,11 +35,6 @@ def get_github_file_url(code_sample: str, token: str, owner: str, repository: st
         "Accept": "application/vnd.github.text-match+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
-
-    print(search_query)
-    print(encoded_query)
-    print(url)
-    print(headers)
 
     try:
         response = requests.get(url, headers=headers, timeout=10)
