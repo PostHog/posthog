@@ -12,19 +12,18 @@ from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.errors import GraphRecursionError
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
-from pydantic import BaseModel
 
 from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
     AssistantMessage,
     FailureMessage,
     HumanMessage,
     MaxBillingContext,
-    ReasoningMessage,
+    UpdateMessage,
 )
 
 from posthog import event_usage
@@ -33,24 +32,18 @@ from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.graph.graph import AssistantCompiledStateGraph
 from ee.hogai.utils.exceptions import GenerationCanceled
-from ee.hogai.utils.helpers import (
-    extract_content_from_ai_message,
-    extract_stream_update,
-    should_output_assistant_message,
-)
+from ee.hogai.utils.helpers import extract_stream_update, normalize_ai_message
+from ee.hogai.utils.reducer import AssistantMessageReducer
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
-    GraphTaskStartedUpdateTuple,
     GraphValueUpdateTuple,
+    is_dispatcher_update,
     is_message_update,
     is_state_update,
-    is_task_started_update,
     is_value_update,
     merge_message_chunk,
     validate_state_update,
-    validate_value_update,
 )
 from ee.hogai.utils.types import AssistantMessageOrStatusUnion, AssistantMessageUnion, AssistantOutput
 from ee.hogai.utils.types.base import AssistantMode
@@ -62,7 +55,7 @@ logger = structlog.get_logger(__name__)
 
 class BaseAssistant(ABC):
     _team: Team
-    _graph: AssistantCompiledStateGraph
+    _graph: CompiledStateGraph
     _user: User
     _state_type: type[AssistantMaxGraphState]
     _partial_state_type: type[AssistantMaxPartialGraphState]
@@ -81,8 +74,8 @@ class BaseAssistant(ABC):
     """Last emitted reasoning headline, to be able to carry it over."""
     _billing_context: Optional[MaxBillingContext]
     _initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState]
-    _commentary_chunk: Optional[str]
-    """Buffer for accumulating partial commentary from tool call chunks."""
+    _reducer: AssistantMessageReducer
+    """The message reducer that processes dispatcher actions."""
 
     def __init__(
         self,
@@ -91,7 +84,7 @@ class BaseAssistant(ABC):
         *,
         new_message: Optional[HumanMessage] = None,
         user: User,
-        graph: AssistantCompiledStateGraph,
+        graph: CompiledStateGraph,
         state_type: type[AssistantMaxGraphState],
         partial_state_type: type[AssistantMaxPartialGraphState],
         mode: AssistantMode,
@@ -138,7 +131,10 @@ class BaseAssistant(ABC):
         self._billing_context = billing_context
         self._mode = mode
         self._initial_state = initial_state
-        self._commentary_chunk = None
+        # Initialize the reducer with node configuration
+        self._reducer = AssistantMessageReducer(
+            visualization_nodes=self.VISUALIZATION_NODES,
+        )
 
     @property
     @abstractmethod
@@ -150,18 +146,6 @@ class BaseAssistant(ABC):
     @abstractmethod
     def STREAMING_NODES(self) -> set[MaxNodeName]:
         """Nodes that can stream messages to the client."""
-        pass
-
-    @property
-    @abstractmethod
-    def VERBOSE_NODES(self) -> set[MaxNodeName]:
-        """Nodes that can send messages to the client."""
-        pass
-
-    @property
-    @abstractmethod
-    def THINKING_NODES(self) -> set[MaxNodeName]:
-        """Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
         pass
 
     @abstractmethod
@@ -201,7 +185,7 @@ class BaseAssistant(ABC):
         state = await self._init_or_update_state()
         config = self._get_config()
 
-        stream_mode: list[StreamMode] = ["values", "updates", "debug", "custom"]
+        stream_mode: list[StreamMode] = ["values", "updates", "custom"]
         if stream_message_chunks:
             stream_mode.append("messages")
 
@@ -224,14 +208,16 @@ class BaseAssistant(ABC):
                         for message in messages:
                             # Messages with existing IDs must be deduplicated.
                             # Messages WITHOUT IDs must be streamed because they're progressive.
-                            if hasattr(message, "id") and message.id is not None:
+                            if (
+                                not isinstance(message, UpdateMessage)
+                                and hasattr(message, "id")
+                                and message.id is not None
+                            ):
                                 if message.id in self._streamed_update_ids:
                                     continue
                                 self._streamed_update_ids.add(message.id)
 
-                            if stream_only_assistant_messages and isinstance(
-                                message, get_args(ReasoningMessage | AssistantGenerationStatusEvent)
-                            ):
+                            if stream_only_assistant_messages and isinstance(message, AssistantGenerationStatusEvent):
                                 continue
 
                             yield AssistantEventType.MESSAGE, cast(AssistantMessageOrStatusUnion, message)
@@ -347,112 +333,48 @@ class BaseAssistant(ABC):
         self._state = initial_state
         return initial_state
 
-    async def _node_to_reasoning_message(
-        self, node_name: MaxNodeName, input: AssistantMaxGraphState
-    ) -> Optional[ReasoningMessage]:
-        if node_name not in self.THINKING_NODES:
-            return None
-        async_callable = self._graph.aget_reasoning_message_by_node_name.get(node_name)
-        if async_callable:
-            return await async_callable(input, self._last_reasoning_headline or "")
-        return None
-
-    async def _process_update(self, update: Any) -> list[BaseModel] | None:
+    async def _process_update(self, update: Any) -> list[AssistantMessageOrStatusUnion] | None:
         update = extract_stream_update(update)
         if is_state_update(update):
             _, new_state = update
             self._state = validate_state_update(new_state, self._state_type)
-        elif is_value_update(update) and (new_messages := self._process_value_update(update)):
-            return new_messages
-        elif is_message_update(update) and (new_message := await self._aprocess_message_update(update)):
+        elif is_dispatcher_update(update) and (new_message := self._reducer.reduce(update)):
+            return [new_message] if new_message else None
+        elif is_value_update(update) and (new_message := await self._aprocess_value_update(update)):
             return [new_message]
-        elif is_task_started_update(update) and (new_message := await self._process_task_started_update(update)):
+        elif is_message_update(update) and (new_message := await self._aprocess_message_update(update)):
             return [new_message]
         return None
 
-    def _process_value_update(self, update: GraphValueUpdateTuple) -> list[BaseModel] | None:
-        _, maybe_state_update = update
-        state_update = validate_value_update(maybe_state_update)
-        if intersected_nodes := state_update.keys() & self.VISUALIZATION_NODES.keys():
-            # Reset chunks when schema validation fails.
-            self._chunks = AIMessageChunk(content="")
+    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantMessageOrStatusUnion | None:
+        return None
 
-            node_name: MaxNodeName = intersected_nodes.pop()
-            node_val = state_update[node_name]
-            if not isinstance(node_val, get_args(AssistantMaxGraphState | AssistantMaxPartialGraphState)):
-                return None
-            if node_val.messages:
-                return list(node_val.messages)
+    async def _aprocess_message_update(self, update: GraphMessageUpdateTuple) -> AssistantMessageOrStatusUnion | None:
+        """
+        Process LLM chunks from "messages" stream mode.
 
-        for node_name in self.VERBOSE_NODES:
-            if node_val := state_update.get(node_name):
-                if isinstance(node_val, get_args(AssistantMaxPartialGraphState)) and node_val.messages:
-                    self._chunks = AIMessageChunk(content="")
-                    _messages: list[BaseModel] = []
-                    for candidate_message in node_val.messages:
-                        if should_output_assistant_message(candidate_message):
-                            _messages.append(candidate_message)
-                    return _messages
+        With dispatch pattern, complete messages are dispatched by nodes.
+        This handles AIMessageChunk for ephemeral streaming (responsiveness).
+        """
+        langchain_message, state = update[1]
+        node_name = state["langgraph_node"]
 
-        for node_name in self.THINKING_NODES:
-            if node_val := state_update.get(node_name):
-                # If update involves new state from a thinking node, we reset the thinking headline to be sure
-                self._reasoning_headline_chunk = None
-
-        return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)]
-
-    async def _aprocess_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
-        langchain_message, langgraph_state = update[1]
-
-        # Return ready messages as is
+        # Return ready messages as is (dispatched by nodes, streamed to client)
         if isinstance(langchain_message, get_args(AssistantMessageUnion)):
-            # Persist selected streamed messages
-            try:
-                node_name = cast(MaxNodeName, langgraph_state["langgraph_node"])
-                if self._should_persist_stream_message(langchain_message, node_name):
-                    await self._persist_stream_message(node_name, langchain_message)
-            except Exception as e:
-                logger.warning("Failed to persist streamed message", error=str(e))
-            return langchain_message
+            raise ValueError("AssistantMessageUnion messages should be dispatched by nodes, not processed here.")
 
-        # If not ready message or chunk, return None
-        if not isinstance(langchain_message, AIMessageChunk):
+        if node_name not in self.STREAMING_NODES:
             return None
 
-        node_name = cast(MaxNodeName, langgraph_state["langgraph_node"])
-
-        # Check for commentary in tool call chunks first
-        if extracted := self._extract_commentary_from_tool_call_chunk(langchain_message):
-            commentary_text, is_complete = extracted
-            message = AssistantMessage(content=commentary_text)
-            try:
-                if is_complete and self._should_persist_commentary_message(node_name):
-                    await self._persist_stream_message(node_name, message)
-            except Exception as e:
-                logger.warning("Failed to persist streamed commentary", error=str(e))
-            if is_complete:
-                return None
-            return message
-        # Check for reasoning content first (for all nodes that support it)
-        if node_name in self.THINKING_NODES:
-            if reasoning := langchain_message.additional_kwargs.get("reasoning"):
-                if reasoning_headline := self._chunk_reasoning_headline(reasoning):
-                    return ReasoningMessage(content=reasoning_headline)
-
-        # Only process streaming nodes
-        if node_name not in self.STREAMING_NODES:
+        # Only process LLM chunks for streaming
+        if not isinstance(langchain_message, AIMessageChunk):
             return None
 
         # Merge message chunks
         self._chunks = merge_message_chunk(self._chunks, langchain_message)
 
-        # Extract and process content
-        message_content = extract_content_from_ai_message(self._chunks)
-
-        if not message_content:
-            return None
-
-        return AssistantMessage(content=message_content)
+        # Stream ephemeral message (no ID = not persisted)
+        return normalize_ai_message(self._chunks)
 
     def _build_root_config_for_persistence(self) -> RunnableConfig:
         """
@@ -468,149 +390,6 @@ class BaseAssistant(ABC):
                 "checkpoint_ns": "",
             }
         }
-
-    async def _persist_stream_message(self, node_name: MaxNodeName, message: AssistantMessageUnion) -> None:
-        """Persist a single streamed message as a partial state update on the root graph."""
-        root_config = self._build_root_config_for_persistence()
-        partial_update = self._partial_state_type(messages=[message])
-        await self._graph.aupdate_state(root_config, partial_update, as_node=node_name)
-
-    def _should_persist_stream_message(self, message: BaseModel, node_name: MaxNodeName) -> bool:
-        """Subclasses can opt-in to persisting specific streamed messages."""
-        return False
-
-    def _should_persist_commentary_message(self, node_name: MaxNodeName) -> bool:
-        """Subclasses can opt-in to persisting completed commentary messages."""
-        return False
-
-    def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
-        """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it.
-
-        Captures everything between the first opening ** and the last closing ** as the headline.
-
-        Returns None if no complete headline was found.
-        """
-        BOLD_MARKER = "**"
-
-        try:
-            if summary := reasoning.get("summary"):
-                summary_text_chunk = summary[0]["text"]
-            else:
-                self._reasoning_headline_chunk = None  # Reset as we don't have any summary yet
-                return None
-        except Exception as e:
-            logger.exception("Error in chunk_reasoning_headline", error=e)
-            self._capture_exception(e)  # not expected, so let's capture
-            self._reasoning_headline_chunk = None
-            return None
-
-        if self._reasoning_headline_chunk is None:
-            # Not currently building a headline - look for opening **
-            first_marker = summary_text_chunk.find(BOLD_MARKER)
-            if first_marker == -1:
-                return None  # No markers, nothing to do
-
-            # Found opening marker
-            remaining = summary_text_chunk[first_marker + 2 :]
-            last_marker = remaining.rfind(BOLD_MARKER)
-
-            if last_marker != -1:
-                # Found closing marker - complete headline in one chunk
-                # Filter out any internal ** markers
-                headline = remaining[:last_marker].replace(BOLD_MARKER, "")
-                self._last_reasoning_headline = headline
-                return self._last_reasoning_headline
-            else:
-                # No closing marker yet - start accumulating
-                self._reasoning_headline_chunk = remaining
-                return None
-        else:
-            # Currently building a headline - look for closing **
-            last_marker = summary_text_chunk.rfind(BOLD_MARKER)
-            if last_marker != -1:
-                # Found closing marker
-                self._reasoning_headline_chunk += summary_text_chunk[:last_marker]
-                # Filter out any internal ** markers
-                if self._reasoning_headline_chunk:
-                    headline = self._reasoning_headline_chunk.replace(BOLD_MARKER, "")
-                    self._last_reasoning_headline = headline
-                    self._reasoning_headline_chunk = None
-                    return self._last_reasoning_headline
-                else:
-                    self._reasoning_headline_chunk = None
-                    return None
-            else:
-                # Still accumulating
-                self._reasoning_headline_chunk += summary_text_chunk
-                return None
-
-    def _extract_commentary_from_tool_call_chunk(self, langchain_message: AIMessageChunk) -> Optional[tuple[str, bool]]:
-        """Extract commentary from tool call chunks.
-
-        Handles partial JSON parsing for "commentary": "some text" patterns.
-        Returns a tuple (text, is_complete) when commentary is found.
-        """
-        if not langchain_message.tool_call_chunks:
-            return None
-
-        for chunk in langchain_message.tool_call_chunks:
-            if not chunk or not chunk.get("args"):
-                continue
-
-            args_chunk = chunk["args"]
-            if not isinstance(args_chunk, str):
-                continue
-
-            # Accumulate chunks
-            if self._commentary_chunk is None:
-                self._commentary_chunk = args_chunk
-            else:
-                self._commentary_chunk = self._commentary_chunk + args_chunk
-
-            # Try to extract commentary from accumulated chunks
-            current_buffer = self._commentary_chunk
-
-            # Look for "commentary": pattern
-            commentary_pattern = '"commentary":'
-            if commentary_pattern in current_buffer:
-                # Find the start of the commentary value
-                start_idx = current_buffer.find(commentary_pattern) + len(commentary_pattern)
-                remaining = current_buffer[start_idx:].lstrip()
-
-                if remaining.startswith('"'):
-                    # We have the opening quote
-                    value_start = 1
-                    value_buffer = remaining[value_start:]
-
-                    # Check if we have a closing quote
-                    closing_quote_idx = value_buffer.find('"')
-
-                    if closing_quote_idx != -1:
-                        # Complete commentary found
-                        commentary = value_buffer[:closing_quote_idx]
-                        # Reset buffer for next commentary
-                        self._commentary_chunk = None
-                        return (
-                            commentary,
-                            True,
-                        )
-                    else:
-                        # Partial commentary - return what we have so far
-                        # But only if there's actual content
-                        if value_buffer:
-                            return value_buffer, False
-
-        return None
-
-    async def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:
-        _, task_update = update
-        node_name = task_update["payload"]["name"]  # type: ignore
-        node_input = task_update["payload"]["input"]  # type: ignore
-
-        if reasoning_message := await self._node_to_reasoning_message(node_name, node_input):
-            return reasoning_message
-
-        return None
 
     async def _report_conversation_state(
         self,
