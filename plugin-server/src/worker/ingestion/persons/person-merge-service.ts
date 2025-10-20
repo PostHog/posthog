@@ -17,6 +17,7 @@ import {
     PersonMergeLimitExceededError,
     PersonMergeRaceConditionError,
     PersonMergeResult,
+    SourcePersonHasDistinctIdsError,
     SourcePersonNotFoundError,
     TargetPersonNotFoundError,
     mergeError,
@@ -211,7 +212,6 @@ export class PersonMergeService {
         this.context.updateIsIdentified = true
 
         const otherPerson = await this.context.personStore.fetchForUpdate(teamId, otherPersonDistinctId)
-
         const mergeIntoPerson = await this.context.personStore.fetchForUpdate(teamId, mergeIntoDistinctId)
 
         // A note about the `distinctIdVersion` logic you'll find below:
@@ -518,6 +518,19 @@ export class PersonMergeService {
                 return mergeError(error)
             } else if (error instanceof PersonMergeLimitExceededError) {
                 return mergeError(error)
+            } else if (error.code === '23503') {
+                // Foreign key constraint violation when attempting to delete the source person.
+                // This occurs when a concurrent merge operation adds a distinct ID to the source person
+                // after we've already moved the distinct IDs we knew about, but before the DELETE executes.
+                // The retry mechanism will:
+                // 1. Refresh the source person data to see all distinct IDs (including newly added ones)
+                // 2. Move ALL distinct IDs to the target person
+                // 3. Successfully delete the now-empty source person
+                return mergeError(
+                    new SourcePersonHasDistinctIdsError(
+                        'Cannot delete source person due to concurrent distinct ID additions'
+                    )
+                )
             } else {
                 // Re-throw unexpected errors
                 throw error
@@ -660,7 +673,10 @@ export class PersonMergeService {
 
             // Handle retryable errors
             if (attempt < maxRetries) {
-                if (result.error instanceof SourcePersonNotFoundError) {
+                if (
+                    result.error instanceof SourcePersonNotFoundError ||
+                    result.error instanceof SourcePersonHasDistinctIdsError
+                ) {
                     const refreshedPerson = await this.refreshPersonData(
                         sourceDistinctId,
                         currentSourcePerson.id,

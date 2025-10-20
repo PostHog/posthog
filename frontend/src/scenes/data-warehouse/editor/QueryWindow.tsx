@@ -23,7 +23,6 @@ import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
 import { FixErrorButton } from './components/FixErrorButton'
 import { draftsLogic } from './draftsLogic'
-import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 
 interface QueryWindowProps {
@@ -58,8 +57,6 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     const { saveOrUpdateDraft } = useActions(draftsLogic)
     const { response } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-    const { sidebarWidth } = useValues(editorSizingLogic)
-    const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
@@ -78,34 +75,6 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
     }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
     const isMaterializedView = editingView?.is_materialized === true
-
-    const renderSidebarButton = (): JSX.Element => {
-        if (activePanelIdentifier !== 'Database') {
-            return (
-                <LemonButton
-                    onClick={() => setActivePanelIdentifier('Database')}
-                    className="rounded-none"
-                    icon={<IconSidebarClose />}
-                    type="tertiary"
-                    size="xsmall"
-                />
-            )
-        }
-
-        if (sidebarWidth === 0) {
-            return (
-                <LemonButton
-                    onClick={() => resetDefaultSidebarWidth()}
-                    className="rounded-none"
-                    icon={<IconSidebarClose />}
-                    type="tertiary"
-                    size="xsmall"
-                />
-            )
-        }
-
-        return <></>
-    }
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
@@ -128,7 +97,17 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 </div>
             )}
             <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
-                {renderSidebarButton()}
+                {activePanelIdentifier !== 'Database' ? (
+                    <LemonButton
+                        onClick={() => setActivePanelIdentifier('Database')}
+                        className="rounded-none"
+                        icon={<IconSidebarClose />}
+                        type="tertiary"
+                        size="xsmall"
+                    >
+                        Data warehouse
+                    </LemonButton>
+                ) : null}
                 <RunButton />
                 <LemonDivider vertical />
                 {isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
@@ -142,7 +121,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                                     saveOrUpdateDraft(
                                         {
                                             kind: NodeKind.HogQLQuery,
-                                            query: queryInput,
+                                            query: queryInput ?? '',
                                         },
                                         editingView.id,
                                         currentDraft?.id || undefined,
@@ -152,7 +131,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                                     saveOrUpdateDraft(
                                         {
                                             kind: NodeKind.HogQLQuery,
-                                            query: queryInput,
+                                            query: queryInput ?? '',
                                         },
                                         undefined,
                                         currentDraft?.id || undefined,
@@ -175,7 +154,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                                             id: editingView.id,
                                             query: {
                                                 ...sourceQuery.source,
-                                                query: queryInput,
+                                                query: queryInput ?? '',
                                             },
                                             name: editingView.name,
                                             types: response && 'types' in response ? (response?.types ?? []) : [],
@@ -207,7 +186,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                                 size="xsmall"
                                 id="sql-editor-query-window-save-draft"
                                 onClick={() => {
-                                    saveDraft(activeTab, queryInput, editingView.id)
+                                    saveDraft(activeTab, queryInput ?? '', editingView.id)
                                 }}
                             >
                                 Save draft
@@ -219,7 +198,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                                     id: editingView.id,
                                     query: {
                                         ...sourceQuery.source,
-                                        query: queryInput,
+                                        query: queryInput ?? '',
                                     },
                                     types: response && 'types' in response ? (response?.types ?? []) : [],
                                     shouldRematerialize: isMaterializedView,
@@ -266,8 +245,8 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                 <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
             </div>
             <QueryPane
-                originalValue={originalQueryInput}
-                queryInput={suggestedQueryInput || queryInput}
+                originalValue={originalQueryInput ?? ''}
+                queryInput={(suggestedQueryInput || queryInput) ?? ''}
                 sourceQuery={sourceQuery.source}
                 promptError={null}
                 onRun={runQuery}
@@ -316,7 +295,7 @@ function RunButton(): JSX.Element {
             return ['var(--primary)', 'No changes to run']
         }
 
-        if (!metadata || isUsingIndices || queryInput.trim().length === 0) {
+        if (!metadata || isUsingIndices || queryInput?.trim().length === 0) {
             return ['var(--success)', 'New changes to run']
         }
 

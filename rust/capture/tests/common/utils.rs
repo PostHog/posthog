@@ -93,6 +93,7 @@ pub fn setup_tracing() {
 pub struct ServerHandle {
     pub addr: SocketAddr,
     shutdown: Arc<Notify>,
+    client: reqwest::Client,
 }
 
 impl ServerHandle {
@@ -117,15 +118,21 @@ impl ServerHandle {
         tokio::spawn(async move {
             serve(config, listener, async move { notify.notified().await }).await
         });
-        Self { addr, shutdown }
-    }
 
-    pub async fn capture_events<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(3000))
             .build()
             .unwrap();
-        client
+
+        Self {
+            addr,
+            shutdown,
+            client,
+        }
+    }
+
+    pub async fn capture_events<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+        self.client
             .post(format!("http://{:?}/i/v0/e", self.addr))
             .body(body)
             .send()
@@ -134,11 +141,7 @@ impl ServerHandle {
     }
 
     pub async fn capture_to_batch<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_millis(3000))
-            .build()
-            .unwrap();
-        client
+        self.client
             .post(format!("http://{:?}/batch", self.addr))
             .body(body)
             .send()
@@ -151,11 +154,7 @@ impl ServerHandle {
         body: T,
         user_agent: Option<&str>,
     ) -> reqwest::Response {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_millis(3000))
-            .build()
-            .unwrap();
-        client
+        self.client
             .post(format!("http://{:?}/s/", self.addr))
             .body(body)
             .header("User-Agent", user_agent.unwrap_or("test-client"))

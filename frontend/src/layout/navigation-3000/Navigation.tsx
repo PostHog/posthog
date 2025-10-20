@@ -5,6 +5,7 @@ import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
+import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
 
@@ -79,35 +80,40 @@ export function Navigation({
 
             <PanelLayout />
 
-            <main
-                ref={mainRef}
-                role="main"
-                tabIndex={0}
-                id="main-content"
-                className="@container/main-content"
-                style={
-                    {
-                        '--scene-layout-rect-right': mainContentRect?.right + 'px',
-                        '--scene-layout-rect-width': mainContentRect?.width + 'px',
-                        '--scene-layout-rect-height': mainContentRect?.height + 'px',
-                        '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
-                            ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
-                            : '0px',
-                    } as React.CSSProperties
-                }
-            >
-                <SceneLayout sceneConfig={sceneConfig}>
-                    {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
-                        <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
-                            {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}
-                            {!sceneConfig?.hideProjectNotice && <ProjectNotice className="my-0 mb-4" />}
-                        </div>
-                    )}
-                    {children}
-                </SceneLayout>
-            </main>
-            <SidePanel />
-            <CommandBar />
+            <FloatingContainerContext.Provider value={mainRef}>
+                <main
+                    ref={mainRef}
+                    role="main"
+                    tabIndex={0}
+                    id="main-content"
+                    className="@container/main-content"
+                    style={
+                        {
+                            '--scene-layout-rect-right': mainContentRect?.right + 'px',
+                            '--scene-layout-rect-width': mainContentRect?.width + 'px',
+                            '--scene-layout-rect-height': mainContentRect?.height + 'px',
+                            '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
+                                ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
+                                : '0px',
+                            '--scene-layout-background': sceneConfig?.canvasBackground
+                                ? 'var(--color-bg-surface-primary)'
+                                : 'var(--color-bg-primary)',
+                        } as React.CSSProperties
+                    }
+                >
+                    <SceneLayout sceneConfig={sceneConfig}>
+                        {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
+                            <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>
+                                {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}
+                                {!sceneConfig?.hideProjectNotice && <ProjectNotice className="my-0 mb-4" />}
+                            </div>
+                        )}
+                        {children}
+                    </SceneLayout>
+                </main>
+                <SidePanel />
+                <CommandBar />
+            </FloatingContainerContext.Provider>
         </div>
     )
 }

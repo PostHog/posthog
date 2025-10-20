@@ -7,6 +7,7 @@ export enum OutputTab {
     Visualization = 'visualization',
     Variables = 'variables',
     Materialization = 'materialization',
+    Endpoint = 'endpoint',
 }
 
 export interface OutputTabProps {

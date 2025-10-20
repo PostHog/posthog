@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -11,7 +12,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { BacklogView } from './components/BacklogView'
 import { GitHubIntegrationSettings } from './components/GitHubIntegrationSettings'
 import { KanbanView } from './components/KanbanView'
+import { TaskControlPanel } from './components/TaskControlPanel'
 import { tasksLogic } from './tasksLogic'
+import type { TaskTrackerTab } from './types'
 
 export const scene: SceneExport = {
     component: TaskTracker,
@@ -27,15 +30,20 @@ export function TaskTracker(): JSX.Element {
         return <NotFound object="Tasks" caption="This feature is not enabled for your project." />
     }
 
-    const tabs = [
+    const tabs: { key: TaskTrackerTab; label: string; content: React.ReactNode }[] = [
+        {
+            key: 'dashboard' as const,
+            label: 'Dashboard',
+            content: <TaskControlPanel />,
+        },
         {
             key: 'backlog' as const,
-            label: 'Backlog',
+            label: 'All Tasks',
             content: <BacklogView />,
         },
         {
             key: 'kanban' as const,
-            label: 'Kanban Board',
+            label: 'Workflows',
             content: <KanbanView />,
         },
         {
@@ -49,10 +57,10 @@ export function TaskTracker(): JSX.Element {
         <div className="TaskTracker">
             <div className="space-y-4">
                 <SceneTitleSection
-                    name="Tasks"
-                    description="Manage and track development tasks across all PostHog products"
+                    name={sceneConfigurations[Scene.TaskTracker].name}
+                    description={sceneConfigurations[Scene.TaskTracker].description}
                     resourceType={{
-                        type: 'task',
+                        type: sceneConfigurations[Scene.TaskTracker].iconType || 'default_icon_type',
                     }}
                 />
                 <SceneDivider />

@@ -35,6 +35,8 @@ pub struct JobConfig {
     pub import_events: bool,
     #[serde(default = "JobConfig::default_generate_identify_events")]
     pub generate_identify_events: bool,
+    #[serde(default = "JobConfig::default_generate_group_identify_events")]
+    pub generate_group_identify_events: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -449,6 +451,10 @@ impl JobConfig {
     fn default_generate_identify_events() -> bool {
         false
     }
+
+    fn default_generate_group_identify_events() -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -467,6 +473,7 @@ mod tests {
             sink: SinkConfig::NoOp,
             import_events: true,
             generate_identify_events: false,
+            generate_group_identify_events: false,
         }
     }
 
@@ -495,6 +502,7 @@ mod tests {
         let config: JobConfig = serde_json::from_str(json_config).unwrap();
         assert!(config.import_events); // Should use default
         assert!(!config.generate_identify_events); // Should use default
+        assert!(!config.generate_group_identify_events); // Should use default
     }
 
     #[test]
@@ -578,6 +586,7 @@ mod tests {
             sink: SinkConfig::NoOp,
             import_events: false,
             generate_identify_events: true,
+            generate_group_identify_events: false,
         };
 
         // Test serialization works with different source types
@@ -606,6 +615,7 @@ mod tests {
             sink: SinkConfig::Stdout { as_json: true },
             import_events: true,
             generate_identify_events: false,
+            generate_group_identify_events: false,
         };
 
         let serialized = serde_json::to_string(&stdout_config).unwrap();
@@ -636,6 +646,7 @@ mod tests {
                 sink: SinkConfig::NoOp,
                 import_events,
                 generate_identify_events,
+                generate_group_identify_events: false,
             };
 
             // Test serialization/deserialization

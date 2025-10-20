@@ -29,6 +29,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
             isOpen={modalVisible}
             title={title}
             width={520}
+            forceAbovePopovers={true}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={hideModal}>

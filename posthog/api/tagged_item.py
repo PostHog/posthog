@@ -54,8 +54,10 @@ class TaggedItemSerializerMixin(serializers.Serializer):
         for tagged_item in tagged_items_to_delete:
             tagged_item.delete()
 
-        # Cleanup tags that aren't used by team
-        Tag.objects.filter(Q(team_id=obj.team_id) & Q(tagged_items__isnull=True)).delete()
+        # Cleanup tags that aren't used by team (exclude tags that are default evaluation tags (have team_defaults relationship))
+        Tag.objects.filter(
+            Q(team_id=obj.team_id) & Q(tagged_items__isnull=True) & Q(team_defaults__isnull=True)
+        ).delete()
 
         obj.prefetched_tags = tagged_item_objects
 
@@ -95,15 +97,16 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         return is_licensed_for_tagged_items(self.request.user)  # type: ignore
 
     def prefetch_tagged_items_if_available(self, queryset: QuerySet) -> QuerySet:
-        if self.is_licensed():
-            return queryset.prefetch_related(
-                Prefetch(
-                    "tagged_items",
-                    queryset=TaggedItem.objects.select_related("tag"),
-                    to_attr="prefetched_tags",
-                )
+        if not self.is_licensed():
+            return queryset
+
+        return queryset.prefetch_related(
+            Prefetch(
+                "tagged_items",
+                queryset=TaggedItem.objects.select_related("tag"),
+                to_attr="prefetched_tags",
             )
-        return queryset
+        )
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = super().filter_queryset(queryset)

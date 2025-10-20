@@ -211,6 +211,11 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         headers = response.headers.__dict__["_store"]
         server_timing_headers = headers.pop("server-timing")[1]
         assert re.match(r"get_recording;dur=\d+\.\d+, stream_blob_to_client;dur=\d+\.\d+", server_timing_headers)
+
+        # ignore csp headers that are likely to change and irrelevant to this test
+        del headers["content-security-policy-report-only"]
+        del headers["reporting-endpoints"]
+
         assert headers == {
             "content-type": ("Content-Type", "application/json"),
             "cache-control": ("Cache-Control", "max-age=3600"),
@@ -307,10 +312,9 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert mock_presigned_url.call_count == 0
         # we don't try to load the data if the blob key is invalid
         assert mock_stream_from.call_count == 0
-        # we do check the session before validating input
-        # TODO it would be maybe cheaper to validate the input first
+        # we don't check if the session exists before validating the input
         assert mock_get_session_recording.call_count == 1
-        assert mock_exists.call_count == 1
+        assert mock_exists.call_count == 0
 
     @parameterized.expand([("2024-04-30"), (None)])
     @patch(
@@ -358,7 +362,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         self, _mock_stream_from, _mock_presigned_url, mock_get_session_recording
     ) -> None:
         session_id = str(uuid7())
-        blob_key = f"1682608337071"
+        blob_key = "1682608337071"
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
 
         # by default a session recording is deleted, and _that_ is what we check for to see if it exists
@@ -371,7 +375,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     def test_can_not_get_session_recording_blob_that_does_not_exist(self, mock_presigned_url) -> None:
         session_id = str(uuid7())
-        blob_key = f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/1682608337071"
+        blob_key = "1682608337071"
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
 
         mock_presigned_url.return_value = None

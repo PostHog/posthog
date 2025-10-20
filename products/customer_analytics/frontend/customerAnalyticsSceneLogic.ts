@@ -1,13 +1,16 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DashboardType } from '~/types'
+import { Breadcrumb, DashboardType } from '~/types'
 
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
 
@@ -19,7 +22,8 @@ export interface CustomerDashboard {
 
 export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>([
     path(['scenes', 'customerAnalytics', 'customerAnalyticsScene']),
-    connect({
+    tabAwareScene(),
+    connect(() => ({
         actions: [
             newDashboardLogic({ initialTags: ['customer-analytics'] }),
             ['showNewDashboardModal', 'hideNewDashboardModal', 'submitNewDashboardSuccessWithResult'],
@@ -30,29 +34,37 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             teamLogic,
             ['currentTeamId'],
         ],
-    }),
+    })),
     actions({
         createNewDashboard: true,
         handleEditDashboard: () => {},
         onChangeDashboard: (dashboardId: number | string | null) => ({ dashboardId }),
         selectDashboard: (dashboardId: number | null) => ({ dashboardId }),
     }),
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: Scene.CustomerAnalytics,
+                    name: sceneConfigurations[Scene.CustomerAnalytics].name,
+                    path: urls.customerAnalytics(),
+                    iconType: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
+                },
+            ],
+        ],
+    }),
     loaders(({ values }) => ({
         availableDashboards: [
             [] as CustomerDashboard[],
             {
                 loadCustomerDashboards: async () => {
-                    // Fetch all dashboards and filter for those tagged with "customer-analytics"
-                    const response = await api.get(`api/environments/${values.currentTeamId}/dashboards/`)
+                    const response = await api.get(
+                        `api/environments/${values.currentTeamId}/dashboards/?tags=customer-analytics`
+                    )
                     const allDashboards: DashboardType[] = response.results || []
 
-                    // Filter dashboards that have "customer-analytics" tag
-                    const customerDashboards = allDashboards.filter(
-                        (dashboard) => dashboard.tags && dashboard.tags.includes('customer-analytics')
-                    )
-
-                    // Convert to CustomerDashboard format
-                    return customerDashboards.map((dashboard) => ({
+                    return allDashboards.map((dashboard) => ({
                         id: dashboard.id,
                         name: dashboard.name,
                         description: dashboard.description || '',
@@ -64,10 +76,9 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
     reducers({
         selectedDashboardId: [
             null as number | null,
+            { persist: true },
             {
                 selectDashboard: (_, { dashboardId }) => dashboardId,
-                loadCustomerDashboardsSuccess: (_, { availableDashboards }) =>
-                    availableDashboards.length > 0 ? availableDashboards[0].id : null,
             },
         ],
     }),
@@ -99,7 +110,24 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             }
         },
     })),
-    afterMount(({ actions }) => {
+    urlToAction(({ actions }) => ({
+        '/customer_analytics': (_, queryParams) => {
+            const id = queryParams?.dashboardId
+            if (id && !isNaN(id)) {
+                actions.selectDashboard(id)
+            }
+        },
+    })),
+    actionToUrl(() => ({
+        selectDashboard: ({ dashboardId }) => {
+            const params = dashboardId ? { dashboardId: dashboardId.toString() } : {}
+            return ['/customer_analytics', params]
+        },
+    })),
+    afterMount(({ actions, values }) => {
         actions.loadCustomerDashboards()
+        if (values.selectedDashboardId) {
+            actions.selectDashboard(values.selectedDashboardId)
+        }
     }),
 ])

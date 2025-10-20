@@ -129,10 +129,19 @@ def test_batch_export_backfill_with_end_at_in_the_future(client: HttpClient, org
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": "hour",
+        "model": "events",
     }
 
     test_time = dt.datetime.now(dt.UTC)
     client.force_login(user)
+
+    # ensure there is data to backfill, otherwise validation will fail
+    _create_event(
+        team=team,
+        event="$pageview",
+        distinct_id="person_1",
+        timestamp=test_time + dt.timedelta(minutes=10),
+    )
 
     batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
 
@@ -143,10 +152,11 @@ def test_batch_export_backfill_with_end_at_in_the_future(client: HttpClient, org
             client,
             team.pk,
             batch_export_id,
-            test_time.isoformat(),
-            (test_time + dt.timedelta(hours=1, seconds=1)).isoformat(),
+            (test_time - dt.timedelta(minutes=30)).isoformat(),
+            (test_time + dt.timedelta(minutes=30)).isoformat(),
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "is in the future" in response.json()["detail"]
 
 
 def test_batch_export_backfill_with_naive_bounds(client: HttpClient, organization, team, user, temporal):

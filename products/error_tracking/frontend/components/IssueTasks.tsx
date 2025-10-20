@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonDialog, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ErrorEventType, ErrorTrackingException } from 'lib/components/Errors/types'
+import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -14,7 +15,7 @@ import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { IntegrationType } from '~/types'
 
-import { OriginProduct, TaskStatus, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { OriginProduct, TaskUpsertProps } from 'products/tasks/frontend/types'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
@@ -30,7 +31,7 @@ export const IssueTasks = (): JSX.Element => {
     }
     return (
         <ScenePanelLabel title="Tasks">
-            <ButtonPrimitive fullWidth onClick={onClickCreateTask} disabled={issueLoading}>
+            <ButtonPrimitive fullWidth onClick={onClickCreateTask} disabled={issueLoading} variant="panel">
                 <IconPlus />
                 Create task in PostHog
             </ButtonPrimitive>
@@ -54,7 +55,7 @@ const createTaskForm = (
         if (props.$exception_list && Array.isArray(props.$exception_list) && props.$exception_list.length > 0) {
             const exception = props.$exception_list[0] as ErrorTrackingException
 
-            description += `## ${exception.type}: ${exception.value}\n\n`
+            description += `## ${formatType(exception)}: ${exception.value}\n\n`
 
             if (exception.mechanism) {
                 description += `**Handled:** ${exception.mechanism.handled ? 'Yes' : 'No'}\n\n`
@@ -67,8 +68,9 @@ const createTaskForm = (
                 const frames = exception.stacktrace.frames.slice().reverse() // Reverse to show call order
                 frames.forEach((frame, index) => {
                     description += `**${index + 1}.** `
-                    if (frame.resolved_name && frame.resolved_name !== '?') {
-                        description += `\`${frame.resolved_name}\``
+                    const resolvedName = formatResolvedName(frame)
+                    if (resolvedName) {
+                        description += `\`${resolvedName}\``
                     } else {
                         description += 'Anonymous function'
                     }
@@ -148,7 +150,6 @@ const createTaskForm = (
         initialValues: {
             title: issue.name ?? '',
             description: description ?? '',
-            status: TaskStatus.TODO,
             repositories: [],
         },
         content: (
@@ -160,15 +161,6 @@ const createTaskForm = (
                 <LemonField name="description" label="Description">
                     <LemonTextArea data-attr="task-description" placeholder="Start typing..." rows={8} />
                 </LemonField>
-                <LemonField name="status" label="Priority">
-                    <LemonSelect
-                        data-attr="task-status"
-                        options={[
-                            { value: 'todo', label: 'Fix now (Todo)' },
-                            { value: 'backlog', label: 'Add to backlog' },
-                        ]}
-                    />
-                </LemonField>
             </div>
         ),
         errors: {
@@ -178,12 +170,11 @@ const createTaskForm = (
                     ? 'You must choose a repository'
                     : undefined,
         },
-        onSubmit: async ({ title, description, status, repositories }) => {
+        onSubmit: async ({ title, description, repositories }) => {
             try {
                 const taskData: TaskUpsertProps = {
                     title,
                     description,
-                    status,
                     origin_product: OriginProduct.ERROR_TRACKING,
                 }
 

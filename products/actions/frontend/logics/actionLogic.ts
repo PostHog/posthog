@@ -95,11 +95,13 @@ export const actionLogic = kea<actionLogicType>([
                     key: DataManagementTab.Actions,
                     name: 'Actions',
                     path: urls.actions(),
+                    iconType: 'action',
                 },
                 {
                     key: [Scene.Action, action?.id || 'new'],
                     name: inProgressName ?? (action?.name || ''),
                     forceEditMode: !action?.id,
+                    iconType: 'action',
                 },
             ],
         ],
@@ -111,8 +113,8 @@ export const actionLogic = kea<actionLogicType>([
                     ? {
                           activity_scope: ActivityScope.ACTION,
                           activity_item_id: `${action.id}`,
-                          //   access_control_resource: 'action',
-                          //   access_control_resource_id: `${action.id}`,
+                          access_control_resource: 'action',
+                          access_control_resource_id: `${action.id}`,
                       }
                     : null
             },

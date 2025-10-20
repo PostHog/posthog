@@ -10,6 +10,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.pipeline.internal_stage import get_s3_client, get_s3_staging_folder
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, slice_record_batch
+from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
@@ -108,5 +109,8 @@ class Producer:
                     await queue.put(record_batch_slice)
 
         async with asyncio.TaskGroup() as tg:
+            stream_func = make_retryable_with_exponential_backoff(
+                stream_from_s3_file, max_attempts=3, max_retry_delay=1
+            )
             for key in keys:
-                tg.create_task(stream_from_s3_file(key))
+                tg.create_task(stream_func(key))

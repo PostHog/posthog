@@ -31,12 +31,16 @@ AXES_HTTP_RESPONSE_CODE = 403
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
-    "products.early_access_features",
-    "products.tasks",
-    "products.links",
-    "products.revenue_analytics",
-    "products.user_interviews",
-    "products.llm_analytics",
+    "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
+    "products.tasks.backend.apps.TasksConfig",
+    "products.links.backend.apps.LinksConfig",
+    "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
+    "products.user_interviews.backend.apps.UserInterviewsConfig",
+    "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
+    "products.endpoints.backend.apps.EndpointsConfig",
+    "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
+    "products.error_tracking.backend.apps.ErrorTrackingConfig",
+    "products.notebooks.backend.apps.NotebooksConfig",
 ]
 
 INSTALLED_APPS = [
@@ -55,6 +59,7 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
+    "django_structlog",
     "drf_spectacular",
     *PRODUCTS_APPS,
     "django_otp",
@@ -67,7 +72,6 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
     "oauth2_provider",
-    "mcp_server",
     "django_admin_inline_paginator",
 ]
 
@@ -87,6 +91,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
@@ -105,7 +110,6 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
-    "posthog.middleware.AdminCSPMiddleware",
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
 

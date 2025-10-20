@@ -1761,6 +1761,15 @@ base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
         ),
         (
             S3InsertInputs(
+                prefix="invalid-format-spec-{data_interval_start:hour}",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,  # type: ignore
+            ),
+            "invalid-format-spec-{data_interval_start:hour}/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
                 prefix="",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
@@ -1939,5 +1948,13 @@ base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
 )
 def test_get_s3_key(inputs, expected):
     """Test the get_s3_key function renders the expected S3 key given inputs."""
-    result = get_s3_key(inputs)
+    result = get_s3_key(
+        inputs.prefix,
+        inputs.data_interval_start,
+        inputs.data_interval_end,
+        inputs.batch_export_model,
+        inputs.file_format,
+        inputs.compression,
+        use_new_file_naming_scheme=inputs.max_file_size_mb is not None,
+    )
     assert result == expected

@@ -1,12 +1,10 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
-import posthog from 'posthog-js'
+import { useActions, useValues } from 'kea'
 import React from 'react'
 
 import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
@@ -24,6 +22,7 @@ import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -36,6 +35,7 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardPlacement,
+    DashboardTile,
     ExporterFormat,
     InsightColor,
     QueryBasedInsightModel,
@@ -67,12 +67,14 @@ interface InsightMetaProps
         | 'variablesOverride'
         | 'placement'
     > {
+    tile?: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export function InsightMeta({
+    tile,
     insight,
     ribbonColor,
     dashboardId,
@@ -97,7 +99,8 @@ export function InsightMeta({
     placement,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insightFeedback } = useValues(insightLogic)
+    const { setInsightFeedback } = useActions(insightLogic)
     const { exportContext } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
@@ -137,27 +140,17 @@ export function InsightMeta({
             <div className="flex gap-0">
                 <LemonButton
                     size="small"
-                    icon={<IconThumbsUp />}
-                    onClick={() => {
-                        posthog.capture('customer-analytics-insight-liked', {
-                            insight_id: insight.short_id,
-                            insight_name: insight.name,
-                            dashboard_id: dashboardId,
-                        })
-                    }}
+                    icon={<IconThumbsUp className={insightFeedback === 'liked' ? 'text-accent' : ''} />}
+                    onClick={() => setInsightFeedback('liked')}
                     tooltip="Like this insight"
+                    disabledReason={insightFeedback === 'liked' ? 'Already liked' : ''}
                 />
                 <LemonButton
                     size="small"
-                    icon={<IconThumbsDown />}
-                    onClick={() => {
-                        posthog.capture('customer-analytics-insight-disliked', {
-                            insight_id: insight.short_id,
-                            insight_name: insight.name,
-                            dashboard_id: dashboardId,
-                        })
-                    }}
+                    icon={<IconThumbsDown className={insightFeedback === 'disliked' ? 'text-accent' : ''} />}
+                    onClick={() => setInsightFeedback('disliked')}
                     tooltip="Dislike this insight"
+                    disabledReason={insightFeedback === 'disliked' ? 'Already disliked' : ''}
                 />
             </div>
         ) : null
@@ -205,10 +198,22 @@ export function InsightMeta({
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
             detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
-            topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}
+            topHeading={
+                <TopHeading
+                    query={insight.query}
+                    lastRefresh={insight.last_refresh}
+                    hasTileOverrides={Object.keys(tile?.filters_overrides ?? {}).length > 0}
+                />
+            }
             content={
                 <InsightMetaContent
-                    link={urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride)}
+                    link={urls.insightView(
+                        short_id,
+                        dashboardId,
+                        variablesOverride,
+                        filtersOverride,
+                        tile?.filters_overrides
+                    )}
                     title={name}
                     fallbackTitle={summary}
                     description={insight.description}
@@ -239,7 +244,7 @@ export function InsightMeta({
                             <LemonButton onClick={rename} fullWidth>
                                 Rename
                             </LemonButton>
-                            {canAccessTileOverrides && (
+                            {canAccessTileOverrides && tile && (
                                 <LemonButton onClick={setOverride} fullWidth>
                                     Set override
                                 </LemonButton>

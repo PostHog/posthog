@@ -203,7 +203,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         else:
             prompt += ChatPromptTemplate.from_messages(
                 [("human", INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT)], template_format="mustache"
-            ).partial(bundle_ids=",".join(retrieved_prop.sample_values))
+            ).partial(bundle_ids=", ".join(retrieved_prop.sample_values))
 
         chain = prompt | self._model() | StrOutputParser()
         answer = chain.invoke({}, config=config)
@@ -232,7 +232,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
             },
             user=self._user,
             team=self._team,
-        ).bind_tools([{"type": "web_search_preview"}])  # We should use web_search once LangChain supports it
+        ).bind_tools([{"type": "web_search"}])
 
 
 class MemoryInitializerInterruptNode(AssistantNode):

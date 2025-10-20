@@ -12,7 +12,7 @@ from dagster_slack import SlackResource
 from pydantic import BaseModel, Field, ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from posthog.models import Dataset, DatasetItem
+from products.llm_analytics.backend.models import Dataset, DatasetItem
 
 from dags.common import JobOwners
 from dags.max_ai.snapshot_team_data import (
@@ -50,12 +50,16 @@ class PreparedDataset(BaseModel):
     dataset_inputs: list[DatasetInput]
 
 
+def _get_team_id() -> int:
+    return 2 if not settings.DEBUG else 1
+
+
 @dagster.op(
     description="Pulls the dataset and dataset items and validates inputs, outputs, metadata, and team_id presence in metadata."
 )
 def prepare_dataset(context: dagster.OpExecutionContext, config: PrepareDatasetConfig) -> PreparedDataset:
-    dataset = Dataset.objects.get(id=config.dataset_id, team_id=2 if not settings.DEBUG else 1)
-    dataset_items = DatasetItem.objects.filter(dataset=dataset).iterator(500)
+    dataset = Dataset.objects.exclude(deleted=True).get(id=config.dataset_id, team_id=_get_team_id())
+    dataset_items = DatasetItem.objects.exclude(deleted=True).filter(dataset=dataset).iterator(500)
 
     dataset_inputs: list[DatasetInput] = []
     for dataset_item in dataset_items:

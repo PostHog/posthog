@@ -1,31 +1,34 @@
 # posthog/person_db_router.py
+
+# Set of models (lowercase) that should live in the persons_db
+# Add other models from the plan here as needed.
+PERSONS_DB_MODELS = {
+    "person",
+    "persondistinctid",
+    "personlessdistinctid",
+    "personoverridemapping",
+    "personoverride",
+    "pendingpersonoverride",
+    "flatpersonoverride",
+    "featureflaghashkeyoverride",
+    "cohortpeople",
+    "group",
+    "grouptypemapping",
+}
+
+
 class PersonDBRouter:
     """
     A router to control all database operations on models in the persons database.
     """
 
-    # Set of models (lowercase) that should live in the persons_db
-    # Add other models from the plan here as needed.
-    PERSONS_DB_MODELS = {
-        "person",
-        "persondistinctid",
-        "personlessdistinctid",
-        "personoverridemapping",
-        "personoverride",
-        "pendingpersonoverride",
-        "flatpersonoverride",
-        "featureflaghashkeyoverride",
-        "cohortpeople",
-        "group",
-        "grouptypemapping",
-    }
     PERSONS_APP_LABEL = "posthog"  # Assuming all models are in the 'posthog' app
 
     def db_for_read(self, model, **hints):
         """
         Attempts to read person models go to persons_db_writer.
         """
-        if self.is_persons_model(model._meta.model_name):
+        if self.is_persons_model(model._meta.app_label, model._meta.model_name):
             return "persons_db_writer"
         return None  # Allow default db selection
 
@@ -33,7 +36,7 @@ class PersonDBRouter:
         """
         Attempts to write person models go to persons_db_writer.
         """
-        if self.is_persons_model(model._meta.model_name):
+        if self.is_persons_model(model._meta.app_label, model._meta.model_name):
             return "persons_db_writer"
         return None  # Allow default db selection
 
@@ -47,10 +50,10 @@ class PersonDBRouter:
         You might need to adjust this based on specific foreign keys (e.g., Person -> Team).
         """
         obj1_in_persons_db = obj1._meta.app_label == self.PERSONS_APP_LABEL and self.is_persons_model(
-            obj1._meta.model_name
+            obj1._meta.app_label, obj1._meta.model_name
         )
         obj2_in_persons_db = obj2._meta.app_label == self.PERSONS_APP_LABEL and self.is_persons_model(
-            obj2._meta.model_name
+            obj2._meta.app_label, obj2._meta.model_name
         )
 
         if obj1_in_persons_db and obj2_in_persons_db:
@@ -69,23 +72,12 @@ class PersonDBRouter:
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
         """
-        Make sure the person models only appear in the 'persons_db'
-        database. All other models migrate normally on 'default'.
+        don't run any migrations against the persons db, only against the default
+        run all migrations against the default
         """
-        if model_name is None:
-            # App-level migrations should only run on the default database
-            return db != "persons_db_writer"
+        return db != "persons_db_writer"
 
-        is_person_model = self.is_persons_model(model_name)
-
-        if db == "persons_db_writer":
-            # If the target db is persons_db_writer, only allow migration if it's a person model
-            return is_person_model
-        else:
-            # Otherwise (e.g., target db is 'default'), only allow migration
-            # if it's *not* a person model.
-            return not is_person_model
-
-    def is_persons_model(self, model_name):
-        # Check if the model name belongs to the persons_db models
-        return model_name in self.PERSONS_DB_MODELS
+    def is_persons_model(self, app_label, model_name):
+        # only route posthog app models, not auth.Group (there is a name clash between posthog_group
+        # and Django's auth_group
+        return app_label == "posthog" and model_name in PERSONS_DB_MODELS

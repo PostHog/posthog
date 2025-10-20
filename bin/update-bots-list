@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# Script to update bot IPs from GoodBots repository
+# Downloads IPs from GitHub and saves to the appropriate location
+
+set -e
+
+# Configuration
+GITHUB_URL="https://raw.githubusercontent.com/AnTheMaker/GoodBots/main/all.ips"
+TARGET_FILE="plugin-server/assets/bot-ips.txt"
+
+# Get the directory of this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+TARGET_PATH="$PROJECT_ROOT/$TARGET_FILE"
+
+echo "Downloading bot IPs from: $GITHUB_URL"
+echo "Saving to: $TARGET_PATH"
+
+# Create directory if it doesn't exist
+mkdir -p "$(dirname "$TARGET_PATH")"
+
+# Download and save the IPs
+curl -s "$GITHUB_URL" > "$TARGET_PATH"
+
+# Check if download was successful
+if [ $? -eq 0 ] && [ -s "$TARGET_PATH" ]; then
+    LINE_COUNT=$(wc -l < "$TARGET_PATH")
+    echo "Successfully downloaded $LINE_COUNT IP addresses to $TARGET_PATH"
+else
+    echo "Error: Failed to download or file is empty"
+    exit 1
+fi

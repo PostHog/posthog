@@ -146,6 +146,9 @@ def is_sso_authentication_backend(request: HttpRequest):
     SSO_AUTHENTICATION_BACKENDS = []
     NON_SSO_AUTHENTICATION_BACKENDS = ["axes.backends.AxesBackend", "django.contrib.auth.backends.ModelBackend"]
 
+    if not hasattr(request, "session"):
+        return False
+
     # Check if we're in EE, if yes, use the EE settings, otherwise use the posthog settings
     try:
         from ee import settings

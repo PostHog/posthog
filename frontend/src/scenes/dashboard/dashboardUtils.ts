@@ -3,13 +3,13 @@ import { Layouts } from 'react-grid-layout'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
-import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -119,6 +119,7 @@ export async function getInsightWithRetry(
     methodOptions?: ApiMethodOptions,
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>,
+    tileFiltersOverride?: TileFilters,
     maxAttempts: number = 5,
     initialDelay: number = 1200
 ): Promise<QueryBasedInsightModel | null> {
@@ -143,6 +144,7 @@ export async function getInsightWithRetry(
                 session_id: currentSessionId(),
                 ...(filtersOverride ? { filters_override: filtersOverride } : {}),
                 ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
             })}`
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
@@ -161,6 +163,7 @@ export async function getInsightWithRetry(
                             session_id: currentSessionId(),
                             ...(filtersOverride ? { filters_override: filtersOverride } : {}),
                             ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                            ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                         })}`
                         // The async call returns an insight with a query_status object
                         const insightResponse = await api.get(asyncApiUrl, methodOptions)
@@ -175,6 +178,7 @@ export async function getInsightWithRetry(
                                     session_id: currentSessionId(),
                                     ...(filtersOverride ? { filters_override: filtersOverride } : {}),
                                     ...(variablesOverride ? { variables_override: variablesOverride } : {}),
+                                    ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                                 })}`
                                 const refreshedInsightResponse: Response = await api.getResponse(
                                     cacheUrl,

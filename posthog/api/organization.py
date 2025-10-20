@@ -215,28 +215,24 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
             if not is_cloud():
                 create_permissions.append(PremiumMultiorganizationPermission())
+
             return create_permissions
 
-        if self.action == "update":
-            create_permissions = [
+        if self.action in ["update", "partial_update"]:
+            update_permissions = [
                 permission()
-                for permission in [permissions.IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
+                for permission in [
+                    permissions.IsAuthenticated,
+                    TimeSensitiveActionPermission,
+                    APIScopePermission,
+                    OrganizationAdminWritePermissions,
+                ]
             ]
 
-            if any(
-                key in self.request.data
-                for key in [
-                    "members_can_invite",
-                    "members_can_use_personal_api_keys",
-                    "allow_publicly_shared_resources",
-                ]
-            ):
-                create_permissions.append(OrganizationAdminWritePermissions())
-
             if not is_cloud():
-                create_permissions.append(PremiumMultiorganizationPermission())
+                update_permissions.append(PremiumMultiorganizationPermission())
 
-            return create_permissions
+            return update_permissions
 
         # We don't override for other actions
         raise NotImplementedError()
@@ -324,6 +320,29 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Set user context for activity logging
         with ImpersonatedContext(request):
             return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if "enforce_2fa" in request.data:
+            enforce_2fa_value = request.data["enforce_2fa"]
+            organization = self.get_object()
+            user = cast(User, request.user)
+
+            # Add capture event for 2FA enforcement change
+            posthoganalytics.capture(
+                "organization 2fa enforcement toggled",
+                distinct_id=str(user.distinct_id),
+                properties={
+                    "enabled": enforce_2fa_value,
+                    "organization_id": str(organization.id),
+                    "organization_name": organization.name,
+                    "user_role": user.organization_memberships.get(organization=organization).level,
+                },
+                groups=groups(organization),
+            )
+
+        # Set user context for activity logging
+        with ImpersonatedContext(request):
+            return super().partial_update(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         # Set user context for activity logging

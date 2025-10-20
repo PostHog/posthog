@@ -55,12 +55,13 @@ export function NotebookPanel(): JSX.Element | null {
                             to={urls.notebook(selectedNotebook)}
                             onClick={() => closeSidePanel()}
                             icon={<IconExternal />}
+                            targetBlank
                             tooltip="Open as main focus"
                             tooltipPlacement="bottom-end"
                         />
                     </SidePanelPaneHeader>
 
-                    <div className="flex flex-col flex-1 overflow-y-auto p-3">
+                    <div className="flex flex-col flex-1 overflow-y-auto p-3 bg-[var(--color-bg-surface-primary)]">
                         <Notebook
                             key={selectedNotebook}
                             shortId={selectedNotebook}

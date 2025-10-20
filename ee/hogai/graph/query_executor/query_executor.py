@@ -19,6 +19,10 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     RetentionQuery,
+    RevenueAnalyticsGrossRevenueQuery,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMRRQuery,
+    RevenueAnalyticsTopCustomersQuery,
     TrendsQuery,
 )
 
@@ -33,11 +37,16 @@ from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models.team.team import Team
+from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.query_executor.format import (
     FunnelResultsFormatter,
     RetentionResultsFormatter,
+    RevenueAnalyticsGrossRevenueResultsFormatter,
+    RevenueAnalyticsMetricsResultsFormatter,
+    RevenueAnalyticsMRRResultsFormatter,
+    RevenueAnalyticsTopCustomersResultsFormatter,
     SQLResultsFormatter,
     TrendsResultsFormatter,
 )
@@ -55,6 +64,10 @@ SupportedQueryTypes = (
     | RetentionQuery
     | AssistantHogQLQuery
     | HogQLQuery
+    | RevenueAnalyticsGrossRevenueQuery
+    | RevenueAnalyticsMetricsQuery
+    | RevenueAnalyticsMRRQuery
+    | RevenueAnalyticsTopCustomersQuery
 )
 
 
@@ -324,7 +337,13 @@ class AssistantQueryExecutor:
                 # Use the completed query results
                 response_dict = query_status["results"]
 
-        except (APIException, ExposedHogQLError, HogQLNotImplementedError, ExposedCHQueryError) as err:
+        except (
+            APIException,
+            ExposedHogQLError,
+            HogQLNotImplementedError,
+            ExposedCHQueryError,
+            UserAccessControlError,
+        ) as err:
             elapsed = time.time() - start_time
             # Handle known query execution errors with user-friendly messages
             err_message = str(err)
@@ -382,6 +401,18 @@ class AssistantQueryExecutor:
             elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
                 formatter_name = "SQLResultsFormatter"
                 result = SQLResultsFormatter(query, response["results"], response["columns"]).format()
+            elif isinstance(query, RevenueAnalyticsGrossRevenueQuery):
+                formatter_name = "RevenueAnalyticsGrossRevenueResultsFormatter"
+                result = RevenueAnalyticsGrossRevenueResultsFormatter(query, response["results"]).format()
+            elif isinstance(query, RevenueAnalyticsMetricsQuery):
+                formatter_name = "RevenueAnalyticsMetricsResultsFormatter"
+                result = RevenueAnalyticsMetricsResultsFormatter(query, response["results"]).format()
+            elif isinstance(query, RevenueAnalyticsMRRQuery):
+                formatter_name = "RevenueAnalyticsMRRResultsFormatter"
+                result = RevenueAnalyticsMRRResultsFormatter(query, response["results"]).format()
+            elif isinstance(query, RevenueAnalyticsTopCustomersQuery):
+                formatter_name = "RevenueAnalyticsTopCustomersResultsFormatter"
+                result = RevenueAnalyticsTopCustomersResultsFormatter(query, response["results"]).format()
             else:
                 raise NotImplementedError(f"Unsupported query type: {query_type}")
 

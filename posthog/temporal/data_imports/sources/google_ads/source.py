@@ -103,14 +103,14 @@ class GoogleAdsSource(BaseSource[GoogleAdsSourceConfig | GoogleAdsServiceAccount
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
                         label="Using MCC account?",
-                        caption="Whether your logged in account is a Google Ads MCC account and you're accessing a clients account?",
+                        caption="Whether your account is a Google Ads MCC account and you're accessing a clients account?",
                         default=False,
                         fields=cast(
                             list[FieldType],
                             [
                                 SourceFieldInputConfig(
                                     name="mcc_client_id",
-                                    label="Client customer ID",
+                                    label="Managers customer ID",
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="",

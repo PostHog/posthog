@@ -5,10 +5,12 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { FEATURE_FLAGS } from '~/lib/constants'
 import { ExternalDataSource } from '~/types'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
@@ -25,6 +27,10 @@ import { StatusIcon } from './StatusIcon'
 
 export function NativeExternalDataSourceConfiguration(): JSX.Element {
     const { nativeSources, loading } = useValues(marketingAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const validNativeSources = featureFlags[FEATURE_FLAGS.META_ADS_DWH]
+        ? VALID_NATIVE_MARKETING_SOURCES
+        : VALID_NATIVE_MARKETING_SOURCES.filter((source) => source !== 'MetaAds')
 
     // Helper functions to reduce duplication
     const getRequiredFields = (sourceType: string): string[] => {
@@ -118,9 +124,9 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                 maxItemsToShow={MAX_ITEMS_TO_SHOW}
                 additionalControls={
                     <AddSourceDropdown<ExternalDataSource['source_type']>
-                        sources={VALID_NATIVE_MARKETING_SOURCES}
+                        sources={validNativeSources}
                         onSourceAdd={(source) => {
-                            router.actions.push(urls.dataWarehouseSource(`managed-${source}`))
+                            router.actions.push(urls.dataWarehouseSourceNew(source))
                         }}
                     />
                 }

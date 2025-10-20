@@ -61,8 +61,7 @@
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
                 "PRINT_SQL": "1",
                 "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
-                "CLOUD_DEPLOYMENT": "dev",
-                "POSTHOG_USE_VITE": "1"
+                "CLOUD_DEPLOYMENT": "dev"
             },
             "envFile": "${workspaceFolder}/.env",
             "console": "integratedTerminal",
@@ -170,8 +169,9 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
-            "args": ["start_temporal_worker"],
+            "args": ["start_temporal_worker", "--task-queue", "${input:temporalTaskQueue}"],
             "django": true,
+            "justMyCode": false,
             "env": {
                 "PYTHONUNBUFFERED": "1",
                 "DJANGO_SETTINGS_MODULE": "posthog.settings",
@@ -298,6 +298,24 @@
             "id": "pickVersion",
             "type": "command",
             "command": "extension.node-version"
+        },
+        {
+            "id": "temporalTaskQueue",
+            "type": "pickString",
+            "description": "Task queue name",
+            "options": [
+                "general-purpose-task-queue",
+                "max-ai-task-queue",
+                "batch-exports-task-queue",
+                "data-warehouse-task-queue",
+                "data-warehouse-compaction-task-queue",
+                "data-modeling-task-queue",
+                "tasks-task-queue",
+                "billing-task-queue",
+                "video-export-task-queue",
+                "session-replay-task-queue"
+            ],
+            "default": "general-purpose-task-queue"
         }
     ],
     "compounds": [

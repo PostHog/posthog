@@ -40,6 +40,9 @@
                           $session_id: {
                             hidden: False
                           },
+                          $session_id_uuid: {
+                            hidden: False
+                          },
                           $window_id: {
                             hidden: False
                           },
@@ -119,6 +122,9 @@
                             hidden: False
                           },
                           person_id: {
+                            hidden: False
+                          },
+                          person_mode: {
                             hidden: False
                           },
                           poe: {
@@ -314,6 +320,13 @@
                     }
                   }
                 },
+                person_mode: {
+                  alias: "person_mode"
+                  type: {
+                    name: "person_mode"
+                    table_type: <recursion ...>
+                  }
+                },
                 properties: {
                   alias: "properties"
                   type: {
@@ -483,6 +496,23 @@
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -811,6 +841,17 @@
             type: <recursion ...>
           },
           {
+            alias: "person_mode"
+            expr: {
+              chain: [
+                "person_mode"
+              ]
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
+          },
+          {
             alias: "person_id"
             expr: {
               args: [
@@ -876,8 +917,8 @@
                         ]
                         name: "empty"
                         return_type: {
-                          data_type: "unknown"
-                          nullable: True
+                          data_type: "int"
+                          nullable: False
                         }
                       }
                     }
@@ -1175,8 +1216,8 @@
                         ]
                         name: "empty"
                         return_type: {
-                          data_type: "unknown"
-                          nullable: True
+                          data_type: "int"
+                          nullable: False
                         }
                       }
                     }
@@ -1332,6 +1373,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -1374,6 +1416,9 @@
                     hidden: False
                   },
                   $session_id: {
+                    hidden: False
+                  },
+                  $session_id_uuid: {
                     hidden: False
                   },
                   $window_id: {
@@ -1458,6 +1503,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  person_mode: {
                     hidden: False
                   },
                   poe: {
@@ -1627,6 +1675,23 @@
         }
       },
       {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "person_id"
         expr: {
           args: [
@@ -1692,8 +1757,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -2089,8 +2154,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -2263,6 +2328,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -3204,6 +3270,9 @@
                           $session_id: {
                             hidden: False
                           },
+                          $session_id_uuid: {
+                            hidden: False
+                          },
                           $window_id: {
                             hidden: False
                           },
@@ -3283,6 +3352,9 @@
                             hidden: False
                           },
                           person_id: {
+                            hidden: False
+                          },
+                          person_mode: {
                             hidden: False
                           },
                           poe: {
@@ -3478,6 +3550,13 @@
                     }
                   }
                 },
+                person_mode: {
+                  alias: "person_mode"
+                  type: {
+                    name: "person_mode"
+                    table_type: <recursion ...>
+                  }
+                },
                 properties: {
                   alias: "properties"
                   type: {
@@ -3647,6 +3726,23 @@
         hidden: True
         type: {
           alias: "$window_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
           type: <recursion ...>
         }
       },
@@ -3976,6 +4072,17 @@
               type: <recursion ...>
             },
             {
+              alias: "person_mode"
+              expr: {
+                chain: [
+                  "person_mode"
+                ]
+                type: <recursion ...>
+              }
+              hidden: True
+              type: <recursion ...>
+            },
+            {
               alias: "person_id"
               expr: {
                 args: [
@@ -4041,8 +4148,8 @@
                           ]
                           name: "empty"
                           return_type: {
-                            data_type: "unknown"
-                            nullable: True
+                            data_type: "int"
+                            nullable: False
                           }
                         }
                       }
@@ -4340,8 +4447,8 @@
                           ]
                           name: "empty"
                           return_type: {
-                            data_type: "unknown"
-                            nullable: True
+                            data_type: "int"
+                            nullable: False
                           }
                         }
                       }
@@ -4503,6 +4610,9 @@
                             $session_id: {
                               hidden: False
                             },
+                            $session_id_uuid: {
+                              hidden: False
+                            },
                             $window_id: {
                               hidden: False
                             },
@@ -4582,6 +4692,9 @@
                               hidden: False
                             },
                             person_id: {
+                              hidden: False
+                            },
+                            person_mode: {
                               hidden: False
                             },
                             poe: {
@@ -4751,6 +4864,23 @@
                   }
                 },
                 {
+                  alias: "person_mode"
+                  expr: {
+                    chain: [
+                      "person_mode"
+                    ]
+                    type: {
+                      name: "person_mode"
+                      table_type: <recursion ...>
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "person_mode"
+                    type: <recursion ...>
+                  }
+                },
+                {
                   alias: "person_id"
                   expr: {
                     args: [
@@ -4816,8 +4946,8 @@
                               ]
                               name: "empty"
                               return_type: {
-                                data_type: "unknown"
-                                nullable: True
+                                data_type: "int"
+                                nullable: False
                               }
                             }
                           }
@@ -5213,8 +5343,8 @@
                               ]
                               name: "empty"
                               return_type: {
-                                data_type: "unknown"
-                                nullable: True
+                                data_type: "int"
+                                nullable: False
                               }
                             }
                           }
@@ -5387,6 +5517,7 @@
                   event_person_id: <recursion ...>,
                   issue_id: <recursion ...>,
                   person_id: <recursion ...>,
+                  person_mode: <recursion ...>,
                   properties: <recursion ...>,
                   timestamp: <recursion ...>,
                   uuid: <recursion ...>
@@ -5435,6 +5566,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -5697,6 +5829,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $session_id_uuid: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -5776,6 +5911,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  person_mode: {
                     hidden: False
                   },
                   poe: {
@@ -5945,6 +6083,23 @@
         }
       },
       {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "person_id"
         expr: {
           args: [
@@ -6010,8 +6165,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -6407,8 +6562,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -6581,6 +6736,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -6627,6 +6783,9 @@
                       hidden: False
                     },
                     $session_id: {
+                      hidden: False
+                    },
+                    $session_id_uuid: {
                       hidden: False
                     },
                     $window_id: {
@@ -6708,6 +6867,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    person_mode: {
                       hidden: False
                     },
                     poe: {
@@ -6878,6 +7040,23 @@
         }
       },
       {
+        alias: "person_mode"
+        expr: {
+          chain: [
+            "person_mode"
+          ]
+          type: {
+            name: "person_mode"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "person_mode"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "person_id"
         expr: {
           args: [
@@ -6943,8 +7122,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -7340,8 +7519,8 @@
                     ]
                     name: "empty"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "int"
+                      nullable: False
                     }
                   }
                 }
@@ -7515,6 +7694,7 @@
         event_person_id: <recursion ...>,
         issue_id: <recursion ...>,
         person_id: <recursion ...>,
+        person_mode: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
         uuid: <recursion ...>
@@ -7561,6 +7741,9 @@
                         hidden: False
                       },
                       $session_id: {
+                        hidden: False
+                      },
+                      $session_id_uuid: {
                         hidden: False
                       },
                       $window_id: {
@@ -7642,6 +7825,9 @@
                         hidden: False
                       },
                       person_id: {
+                        hidden: False
+                      },
+                      person_mode: {
                         hidden: False
                       },
                       poe: {
@@ -7753,6 +7939,9 @@
                       $session_id: {
                         hidden: False
                       },
+                      $session_id_uuid: {
+                        hidden: False
+                      },
                       $window_id: {
                         hidden: False
                       },
@@ -7832,6 +8021,9 @@
                         hidden: False
                       },
                       person_id: {
+                        hidden: False
+                      },
+                      person_mode: {
                         hidden: False
                       },
                       poe: {
@@ -8253,6 +8445,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $session_id_uuid: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -8332,6 +8527,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  person_mode: {
                     hidden: False
                   },
                   poe: {
@@ -8475,6 +8673,9 @@
                     $session_id: {
                       hidden: False
                     },
+                    $session_id_uuid: {
+                      hidden: False
+                    },
                     $window_id: {
                       hidden: False
                     },
@@ -8554,6 +8755,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    person_mode: {
                       hidden: False
                     },
                     poe: {
@@ -8701,6 +8905,9 @@
                       $session_id: {
                         hidden: False
                       },
+                      $session_id_uuid: {
+                        hidden: False
+                      },
                       $window_id: {
                         hidden: False
                       },
@@ -8780,6 +8987,9 @@
                         hidden: False
                       },
                       person_id: {
+                        hidden: False
+                      },
+                      person_mode: {
                         hidden: False
                       },
                       poe: {
@@ -8963,6 +9173,9 @@
                               $session_id: {
                                 hidden: False
                               },
+                              $session_id_uuid: {
+                                hidden: False
+                              },
                               $window_id: {
                                 hidden: False
                               },
@@ -9042,6 +9255,9 @@
                                 hidden: False
                               },
                               person_id: {
+                                hidden: False
+                              },
+                              person_mode: {
                                 hidden: False
                               },
                               poe: {
@@ -9231,6 +9447,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $session_id_uuid: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -9310,6 +9529,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  person_mode: {
                     hidden: False
                   },
                   poe: {
@@ -9462,6 +9684,9 @@
                     $session_id: {
                       hidden: False
                     },
+                    $session_id_uuid: {
+                      hidden: False
+                    },
                     $window_id: {
                       hidden: False
                     },
@@ -9541,6 +9766,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    person_mode: {
                       hidden: False
                     },
                     poe: {
@@ -9694,6 +9922,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $session_id_uuid: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -9773,6 +10004,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  person_mode: {
                     hidden: False
                   },
                   poe: {
@@ -9912,6 +10146,9 @@
                     $session_id: {
                       hidden: False
                     },
+                    $session_id_uuid: {
+                      hidden: False
+                    },
                     $window_id: {
                       hidden: False
                     },
@@ -9991,6 +10228,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    person_mode: {
                       hidden: False
                     },
                     poe: {
@@ -10227,6 +10467,9 @@
                     $session_id: {
                       hidden: False
                     },
+                    $session_id_uuid: {
+                      hidden: False
+                    },
                     $window_id: {
                       hidden: False
                     },
@@ -10306,6 +10549,9 @@
                       hidden: False
                     },
                     person_id: {
+                      hidden: False
+                    },
+                    person_mode: {
                       hidden: False
                     },
                     poe: {
@@ -10412,6 +10658,9 @@
                         $session_id: {
                           hidden: False
                         },
+                        $session_id_uuid: {
+                          hidden: False
+                        },
                         $window_id: {
                           hidden: False
                         },
@@ -10491,6 +10740,9 @@
                           hidden: False
                         },
                         person_id: {
+                          hidden: False
+                        },
+                        person_mode: {
                           hidden: False
                         },
                         poe: {
@@ -10609,6 +10861,9 @@
                   $session_id: {
                     hidden: False
                   },
+                  $session_id_uuid: {
+                    hidden: False
+                  },
                   $window_id: {
                     hidden: False
                   },
@@ -10688,6 +10943,9 @@
                     hidden: False
                   },
                   person_id: {
+                    hidden: False
+                  },
+                  person_mode: {
                     hidden: False
                   },
                   poe: {

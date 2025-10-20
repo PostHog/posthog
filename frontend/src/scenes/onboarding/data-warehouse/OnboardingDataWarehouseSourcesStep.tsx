@@ -37,7 +37,7 @@ export function OnboardingDataWarehouseSourcesStep({
                 <LemonSkeleton />
             ) : (
                 <BindLogic logic={sourceWizardLogic} props={{ availableSources }}>
-                    <NewSourcesWizard disableConnectedSources onComplete={() => goToNextStep()} />
+                    <NewSourcesWizard onComplete={() => goToNextStep()} />
                 </BindLogic>
             )}
         </OnboardingStep>

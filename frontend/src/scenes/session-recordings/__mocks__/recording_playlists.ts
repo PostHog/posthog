@@ -1,7 +1,5 @@
 import { PropertyOperator } from '~/types'
-import { PropertyFilterType } from '~/types'
-
-import { SavedSessionRecordingPlaylistsResult } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { PropertyFilterType, SavedSessionRecordingPlaylistsResult } from '~/types'
 
 export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
     count: 5,

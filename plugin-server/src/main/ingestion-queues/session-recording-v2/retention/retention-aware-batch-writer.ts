@@ -79,7 +79,7 @@ export class RetentionAwareStorage implements SessionBatchFileStorage {
                 storage[retentionPeriod] = new S3SessionBatchFileStorage(
                     this.s3,
                     this.bucket,
-                    retentionPeriod === 'legacy' ? 'session_recording_batches' : `${this.prefix}/${retentionPeriod}`,
+                    `${this.prefix}/${retentionPeriod}`,
                     this.timeout
                 )
                 return storage

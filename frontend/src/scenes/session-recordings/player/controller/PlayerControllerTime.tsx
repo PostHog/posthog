@@ -16,10 +16,10 @@ import { TimestampFormat, playerSettingsLogic } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
 
 function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Element {
-    const { logicProps, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
-    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
+    const { logicProps, currentPlayerTimeSeconds, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { isScrubbing, scrubbingTimeSeconds } = useValues(seekbarLogic(logicProps))
 
-    const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
+    const startTimeSeconds = (isScrubbing ? scrubbingTimeSeconds : currentPlayerTimeSeconds) ?? 0
     const endTimeSeconds = Math.floor(sessionPlayerData.durationMs / 1000)
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
@@ -115,6 +115,7 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 size="xsmall"
                 noPadding={true}
                 onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}
+                className="ph-no-rageclick"
             >
                 <div className="PlayerControlSeekIcon">
                     <span className="PlayerControlSeekIcon__seconds">{jumpTimeSeconds}</span>

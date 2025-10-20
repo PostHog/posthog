@@ -22,8 +22,6 @@ from posthog.permissions import OrganizationMemberPermissions, UserCanInvitePerm
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.tasks.email import send_invite
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
-
 
 class OrganizationInviteManager:
     @staticmethod
@@ -160,6 +158,25 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         # Note: this validation is checking if the inviting user has permission to invite others to the project with the specified access level, not whether the project itself has access controls enabled.
         # checking if the inviting user has permission to invite a user to the project with the given level
         for item in private_project_access:
+            # Validate the level field
+            level = item.get("level")
+            if level not in ["member", "admin"]:
+                import posthoganalytics
+
+                request = self.context.get("request")
+                user = request.user if request else None
+
+                posthoganalytics.capture_exception(
+                    Exception("Invalid access level used in private_project_access"),
+                    properties={
+                        "field": "private_project_access.level",
+                        "value": str(level),
+                        "user_id": user.id if user else None,
+                        "organization_id": self.context.get("organization_id"),
+                    },
+                )
+
+                raise exceptions.ValidationError('The "level" field must be a valid access level.')
             # if the project is private, if user is not an admin of the team, they can't invite to it
             organization: Organization = Organization.objects.get(id=self.context["organization_id"])
             if not organization:
@@ -182,24 +199,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 # User is not an org admin/owner
                 pass
 
-            # This path is deprecated, and will be removed soon
-            if team.access_control:
-                team_membership: ExplicitTeamMembership | None = None
-                try:
-                    team_membership = ExplicitTeamMembership.objects.get(
-                        team_id=item["id"],
-                        parent_membership__user=self.context["request"].user,
-                    )
-                except ExplicitTeamMembership.DoesNotExist:
-                    raise exceptions.ValidationError(team_error)
-                if team_membership.level < item["level"]:
-                    raise exceptions.ValidationError(
-                        "You cannot invite to a private project with a higher level than your own.",
-                    )
-                # Legacy private project and the current user has permission to invite to it
-                continue
-
-            # New access control checks
             from ee.models.rbac.access_control import AccessControl
 
             # Check if the team has an access control row that applies to the entire resource
@@ -222,8 +221,17 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 # Team is private, check if user has admin access
                 uac = UserAccessControl(user=self.context["request"].user, team=team)
                 access_level = uac.access_level_for_object(team)
-                if access_level != "admin":
+                if access_level == "none":
                     raise exceptions.ValidationError(team_error)
+
+                # Check if user is trying to invite with a higher level than their own
+                user_level_rank = {"member": 1, "admin": 2}.get(access_level or "", 0)
+                requested_level_rank = {"member": 1, "admin": 2}.get(level, 0)
+
+                if requested_level_rank > user_level_rank:
+                    raise exceptions.ValidationError(
+                        "You cannot invite to a private project with a higher level than your own."
+                    )
 
         return private_project_access
 

@@ -240,6 +240,9 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
                         return false
                     }
+                    if (x.hideWhenNoSection && !selectedSectionId) {
+                        return false
+                    }
                     if (x.allowForTeam) {
                         return x.allowForTeam(currentTeam)
                     }
@@ -366,6 +369,7 @@ export const settingsLogic = kea<settingsLogicType>([
         ['*/replay/settings']: (_, __, hashParams) => {
             const { selectedSetting } = hashParams
             const selectedSettingId = selectedSetting as SettingId
+
             if (!selectedSettingId) {
                 return
             }

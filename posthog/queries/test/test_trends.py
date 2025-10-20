@@ -4382,9 +4382,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
-            self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
-            self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
-            self.assertDictContainsSubset({"breakdown_value": "person3", "aggregated_value": 1}, event_response[2])
+            self.assertLessEqual(
+                {"breakdown_value": "person1", "aggregated_value": 1}.items(), event_response[0].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": "person2", "aggregated_value": 1}.items(), event_response[1].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": "person3", "aggregated_value": 1}.items(), event_response[2].items()
+            )
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property_pie_with_event_dau_filter(self):
@@ -4421,8 +4427,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
             self.assertEqual(len(event_response), 2)
-            self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
-            self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
+            self.assertLessEqual(
+                {"breakdown_value": "person1", "aggregated_value": 1}.items(), event_response[0].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": "person2", "aggregated_value": 1}.items(), event_response[1].items()
+            )
 
     def test_breakdown_hour_interval(self):
         response = self._test_events_with_dates(
@@ -4845,8 +4855,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertDictContainsSubset({"count": 2, "breakdown_value": "2"}, event_response[0])
-        self.assertDictContainsSubset({"count": 1, "breakdown_value": "1"}, event_response[1])
+        self.assertLessEqual({"count": 2, "breakdown_value": "2"}.items(), event_response[0].items())
+        self.assertLessEqual({"count": 1, "breakdown_value": "1"}.items(), event_response[1].items())
         self.assertEntityResponseEqual(event_response, action_response)
 
     @also_test_with_materialized_columns(["$some_property"])
@@ -5508,7 +5518,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         step = sign_up_action.steps[0]
         step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
 
-        sign_up_action.steps = [dataclasses.asdict(step)]  # type: ignore
+        sign_up_action.steps = [dataclasses.asdict(step)]
         sign_up_action.save()
 
         with freeze_time("2020-01-04T14:01:01Z"):
@@ -6777,7 +6787,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         query_time = datetime(2020, 1, 5, 10, 1, 1, tzinfo=ZoneInfo(self.team.timezone))
-        utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600  # type: ignore
+        utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600
         utc_offset_sign = "-" if utc_offset_hours < 0 else "+"
         with freeze_time(query_time):
             response = Trends().run(
