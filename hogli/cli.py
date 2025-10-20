@@ -107,13 +107,13 @@ def _auto_update_manifest() -> None:
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """hogli - Developer CLI for PostHog."""
-    # Auto-update manifest on every invocation (but skip for check, which validates only)
-    if ctx.invoked_subcommand not in {"check", "help"}:
+    # Auto-update manifest on every invocation (but skip for meta:check, which validates only)
+    if ctx.invoked_subcommand not in {"meta:check", "help"}:
         _auto_update_manifest()
 
 
-@cli.command(name="check", help="Validate manifest against bin scripts (for CI)")
-def check() -> None:
+@cli.command(name="meta:check", help="Validate manifest against bin scripts (for CI)")
+def meta_check() -> None:
     """Validate that all bin scripts are in the manifest."""
     from hogli.validate import find_missing_manifest_entries
 
@@ -130,7 +130,7 @@ def check() -> None:
     raise SystemExit(1)
 
 
-@cli.command(name="concepts", help="Show services and infrastructure concepts")
+@cli.command(name="meta:concepts", help="Show services and infrastructure concepts")
 def concepts() -> None:
     """Display infrastructure concepts and services with descriptions and related commands."""
     from hogli.manifest import get_services_for_command
