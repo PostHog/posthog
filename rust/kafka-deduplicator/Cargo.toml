@@ -38,7 +38,6 @@ serve-metrics = { path = "../common/serve_metrics" }
 sha2 = "0.10.9"
 strum = "0.27.0"
 strum_macros = "0.27.2"
-tempfile = "3.8"
 time = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { version = "0.7.16", features = ["rt"] }
@@ -46,6 +45,9 @@ tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.8"
 
 [package.metadata.cargo-shear]
 ignored = ["strum"]
