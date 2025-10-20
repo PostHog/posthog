@@ -175,7 +175,7 @@ docker:
             Kafka)
     docker:services:down:
         description: Stop Docker infrastructure services
-    docker:
+    docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'
     docker:dev:
