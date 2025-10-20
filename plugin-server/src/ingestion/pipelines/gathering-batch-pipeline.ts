@@ -1,8 +1,6 @@
-import { BaseBatchPipeline, BatchProcessingStep } from './base-batch-pipeline'
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
-import { PipelineContext } from './pipeline.interface'
 
-export class GatheringBatchPipeline<TInput, TOutput, CInput = PipelineContext, COutput = CInput>
+export class GatheringBatchPipeline<TInput, TOutput, CInput, COutput = CInput>
     implements BatchPipeline<TInput, TOutput, CInput, COutput>
 {
     constructor(private subPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {}
@@ -27,9 +25,5 @@ export class GatheringBatchPipeline<TInput, TOutput, CInput = PipelineContext, C
         }
 
         return allResults
-    }
-
-    pipeBatch<U>(step: BatchProcessingStep<TOutput, U>): BaseBatchPipeline<TInput, TOutput, U, CInput, COutput> {
-        return new BaseBatchPipeline(step, this)
     }
 }
