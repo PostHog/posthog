@@ -6,6 +6,7 @@ from rest_framework.decorators import api_view, authentication_classes
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -43,7 +44,8 @@ def scim_users_view(request: Request, domain_id: str) -> Response:
             scim_user = PostHogSCIMUser.from_dict(request.data, organization_domain)
             return Response(scim_user.to_dict(), status=status.HTTP_201_CREATED)
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            capture_exception(e, additional_properties={"scim_operation": "create_user"})
+            return Response({"detail": "Invalid user data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @csrf_exempt
@@ -73,7 +75,8 @@ def scim_user_detail_view(request: Request, domain_id: str, user_id: str) -> Res
             scim_user.put(request.data)
             return Response(scim_user.to_dict())
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            capture_exception(e, additional_properties={"scim_operation": "replace_user", "user_id": user_id})
+            return Response({"detail": "Invalid user data"}, status=status.HTTP_400_BAD_REQUEST)
 
     elif request.method == "PATCH":
         try:
@@ -82,7 +85,8 @@ def scim_user_detail_view(request: Request, domain_id: str, user_id: str) -> Res
             scim_user.handle_operations(operations)
             return Response(scim_user.to_dict())
         except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            capture_exception(e, additional_properties={"scim_operation": "update_user", "user_id": user_id})
+            return Response({"detail": "Failed to update user"}, status=status.HTTP_400_BAD_REQUEST)
 
     elif request.method == "DELETE":
         scim_user.delete()
@@ -117,7 +121,8 @@ def scim_groups_view(request: Request, domain_id: str) -> Response:
             scim_group = PostHogSCIMGroup.from_dict(request.data, organization_domain)
             return Response(scim_group.to_dict(), status=status.HTTP_201_CREATED)
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            capture_exception(e, additional_properties={"scim_operation": "create_group"})
+            return Response({"detail": "Invalid group data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @csrf_exempt
@@ -147,7 +152,8 @@ def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> R
             scim_group.put(request.data)
             return Response(scim_group.to_dict())
         except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            capture_exception(e, additional_properties={"scim_operation": "replace_group", "group_id": group_id})
+            return Response({"detail": "Invalid group data"}, status=status.HTTP_400_BAD_REQUEST)
 
     elif request.method == "PATCH":
         try:
@@ -156,7 +162,8 @@ def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> R
             scim_group.handle_operations(operations)
             return Response(scim_group.to_dict())
         except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            capture_exception(e, additional_properties={"scim_operation": "update_group", "group_id": group_id})
+            return Response({"detail": "Failed to update group"}, status=status.HTTP_400_BAD_REQUEST)
 
     elif request.method == "DELETE":
         scim_group.delete()
