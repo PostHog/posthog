@@ -92,66 +92,23 @@ def cli() -> None:
     pass
 
 
-@cli.command(name="meta", help="Show all commands grouped by service instead of category")
-def meta() -> None:
-    """Display all commands grouped by their associated services."""
-    from hogli.manifest import get_services_for_command
-
+@cli.command(name="concepts", help="Show services and infrastructure concepts")
+def concepts() -> None:
+    """Display infrastructure concepts and services with descriptions."""
     manifest = load_manifest()
     services_dict = manifest.get("metadata", {}).get("services", {})
 
-    # Build a map of service_key -> list of (cmd_name, help_text) tuples
-    service_commands: dict[str, list[tuple[str, str]]] = {svc_key: [] for svc_key in services_dict}
-    commands_without_service: list[tuple[str, str]] = []
+    if not services_dict:
+        click.echo("No services found in manifest.")
+        return
 
-    # Scan all commands from the CLI group (already registered)
-    for cmd_name, cmd in cli.commands.items():
-        if cmd_name == "meta":
-            continue  # Skip meta itself
-
-        help_text = cmd.get_short_help_str(100) if hasattr(cmd, "get_short_help_str") else (cmd.help or "")
-
-        # Get services for this command
-        config = {}
-        for _category, scripts in manifest.items():
-            if _category == "metadata" or not isinstance(scripts, dict):
-                continue
-            if cmd_name in scripts and isinstance(scripts[cmd_name], dict):
-                config = scripts[cmd_name]
-                break
-
-        services = get_services_for_command(cmd_name, config)
-        if services:
-            # Add to each service it belongs to
-            for svc_name, _ in services:
-                for svc_key, svc_info in services_dict.items():
-                    if svc_info.get("name", svc_key) == svc_name:
-                        service_commands[svc_key].append((cmd_name, help_text))
-                        break
-        else:
-            commands_without_service.append((cmd_name, help_text))
-
-    # Format output like help but grouped by service
-    click.echo("\nServices:\n")
+    click.echo("\nInfrastructure Concepts:\n")
     for service_key in sorted(services_dict.keys()):
         service_info = services_dict[service_key]
         name = service_info.get("name", service_key)
-
-        commands = service_commands.get(service_key, [])
-        if commands:
-            formatter = click.formatting.HelpFormatter()
-            rows = sorted(commands, key=lambda x: x[0])
-            with formatter.section(name):
-                formatter.write_dl(rows)
-            click.echo(formatter.getvalue())
-
-    # Commands without explicit service
-    if commands_without_service:
-        formatter = click.formatting.HelpFormatter()
-        rows = sorted(commands_without_service, key=lambda x: x[0])
-        with formatter.section("Other"):
-            formatter.write_dl(rows)
-        click.echo(formatter.getvalue())
+        about = service_info.get("about", "No description")
+        click.echo(f"  {name}")
+        click.echo(f"    {about}\n")
 
 
 def _register_script_commands() -> None:
