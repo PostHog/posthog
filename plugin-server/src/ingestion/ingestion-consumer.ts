@@ -239,7 +239,7 @@ export class IngestionConsumer {
         const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
             .messageAware((builder) =>
                 // All of these steps are synchronous, so we can process the messages sequentially
-                // to buffering due to reordering.
+                // to avoid buffering due to reordering.
                 builder.sequentially((b) =>
                     b
                         .pipe(createParseHeadersStep())
@@ -259,6 +259,7 @@ export class IngestionConsumer {
             // We want to handle the first batch of rejected events, so that the remaining ones
             // can be processed in the team context.
             .handleResults(pipelineConfig)
+            // We don't need to block the pipeline with side effects at this stage.
             .handleSideEffects(this.promiseScheduler, { await: false })
             // This is the first synchronization point, where we gather all events.
             // We need to gather here because the pipeline consumer only calls next once.
@@ -317,7 +318,7 @@ export class IngestionConsumer {
             .messageAware((builder) =>
                 builder
                     .teamAware((b) =>
-                        // These steps are also synchronous, so we can process events sequentially.
+                        // We process the events for the distinct id sequentially to provide ordering guarantees.
                         b.sequentially((seq) =>
                             seq.retry(
                                 (retry) =>
