@@ -4,40 +4,40 @@ import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-function validateEventUuid(eventWithTeam: IncomingEventWithTeam): {
-    valid: boolean
-    warning?: PipelineWarning
-    dropCause?: string
-} {
+type ValidateEventUuidError = { error: true; cause: 'empty_uuid' | 'invalid_uuid'; warning: PipelineWarning }
+type ValidateEventUuidSuccess = { error: false }
+type ValidateEventUuidResult = ValidateEventUuidSuccess | ValidateEventUuidError
+
+function validateEventUuid(eventWithTeam: IncomingEventWithTeam): ValidateEventUuidResult {
     const { event } = eventWithTeam
 
     if (!event.uuid) {
         return {
-            valid: false,
+            error: true,
+            cause: 'empty_uuid',
             warning: {
                 type: 'skipping_event_invalid_uuid',
                 details: {
                     eventUuid: JSON.stringify(event.uuid),
                 },
             },
-            dropCause: 'empty_uuid',
         }
     }
 
     if (!UUID.validateString(event.uuid, false)) {
         return {
-            valid: false,
+            error: true,
+            cause: 'invalid_uuid',
             warning: {
                 type: 'skipping_event_invalid_uuid',
                 details: {
                     eventUuid: JSON.stringify(event.uuid),
                 },
             },
-            dropCause: 'invalid_uuid',
         }
     }
 
-    return { valid: true }
+    return { error: false }
 }
 
 export function createValidateEventUuidStep<T extends { eventWithTeam: IncomingEventWithTeam }>(): ProcessingStep<
@@ -46,9 +46,9 @@ export function createValidateEventUuidStep<T extends { eventWithTeam: IncomingE
 > {
     return async function validateEventUuidStep(input) {
         const { eventWithTeam } = input
-        const validation = validateEventUuid(eventWithTeam)
-        if (!validation.valid) {
-            return drop(validation.dropCause || 'invalid_uuid', [], validation.warning ? [validation.warning] : [])
+        const result = validateEventUuid(eventWithTeam)
+        if (result.error) {
+            return drop(result.cause, [], [result.warning])
         }
         return Promise.resolve(ok(input))
     }
