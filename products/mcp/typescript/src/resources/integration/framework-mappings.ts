@@ -3,22 +3,30 @@
  */
 
 export enum SupportedFramework {
-    NextJS = 'nextjs-app-router',
+    NextJSApp = 'nextjs-app-router',
+    NextJSPages = 'nextjs-pages-router',
 }
 
 /**
  * Maps framework identifiers to their PostHog documentation URLs
  */
 export const FRAMEWORK_DOCS: Record<SupportedFramework, string> = {
-    [SupportedFramework.NextJS]: 'https://posthog.com/docs/libraries/next-js.md',
+    [SupportedFramework.NextJSApp]: 'https://posthog.com/docs/libraries/next-js.md',
+    [SupportedFramework.NextJSPages]: 'https://posthog.com/docs/libraries/next-js.md',
 }
 
 /**
- * Maps framework identifiers to their example project repository URLs
+ * URL to the PostHog examples monorepo
  */
-export const FRAMEWORK_EXAMPLES: Record<SupportedFramework, string> = {
-    [SupportedFramework.NextJS]:
-        'https://github.com/daniloc/posthog-app-router-example/archive/refs/heads/main.zip',
+export const EXAMPLES_MONOREPO_URL =
+    'https://github.com/PostHog/examples/archive/refs/heads/main.zip'
+
+/**
+ * Maps framework identifiers to their subfolder paths in the examples monorepo
+ */
+export const FRAMEWORK_EXAMPLE_PATHS: Record<SupportedFramework, string> = {
+    [SupportedFramework.NextJSApp]: 'basics/next-app-router',
+    [SupportedFramework.NextJSPages]: 'basics/next-pages-router',
 }
 
 /**

@@ -2,12 +2,14 @@ import { type McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/serv
 import type { Context } from '@/tools/types'
 import {
     FRAMEWORK_DOCS,
-    FRAMEWORK_EXAMPLES,
+    EXAMPLES_MONOREPO_URL,
+    FRAMEWORK_EXAMPLE_PATHS,
     isSupportedFramework,
     getSupportedFrameworks,
     getSupportedFrameworksList,
 } from './framework-mappings'
-import { convertRepoToMarkdown } from './repo-to-md'
+import { convertSubfolderToMarkdown } from './repo-to-md'
+import { unzipSync, type Unzipped } from 'fflate'
 
 // Import workflow markdown files
 import workflowBegin from './workflow-guides/1.0-event-setup-begin.md'
@@ -29,6 +31,32 @@ export enum ResourceUri {
     // Framework-specific content
     DOCS_FRAMEWORK = 'posthog://integration/docs/frameworks/{framework}',
     EXAMPLE_PROJECT_FRAMEWORK = 'posthog://integration/example-projects/{framework}',
+}
+
+// Cache for the examples monorepo ZIP contents
+let cachedExamplesRepo: Unzipped | null = null
+
+/**
+ * Fetches and caches the examples monorepo ZIP at startup
+ */
+async function fetchExamplesMonorepo(): Promise<Unzipped> {
+    if (cachedExamplesRepo) {
+        return cachedExamplesRepo
+    }
+
+    console.log('Fetching PostHog examples monorepo...')
+    const response = await fetch(EXAMPLES_MONOREPO_URL)
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch examples monorepo: ${response.statusText}`)
+    }
+
+    const arrayBuffer = await response.arrayBuffer()
+    const uint8Array = new Uint8Array(arrayBuffer)
+    cachedExamplesRepo = unzipSync(uint8Array)
+    console.log('Examples monorepo cached successfully')
+
+    return cachedExamplesRepo
 }
 
 // Define workflow sequence - automatically appends next step URI to each workflow
@@ -57,6 +85,11 @@ const workflowSequence = [
  * Registers all PostHog integration resources with the MCP server
  */
 export function registerIntegrationResources(server: McpServer, _context: Context) {
+    // Fetch examples monorepo at startup
+    fetchExamplesMonorepo().catch((error) => {
+        console.error('Failed to fetch examples monorepo:', error)
+    })
+
     // Register workflow resources with automatic next step appending
     workflowSequence.forEach((workflow, i) => {
         const nextWorkflow = workflowSequence[i + 1]
@@ -198,10 +231,15 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
             }
 
             try {
-                const zipUrl = FRAMEWORK_EXAMPLES[frameworkStr]
-                const markdown = await convertRepoToMarkdown({
-                    zipUrl,
+                // Get the cached monorepo (or fetch if not yet cached)
+                const unzippedRepo = await fetchExamplesMonorepo()
+                const subfolderPath = FRAMEWORK_EXAMPLE_PATHS[frameworkStr]
+
+                const markdown = convertSubfolderToMarkdown({
+                    unzippedRepo,
+                    subfolderPath,
                     frameworkName: frameworkStr,
+                    repoUrl: EXAMPLES_MONOREPO_URL.replace('/archive/refs/heads/main.zip', ''),
                 })
 
                 return {
