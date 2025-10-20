@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Awaitable, Sequence
+from collections.abc import Awaitable, Mapping, Sequence
 from typing import TYPE_CHECKING, Literal, Optional, TypeVar, Union, cast
 from uuid import uuid4
 
@@ -325,14 +325,14 @@ class RootNode(AssistantNode):
             return [*messages, LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT)]
         return messages
 
-    def _get_tool_map(self, messages: Sequence[AssistantMessageUnion]) -> dict[str, AssistantToolCallMessage]:
+    def _get_tool_map(self, messages: Sequence[AssistantMessageUnion]) -> Mapping[str, AssistantToolCallMessage]:
         """Get a map of tool call IDs to tool call messages."""
         return convert_tool_messages_to_dict(messages)
 
     def _convert_to_langchain_messages(
         self,
         messages: Sequence[AssistantMessageUnion],
-        tool_result_messages: dict[str, AssistantToolCallMessage],
+        tool_result_messages: Mapping[str, AssistantToolCallMessage],
     ) -> list[BaseMessage]:
         """Convert a conversation window to a list of Langchain messages."""
         return convert_to_anthropic_messages(messages, tool_result_messages)
