@@ -157,10 +157,9 @@ deploy:
 build:
     build:frontend:
         description: Build frontend packages and run TypeScript compilation
-    build:schema:
-        cmd: pnpm schema:build
-        description: Generate schema definitions (frontend, python, latest versions)
-        # TODO: candidate for conversion to hogli steps
+    build:schema-json:
+        cmd: pnpm --filter=@posthog/frontend run schema:build:json
+        description: Generate schema.json from frontend
     build:schema-python:
         bin_script: build-schema-python.sh
         description: Generate Pydantic schema.py from schema.json with datamodel-codegen
@@ -170,10 +169,6 @@ build:
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
-    build:grammar:
-        cmd: pnpm grammar:build
-        description: Generate HogQL grammar definitions (Python and C++)
-        # TODO: candidate for conversion to hogli steps
 docker:
     docker:services:up:
         description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
@@ -360,6 +355,16 @@ compositions:
             - lint
             - format
         description: Pre-commit checks (lint and format)
+    build:schema:
+        steps:
+            - build:schema-json
+            - build:schema-python
+            - build:schema-latest-versions
+        description: Generate all schema definitions (frontend JSON, Python, latest versions)
+    build:grammar:
+        cmd: pnpm grammar:build
+        description: Generate HogQL grammar definitions (Python and C++)
+        # TODO: candidate for conversion to hogli steps
 environment:
     flox:activate:
         cmd: flox activate
