@@ -74,39 +74,32 @@ health_checks:
         description: Poll ClickHouse HTTP port until service is ready
         services:
             - clickhouse
-        args: none
     check:dagster-graphql:
         bin_script: check_dagster_graphql_up
         description: Wait for Dagster UI to become available
-        args: none
     check:hosts:
         bin_script: check_hosts
         description: Verify DNS resolution for required service hostnames (clickhouse,
             kafka, etc)
-        args: none
     check:kafka-clickhouse:
         bin_script: check_kafka_clickhouse_up
         description: Wait for both Kafka and ClickHouse services to be ready
         services:
             - kafka
             - clickhouse
-        args: none
     check:postgres:
         bin_script: check_postgres_up
         description: Poll PostgreSQL connection until database is available
         services:
             - postgresql
-        args: optional
     check:temporal:
         bin_script: check_temporal_up
         description: Wait for Temporal service port with 180s timeout
         services:
             - temporal
-        args: none
     check:video-deps:
         bin_script: check_video_deps
         description: Install and verify Playwright browsers and FFmpeg dependencies
-        args: none
 start:
     start:
         bin_script: start
@@ -118,34 +111,26 @@ start:
             - kafka
             - clickhouse
             - temporal
-        allow_extra_args: true
-        args: optional
     start:backend:
         bin_script: start-backend
         description: Run Django development server on port 8000 with auto-reload
         services:
             - postgresql
             - redis
-        args: none
     start:celery:
         bin_script: start-celery
         description: Start Celery worker or beat scheduler with auto-reload
         services:
             - redis
             - kafka
-        args: required (worker|beat)
     start:frontend:
         bin_script: start-frontend
         description: Install dependencies and start frontend with Vite dev server
         services:
             - docker
-        allow_extra_args: true
-        args: optional
     start:frontend-vite:
         bin_script: start-frontend-vite
         description: Start Vite dev server for frontend (runs pnpm start-vite)
-        allow_extra_args: true
-        args: optional
     start:worker:
         bin_script: start-worker
         description: Launch all background workers (Celery worker, beat scheduler, plugin-server)
@@ -153,39 +138,30 @@ start:
             - kafka
             - temporal
             - redis
-        args: none
     start:rust-service:
         bin_script: start-rust-service
         description: Build and run live Rust microservice with auto-restart on crash
-        allow_extra_args: true
-        args: required (service name)
 deploy:
     deploy:hobby:
         bin_script: deploy-hobby
         description: Interactive installer for single-instance PostHog deployment on remote
             server
-        allow_extra_args: true
-        args: optional
     deploy:upgrade-hobby:
         bin_script: upgrade-hobby
         description: Upgrade existing hobby deployment with data loss warnings and volume
             checks
-        args: none
 build:
     build:frontend:
         description: Build frontend packages and run TypeScript compilation
     build:schema-python:
         bin_script: build-schema-python.sh
         description: Generate Pydantic schema.py from schema.json with datamodel-codegen
-        args: none
     build:schema-latest-versions:
         bin_script: build-schema-latest-versions.py
         description: Extract latest schema versions and generate frontend JSON config
-        args: none
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
-        args: none
 docker:
     docker:services:up:
         description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
@@ -195,71 +171,53 @@ docker:
     docker:
         bin_script: docker
         description: Run all services (migrate, backend, worker) via Docker orchestration
-        args: none
     docker:dev:
         bin_script: docker-dev
         description: Migrate, run Django dev server on port 8000, and start frontend in
             Docker
-        args: none
     docker:dev-web:
         bin_script: docker-dev-web
         description: Run Django dev server on port 8000 and start frontend in Docker
-        args: none
     docker:backend:
         bin_script: docker-backend
         description: Run Django development server on port 8000 with migrations
-        args: none
     docker:frontend:
         bin_script: docker-frontend
         description: Build and run frontend in Docker with Webpack hot reload
-        args: none
     docker:migrate:
         bin_script: docker-migrate
         description: Run database migrations in Docker
-        args: none
     docker:server:
         bin_script: docker-server
         description: Run gunicorn application server with Prometheus metrics support
-        allow_extra_args: true
-        args: optional
     docker:server-unit:
         bin_script: docker-server-unit
         description: Run NGINX Unit application server with configurable workers
-        args: none
     docker:worker:
         bin_script: docker-worker
         description: Start plugin-server and Celery worker/beat in parallel with restart
             loop
-        args: none
     docker:worker-beat:
         bin_script: docker-worker-beat
         description: Run Celery beat scheduler with RedBeat backend
-        args: none
     docker:worker-celery:
         bin_script: docker-worker-celery
         description: Start Celery worker with optional scheduler, gossip, heartbeat, mingle
-        allow_extra_args: true
-        args: optional
     docker:ai-evals:
         bin_script: docker-ai-evals
         description: Set up Docker services and run evaluation scripts with cleanup
-        args: none
 migration:
     db:migrate:
         description: Apply database migrations (Django and ClickHouse)
     migration:migrate:
         bin_script: migrate
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
-        args: none
     migration:migrate-check:
         bin_script: migrate-check
         description: Verify all migrations are ready without applying them
-        args: none
     migration:migrate-kafka:
         bin_script: migrate_kafka_data.py
         description: Migrate data between Kafka clusters/topics with consumer group tracking
-        allow_extra_args: true
-        args: required
 testing:
     test:python:
         description: Run Python test suite
@@ -268,13 +226,9 @@ testing:
     testing:tests:
         bin_script: tests
         description: Interactive test runner with watch mode and changed file detection
-        allow_extra_args: true
-        args: optional
     testing:e2e-test-runner:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
-        allow_extra_args: true
-        args: optional
 code_quality:
     lint:check:
         description: Run code quality checks for Python and JavaScript
@@ -286,47 +240,31 @@ tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
-        allow_extra_args: true
-        args: optional
     tool:plugin-server:
         bin_script: plugin-server
         description: Start plugin-server with optional restart loop
-        allow_extra_args: true
-        args: optional
     tool:download-mmdb:
         bin_script: download-mmdb
         description: Download and cache GeoLite2 MaxMind database with retry logic
-        args: none
     tool:hog:
         bin_script: hog
         description: Run HogQL interpreter (TypeScript/Python) or compiled bytecode
-        allow_extra_args: true
-        args: required (file.hog or file.hoge)
     tool:hoge:
         bin_script: hoge
         description: Compile HogQL source to bytecode or JavaScript
-        allow_extra_args: true
-        args: required (input.hog)
     tool:ruff:
         bin_script: ruff.sh
         description: Python linter and formatter with virtualenv auto-activation
-        allow_extra_args: true
-        args: required (check|format|etc)
     tool:ty:
         bin_script: ty.py
         description: Type checker with mypy-baseline filtering and sync
-        allow_extra_args: true
-        args: required (check|sync)
     tool:turbo:
         bin_script: turbo
         description: Turborepo wrapper with automatic dependency installation
-        allow_extra_args: true
-        args: required (turbo command)
     tool:unit-metrics:
         bin_script: unit_metrics.py
         description: WSGI app that aggregates Prometheus metrics from NGINX Unit status
             endpoint
-        args: none
     test:new:script:
         bin_script: test-new-script
         description: 'TODO: add description for test-new-script'
@@ -341,26 +279,18 @@ utilities:
     utilitie:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
-        allow_extra_args: true
-        args: required (create|checkout|pr|remove|list)
     utilitie:phw:
         bin_script: phw
         description: Shell function wrapper for worktree management with auto-cd
-        allow_extra_args: true
-        args: required (create|checkout|pr|remove|list|switch)
     utilitie:update-bots-list:
         bin_script: update-bots-list
         description: Download bot IP list from GoodBots GitHub and save locally
-        args: none
     utilitie:dump-hogvmrs-stl:
         bin_script: dump_hogvmrs_stl
         description: Generate Rust HogVM standard library definitions for error tracking
-        args: none
     utilitie:hobby-ci:
         bin_script: hobby-ci.py
         description: DigitalOcean CI automation for Hobby deployment testing
-        allow_extra_args: true
-        args: optional (create|destroy|test)
 compositions:
     infra:ready:
         steps:

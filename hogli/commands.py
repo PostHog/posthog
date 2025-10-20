@@ -100,43 +100,31 @@ class BinScriptCommand(Command):
         """Initialize with script path."""
         super().__init__(name, config)
         self.script_path = script_path
-        self.allow_extra_args = config.get("allow_extra_args", False)
 
     def get_underlying_command(self) -> str:
         """Return the script name."""
         return self.script_path.name
 
     def register(self, cli_group: click.Group) -> None:
-        """Register with optional extra args support."""
+        """Register command with extra args support."""
         help_text = self.get_help_text()
 
-        if self.allow_extra_args:
-
-            @cli_group.command(
-                self.name,
-                help=help_text,
-                context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
-            )
-            @click.pass_context
-            def cmd(ctx: click.Context) -> None:
-                try:
-                    self.execute(*ctx.args)
-                except SystemExit:
-                    raise
-
-        else:
-
-            @cli_group.command(self.name, help=help_text)
-            def cmd() -> None:  # type: ignore
-                try:
-                    self.execute()
-                except SystemExit:
-                    raise
+        @cli_group.command(
+            self.name,
+            help=help_text,
+            context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+        )
+        @click.pass_context
+        def cmd(ctx: click.Context) -> None:
+            try:
+                self.execute(*ctx.args)
+            except SystemExit:
+                raise
 
         return cmd
 
     def execute(self, *args: str) -> None:
-        """Execute the script."""
+        """Execute the script with any passed arguments."""
         _run([str(self.script_path), *args])
 
 
