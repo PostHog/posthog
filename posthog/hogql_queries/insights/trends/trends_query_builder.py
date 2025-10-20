@@ -1,5 +1,7 @@
 from typing import cast
 
+import posthoganalytics
+
 from posthog.schema import (
     ActionsNode,
     Breakdown as BreakdownSchema,
@@ -115,6 +117,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
     def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        if self.query.breakdown.enabled and not self._team_use_legacy_breakdown_query():
+            pass
+
         total_array = parse_expr(
             """
             arrayMap(
@@ -887,4 +892,24 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             """
             breakdown_value IS NOT NULL
             """
+        )
+
+    def _team_use_legacy_breakdown_query(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "legacy-trends-breakdown-query",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(self.team.organization_id),
+                },
+                "project": {
+                    "id": str(self.team.id),
+                },
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
         )
