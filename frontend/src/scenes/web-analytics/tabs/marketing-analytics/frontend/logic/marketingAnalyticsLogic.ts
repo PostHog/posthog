@@ -61,8 +61,11 @@ function getSourceStatus(
         if (schemaStatuses.includes('Running')) {
             return { status: 'Running', message: 'One or more required tables are still syncing' }
         }
-        if (schemaStatuses.includes('Completed')) {
-            return { status: 'Completed', message: 'Ready to use! All required fields are syncing.' }
+        if (
+            schemaStatuses.length === requiredFields.length &&
+            schemaStatuses.every((status) => status === 'Completed')
+        ) {
+            return { status: 'Completed', message: 'Ready to use! All required fields have synced.' }
         }
         return { status: 'warning', message: 'Some required tables need to be synced' }
     }

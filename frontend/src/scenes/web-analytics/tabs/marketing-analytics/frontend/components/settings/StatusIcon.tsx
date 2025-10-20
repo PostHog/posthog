@@ -38,6 +38,6 @@ function getStatusDisplay(status: 'success' | 'warning' | 'error' | 'Completed' 
         case 'error':
             return { icon: <IconX className="text-muted" /> }
         default:
-            return {}
+            throw new Error(`Unknown status: ${status}`)
     }
 }

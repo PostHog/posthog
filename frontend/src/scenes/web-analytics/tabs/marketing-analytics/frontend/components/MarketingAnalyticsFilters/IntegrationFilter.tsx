@@ -90,7 +90,7 @@ export function IntegrationFilter(): JSX.Element {
                                 <DataWarehouseSourceIcon type={source.name} size="xsmall" disableTooltip />
                                 <span className="flex-1">{formatSourceLabel(source)}</span>
                                 {/* We don't show the status icon for Completed sources because it would be too many statuses */}
-                                {source.status !== 'Completed' && (
+                                {source.status && source.statusMessage && source.status !== 'Completed' && (
                                     <StatusIcon status={source.status} message={source.statusMessage} />
                                 )}
                             </span>
