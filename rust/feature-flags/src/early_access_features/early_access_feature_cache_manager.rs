@@ -72,7 +72,9 @@ mod tests {
         let context = TestContext::new(None).await;
         let team = context.insert_new_team(None).await?;
 
-        let _early_access_feature = context.insert_early_access_feature(team.id, None, "flag".to_string()).await?;
+        let _early_access_feature = context
+            .insert_early_access_feature(team.id, None, "flag".to_string())
+            .await?;
 
         // Initialize Cache with a short TTL for testing
         let early_access_feature_cache = EarlyAccessFeatureCacheManager::new(
@@ -99,6 +101,35 @@ mod tests {
             early_access_feature_cache.cache.get(&team.project_id).await;
 
         assert!(cached_early_access_features.is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_early_access_features() -> Result<(), anyhow::Error> {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await?;
+        let project_id = team.project_id;
+        let team_id = team.id;
+
+        let _early_access_feature =
+            context.insert_early_access_feature(team_id, None, "flag".to_string()).await;
+
+        let cache =
+            EarlyAccessFeatureCacheManager::new(context.non_persons_reader.clone(), None, None);
+        let cached_early_access_features = cache.cache.get(&project_id).await;
+        assert!(
+            cached_early_access_features.is_none(),
+            "Cache should initially be empty"
+        );
+
+        let early_access_features = cache.get_early_access_features(project_id).await?;
+        assert_eq!(early_access_features.len(), 1);
+        assert_eq!(early_access_features[0].team_id, Some(team_id));
+
+        let cached_early_access_features = cache.cache.get(&project_id).await.unwrap();
+        assert_eq!(cached_early_access_features.len(), 1);
+        assert_eq!(cached_early_access_features[0].team_id, Some(team_id));
 
         Ok(())
     }
