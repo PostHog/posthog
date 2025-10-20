@@ -4,10 +4,7 @@ from typing import TypeVar
 
 from drf_spectacular.utils import extend_schema
 from pydantic import BaseModel, ValidationError
-from rest_framework import (
-    serializers,
-    status as http_status,
-)
+from rest_framework import serializers
 from rest_framework.exceptions import ParseError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -27,7 +24,16 @@ class PydanticModelMixin:
             raise ParseError("JSON parse error - {}".format(str(exc)))
 
 
-def validated_request(request_serializer: type[serializers.Serializer], **extend_schema_kwargs) -> Callable:
+def validated_request(
+    request_serializer: type[serializers.Serializer],
+    *,
+    responses: dict | None = None,
+    summary: str | None = None,
+    description: str | None = None,
+    tags: list[str] | None = None,
+    deprecated: bool = False,
+    **extend_schema_kwargs,
+) -> Callable:
     """
     Takes req/res serializers and validates against them.
 
@@ -52,15 +58,22 @@ def validated_request(request_serializer: type[serializers.Serializer], **extend
     """
 
     def decorator(view_func: Callable) -> Callable:
-        # Extract serializers from responses dict in extend_schema_kwargs
+        # Extract serializers from responses dict
         response_serializers = {}
-        responses_config = extend_schema_kwargs.get("responses", {})
+        if responses:
+            for status_code, response_config in responses.items():
+                if hasattr(response_config, "response"):
+                    response_serializers[status_code] = response_config.response
 
-        for status_code, response_config in responses_config.items():
-            if hasattr(response_config, "response"):
-                response_serializers[status_code] = response_config.response
-
-        @extend_schema(request=request_serializer, **extend_schema_kwargs)
+        @extend_schema(
+            request=request_serializer,
+            responses=responses,
+            summary=summary,
+            description=description,
+            tags=tags,
+            deprecated=deprecated,
+            **extend_schema_kwargs,
+        )
         @wraps(view_func)
         def wrapper(self, request: Request, *args, **kwargs) -> Response:
             serializer = request_serializer(data=request.data)
@@ -69,18 +82,20 @@ def validated_request(request_serializer: type[serializers.Serializer], **extend
 
             result = view_func(self, request, *args, **kwargs)
 
-            if isinstance(result, Response):
-                return result
-
             if not response_serializers:
                 return result
 
-            status_code = http_status.HTTP_200_OK
-            data = result
+            # Step 1: Fetch HTTP status code (must be a Response object)
+            if not isinstance(result, Response):
+                raise TypeError(
+                    f"View must return a Response object when using @validated_request with response serializers. "
+                    f"Got {type(result).__name__} instead."
+                )
 
-            if isinstance(result, tuple) and len(result) == 2:
-                data, status_code = result
+            status_code = result.status_code
+            data = result.data
 
+            # Step 2: Check if status code is in defined response codes
             serializer_class = response_serializers.get(status_code)
             if not serializer_class:
                 raise ValueError(
@@ -89,9 +104,12 @@ def validated_request(request_serializer: type[serializers.Serializer], **extend
                     f"Add this status code to the @validated_request responses dict."
                 )
 
+            # Step 3: Validate that response serializes properly
             context = getattr(self, "get_serializer_context", lambda: {})()
-            serialized = serializer_class(data, context=context)
+            serialized = serializer_class(data=data, context=context)
             serialized.is_valid(raise_exception=True)
+
+            # Step 4: Return the validated response
             return Response(serialized.data, status=status_code)
 
         return wrapper
