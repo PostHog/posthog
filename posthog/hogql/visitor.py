@@ -130,7 +130,6 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.constraint)
         self.visit(node.next_join)
 
-    # JS: this is key
     def visit_select_query(self, node: ast.SelectQuery):
         # :TRICKY: when adding new fields, also add them to visit_select_query of resolver.py
         self.visit(node.select_from)
