@@ -22,6 +22,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
+from posthog.models.file_system.file_system_view_log import log_file_system_view
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -499,5 +500,7 @@ class SessionRecordingPlaylistViewSet(
         except IntegrityError:
             # that's okay... if the viewed at clashes then we're ok skipping creation
             pass
+
+        log_file_system_view(user=user, obj=playlist)
 
         return response.Response({"success": True})

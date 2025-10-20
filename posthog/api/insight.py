@@ -75,6 +75,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import AlertConfiguration, are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
+from posthog.models.file_system.file_system_view_log import log_file_system_view
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
@@ -428,6 +429,7 @@ class InsightSerializer(InsightBasicSerializer):
         )
 
         InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
+        log_file_system_view(user=request.user, obj=insight)
 
         if dashboards is not None:
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
@@ -1304,6 +1306,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 insight=insight,
                 defaults={"last_viewed_at": viewed_at},
             )
+            log_file_system_view(user=request.user, obj=insight, viewed_at=viewed_at)
 
         return Response(status=status.HTTP_201_CREATED)
 
