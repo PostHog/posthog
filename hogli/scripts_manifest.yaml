@@ -22,6 +22,9 @@ metadata:
         testing:
             title: 'Run tests'
             order: 7
+        code_quality:
+            title: 'Code quality and formatting'
+            order: 7
         tools:
             title: 'Developer tools and utilities'
             order: 8
@@ -34,8 +37,22 @@ metadata:
         environment:
             title: 'Environment and shell'
             order: 11
+        core:
+            title: 'Core development commands'
+            order: 0
 
 # Command categories
+core:
+    categories:
+        python_defined: true
+        description: Show all available commands grouped by category
+    dev:up:
+        python_defined: true
+        description: Start full PostHog dev stack via mprocs
+    qa:check:
+        python_defined: true
+        description: Run pre-push quality checks (lint + build, ~5 min)
+
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
@@ -112,6 +129,9 @@ deploy:
             checks
         args: none
 build:
+    build:frontend:
+        python_defined: true
+        description: Build frontend packages and run TypeScript compilation
     build:schema-python:
         bin_script: build-schema-python.sh
         description: Generate Pydantic schema.py from schema.json with datamodel-codegen
@@ -125,6 +145,12 @@ build:
         description: Generate core filter definitions taxonomy JSON for frontend
         args: none
 docker:
+    docker:services:up:
+        python_defined: true
+        description: Start Docker infrastructure services (Postgres, ClickHouse, Redis, Kafka)
+    docker:services:down:
+        python_defined: true
+        description: Stop Docker infrastructure services
     docker:
         bin_script: docker
         description: Run all services (migrate, backend, worker) via Docker orchestration
@@ -178,6 +204,9 @@ docker:
         description: Set up Docker services and run evaluation scripts with cleanup
         args: none
 migration:
+    db:migrate:
+        python_defined: true
+        description: Apply database migrations (Django and ClickHouse)
     migration:migrate:
         bin_script: migrate
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
@@ -192,6 +221,12 @@ migration:
         allow_extra_args: true
         args: required
 testing:
+    test:python:
+        python_defined: true
+        description: Run Python test suite
+    test:js:
+        python_defined: true
+        description: Run JavaScript test suite
     testing:tests:
         bin_script: tests
         description: Interactive test runner with watch mode and changed file detection
@@ -202,6 +237,16 @@ testing:
         description: Set up test databases and run Playwright E2E tests
         allow_extra_args: true
         args: optional
+code_quality:
+    lint:check:
+        python_defined: true
+        description: Run code quality checks for Python and JavaScript
+    lint:fix:
+        python_defined: true
+        description: Fix code quality issues automatically
+    fmt:code:
+        python_defined: true
+        description: Format Python and JavaScript code
 tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
@@ -248,6 +293,12 @@ tools:
             endpoint
         args: none
 utilities:
+    git:worktree:
+        python_defined: true
+        description: Manage git worktrees for isolated development
+    products:list:
+        python_defined: true
+        description: List available product packages across frontend and backend
     utilitie:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development

@@ -105,6 +105,38 @@ def _group_commands_by_category() -> dict[str, list[tuple[str, str]]]:
     return grouped
 
 
+def _get_category_for_command(command_name: str) -> str:
+    """Infer category title for a command from its prefix by searching manifest.
+
+    For example:
+    - "test:python" has prefix "test" → searches for commands in manifest with "test:" prefix
+    - Finds them in "testing" category → returns the category title from metadata
+    - Falls back to "Commands" if prefix not found in any category
+    """
+    manifest = _load_manifest()
+    metadata = manifest.get("metadata", {}).get("categories", {})
+
+    # Extract prefix from command name (e.g., "test:python" → "test")
+    prefix = command_name.split(":")[0]
+
+    # Search through manifest categories to find which one has commands with this prefix
+    for category_key, commands in manifest.items():
+        if category_key == "metadata":
+            continue
+        if not isinstance(commands, dict):
+            continue
+
+        # Check if any command in this category starts with the prefix
+        for cmd_name in commands.keys():
+            if cmd_name.startswith(f"{prefix}:") or cmd_name == prefix:
+                # Found category containing this prefix! Return its title
+                category_title = metadata.get(category_key, {}).get("title", category_key.replace("_", " "))
+                return category_title
+
+    # Fallback if prefix not found in any category (graceful degradation)
+    return "Commands"
+
+
 def _echo_heading(message: str) -> None:
     typer.echo(typer.style(f"{EMOJI_SPARKLE} {message}", bold=True))
 
@@ -199,7 +231,7 @@ def _show_version(value: bool) -> None:
     raise typer.Exit()
 
 
-@app.command("categories")
+@app.command("categories", rich_help_panel=_get_category_for_command("categories"))
 def show_categories() -> None:
     """Show all available commands grouped by category.
 
@@ -222,7 +254,11 @@ def show_categories() -> None:
             typer.echo(f"   {cli_name:30} {description[:50]}...")
 
 
-@app.command("dev:up", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+@app.command(
+    "dev:up",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    rich_help_panel=_get_category_for_command("dev:up"),
+)
 def dev_up(ctx: typer.Context) -> None:
     """Start full PostHog dev stack via mprocs.
 
@@ -237,7 +273,7 @@ def dev_up(ctx: typer.Context) -> None:
         _fail_with_message(error)
 
 
-@app.command("test:python")
+@app.command("test:python", rich_help_panel=_get_category_for_command("test:python"))
 def test_python(
     pytest_args: Annotated[
         list[str] | None,
@@ -259,7 +295,7 @@ def test_python(
         _fail_with_message(error)
 
 
-@app.command("test:js")
+@app.command("test:js", rich_help_panel=_get_category_for_command("test:js"))
 def test_js(
     jest_args: Annotated[
         list[str] | None,
@@ -280,7 +316,7 @@ def test_js(
         _fail_with_message(error)
 
 
-@app.command("lint:check")
+@app.command("lint:check", rich_help_panel=_get_category_for_command("lint:check"))
 def lint_check(
     scope: str = typer.Option(
         "all",
@@ -308,7 +344,7 @@ def lint_check(
         _fail_with_message(error)
 
 
-@app.command("lint:fix")
+@app.command("lint:fix", rich_help_panel=_get_category_for_command("lint:fix"))
 def lint_fix(
     scope: str = typer.Option(
         "all",
@@ -336,7 +372,7 @@ def lint_fix(
         _fail_with_message(error)
 
 
-@app.command("fmt:code")
+@app.command("fmt:code", rich_help_panel=_get_category_for_command("fmt:code"))
 def fmt_code(
     scope: str = typer.Option(
         "all",
@@ -364,7 +400,7 @@ def fmt_code(
         _fail_with_message(error)
 
 
-@app.command("db:migrate")
+@app.command("db:migrate", rich_help_panel=_get_category_for_command("db:migrate"))
 def db_migrate() -> None:
     """Apply database migrations (Django and ClickHouse).
 
@@ -378,7 +414,7 @@ def db_migrate() -> None:
         _fail_with_message(error)
 
 
-@app.command("build:frontend")
+@app.command("build:frontend", rich_help_panel=_get_category_for_command("build:frontend"))
 def build_frontend(
     scope: str = typer.Option(
         "all",
@@ -404,7 +440,7 @@ def build_frontend(
         _fail_with_message(error)
 
 
-@app.command("docker:services:up")
+@app.command("docker:services:up", rich_help_panel=_get_category_for_command("docker:services:up"))
 def docker_services_up(
     follow: bool = typer.Option(False, "--follow", help="Stream docker-compose logs after startup."),
     rebuild: bool = typer.Option(False, "--rebuild", help="Recreate containers even if they exist."),
@@ -428,7 +464,7 @@ def docker_services_up(
         _fail_with_message(error)
 
 
-@app.command("docker:services:down")
+@app.command("docker:services:down", rich_help_panel=_get_category_for_command("docker:services:down"))
 def docker_services_down() -> None:
     """Stop Docker infrastructure services.
 
@@ -442,7 +478,7 @@ def docker_services_down() -> None:
         _fail_with_message(error)
 
 
-@app.command("qa:check")
+@app.command("qa:check", rich_help_panel=_get_category_for_command("qa:check"))
 def qa_check(
     linting: bool = typer.Option(True, "--lint/--skip-lint", help="Toggle running Python and JS linters (fast)."),
     build_assets: bool = typer.Option(True, "--build/--skip-build", help="Toggle building the frontend packages."),
@@ -471,6 +507,7 @@ def qa_check(
 @app.command(
     "git:worktree",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    rich_help_panel=_get_category_for_command("git:worktree"),
 )
 def git_worktree(ctx: typer.Context) -> None:
     """Manage git worktrees for isolated development.
@@ -484,7 +521,7 @@ def git_worktree(ctx: typer.Context) -> None:
         _fail_with_message(error)
 
 
-@app.command("products:list")
+@app.command("products:list", rich_help_panel=_get_category_for_command("products:list"))
 def products_list(json_output: bool = typer.Option(False, "--json", help="Output as JSON.")) -> None:
     """List available product packages across frontend and backend.
 
@@ -537,6 +574,8 @@ def _register_script_commands() -> None:
     1. bin_script: Delegate to a shell script
     2. steps: Compose multiple hogli commands in sequence
     3. cmd: Execute a direct shell command
+
+    All commands are automatically categorized using rich_help_panel based on their prefix.
     """
     manifest = _load_manifest()
     if not manifest:
@@ -562,6 +601,9 @@ def _register_script_commands() -> None:
                 # No command specified, skip
                 continue
 
+            # Get category for help panel (inferred from command name prefix)
+            category_panel = _get_category_for_command(cli_name)
+
             # Handle composition (steps field)
             if steps:
 
@@ -579,7 +621,9 @@ def _register_script_commands() -> None:
                     command.__doc__ = desc
                     return command
 
-                app.command(cli_name, help=description)(make_steps_command(steps, description))
+                app.command(cli_name, help=description, rich_help_panel=category_panel)(
+                    make_steps_command(steps, description)
+                )
                 continue
 
             # Handle direct commands (cmd field)
@@ -596,7 +640,9 @@ def _register_script_commands() -> None:
                     command.__doc__ = desc
                     return command
 
-                app.command(cli_name, help=description)(make_cmd_command(cmd, description))
+                app.command(cli_name, help=description, rich_help_panel=category_panel)(
+                    make_cmd_command(cmd, description)
+                )
                 continue
 
             # Handle bin_script delegation (original behavior)
@@ -627,6 +673,7 @@ def _register_script_commands() -> None:
                     cli_name,
                     context_settings=context_settings if context_settings else None,
                     help=description,
+                    rich_help_panel=category_panel,
                 )(make_command(cli_name, script_path, description, allow_extra_args))
 
 
