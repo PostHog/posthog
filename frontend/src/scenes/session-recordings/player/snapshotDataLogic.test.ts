@@ -9,14 +9,9 @@ import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { useAvailableFeatures } from '~/mocks/features'
-import { useMocks } from '~/mocks/jest'
-import { initKeaTests } from '~/test/init'
-import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
+import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
-import recordingEventsJson from '../__mocks__/recording_events_query'
-import { recordingMetaJson } from '../__mocks__/recording_meta'
-import { snapshotsAsJSONLines } from '../__mocks__/recording_snapshots'
+import { overrideSessionRecordingMocks, setupSessionRecordingTest } from './__mocks__/test-setup'
 import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
 import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations'
 import { snapshotDataLogic } from './snapshotDataLogic'
@@ -38,33 +33,9 @@ describe('snapshotDataLogic', () => {
     let logic: ReturnType<typeof snapshotDataLogic.build>
 
     beforeEach(() => {
-        useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
-        useMocks({
-            get: {
-                '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
-                    // with no sources, returns sources...
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
-                    }
-
-                    // with no source requested should return sources
-                    return [
-                        200,
-                        {
-                            sources: [BLOB_SOURCE, BLOB_SOURCE_TWO],
-                        },
-                    ]
-                },
-                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
-            },
-            post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
-            },
-            patch: {
-                '/api/environments/:team_id/session_recordings/:id': { success: true },
-            },
+        setupSessionRecordingTest({
+            snapshotSources: [BLOB_SOURCE, BLOB_SOURCE_TWO],
         })
-        initKeaTests()
         logic = snapshotDataLogic({
             sessionRecordingId: '2',
             blobV2PollingDisabled: true,
@@ -107,10 +78,9 @@ describe('snapshotDataLogic', () => {
 
         it('fetch metadata success and snapshots error', async () => {
             silenceKeaLoadersErrors()
-            // Unmount and remount the logic to trigger fetching the data again after the mock change
             logic.unmount()
-            useMocks({
-                get: {
+            overrideSessionRecordingMocks({
+                getMocks: {
                     '/api/environments/:team_id/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                 },
             })

@@ -114,7 +114,7 @@
               (
   SELECT
                   if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-                  if(notEmpty(source_name), source_name, 'organic') AS source,
+                  if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
                   count() AS conversion_0
               
   FROM
@@ -133,7 +133,7 @@
                           conversion_math_values[i] AS conversion_math_value,
                           conversion_campaigns[i] AS conversion_campaign,
                           conversion_sources[i] AS conversion_source,
-                          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 31536000))), utm_timestamps)) AS last_utm_timestamp,
+                          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
                           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
                           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
                       
@@ -153,7 +153,7 @@
                               events
                           
   WHERE
-                              or(and(equals(event, 'test_event'), greaterOrEquals(events.timestamp, toDateTime('2024-11-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2024-11-01 00:00:00'), toIntervalSecond(31536000))), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))))
+                              or(and(equals(event, 'test_event'), greaterOrEquals(events.timestamp, toDateTime('2024-11-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2024-11-01 00:00:00'), toIntervalSecond(7776000))), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))))
                           
   GROUP BY
                               events.person_id
@@ -168,7 +168,7 @@
           
   GROUP BY
               campaign,
-              source) AS ucg ON and(equals(campaign_costs.campaign, ucg.campaign), equals(campaign_costs.source, ucg.source))) AS current_period
+              source) AS ucg ON and(equals(campaign_costs.campaign, ucg.campaign), or(equals(campaign_costs.source, ucg.source), and(equals(campaign_costs.source, 'google'), in(lower(ucg.source), ['google', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze'])), and(equals(campaign_costs.source, 'linkedin'), in(lower(ucg.source), ['linkedin', 'li'])), and(equals(campaign_costs.source, 'reddit'), in(lower(ucg.source), ['reddit'])), and(equals(campaign_costs.source, 'meta'), in(lower(ucg.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads'])), and(equals(campaign_costs.source, 'tiktok'), in(lower(ucg.source), ['tiktok']))))) AS current_period
       LEFT JOIN (
   SELECT
           campaign_costs.campaign AS Campaign,
@@ -221,7 +221,7 @@
               (
   SELECT
                   if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-                  if(notEmpty(source_name), source_name, 'organic') AS source,
+                  if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic')))) AS source,
                   count() AS conversion_0
               
   FROM
@@ -240,7 +240,7 @@
                           conversion_math_values[i] AS conversion_math_value,
                           conversion_campaigns[i] AS conversion_campaign,
                           conversion_sources[i] AS conversion_source,
-                          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 31536000))), utm_timestamps)) AS last_utm_timestamp,
+                          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
                           if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
                           if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
                       
@@ -260,7 +260,7 @@
                               events
                           
   WHERE
-                              or(and(equals(event, 'test_event'), greaterOrEquals(events.timestamp, toDateTime('2024-09-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2024-10-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2024-09-01 00:00:00'), toIntervalSecond(31536000))), lessOrEquals(events.timestamp, toDateTime('2024-10-31 23:59:59'))))
+                              or(and(equals(event, 'test_event'), greaterOrEquals(events.timestamp, toDateTime('2024-09-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2024-10-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2024-09-01 00:00:00'), toIntervalSecond(7776000))), lessOrEquals(events.timestamp, toDateTime('2024-10-31 23:59:59'))))
                           
   GROUP BY
                               events.person_id
@@ -275,7 +275,7 @@
           
   GROUP BY
               campaign,
-              source) AS ucg ON and(equals(campaign_costs.campaign, ucg.campaign), equals(campaign_costs.source, ucg.source))) AS previous_period ON and(equals(current_period.Campaign, previous_period.Campaign), equals(current_period.Source, previous_period.Source))
+              source) AS ucg ON and(equals(campaign_costs.campaign, ucg.campaign), or(equals(campaign_costs.source, ucg.source), and(equals(campaign_costs.source, 'google'), in(lower(ucg.source), ['google', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze'])), and(equals(campaign_costs.source, 'linkedin'), in(lower(ucg.source), ['linkedin', 'li'])), and(equals(campaign_costs.source, 'reddit'), in(lower(ucg.source), ['reddit'])), and(equals(campaign_costs.source, 'meta'), in(lower(ucg.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads'])), and(equals(campaign_costs.source, 'tiktok'), in(lower(ucg.source), ['tiktok']))))) AS previous_period ON and(equals(current_period.Campaign, previous_period.Campaign), equals(current_period.Source, previous_period.Source))
   ORDER BY
       Cost DESC
   

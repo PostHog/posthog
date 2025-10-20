@@ -22,6 +22,9 @@ const meta: Meta<typeof ItemEvent> = {
             get: {},
         }),
     ],
+    parameters: {
+        mockDate: '2025-09-23',
+    },
 }
 export default meta
 
@@ -81,7 +84,11 @@ Default.args = {}
 
 export const PageViewWithPath: Story = BasicTemplate.bind({})
 PageViewWithPath.args = {
-    item: makeItem({}, { event: '$pageview' }, { $pathname: '/some/path' }),
+    item: makeItem(
+        {},
+        { event: '$pageview' },
+        { $pathname: '/some/path', aBool: true, aNumber: 123, aString: 'hello', aNull: null, anUndefined: undefined }
+    ),
 }
 
 export const PageViewWithCurrentURL: Story = BasicTemplate.bind({})

@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { isAnyPropertyFilters } from '~/queries/schema-guards'
-import { DataTableNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { DataTableNode, LLMTrace, NodeKind, TraceQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
@@ -50,6 +50,11 @@ export interface QueryTile {
     }
 }
 
+export interface LLMAnalyticsLogicProps {
+    personId?: string
+    tabId?: string
+}
+
 /**
  * Helper function to get date range for a specific day.
  * @param day - The day string from the chart (e.g., "2024-01-15")
@@ -65,7 +70,8 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 
 export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
-
+    props({} as LLMAnalyticsLogicProps),
+    key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
     connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
 
     actions({
@@ -78,6 +84,9 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         setTracesQuery: (query: DataTableNode) => ({ query }),
         refreshAllDashboardItems: true,
         setRefreshStatus: (tileId: string, loading?: boolean) => ({ tileId, loading }),
+        toggleGenerationExpanded: (uuid: string, traceId: string) => ({ uuid, traceId }),
+        setLoadedTrace: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
+        clearExpandedGenerations: true,
     }),
 
     reducers({
@@ -153,6 +162,39 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 setRefreshStatus: (state, { loading }) => (!loading ? new Date() : state),
             },
         ],
+
+        expandedGenerationIds: [
+            new Set<string>() as Set<string>,
+            {
+                toggleGenerationExpanded: (state, { uuid }) => {
+                    const newSet = new Set(state)
+                    if (newSet.has(uuid)) {
+                        newSet.delete(uuid)
+                    } else {
+                        newSet.add(uuid)
+                    }
+                    return newSet
+                },
+                clearExpandedGenerations: () => new Set<string>(),
+                setDates: () => new Set<string>(),
+                setPropertyFilters: () => new Set<string>(),
+                setShouldFilterTestAccounts: () => new Set<string>(),
+            },
+        ],
+
+        loadedTraces: [
+            {} as Record<string, LLMTrace>,
+            {
+                setLoadedTrace: (state, { traceId, trace }) => ({
+                    ...state,
+                    [traceId]: trace,
+                }),
+                clearExpandedGenerations: () => ({}),
+                setDates: () => ({}),
+                setPropertyFilters: () => ({}),
+                setShouldFilterTestAccounts: () => ({}),
+            },
+        ],
     }),
 
     loaders({
@@ -174,6 +216,35 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             },
         },
     }),
+
+    listeners(({ actions, values }) => ({
+        toggleGenerationExpanded: async ({ uuid, traceId }) => {
+            // Only load if expanding and not already loaded
+            if (values.expandedGenerationIds.has(uuid) && !values.loadedTraces[traceId]) {
+                // Build TraceQuery with date range from current filters
+                const dateFrom = values.dateFilter.dateFrom || '-7d'
+                const dateTo = values.dateFilter.dateTo || undefined
+
+                const traceQuery: TraceQuery = {
+                    kind: NodeKind.TraceQuery,
+                    traceId,
+                    dateRange: {
+                        date_from: dateFrom,
+                        date_to: dateTo,
+                    },
+                }
+
+                try {
+                    const response = await api.query(traceQuery)
+                    if (response.results && response.results.length > 0) {
+                        actions.setLoadedTrace(traceId, response.results[0])
+                    }
+                } catch (error) {
+                    console.error('Failed to load trace:', error)
+                }
+            }
+        },
+    })),
 
     selectors({
         activeTab: [
@@ -596,6 +667,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.dateFilter,
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
+                (_, props) => props.personId,
                 groupsModel.selectors.groupsTaxonomicTypes,
                 featureFlagLogic.selectors.featureFlags,
             ],
@@ -603,6 +675,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 dateFilter,
                 shouldFilterTestAccounts,
                 propertyFilters,
+                personId,
                 groupsTaxonomicTypes,
                 featureFlags
             ): DataTableNode => ({
@@ -615,6 +688,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                     filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
+                    ...(personId ? { personId } : {}),
                 },
                 columns: [
                     'id',

@@ -3,6 +3,7 @@ from functools import partial
 from uuid import UUID
 
 import pytest
+from freezegun import freeze_time
 
 from clickhouse_driver import Client
 
@@ -518,6 +519,7 @@ def test_cleanup_old_events_by_partition(cluster: ClickhouseCluster):
 
 
 @pytest.mark.django_db
+@freeze_time("2025-09-15")
 def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snapshot):
     from unittest.mock import patch
 

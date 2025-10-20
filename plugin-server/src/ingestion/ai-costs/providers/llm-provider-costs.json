@@ -616,6 +616,16 @@
         }
     },
     {
+        "model": "anthropic/claude-haiku-4.5",
+        "provider": "openrouter",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000005,
+            "cache_read_token": 1e-7,
+            "cache_write_token": 0.00000125
+        }
+    },
+    {
         "model": "anthropic/claude-opus-4",
         "provider": "openrouter",
         "cost": {
@@ -1003,6 +1013,16 @@
         "cost": {
             "prompt_token": 0.000003,
             "completion_token": 0.000015
+        }
+    },
+    {
+        "model": "claude-haiku-4-5-20251001",
+        "provider": "anthropic",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000005,
+            "cache_read_token": 1e-7,
+            "cache_write_token": 0.00000125
         }
     },
     {
@@ -8250,7 +8270,8 @@
         "provider": "openrouter",
         "cost": {
             "prompt_token": 0.000003,
-            "completion_token": 0.000015
+            "completion_token": 0.000015,
+            "cache_read_token": 7.5e-7
         }
     },
     {
@@ -8266,7 +8287,8 @@
         "provider": "openrouter",
         "cost": {
             "prompt_token": 3e-7,
-            "completion_token": 5e-7
+            "completion_token": 5e-7,
+            "cache_read_token": 8e-8
         }
     },
     {
@@ -8282,7 +8304,17 @@
         "provider": "openrouter",
         "cost": {
             "prompt_token": 0.000003,
-            "completion_token": 0.000015
+            "completion_token": 0.000015,
+            "cache_read_token": 7.5e-7
+        }
+    },
+    {
+        "model": "x-ai/grok-4-fast",
+        "provider": "openrouter",
+        "cost": {
+            "prompt_token": 2e-7,
+            "completion_token": 5e-7,
+            "cache_read_token": 5e-8
         }
     },
     {

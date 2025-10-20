@@ -6,15 +6,22 @@ import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
-import type { FeatureFlagType } from '~/types'
+import type { Experiment, FeatureFlagType } from '~/types'
 
 import { featureFlagEligibleForExperiment } from '../utils'
+import { createExperimentLogic } from './createExperimentLogic'
 import type { variantsPanelLogicType } from './variantsPanelLogicType'
 
 export const variantsPanelLogic = kea<variantsPanelLogicType>({
     path: ['scenes', 'experiments', 'create', 'panels', 'variantsPanelLogic'],
+    props: {
+        experiment: {} as Experiment,
+    } as {
+        experiment: Experiment
+    },
     connect: {
-        values: [featureFlagsLogic, ['featureFlags as existingFeatureFlags'], experimentsLogic, ['experiments']],
+        values: [featureFlagsLogic, ['featureFlags'], experimentsLogic, ['experiments']],
+        actions: [createExperimentLogic, ['setExperimentValue']],
     },
     actions: {
         validateFeatureFlagKey: (key: string) => ({ key }),
@@ -23,6 +30,8 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         resetFeatureFlagsSearch: true,
         loadAllEligibleFeatureFlags: true,
         generateFeatureFlagKey: (name: string) => ({ name }),
+        setMode: (mode: 'create' | 'link') => ({ mode }),
+        setFeatureFlagKeyDirty: true,
     },
     reducers: {
         featureFlagKeyError: [
@@ -31,10 +40,17 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                 setFeatureFlagKeyError: (_, { error }) => error,
             },
         ],
-        generatedFeatureFlagKey: [
-            null as string | null,
+        mode: [
+            'create' as 'create' | 'link',
             {
-                generateFeatureFlagKey: (_, { name }) => name,
+                setMode: (_: any, { mode }: { mode: 'create' | 'link' }) => mode,
+            },
+        ],
+        featureFlagKeyDirty: [
+            false,
+            {
+                setFeatureFlagKeyDirty: () => true,
+                setMode: () => false, // Reset dirty flag when switching modes
             },
         ],
     },
@@ -146,14 +162,32 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         ],
     }),
     selectors: {
+        // TRICKY: we do not load all feature flags here, just the latest ones.
         unavailableFeatureFlagKeys: [
-            (s) => [s.existingFeatureFlags, s.experiments],
-            (featureFlags, experiments): Set<string> => {
+            (s) => [s.featureFlags, s.experiments],
+            (featureFlags, experiments) => {
                 return new Set([
                     ...featureFlags.results.map((flag) => flag.key),
-                    ...experiments.results.map((experiment) => experiment.feature_flag_key).filter(Boolean),
+                    ...experiments.results.map((experiment) => experiment.feature_flag_key),
                 ])
             },
         ],
+        featureFlagKey: [
+            (_, props) => [props.experiment],
+            (experiment: Experiment): string => experiment.feature_flag_key || '',
+        ],
     },
+    listeners: ({ values, actions }) => ({
+        [createExperimentLogic.actionTypes.setExperimentValue]: ({ name, value }) => {
+            if (name === 'name' && values.mode === 'create' && !values.featureFlagKeyDirty) {
+                actions.generateFeatureFlagKey(value)
+            }
+        },
+        generateFeatureFlagKeySuccess: ({ generatedKey }) => {
+            if (generatedKey) {
+                actions.setExperimentValue('feature_flag_key', generatedKey)
+                actions.validateFeatureFlagKey(generatedKey)
+            }
+        },
+    }),
 })

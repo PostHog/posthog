@@ -15,5 +15,5 @@ To enable testing for Databricks batch exports we require:
 The tests can then be run using a command such as the following:
 
 ```bash
-DEBUG=1 DATABRICKS_SERVER_HOSTNAME=my-host.cloud.databricks.com DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/my-warehouse DATABRICKS_CLIENT_ID=my-client-id DATABRICKS_CLIENT_SECRET=my-client-secret pytest products/batch_exports/backend/tests/temporal/destinations/databricks/test_workflow.py
+DEBUG=1 DATABRICKS_BE_SERVER_HOSTNAME=my-host.cloud.databricks.com DATABRICKS_BE_HTTP_PATH=/sql/1.0/warehouses/my-warehouse DATABRICKS_BE_CLIENT_ID=my-client-id DATABRICKS_BE_CLIENT_SECRET=my-client-secret pytest products/batch_exports/backend/tests/temporal/destinations/databricks/test_workflow.py
 ```

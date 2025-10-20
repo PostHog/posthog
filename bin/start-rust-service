@@ -75,6 +75,17 @@ case "$RS_SVC" in
     export FRAME_CACHE_TTL_SECONDS=1
     export BIND_PORT=3302 # HACK! avoid local-dev clash with property-defs-rs port
     export ALLOW_INTERNAL_IPS="true"
+    export PERSONS_URL=postgres://posthog:posthog@localhost:5432/posthog_persons
+    ;;
+
+  embedding-worker)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_CONSUMER_GROUP=embedding-worker
+    export KAFKA_CONSUMER_TOPIC="document_embeddings_input"
+    export FRAME_CACHE_TTL_SECONDS=1
+    export BIND_PORT=3305 # HACK! avoid local-dev clash with property-defs-rs port
+    export ALLOW_INTERNAL_IPS="true"
     ;;
 
   cyclotron-janitor)

@@ -124,7 +124,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             try {
                 await api.comments.create({
                     content: emoji,
-                    scope: 'recording',
+                    scope: 'Replay',
                     item_id: props.recordingId,
                     item_context: {
                         is_emoji: true,
@@ -168,7 +168,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 const apiPayload = {
                     content,
                     rich_content: richContent,
-                    scope: 'recording',
+                    scope: 'Replay',
                     item_id: props.recordingId,
                     item_context: {
                         time_in_recording: dateForTimestamp.toISOString(),

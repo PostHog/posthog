@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { createContext } from './helpers'
 import { dlq, drop, ok, redirect } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
@@ -12,8 +13,8 @@ describe('StartPipeline', () => {
             return Promise.resolve(ok({ processed: input.data }))
         })
 
-        const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
-        expect(result).toEqual({ result: ok({ processed: 'test' }), context: expect.objectContaining({ message }) })
+        const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
+        expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'anonymousStep' }))
     })
 
     it('should process single item through pipeline with drop result', async () => {
@@ -23,8 +24,8 @@ describe('StartPipeline', () => {
             return Promise.resolve(drop('dropped item'))
         })
 
-        const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
-        expect(result).toEqual({ result: drop('dropped item'), context: expect.objectContaining({ message }) })
+        const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
+        expect(result).toEqual(createContext(drop('dropped item'), { message, lastStep: 'anonymousStep' }))
     })
 
     it('should process single item through pipeline with dlq result', async () => {
@@ -34,11 +35,10 @@ describe('StartPipeline', () => {
             return Promise.resolve(dlq('dlq item', new Error('test error')))
         })
 
-        const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
-        expect(result).toEqual({
-            result: dlq('dlq item', new Error('test error')),
-            context: expect.objectContaining({ message }),
-        })
+        const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
+        expect(result).toEqual(
+            createContext(dlq('dlq item', new Error('test error')), { message, lastStep: 'anonymousStep' })
+        )
     })
 
     it('should process single item through pipeline with redirect result', async () => {
@@ -48,11 +48,10 @@ describe('StartPipeline', () => {
             return Promise.resolve(redirect('redirect item', 'retry-topic'))
         })
 
-        const result = await pipeline.process({ result: ok({ data: 'test' }), context: { message } })
-        expect(result).toEqual({
-            result: redirect('redirect item', 'retry-topic'),
-            context: expect.objectContaining({ message }),
-        })
+        const result = await pipeline.process(createContext(ok({ data: 'test' }), { message }))
+        expect(result).toEqual(
+            createContext(redirect('redirect item', 'retry-topic'), { message, lastStep: 'anonymousStep' })
+        )
     })
 
     it('should return StepPipeline instance and call the async step', async () => {
@@ -64,9 +63,9 @@ describe('StartPipeline', () => {
 
         expect(stepPipeline).toBeInstanceOf(StepPipeline)
 
-        const result = await stepPipeline.process({ result: ok({ data: 'test' }), context: { message } })
+        const result = await stepPipeline.process(createContext(ok({ data: 'test' }), { message }))
 
         expect(step).toHaveBeenCalledWith({ data: 'test' })
-        expect(result).toEqual({ result: ok({ processed: 'test' }), context: expect.objectContaining({ message }) })
+        expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'mockConstructor' }))
     })
 })
