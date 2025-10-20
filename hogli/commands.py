@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -164,8 +165,10 @@ class DirectCommand(Command):
         has_operators = " && " in cmd_str or " || " in cmd_str
         if has_operators:
             # Append args to the command string when using shell
+            # Use shlex.quote() to safely escape arguments for shell execution
             if args:
-                cmd_str = f"{cmd_str} {' '.join(args)}"
+                escaped_args = " ".join(shlex.quote(arg) for arg in args)
+                cmd_str = f"{cmd_str} {escaped_args}"
             _run(cmd_str, shell=True)
         else:
             # Use list format for simple commands without shell operators
