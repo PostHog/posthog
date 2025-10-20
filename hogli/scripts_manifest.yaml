@@ -116,7 +116,7 @@ start:
     start:
         bin_script: start
         description: Main entry point that launches all dev services via mprocs orchestrator
-        services: [Docker, PostgreSQL, Redis, Kafka, ClickHouse, Temporal]
+        services: [docker, PostgreSQL, Redis, Kafka, ClickHouse, temporal]
         allow_extra_args: true
         args: optional
     start:backend:
@@ -132,7 +132,7 @@ start:
     start:frontend:
         bin_script: start-frontend
         description: Install dependencies and start frontend with Vite dev server
-        services: [Docker]
+        services: [docker]
         allow_extra_args: true
         args: optional
     start:frontend-vite:
@@ -143,7 +143,7 @@ start:
     start:worker:
         bin_script: start-worker
         description: Launch all background workers (Celery worker, beat scheduler, plugin-server)
-        services: [Kafka, Temporal, Redis]
+        services: [Kafka, temporal, Redis]
         args: none
     start:rust-service:
         bin_script: start-rust-service
