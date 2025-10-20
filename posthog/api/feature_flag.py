@@ -221,8 +221,8 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
     def _attempt_set_evaluation_tags(self, evaluation_tags, obj):
         """Update evaluation tags for a feature flag using efficient diff logic.
 
-        If user doesn't have TAGGING access, clear all evaluation tags to prevent
-        ghost constraints that users can't manage.
+        If user doesn't have TAGGING access or FLAG_EVALUATION_TAGS is disabled,
+        preserve existing evaluation tags in database (don't update them).
 
         Instead of deleting all tags and recreating them (which causes unnecessary
         DB operations and activity logs), we calculate the diff and only modify
