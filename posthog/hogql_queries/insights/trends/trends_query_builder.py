@@ -67,7 +67,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             wrapper_query = self._get_wrapper_query(events_query)
             return wrapper_query
 
-        inner_select = self._inner_select_query(inner_query=events_query, breakdown=breakdown)
+        inner_select = self._inner_select_query(inner_query=events_query)
         return self._outer_select_query(inner_query=inner_select, breakdown=breakdown)
 
     def _get_wrapper_query(self, events_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -88,7 +88,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     breakdown_value ASC
                 """,
                 placeholders={
-                    "events_query": self._inner_select_query(inner_query=events_query, breakdown=self.breakdown),
+                    "events_query": self._inner_select_query(inner_query=events_query),
                 },
             ),
         )
@@ -449,9 +449,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit
         ) or get_breakdown_limit_for_context(self.limit_context)
 
-    def _inner_select_query(
-        self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectSetQuery
-    ) -> ast.SelectQuery:
+    def _inner_select_query(self, inner_query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
         query = cast(
             ast.SelectQuery,
             parse_select(
@@ -472,12 +470,12 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.group_by.append(ast.Field(chain=["day_start"]))
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"))
 
-        if breakdown.enabled:
-            query = self._inner_breakdown_subquery(query, breakdown)
+        if self.breakdown.enabled:
+            query = self._inner_breakdown_subquery(query, self.breakdown)
 
         if self._trends_display.should_wrap_inner_query():
-            query = self._trends_display.wrap_inner_query(query, breakdown.enabled)
-            if breakdown.enabled:
+            query = self._trends_display.wrap_inner_query(query, self.breakdown.enabled)
+            if self.breakdown.enabled:
                 query.select.append(ast.Field(chain=["breakdown_value"]))
 
         return query
