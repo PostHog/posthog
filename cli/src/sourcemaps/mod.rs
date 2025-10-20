@@ -71,6 +71,8 @@ impl From<ProcessArgs> for (InjectArgs, UploadArgs) {
             delete_after: args.delete_after,
             skip_ssl_verification: args.skip_ssl_verification,
             batch_size: args.batch_size,
+            project: None,
+            version: None,
         };
 
         (inject_args, upload_args)
