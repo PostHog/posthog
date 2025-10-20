@@ -12,6 +12,7 @@ from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet, deletion
 from django.dispatch import receiver
 
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
@@ -205,8 +206,6 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
 
         # Check if FLAG_EVALUATION_TAGS feature flag is enabled for the user
         try:
-            import posthoganalytics
-
             return posthoganalytics.feature_enabled(
                 "flag-evaluation-tags",
                 request.user.distinct_id,
