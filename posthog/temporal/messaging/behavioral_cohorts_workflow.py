@@ -1,4 +1,3 @@
-import json
 import asyncio
 import datetime as dt
 import dataclasses
@@ -150,13 +149,9 @@ async def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -
             query_type="get_unique_conditions_page",
         ):
             async with get_client(team_id=inputs.team_id) as client:
-                response = await client.read_query(query, query_parameters=params)
-                # Parse the response as it's returned as bytes
                 results = []
-                for line in response.decode("utf-8").strip().split("\n"):
-                    if line:
-                        row = json.loads(line)
-                        results.append((row["team_id"], row["cohort_id"], row["condition"]))
+                async for row in client.stream_query_as_jsonl(query, query_parameters=params):
+                    results.append((row["team_id"], row["cohort_id"], row["condition"]))
 
         conditions = [
             {
@@ -259,8 +254,7 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                 GROUP BY team_id, cohort_id, person_id
             ) cmc ON bcm.team_id = cmc.team_id AND bcm.cohort_id = cmc.cohort_id AND bcm.person_id = cmc.person_id
             WHERE status != 'unchanged'
-            SETTINGS join_use_nulls = 1
-            FORMAT JSONEachRow;
+            SETTINGS join_use_nulls = 1;
         """
 
         try:
@@ -272,7 +266,7 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                 query_type="get_cohort_memberships_batch",
             ):
                 async with get_client(team_id=team_id) as client:
-                    response = await client.read_query(
+                    async for row in client.stream_query_as_jsonl(
                         query,
                         query_parameters={
                             "team_id": team_id,
@@ -281,25 +275,20 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                             "days": inputs.days,
                             "min_matches": inputs.min_matches,
                         },
-                    )
-
-                    # Parse the response
-                    for line in response.decode("utf-8").strip().split("\n"):
-                        if line:
-                            row = json.loads(line)
-                            payload = {
-                                "team_id": row["team_id"],
-                                "cohort_id": row["cohort_id"],
-                                "person_id": str(row["person_id"]),
-                                "last_updated": str(row["last_updated"]),
-                                "status": row["status"],
-                            }
-                            await asyncio.to_thread(
-                                kafka_producer.produce,
-                                topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
-                                key=payload["person_id"],
-                                data=payload,
-                            )
+                    ):
+                        payload = {
+                            "team_id": row["team_id"],
+                            "cohort_id": row["cohort_id"],
+                            "person_id": str(row["person_id"]),
+                            "last_updated": str(row["last_updated"]),
+                            "status": row["status"],
+                        }
+                        await asyncio.to_thread(
+                            kafka_producer.produce,
+                            topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                            key=payload["person_id"],
+                            data=payload,
+                        )
 
         except Exception as e:
             logger.exception(
