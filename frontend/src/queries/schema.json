@@ -22498,19 +22498,6 @@
             "type": "object"
         },
         "RecordingOrder": {
-            "enum": [
-                "duration",
-                "recording_duration",
-                "inactive_seconds",
-                "active_seconds",
-                "start_time",
-                "console_error_count",
-                "click_count",
-                "keypress_count",
-                "mouse_activity_count",
-                "activity_score",
-                "recording_ttl"
-            ],
             "type": "string"
         },
         "RecordingOrderDirection": {
