@@ -12,10 +12,10 @@ describe('BranchingPipeline', () => {
     describe('basic branching', () => {
         it('should route to correct branch based on decision function', async () => {
             const decisionFn = (value: { type: string }) => value.type
-            const branchA = new StartPipeline<{ type: string }>().pipe((input) =>
+            const branchA = new StartPipeline<{ type: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok({ result: `processed-${input.type}` }))
             )
-            const branchB = new StartPipeline<{ type: string }>().pipe((input) =>
+            const branchB = new StartPipeline<{ type: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok({ result: `handled-${input.type}` }))
             )
 
@@ -24,7 +24,7 @@ describe('BranchingPipeline', () => {
                 b: branchB,
             }
 
-            const previousPipeline = new StartPipeline<{ type: string }>()
+            const previousPipeline = new StartPipeline<{ type: string }, unknown>()
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
             const resultA = await pipeline.process(createContext(ok({ type: 'a' }), { message }))
@@ -44,14 +44,14 @@ describe('BranchingPipeline', () => {
             const decisionFn = (value: { type: string }) => value.type.toLowerCase()
             const preprocessSpy = jest.fn()
 
-            const branchA = new StartPipeline<{ type: string }>().pipe((input) => {
+            const branchA = new StartPipeline<{ type: string }, unknown>().pipe((input) => {
                 preprocessSpy(input)
                 return Promise.resolve(ok({ result: `processed-${input.type}` }))
             })
 
             const branches = { a: branchA }
 
-            const previousPipeline = new StartPipeline<{ type: string }>().pipe((input) =>
+            const previousPipeline = new StartPipeline<{ type: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok({ type: input.type.toUpperCase() }))
             )
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
@@ -70,10 +70,12 @@ describe('BranchingPipeline', () => {
     describe('error handling', () => {
         it('should pass through non-OK results without executing decision function or branches', async () => {
             const decisionFn = jest.fn()
-            const branch = new StartPipeline<{ type: string }>().pipe(() => Promise.resolve(ok({ result: 'test' })))
+            const branch = new StartPipeline<{ type: string }, unknown>().pipe(() =>
+                Promise.resolve(ok({ result: 'test' }))
+            )
             const branches = { a: branch }
 
-            const previousPipeline = new StartPipeline<{ type: string }>()
+            const previousPipeline = new StartPipeline<{ type: string }, unknown>()
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
             const result = await pipeline.process(createContext(drop('dropped'), { message }))
@@ -84,10 +86,12 @@ describe('BranchingPipeline', () => {
 
         it('should send to DLQ when branch name is not found', async () => {
             const decisionFn = (value: { type: string }) => value.type
-            const branch = new StartPipeline<{ type: string }>().pipe(() => Promise.resolve(ok({ result: 'test' })))
+            const branch = new StartPipeline<{ type: string }, unknown>().pipe(() =>
+                Promise.resolve(ok({ result: 'test' }))
+            )
             const branches = { a: branch }
 
-            const previousPipeline = new StartPipeline<{ type: string }>()
+            const previousPipeline = new StartPipeline<{ type: string }, unknown>()
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
             const result = await pipeline.process(createContext(ok({ type: 'unknown' }), { message }))
@@ -101,13 +105,15 @@ describe('BranchingPipeline', () => {
 
         it('should preserve context when branch is not found', async () => {
             const decisionFn = (value: { type: string }) => value.type
-            const branch = new StartPipeline<{ type: string }>().pipe(() => Promise.resolve(ok({ result: 'test' })))
+            const branch = new StartPipeline<{ type: string }, unknown>().pipe(() =>
+                Promise.resolve(ok({ result: 'test' }))
+            )
             const branches = { a: branch }
 
             const existingSideEffect = Promise.resolve('existing')
             const existingWarning = { type: 'test_warning', details: {} }
 
-            const previousPipeline = new StartPipeline<{ type: string }>()
+            const previousPipeline = new StartPipeline<{ type: string }, unknown>()
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
             const result = await pipeline.process(
@@ -124,10 +130,12 @@ describe('BranchingPipeline', () => {
 
         it('should pass through previous pipeline errors', async () => {
             const decisionFn = jest.fn()
-            const branch = new StartPipeline<{ type: string }>().pipe(() => Promise.resolve(ok({ result: 'test' })))
+            const branch = new StartPipeline<{ type: string }, unknown>().pipe(() =>
+                Promise.resolve(ok({ result: 'test' }))
+            )
             const branches = { a: branch }
 
-            const previousPipeline = new StartPipeline<{ type: string }>().pipe(() =>
+            const previousPipeline = new StartPipeline<{ type: string }, unknown>().pipe(() =>
                 Promise.resolve(dlq('previous error', new Error('test')))
             )
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
@@ -149,12 +157,12 @@ describe('BranchingPipeline', () => {
             const previousSideEffect = Promise.resolve('previous')
             const branchSideEffect = Promise.resolve('branch')
 
-            const branch = new StartPipeline<{ type: string }>().pipe((input) =>
+            const branch = new StartPipeline<{ type: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok({ result: input.type }, [branchSideEffect]))
             )
             const branches = { a: branch }
 
-            const previousPipeline = new StartPipeline<{ type: string }>().pipe((input) =>
+            const previousPipeline = new StartPipeline<{ type: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok(input, [previousSideEffect]))
             )
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
@@ -171,12 +179,12 @@ describe('BranchingPipeline', () => {
             const previousWarning = { type: 'previous_warning', details: {} }
             const branchWarning = { type: 'branch_warning', details: {} }
 
-            const branch = new StartPipeline<{ type: string }>().pipe((input) =>
+            const branch = new StartPipeline<{ type: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok({ result: input.type }, [], [branchWarning]))
             )
             const branches = { a: branch }
 
-            const previousPipeline = new StartPipeline<{ type: string }>().pipe((input) =>
+            const previousPipeline = new StartPipeline<{ type: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok(input, [], [previousWarning]))
             )
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
@@ -199,12 +207,12 @@ describe('BranchingPipeline', () => {
             const branchSideEffect = Promise.resolve('branch')
             const branchWarning = { type: 'branch_warning', details: {} }
 
-            const branch = new StartPipeline<{ type: string }>().pipe((input) =>
+            const branch = new StartPipeline<{ type: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok({ result: input.type }, [branchSideEffect], [branchWarning]))
             )
             const branches = { a: branch }
 
-            const previousPipeline = new StartPipeline<{ type: string }>().pipe((input) =>
+            const previousPipeline = new StartPipeline<{ type: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok(input, [previousSideEffect], [previousWarning]))
             )
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
@@ -227,12 +235,12 @@ describe('BranchingPipeline', () => {
     describe('decision function', () => {
         it('should call decision function with intermediate result value', async () => {
             const decisionFn = jest.fn().mockReturnValue('a')
-            const branch = new StartPipeline<{ processed: string }>().pipe((input) =>
+            const branch = new StartPipeline<{ processed: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok({ result: input.processed }))
             )
             const branches = { a: branch }
 
-            const previousPipeline = new StartPipeline<{ type: string }>().pipe((input) =>
+            const previousPipeline = new StartPipeline<{ type: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok({ processed: input.type.toUpperCase() }))
             )
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
