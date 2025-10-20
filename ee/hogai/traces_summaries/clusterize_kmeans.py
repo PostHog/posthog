@@ -12,7 +12,7 @@ from tqdm.asyncio import tqdm
 logger = structlog.get_logger(__name__)
 
 
-def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
 
@@ -366,7 +366,7 @@ class KmeansClusterizer:
             for suggestion, emb in zip(cluster.suggestions, cluster.embeddings):
                 for l_suggestion, l_emb in zip(cluster.suggestions, cluster.embeddings):
                     if suggestion != l_suggestion:
-                        distances.append(_cosine_similarity(emb, l_emb))
+                        distances.append(cosine_similarity(emb, l_emb))
             # Round to 2 symbols after the dot
             if not distances:
                 # TODO: Add some proper logging
