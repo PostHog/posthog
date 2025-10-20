@@ -155,6 +155,7 @@ export enum NodeKind {
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
+    DocumentSimilarityQuery = 'DocumentSimilarityQuery',
 
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
@@ -234,6 +235,7 @@ export type QuerySchema =
     | ExperimentTrendsQuery
     | ExperimentQuery
     | ExperimentExposureQuery
+    | DocumentSimilarityQuery
 
     // Web Analytics + Web Vitals
     | WebOverviewQuery
@@ -1245,6 +1247,11 @@ export interface CompareFilter {
      * The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.
      */
     compare_to?: string
+}
+
+export interface IntegrationFilter {
+    /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
+    integrationSourceIds?: string[]
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
@@ -2308,6 +2315,64 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase {
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
 
+export type EmbeddingModelName = 'text-embedding-3-small-1536' | 'text-embedding-3-large-3072'
+
+export interface DocumentSimilarityQuery extends DataNode<DocumentSimilarityQueryResponse> {
+    // Query metadata
+    kind: NodeKind.DocumentSimilarityQuery
+
+    // Standard
+    dateRange: DateRange
+    order_direction: 'asc' | 'desc'
+    order_by: 'distance' | 'timestamp'
+    limit?: integer
+    offset?: integer
+
+    // Embedding-specifics
+    // To what point are all distances being measured?
+    origin: EmbeddedDocument // | string -- TODO, we should support ad-hoc querying too, but it requires a modification of the cross join
+    distance_func: 'L1Distance' | 'L2Distance' | 'cosineDistance' // How is the distance being measured?
+    threshold?: number // Some distance under-or-over which results will be excluded - useful mainly if sorting by timestamp
+    model: string // Model to do the query with. Only documents embedded with this model will be considered.
+
+    // TODO - these are a hack, and we should expose them as proper HogQL filterables instead, but
+    // I don't want to go to war in the taxonomic filter mines right now
+    products: string[] // Limit the results to specific products. Empty means all.
+    document_types: string[] // Limit the results to specific document types. Empty means all.
+    renderings: string[] // Limit the results to specific renderings. Empty means all.
+}
+
+// A single embedded document, which is a collection of all the ways
+// the document has been embedded, across different models and renderings
+export interface EmbeddedDocument {
+    product: string
+    document_type: string
+    document_id: string
+    /**  @format date-time */
+    timestamp: string
+}
+
+// A specific embedding of a document, with a specific model and rendering
+export type EmbeddingRecord = EmbeddedDocument & {
+    model_name: EmbeddingModelName
+    rendering: string
+}
+
+export interface EmbeddingDistance {
+    result: EmbeddingRecord
+    origin?: EmbeddingRecord
+    distance: number // How far was this particular embedding from the query
+}
+
+export interface DocumentSimilarityQueryResponse extends AnalyticsQueryResponseBase {
+    results: EmbeddingDistance[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedDocumentSimilarityQueryResponse = CachedQueryResponse<DocumentSimilarityQueryResponse>
+
 export type LogSeverityLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'
 
 export interface LogMessage {
@@ -2341,7 +2406,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
-    results: LogMessage[]
+    results: unknown // TODO: Type this to LogMessage[] and fix the issues it creates on the backend
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2428,6 +2493,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
+    | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
     | 'web_analytics'
@@ -2445,11 +2511,12 @@ export type FileSystemIconType =
     | 'task'
     | 'link'
     | 'logs'
-    | 'messaging'
+    | 'workflows'
     | 'notebook'
     | 'action'
     | 'comment'
     | 'annotation'
+    | 'event'
     | 'event_definition'
     | 'property_definition'
     | 'ingestion_warning'
@@ -2468,6 +2535,8 @@ export type FileSystemIconType =
     | 'home'
     | 'apps'
     | 'live'
+    | 'chat'
+
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2482,6 +2551,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     category?: string
     /** Color of the icon */
     iconColor?: FileSystemIconColor
+    /** Match this with the a base scene key or a specific one */
+    sceneKey?: string
 }
 
 export interface PersistedFolder {
@@ -2492,6 +2563,8 @@ export interface PersistedFolder {
     created_at: string
     updated_at: string
 }
+
+export type DataWarehouseManagedViewsetKind = 'revenue_analytics'
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -2602,6 +2675,8 @@ export interface ExperimentMetricBaseProperties extends Node {
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
     goal?: ExperimentMetricGoal
+    isSharedMetric?: boolean
+    sharedMetricId?: number
 }
 
 export type ExperimentMetricOutlierHandling = {
@@ -3767,6 +3842,8 @@ export interface MarketingAnalyticsTableQuery
     compareFilter?: CompareFilter
     /** Include conversion goal rows even when they don't match campaign costs table */
     includeAllConversions?: boolean
+    /** Filter by integration type */
+    integrationFilter?: IntegrationFilter
 }
 
 export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {
@@ -3802,6 +3879,8 @@ export interface MarketingAnalyticsAggregatedQuery
     select?: HogQLExpression[]
     /** Draft conversion goal that can be set in the UI without saving */
     draftConversionGoal?: ConversionGoalFilter
+    /** Filter by integration IDs */
+    integrationFilter?: IntegrationFilter
 }
 
 export interface WebAnalyticsExternalSummaryRequest {

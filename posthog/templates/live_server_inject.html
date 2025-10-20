@@ -1,6 +1,6 @@
 {% if debug and js_url %}
 <!-- Code injected by live-server -->
-<script type="text/javascript">
+<script nonce="{{ request.csp_nonce }}" type="text/javascript">
     if ('EventSource' in window) {
         ;(function () {
             var jsUrl = '{{ js_url }}'.replace(/\/$/, '')

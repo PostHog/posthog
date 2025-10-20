@@ -211,6 +211,11 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         headers = response.headers.__dict__["_store"]
         server_timing_headers = headers.pop("server-timing")[1]
         assert re.match(r"get_recording;dur=\d+\.\d+, stream_blob_to_client;dur=\d+\.\d+", server_timing_headers)
+
+        # ignore csp headers that are likely to change and irrelevant to this test
+        del headers["content-security-policy-report-only"]
+        del headers["reporting-endpoints"]
+
         assert headers == {
             "content-type": ("Content-Type", "application/json"),
             "cache-control": ("Cache-Control", "max-age=3600"),
