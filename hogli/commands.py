@@ -172,7 +172,8 @@ class DirectCommand(Command):
             _run(cmd_str, shell=True)
         else:
             # Use list format for simple commands without shell operators
-            _run([*cmd_str.split(), *args])
+            # Use shlex.split() to properly handle quoted arguments
+            _run([*shlex.split(cmd_str), *args])
 
 
 class CompositeCommand(Command):
