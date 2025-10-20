@@ -49,3 +49,32 @@ def get_category_for_command(command_name: str) -> str:
 
     # Fallback if prefix not found in any category (graceful degradation)
     return "commands"
+
+
+def get_services_for_command(command_name: str, command_config: dict) -> list[tuple[str, str]]:
+    """Get service info for a command as (name, about) tuples.
+
+    If command has explicit 'services' field, use those.
+    Otherwise, try to match command prefix to a service name.
+    Returns list of (service_name, about) tuples.
+    """
+    manifest = load_manifest()
+    services_dict = manifest.get("metadata", {}).get("services", {})
+
+    # If explicit services specified, use those
+    explicit_services = command_config.get("services", [])
+    if explicit_services:
+        result = []
+        for svc in explicit_services:
+            if svc in services_dict:
+                svc_info = services_dict[svc]
+                result.append((svc_info.get("name", svc), svc_info.get("about", "")))
+        return result
+
+    # Try to match command prefix to service
+    prefix = command_name.split(":")[0]
+    if prefix in services_dict:
+        svc_info = services_dict[prefix]
+        return [(svc_info.get("name", prefix), svc_info.get("about", ""))]
+
+    return []

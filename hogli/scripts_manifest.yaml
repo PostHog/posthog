@@ -40,6 +40,34 @@ metadata:
         core:
             title: 'Core development commands'
             order: 0
+    services:
+        flox:
+            name: Flox
+            about: 'Manages reproducible development environments. All developers get the same exact versions of tools and dependencies.'
+        docker:
+            name: Docker
+            about: 'Isolates services and dependencies in containers to match production without requiring local installation.'
+        migration:
+            name: Database migrations
+            about: 'Schema updates and data migrations across PostgreSQL, ClickHouse, and async systems.'
+        ClickHouse:
+            name: ClickHouse
+            about: 'Analytics database used for metrics, events, and funnel analysis throughout PostHog.'
+        PostgreSQL:
+            name: PostgreSQL
+            about: 'Primary relational database for application data, authentication, and feature flags.'
+        Redis:
+            name: Redis
+            about: 'In-memory cache and queue backend for fast data access and job processing.'
+        Kafka:
+            name: Kafka
+            about: 'Event streaming platform for reliable event processing and data pipelines.'
+        temporal:
+            name: Temporal
+            about: 'Workflow orchestration engine for reliable, long-running background jobs and retries.'
+        testing:
+            name: Testing
+            about: 'Automated test suites (unit, integration, E2E) to ensure code quality and prevent regressions.'
 
 # Command categories
 core:

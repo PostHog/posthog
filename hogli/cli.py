@@ -13,7 +13,7 @@ from pathlib import Path
 
 import click
 
-from hogli.manifest import REPO_ROOT, get_category_for_command, load_manifest
+from hogli.manifest import REPO_ROOT, get_category_for_command, get_services_for_command, load_manifest
 
 HEDGEHOG_ART = r"""
 
@@ -94,6 +94,39 @@ def cli() -> None:
     pass
 
 
+def _format_command_help(cmd_name: str, cmd_config: dict, underlying_cmd: str) -> str:
+    """Format help text with service context and underlying command.
+
+    Returns formatted help text with:
+    - Original description
+    - Service info if available
+    - Underlying command being executed
+    """
+    lines = []
+
+    # Add main description
+    description = cmd_config.get("description", "")
+    if description:
+        lines.append(description)
+
+    # Add service context if available
+    services = get_services_for_command(cmd_name, cmd_config)
+    if services:
+        lines.append("")
+        for svc_name, about in services:
+            lines.append(f"{svc_name}: {about}")
+
+    # Add underlying command
+    if underlying_cmd:
+        lines.append("")
+        if " && " in underlying_cmd:  # Composite command
+            lines.append(f"Runs: {underlying_cmd}")
+        else:
+            lines.append(f"Command: {underlying_cmd}")
+
+    return "\n".join(lines)
+
+
 def _run(command: list[str], *, env: dict[str, str] | None = None) -> None:
     """Execute a shell command."""
     display = " ".join(command)
@@ -145,8 +178,11 @@ def _register_script_commands() -> None:
             # Handle composition (steps field)
             if steps:
 
-                def make_steps_command(cmd_name: str, step_list: list[str], desc: str) -> callable:
-                    @cli.command(cmd_name, help=desc)
+                def make_steps_command(cmd_name: str, step_list: list[str], desc: str, cfg: dict) -> callable:
+                    underlying = f"hogli {' && hogli '.join(step_list)}"
+                    help_text = _format_command_help(cmd_name, cfg, underlying)
+
+                    @cli.command(cmd_name, help=help_text)
                     def command() -> None:
                         """Composite hogli command."""
                         for step in step_list:
@@ -158,14 +194,16 @@ def _register_script_commands() -> None:
 
                     return command
 
-                make_steps_command(cli_name, steps, description)
+                make_steps_command(cli_name, steps, description, config)
                 continue
 
             # Handle direct commands (cmd field)
             if cmd:
 
-                def make_cmd_command(cmd_name: str, shell_cmd: str, desc: str) -> callable:
-                    @cli.command(cmd_name, help=desc)
+                def make_cmd_command(cmd_name: str, shell_cmd: str, desc: str, cfg: dict) -> callable:
+                    help_text = _format_command_help(cmd_name, cfg, shell_cmd)
+
+                    @cli.command(cmd_name, help=help_text)
                     def command() -> None:
                         """Direct shell command."""
                         try:
@@ -175,7 +213,7 @@ def _register_script_commands() -> None:
 
                     return command
 
-                make_cmd_command(cli_name, cmd, description)
+                make_cmd_command(cli_name, cmd, description, config)
                 continue
 
             # Handle bin_script delegation (original behavior)
@@ -184,11 +222,14 @@ def _register_script_commands() -> None:
                 if not script_path.exists():
                     continue
 
-                def make_command(name: str, path: Path, desc: str, extra_args: bool) -> callable:
+                def make_command(name: str, path: Path, desc: str, extra_args: bool, cfg: dict) -> callable:
+                    help_text = _format_command_help(name, cfg, path.name)
                     if extra_args:
 
                         @cli.command(
-                            name, help=desc, context_settings={"ignore_unknown_options": True, "allow_extra_args": True}
+                            name,
+                            help=help_text,
+                            context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
                         )
                         @click.pass_context
                         def command(ctx: click.Context) -> None:
@@ -200,7 +241,7 @@ def _register_script_commands() -> None:
 
                     else:
 
-                        @cli.command(name, help=desc)
+                        @cli.command(name, help=help_text)
                         def command() -> None:
                             """Dynamic command from bin/ script."""
                             try:
@@ -210,7 +251,7 @@ def _register_script_commands() -> None:
 
                     return command
 
-                make_command(cli_name, script_path, description, allow_extra_args)
+                make_command(cli_name, script_path, description, allow_extra_args, config)
 
 
 # Register all script commands from manifest before app runs
