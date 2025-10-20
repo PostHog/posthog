@@ -62,15 +62,13 @@ from .prompts import (
 from .tools import (
     ReadDataTool,
     ReadTaxonomyTool,
+    SearchEntitiesTool,
     SearchTool,
     TodoWriteTool,
     create_and_query_insight,
     create_dashboard,
     session_summarization,
-    search_entity,
 )
-
-
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
@@ -88,7 +86,6 @@ RouteName = Literal[
     "billing",
     "session_summarization",
     "create_dashboard",
-    "entity_search",
 ]
 
 
@@ -255,6 +252,7 @@ class RootNode(AssistantNode):
                 ReadDataTool,
                 SearchTool,
                 TodoWriteTool,
+                SearchEntitiesTool,
             )
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))
@@ -272,7 +270,7 @@ class RootNode(AssistantNode):
 
         # Dashboard creation tool
         available_tools.append(create_dashboard)
-        available_tools.append(search_entity)
+
         # Inject contextual tools
         awaited_contextual_tools: list[Awaitable[RootTool]] = []
         for tool_name in tool_names:
@@ -437,14 +435,6 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
 
-        if tool_call.name == "search_entity":
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                entity_search_query=tool_call.args["query"],
-                entity_search_types=tool_call.args.get("entity_types", []),
-                root_tool_calls_count=tool_call_count + 1,
-            )
-
         # MaxTool flow
         ToolClass = get_contextual_tool_class(tool_call.name)
 
@@ -559,8 +549,6 @@ class RootNodeTools(AssistantNode):
                     return "billing"
                 if tool_call_name == "create_dashboard":
                     return "create_dashboard"
-                if tool_call_name == "search_entity":
-                    return "entity_search"
             if state.root_tool_insight_plan:
                 return "insights"
             elif state.search_insights_query:

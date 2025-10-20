@@ -23,9 +23,12 @@ def call_root(demo_org_team_user):
         .add_root(
             {
                 "insights": AssistantNodeName.END,
+                "billing": AssistantNodeName.END,
+                "insights_search": AssistantNodeName.END,
                 "search_documentation": AssistantNodeName.END,
-                "root": AssistantNodeName.END,
+                "root": AssistantNodeName.ROOT,
                 "end": AssistantNodeName.END,
+                "entity_search": AssistantNodeName.END,
             }
         )
         # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
@@ -57,7 +60,7 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     id="1",
                     name="create_and_query_insight",
-                    args={"query_kind": "sql", "query_description": "Calculate the number of active users recently"},
+                    args={"query_description": "Calculate the number of active users recently"},
                 ),
             ),
             EvalCase(
@@ -65,7 +68,7 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     id="2",
                     name="create_and_query_insight",
-                    args={"query_kind": "sql", "query_description": "Calculate the number of active users recently"},
+                    args={"query_description": "Calculate the number of active users recently"},
                 ),
             ),
             # Should propagate the dates from the previous insight request
@@ -79,7 +82,6 @@ async def eval_root(call_root, pytestconfig):
                                 id="call_vaTlpWMBgGyvYVIMfj1ecW8F",
                                 name="create_and_query_insight",
                                 args={
-                                    "query_kind": "trends",
                                     "query_description": "Trend of pageviews year-to-date 2025",
                                 },
                             )
@@ -89,7 +91,6 @@ async def eval_root(call_root, pytestconfig):
                         tool_call_id="call_vaTlpWMBgGyvYVIMfj1ecW8F",
                         content=json.dumps(
                             {
-                                "query_kind": "trends",
                                 "query_description": "Here is the results table of the TrendsQuery I created to answer your latest question: ``` Date|$pageview 2025-01-01|6982 2025-02-01|9953 2025-03-01|7507 2025-04-01|795 2025-05-01|3 ``` The current date and time is 2025-05-01 09:07:56 UTC, which is 2025-05-01 09:07:56 in this project's timezone (UTC). It's expected that the data point for the current period can have a drop in value, as data collection is still ongoing for it. Do not point this out.",
                             }
                         ),
@@ -103,7 +104,6 @@ async def eval_root(call_root, pytestconfig):
                     id="2",
                     name="create_and_query_insight",
                     args={
-                        "query_kind": "sql",
                         "query_description": "List all users who have completed a page view in year-to-date 2025.",
                     },
                 ),
@@ -119,7 +119,6 @@ async def eval_root(call_root, pytestconfig):
                                 id="call_XdLOyLrHbjoBBACDCZd8WyNS",
                                 name="create_and_query_insight",
                                 args={
-                                    "query_kind": "sql",
                                     "query_description": "List all user names who have completed a page view Year-To-Date (YTD).",
                                 },
                             )
@@ -129,7 +128,6 @@ async def eval_root(call_root, pytestconfig):
                         tool_call_id="call_XdLOyLrHbjoBBACDCZd8WyNS",
                         content=json.dumps(
                             {
-                                "query_kind": "sql",
                                 "query_description": 'You\'ll be given a JSON object with the results of a query.\n\nHere is the generated ClickHouse SQL query used to retrieve the results:\n\n```\nSELECT DISTINCT person.properties.name AS user_name\nFROM events\nWHERE event = \'$pageview\'\n  AND toYear(timestamp) = toYear(now())\n```\n\nYou\'ll be given a JSON object with the results of a query.\n\nHere is the results table of the HogQLQuery I created to answer your latest question:\n\n```\n[[null],["Mario Bridges"],["Alexander Dickson"],["YCombinator"],["Andrea Dickson"]]\n```\n\nThe current date and time is 2025-05-01 10:12:06 UTC, which is 2025-05-01 10:12:06 in this project\'s timezone (UTC).\nIt\'s expected that the data point for the current period can have a drop in value, as data collection is still ongoing for it. Do not point this out.',
                             }
                         ),
@@ -143,7 +141,6 @@ async def eval_root(call_root, pytestconfig):
                     id="2",
                     name="create_and_query_insight",
                     args={
-                        "query_kind": "sql",
                         "query_description": "List all companies who have completed a page view Year-To-Date (YTD).",
                     },
                 ),
@@ -159,7 +156,6 @@ async def eval_root(call_root, pytestconfig):
                                 id="call_XdLOyLrHbjoBBACDCZd8WyNS",
                                 name="create_and_query_insight",
                                 args={
-                                    "query_kind": "sql",
                                     "query_description": "List all user names who have completed a page view Year-To-Date (YTD).",
                                 },
                             )
@@ -169,7 +165,6 @@ async def eval_root(call_root, pytestconfig):
                         tool_call_id="call_XdLOyLrHbjoBBACDCZd8WyNS",
                         content=json.dumps(
                             {
-                                "query_kind": "sql",
                                 "query_description": 'You\'ll be given a JSON object with the results of a query.\n\nHere is the generated ClickHouse SQL query used to retrieve the results:\n\n```\nSELECT DISTINCT person.properties.name AS user_name\nFROM events\nWHERE event = \'$pageview\'\n  AND toYear(timestamp) = toYear(now())\n```\n\nYou\'ll be given a JSON object with the results of a query.\n\nHere is the results table of the HogQLQuery I created to answer your latest question:\n\n```\n[[null],["Mario Bridges"],["Alexander Dickson"],["YCombinator"],["Andrea Dickson"]]\n```\n\nThe current date and time is 2025-05-01 10:12:06 UTC, which is 2025-05-01 10:12:06 in this project\'s timezone (UTC).\nIt\'s expected that the data point for the current period can have a drop in value, as data collection is still ongoing for it. Do not point this out.',
                             }
                         ),
@@ -185,8 +180,8 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="import posthog from 'posthog-js' posthog.captureException(error) in my react app i manually capture exceptions but i don't see them on the dashboard",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "posthog-js captureException not showing exceptions on dashboard"},
                     id="call_oejkj9HpAcIVAqTjxaXaofyA",
                 ),
             ),
@@ -194,32 +189,32 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="How do I set up event tracking in PostHog?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "set up event tracking"},
                     id="call_doc_search_1",
                 ),
             ),
             EvalCase(
                 input="What is a cohort in PostHog and how do I create one?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "cohort creation"},
                     id="call_doc_search_2",
                 ),
             ),
             EvalCase(
                 input="How does PostHog's session recording work?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "session recording"},
                     id="call_doc_search_3",
                 ),
             ),
             EvalCase(
                 input="Can you explain PostHog's feature flags functionality?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "feature flags functionality"},
                     id="call_doc_search_4",
                 ),
             ),
@@ -227,32 +222,32 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="How do I install the PostHog SDK for Python?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "install PostHog SDK for Python"},
                     id="call_doc_search_5",
                 ),
             ),
             EvalCase(
                 input="posthog js sdk not working in my next.js app",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "posthog js sdk next.js troubleshooting"},
                     id="call_doc_search_6",
                 ),
             ),
             EvalCase(
                 input="How to track custom events with posthog react library",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "track custom events posthog react"},
                     id="call_doc_search_7",
                 ),
             ),
             EvalCase(
                 input="posthog.capture() vs posthog.track() whats the difference",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "difference between capture and track"},
                     id="call_doc_search_8",
                 ),
             ),
@@ -260,32 +255,32 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="How do I create a funnel analysis in PostHog?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "create funnel analysis"},
                     id="call_doc_search_9",
                 ),
             ),
             EvalCase(
                 input="What's the difference between trends and insights in PostHog?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "difference between trends and insights"},
                     id="call_doc_search_10",
                 ),
             ),
             EvalCase(
                 input="How do I set up A/B testing with PostHog feature flags?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "A/B testing with feature flags"},
                     id="call_doc_search_11",
                 ),
             ),
             EvalCase(
                 input="posthog dashboard widgets how to customize them",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "customize dashboard widgets"},
                     id="call_doc_search_12",
                 ),
             ),
@@ -293,40 +288,40 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="ph not tracking events???",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "events not tracking troubleshooting"},
                     id="call_doc_search_13",
                 ),
             ),
             EvalCase(
                 input="help feature flag setup",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "feature flag setup"},
                     id="call_doc_search_14",
                 ),
             ),
             EvalCase(
                 input="posthog broken",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "troubleshooting posthog issues"},
                     id="call_doc_search_15",
                 ),
             ),
             EvalCase(
                 input="sdk integration issues react native",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "react native SDK integration troubleshooting"},
                     id="call_doc_search_16",
                 ),
             ),
             EvalCase(
                 input="cant see recordings",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "session recordings not visible troubleshooting"},
                     id="call_doc_search_17",
                 ),
             ),
@@ -334,32 +329,32 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="My PostHog events aren't showing up in the dashboard, what could be wrong?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "events not showing up in dashboard troubleshooting"},
                     id="call_doc_search_18",
                 ),
             ),
             EvalCase(
                 input="Session recordings are blank, how do I fix this?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "blank session recordings fix"},
                     id="call_doc_search_19",
                 ),
             ),
             EvalCase(
                 input="PostHog feature flags not working in production environment",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "feature flags not working in production"},
                     id="call_doc_search_20",
                 ),
             ),
             EvalCase(
                 input="Why are my PostHog cohorts not updating automatically?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "cohorts not updating automatically"},
                     id="call_doc_search_21",
                 ),
             ),
@@ -367,24 +362,24 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="How do I configure PostHog for GDPR compliance?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "GDPR compliance configuration"},
                     id="call_doc_search_22",
                 ),
             ),
             EvalCase(
                 input="What are the different PostHog deployment options?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "deployment options"},
                     id="call_doc_search_23",
                 ),
             ),
             EvalCase(
                 input="posthog self hosted vs cloud which one should i choose",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "self hosted vs cloud comparison"},
                     id="call_doc_search_24",
                 ),
             ),
@@ -392,24 +387,24 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="How do I use PostHog's REST API to query events?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "REST API query events"},
                     id="call_doc_search_25",
                 ),
             ),
             EvalCase(
                 input="PostHog webhook integration with Slack how to set up",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "webhook Slack integration setup"},
                     id="call_doc_search_26",
                 ),
             ),
             EvalCase(
                 input="can posthog integrate with segment?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "segment integration"},
                     id="call_doc_search_27",
                 ),
             ),
@@ -417,16 +412,16 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="What are PostHog's rate limits for event ingestion?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "rate limits event ingestion"},
                     id="call_doc_search_28",
                 ),
             ),
             EvalCase(
                 input="my posthog is slow how to optimize performance",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "optimize performance"},
                     id="call_doc_search_29",
                 ),
             ),
@@ -434,24 +429,24 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="PostHog iOS SDK setup guide",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "iOS SDK setup"},
                     id="call_doc_search_30",
                 ),
             ),
             EvalCase(
                 input="android posthog tracking not working",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "android tracking not working troubleshooting"},
                     id="call_doc_search_31",
                 ),
             ),
             EvalCase(
                 input="flutter posthog plugin how to use",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "flutter plugin usage"},
                     id="call_doc_search_32",
                 ),
             ),
@@ -459,25 +454,33 @@ async def eval_root(call_root, pytestconfig):
             EvalCase(
                 input="Is there a field on a person I can use to show the last time they interacted with the platform?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "person field last interaction time"},
                     id="call_doc_search_33",
                 ),
             ),
             EvalCase(
                 input="Can I see which browser or device type a user is using from the default event properties?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "default event properties browser device type"},
                     id="call_doc_search_34",
                 ),
             ),
             EvalCase(
                 input="What geographic information does PostHog automatically capture about my users?",
                 expected=AssistantToolCall(
-                    name="search_documentation",
-                    args={},
+                    name="search",
+                    args={"kind": "docs", "query": "automatic geographic information capture"},
                     id="call_doc_search_35",
+                ),
+            ),
+            EvalCase(
+                input="How do I delete events from PostHog?",
+                expected=AssistantToolCall(
+                    name="search",
+                    args={"kind": "docs", "query": "delete captured events"},
+                    id="call_doc_search_36",
                 ),
             ),
             # Ensure calls insights, not documentation
@@ -486,7 +489,6 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     name="create_and_query_insight",
                     args={
-                        "query_kind": "sql",
                         "query_description": "Show all events where the $browser property equals Chrome",
                     },
                     id="call_insight_default_props_1",
@@ -497,7 +499,6 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     name="create_and_query_insight",
                     args={
-                        "query_kind": "sql",
                         "query_description": "Count unique users who have the $device_type property set to mobile",
                     },
                     id="call_insight_default_props_2",
@@ -538,6 +539,61 @@ async def eval_root(call_root, pytestconfig):
                         "query_description": "Daily active users for the past month",
                     },
                     id="call_dau_past_month",
+                ),
+            ),
+            EvalCase(
+                input="Search for my dashboards about user engagement",
+                expected=AssistantToolCall(
+                    name="search_entities",
+                    args={
+                        "query": "user engagement",
+                        "entity_types": ["dashboard"],
+                    },
+                    id="call_search_entities_1",
+                ),
+            ),
+            EvalCase(
+                input="Search for my insights about daily active users",
+                expected=AssistantToolCall(
+                    name="search_entities",
+                    args={
+                        "query": "daily active users",
+                        "entity_types": ["insight"],
+                    },
+                    id="call_search_entities_2",
+                ),
+            ),
+            EvalCase(
+                input="Search for my cohorts about mobile users",
+                expected=AssistantToolCall(
+                    name="search_entities",
+                    args={
+                        "query": "mobile users",
+                        "entity_types": ["cohort"],
+                    },
+                    id="call_search_entities_3",
+                ),
+            ),
+            EvalCase(
+                input="Find my feature flags related to the new feature about batch export",
+                expected=AssistantToolCall(
+                    name="search_entities",
+                    args={
+                        "query": "batch export",
+                        "entity_types": ["feature_flag"],
+                    },
+                    id="call_search_entities_4",
+                ),
+            ),
+            EvalCase(
+                input="Search for everything that might be related to `revenue`",
+                expected=AssistantToolCall(
+                    name="search_entities",
+                    args={
+                        "query": "revenue",
+                        "entity_types": [],
+                    },
+                    id="call_search_entities_5",
                 ),
             ),
         ],

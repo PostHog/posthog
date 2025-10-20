@@ -90,9 +90,9 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         icon: <IconDashboard />,
     },
     {
-        identifier: 'search_entity' as const,
-        name: TOOL_DEFINITIONS['search_entity'].name,
-        description: TOOL_DEFINITIONS['search_entity'].description,
+        identifier: 'search_entities' as const,
+        name: TOOL_DEFINITIONS['search_entities'].name,
+        description: TOOL_DEFINITIONS['search_entities'].description,
         icon: <IconSearch />,
     },
 ]

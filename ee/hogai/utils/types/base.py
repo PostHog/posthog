@@ -269,7 +269,6 @@ class EntityType(StrEnum):
     FEATURE_FLAG = "feature_flag"
     NOTEBOOK = "notebook"
     SURVEY = "survey"
-    EVENT_DEFINITION = "event_definition"
 
 
 class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateSteps):

@@ -48,6 +48,7 @@ Use this tool when you can assume that an insight you want to analyze was alread
 Examples:
 - Product-specific metrics that most likely exist.
 - Common sense metrics that are relevant to the product.
+
 """.strip()
 
 
@@ -75,16 +76,46 @@ class SearchTool(MaxTool):
         # Used for routing
         return "Search tool executed", SearchToolArgs(kind=kind, query=query).model_dump()
 
-class search_entity(BaseModel):
+
+SEARCH_ENTITIES_PROMPT = """
+The tool entity search helps you find any PostHog entity by name or description.
+
+Follow these guidelines when searching entities:
+- Use this tool when users ask to find, search for, or look up any PostHog entity (dashboards, cohorts, actions, experiments, feature flags, notebooks, surveys, event definitions)
+- This tool searches across all entity types by default, but you can specify particular entity types if the user's request is specific
+- The search functionality works better with natural language queries that include context
+- Use this tool when users ask general questions like "find my dashboards about conversion" or "show me cohorts for mobile users"
+
+"""
+
+
+class SearchEntitiesToolArgs(BaseModel):
+    query: str = Field(
+        description="The search query to find entities by name or description. "
+        "This will search across all entity types (dashboards, cohorts, actions, experiments, feature flags, notebooks, surveys)."
+    )
+    entity_types: list[EntityType] = Field(
+        description="List of entity types to search for that the user mentioned in their query if the user mentions more than one entity make sure to include all the entity types."
+    )
+
+
+class SearchEntitiesTool(MaxTool):
     """
     Search for entities (insights, dashboards, cohorts, actions, experiments, etc.) by their name or description.
     Use this tool when users ask to find, search for, or look up existing entities across PostHog.
     """
 
-    query: str = Field(
-        description="The search query to find entities by name or description. "
-        "This will search across all entity types (insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, surveys, event definitions)."
-    )
-    entity_types: list[EntityType] = Field(
-        description="List of entity types to search for that the user mentioned in their query if the user mentions more than one entity make sure to include all the entity types."
-    )
+    name: Literal["search_entities"] = "search_entities"
+    description: str = SEARCH_ENTITIES_PROMPT
+    thinking_message: str = "Searching for entities"
+    context_prompt_template: str = "Searches for entities in PostHog"
+    args_schema: type[BaseModel] = SearchEntitiesToolArgs
+    show_tool_call_message: bool = False
+
+    async def _arun_impl(self, query: str, entity_types: list[EntityType]) -> tuple[str, dict[str, Any] | None]:
+        from ee.hogai.graph.entity_search.toolkit import EntitySearchToolkit
+
+        entity_search_toolkit = EntitySearchToolkit(self._team, self._user)
+
+        response = await entity_search_toolkit.search_entities(query, entity_types)
+        return response, None

@@ -1,22 +1,16 @@
 import asyncio
 from collections import defaultdict
-from typing import Literal, TypedDict
-from uuid import uuid4
+from typing import TypedDict
 
-from langchain_core.runnables import RunnableConfig
+import yaml
 from posthoganalytics import capture_exception
 
-from posthog.schema import AssistantToolCallMessage
-
 from posthog.api.search import EntityConfig, class_queryset
-from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey
-from posthog.models.notebook.notebook import Notebook
+from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey, Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, EntityType, PartialAssistantState
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.types.base import EntityType
 
 from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE, HYPERLINK_USAGE_INSTRUCTIONS
 
@@ -37,11 +31,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "extra_fields": ["name", "description"],
     },
     "feature_flag": {"klass": FeatureFlag, "search_fields": {"key": "A", "name": "C"}, "extra_fields": ["key", "name"]},
-    "notebook": {
-        "klass": Notebook,
-        "search_fields": {"title": "A", "text_content": "C"},
-        "extra_fields": ["title", "content"],
-    },
     "action": {
         "klass": Action,
         "search_fields": {"name": "A", "description": "C"},
@@ -49,8 +38,8 @@ ENTITY_MAP: dict[str, EntityConfig] = {
     },
     "cohort": {
         "klass": Cohort,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
+        "search_fields": {"name": "A", "description": "C", "filters": "B"},
+        "extra_fields": ["name", "description", "filters"],
     },
     "survey": {
         "klass": Survey,
@@ -71,14 +60,13 @@ class EntitySearchTaskResult(TypedDict):
     warning: str | None
 
 
-class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
-    REASONING_MESSAGE = "Searching for entities..."
+class EntitySearchToolkit:
     MAX_ENTITY_RESULTS = 10
     MAX_CONCURRENT_SEARCHES = 10
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.ENTITY_SEARCH
+    def __init__(self, team: Team, user: User):
+        self._team = team
+        self._user = user
 
     @property
     def user_access_control(self) -> UserAccessControl:
@@ -106,23 +94,20 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
             case _:
                 return f"{base_url}/{entity_type}/{result_id}"
 
-    def _get_formatted_entity_result(self, result: dict) -> list[str]:
-        result_summary = []
+    def _get_formatted_entity_result(self, result: dict) -> str:
         entity_type = result["type"]
         result_id = result["result_id"]
-
         extra_fields = result.get("extra_fields", {})
 
-        name = extra_fields.get("name", f"{entity_type.upper()} {result_id}")
-        key = extra_fields.get("key", "")
-        description = extra_fields.get("description", "")
+        result_dict = {
+            "name": extra_fields.get("name", f"{entity_type.upper()} {result_id}"),
+            "extra_fields": extra_fields,
+            "type": entity_type.title(),
+            "id": result_id,
+            "url": self.build_url(entity_type, result_id),
+        }
 
-        result_summary.append(f"**[{name}]({self.build_url(entity_type, result_id)})**")
-        if key:
-            result_summary.append(f"\n - Key: {key}")
-        if description:
-            result_summary.append(f"\n - Description: {description}")
-        return result_summary
+        return yaml.dump(result_dict, default_flow_style=False, allow_unicode=True, sort_keys=False).strip()
 
     async def _gather_bounded(self, limit: int, coros: list[object]):
         sem = asyncio.Semaphore(limit)
@@ -167,11 +152,11 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
         else:
             result_summary = []
             for result in results:
-                result_summary.extend(self._get_formatted_entity_result(result))
+                result_summary.append(self._get_formatted_entity_result(result))
 
             total_results = len(results)
             content += FOUND_ENTITIES_MESSAGE_TEMPLATE.format(
-                total_results=total_results, entities_list="\n".join(result_summary)
+                total_results=total_results, entities_list="\n---\n".join(result_summary)
             )
 
             if counts:
@@ -183,41 +168,27 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
             content += f"\n\n{HYPERLINK_USAGE_INSTRUCTIONS}"
         return content
 
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def search_entities(self, query: str, entity_types: list[str | EntityType]) -> str:
         """Search for entities by query and optional entity types."""
-
-        query = state.entity_search_query
-        if not query:
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content="No search query was provided.",
-                        tool_call_id=state.root_tool_call_id,
-                        id=str(uuid4()),
-                    )
-                ],
-                entity_search_query=None,
-                entity_search_types=None,
-                root_tool_call_id=None,
-            )
-
         try:
-            entity_types = state.entity_search_types or list(ENTITY_MAP.keys())
+            if not query:
+                return "No search query was provided"
 
-            tasks = [self._search_single_entity(entity_type, state.entity_search_query) for entity_type in entity_types]
+            entity_types = entity_types if len(entity_types) > 0 else list(ENTITY_MAP.keys())
+            tasks = [self._search_single_entity(entity_type, query) for entity_type in entity_types]
             task_results = await self._gather_bounded(self.MAX_CONCURRENT_SEARCHES, tasks)
 
             results: list[dict] = []
             counts: dict[str, int] = defaultdict(int)
             content = ""
             for task_result in task_results:
-                entity_type = task_result["entity_type"]
                 if isinstance(task_result, Exception):
-                    content += f"Error searching for {entity_type}: {str(task_result)}"
+                    content += f"Error searching: {str(task_result)}\n"
                     continue
 
+                entity_type = task_result["entity_type"]
                 if task_result.get("warning"):
-                    content += f"Error searching {entity_type}: {task_result['warning']}"
+                    content += f"Error searching {entity_type}: {task_result['warning']}\n"
                     continue
 
                 results.extend(task_result["results"])
@@ -228,31 +199,10 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
 
             # Format all results for display
             content += self._format_results_for_display(query, entity_types, results, counts)
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(content=content, tool_call_id=state.root_tool_call_id, id=str(uuid4())),
-                ],
-                entity_search_query=None,
-                entity_search_types=None,
-                root_tool_call_id=None,
-            )
+
+            return content
 
         except Exception as e:
-            capture_exception(
-                e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
-            )
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=f"Error searching entities: {str(e)}",
-                        tool_call_id=state.root_tool_call_id,
-                        id=str(uuid4()),
-                    ),
-                ],
-                entity_search_query=None,
-                entity_search_types=None,
-                root_tool_call_id=None,
-            )
+            capture_exception(e, distinct_id=self._user.distinct_id)
 
-    def router(self, state: AssistantState) -> Literal["root"]:
-        return "root"
+            return f"Error searching entities: {str(e)}"
