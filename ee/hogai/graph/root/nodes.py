@@ -62,7 +62,6 @@ from .prompts import (
 from .tools import (
     ReadDataTool,
     ReadTaxonomyTool,
-    SearchEntitiesTool,
     SearchTool,
     TodoWriteTool,
     create_and_query_insight,
@@ -252,7 +251,6 @@ class RootNode(AssistantNode):
                 ReadDataTool,
                 SearchTool,
                 TodoWriteTool,
-                SearchEntitiesTool,
             )
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))

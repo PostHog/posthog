@@ -28,7 +28,6 @@ def call_root(demo_org_team_user):
                 "search_documentation": AssistantNodeName.END,
                 "root": AssistantNodeName.ROOT,
                 "end": AssistantNodeName.END,
-                "entity_search": AssistantNodeName.END,
             }
         )
         # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
@@ -483,6 +482,55 @@ async def eval_root(call_root, pytestconfig):
                     id="call_doc_search_36",
                 ),
             ),
+            # Entity search
+            EvalCase(
+                input="Search for my dashboards about user engagement",
+                expected=AssistantToolCall(
+                    name="search",
+                    args={
+                        "kind": "entities",
+                        "query": "user engagement",
+                        "entity_types": ["dashboard"],
+                    },
+                    id="call_search_1",
+                ),
+            ),
+            EvalCase(
+                input="Search for my cohorts about mobile users",
+                expected=AssistantToolCall(
+                    name="search",
+                    args={
+                        "kind": "entities",
+                        "query": "mobile users",
+                        "entity_types": ["cohort"],
+                    },
+                    id="call_search_3",
+                ),
+            ),
+            EvalCase(
+                input="Find my feature flags related to the new feature about batch export",
+                expected=AssistantToolCall(
+                    name="search",
+                    args={
+                        "kind": "entities",
+                        "query": "batch export",
+                        "entity_types": ["feature_flag"],
+                    },
+                    id="call_search_4",
+                ),
+            ),
+            EvalCase(
+                input="Search for everything that might be related to `revenue`",
+                expected=AssistantToolCall(
+                    name="search",
+                    args={
+                        "kind": "entities",
+                        "query": "revenue",
+                        "entity_types": [],
+                    },
+                    id="call_search_5",
+                ),
+            ),
             # Ensure calls insights, not documentation
             EvalCase(
                 input="Show me all events where the default $browser property equals Chrome",
@@ -539,61 +587,6 @@ async def eval_root(call_root, pytestconfig):
                         "query_description": "Daily active users for the past month",
                     },
                     id="call_dau_past_month",
-                ),
-            ),
-            EvalCase(
-                input="Search for my dashboards about user engagement",
-                expected=AssistantToolCall(
-                    name="search_entities",
-                    args={
-                        "query": "user engagement",
-                        "entity_types": ["dashboard"],
-                    },
-                    id="call_search_entities_1",
-                ),
-            ),
-            EvalCase(
-                input="Search for my insights about daily active users",
-                expected=AssistantToolCall(
-                    name="search_entities",
-                    args={
-                        "query": "daily active users",
-                        "entity_types": ["insight"],
-                    },
-                    id="call_search_entities_2",
-                ),
-            ),
-            EvalCase(
-                input="Search for my cohorts about mobile users",
-                expected=AssistantToolCall(
-                    name="search_entities",
-                    args={
-                        "query": "mobile users",
-                        "entity_types": ["cohort"],
-                    },
-                    id="call_search_entities_3",
-                ),
-            ),
-            EvalCase(
-                input="Find my feature flags related to the new feature about batch export",
-                expected=AssistantToolCall(
-                    name="search_entities",
-                    args={
-                        "query": "batch export",
-                        "entity_types": ["feature_flag"],
-                    },
-                    id="call_search_entities_4",
-                ),
-            ),
-            EvalCase(
-                input="Search for everything that might be related to `revenue`",
-                expected=AssistantToolCall(
-                    name="search_entities",
-                    args={
-                        "query": "revenue",
-                        "entity_types": [],
-                    },
-                    id="call_search_entities_5",
                 ),
             ),
         ],
