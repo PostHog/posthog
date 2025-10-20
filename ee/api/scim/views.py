@@ -1,5 +1,3 @@
-from django.views.decorators.csrf import csrf_exempt
-
 from django_scim import constants
 from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes
@@ -16,7 +14,6 @@ from ee.api.scim.user import PostHogSCIMUser
 from ee.models.rbac.role import Role
 
 
-@csrf_exempt
 @api_view(["GET", "POST"])
 @authentication_classes([SCIMBearerTokenAuthentication])
 def scim_users_view(request: Request, domain_id: str) -> Response:
@@ -48,7 +45,6 @@ def scim_users_view(request: Request, domain_id: str) -> Response:
             return Response({"detail": "Invalid user data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
-@csrf_exempt
 @api_view(["GET", "PUT", "PATCH", "DELETE"])
 @authentication_classes([SCIMBearerTokenAuthentication])
 def scim_user_detail_view(request: Request, domain_id: str, user_id: str) -> Response:
@@ -93,7 +89,6 @@ def scim_user_detail_view(request: Request, domain_id: str, user_id: str) -> Res
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@csrf_exempt
 @api_view(["GET", "POST"])
 @authentication_classes([SCIMBearerTokenAuthentication])
 def scim_groups_view(request: Request, domain_id: str) -> Response:
@@ -125,7 +120,6 @@ def scim_groups_view(request: Request, domain_id: str) -> Response:
             return Response({"detail": "Invalid group data"}, status=status.HTTP_400_BAD_REQUEST)
 
 
-@csrf_exempt
 @api_view(["GET", "PUT", "PATCH", "DELETE"])
 @authentication_classes([SCIMBearerTokenAuthentication])
 def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> Response:
@@ -170,7 +164,6 @@ def scim_group_detail_view(request: Request, domain_id: str, group_id: str) -> R
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@csrf_exempt
 @api_view(["GET"])
 @authentication_classes([SCIMBearerTokenAuthentication])
 def scim_service_provider_config_view(request: Request, domain_id: str) -> Response:
@@ -201,7 +194,6 @@ def scim_service_provider_config_view(request: Request, domain_id: str) -> Respo
     )
 
 
-@csrf_exempt
 @api_view(["GET"])
 @authentication_classes([SCIMBearerTokenAuthentication])
 def scim_resource_types_view(request: Request, domain_id: str) -> Response:
@@ -220,7 +212,6 @@ def scim_resource_types_view(request: Request, domain_id: str) -> Response:
     )
 
 
-@csrf_exempt
 @api_view(["GET"])
 @authentication_classes([SCIMBearerTokenAuthentication])
 def scim_schemas_view(request: Request, domain_id: str) -> Response:
