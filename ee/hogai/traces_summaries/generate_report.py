@@ -15,18 +15,28 @@ def _calculate_confidence(avg_distance: float) -> str:
         return "Medium"
 
 
-def _list_trace_ids(suggestions: list[ClusterizedSuggestion]) -> str:
-    max_trace_ids = 3
-    if len(suggestions) <= max_trace_ids:
-        return ",".join([f'`{suggestion["trace_id"]}`' for suggestion in suggestions])
-    else:
-        return (
-            ",".join([f'`{suggestion["trace_id"]}`' for suggestion in suggestions[:max_trace_ids]])
-            + f", and {len(suggestions) - max_trace_ids} more..."
+def _list_trace_ids(suggestions: list[ClusterizedSuggestion], example_summary_trace_id: str) -> str:
+    max_trace_ids = 2
+    if len(suggestions) - 1 <= max_trace_ids:
+        return ",".join(
+            [
+                f'`{suggestion["trace_id"]}`'
+                for suggestion in suggestions
+                if suggestion["trace_id"] != example_summary_trace_id
+            ]
         )
+    else:
+        selected_trace_ids = []
+        for suggestion in suggestions:
+            if len(selected_trace_ids) >= max_trace_ids:
+                break
+            if suggestion["trace_id"] == example_summary_trace_id:
+                continue
+            selected_trace_ids.append(suggestion["trace_id"])
+        return ",".join([f'`{x}`' for x in selected_trace_ids]) + f", and {len(suggestions) - 1 - len(selected_trace_ids)} more..."
 
 
-def _pick_summary_for_example(suggestions: list[ClusterizedSuggestion], cluster_label: str) -> str | None:
+def _pick_summary_for_example(suggestions: list[ClusterizedSuggestion], cluster_label: str) -> tuple[str, str] | None:
     for suggestion in suggestions:
         # Avoid non-English summaries and malformed summaries
         if (
@@ -34,7 +44,9 @@ def _pick_summary_for_example(suggestions: list[ClusterizedSuggestion], cluster_
             and " saat " not in suggestion["summary"]
             and "YAML Syntax Error:" not in suggestion["summary"]
         ):
-            return suggestion["summary"].replace("  ", " ").replace(" .", ".")  # Just in case
+            picked_summary = suggestion["summary"].replace("  ", " ").replace(" .", ".")  # Just in case
+            picked_summary_trace_id = suggestion["trace_id"]
+            return picked_summary, picked_summary_trace_id
     else:
         logger.warning(f"No non-English summary found for cluster {cluster_label}")
         return None
@@ -53,9 +65,10 @@ def _organize_issues_section(
         if _calculate_confidence(cluster.avg_distance) not in ["Good", "Great"]:
             continue
         # Keep only English examples
-        example_summary = _pick_summary_for_example(suggestions=cluster.suggestions, cluster_label=cluster_label)
-        if example_summary is None:
+        example_summary_data = _pick_summary_for_example(suggestions=cluster.suggestions, cluster_label=cluster_label)
+        if example_summary_data is None:
             continue
+        example_summary, example_summary_trace_id = example_summary_data
         # Ignore malformed traces
         print(cluster.name)
         if cluster.name.strip() in malformed_traces:
@@ -66,9 +79,9 @@ def _organize_issues_section(
             break
         issue_section_report += f"#### {cluster.name}\n"
         issue_section_report += f"- Confidence: {_calculate_confidence(cluster.avg_distance)}\n"
-        issue_section_report += f"- Linked traces: {len(cluster.suggestions)} ({_list_trace_ids(cluster.suggestions)})"
+        issue_section_report += f"- Linked traces: {len(cluster.suggestions)} ({_list_trace_ids(cluster.suggestions, example_summary_trace_id)})"
         issue_section_report += "\n\n"
-        issue_section_report += "*Example trace summary:*\n"
+        issue_section_report += f"*Example trace summary* `{example_summary_trace_id}` *:* \n"
         # issue_section_report += f"```\n"
         issue_section_report += f"> {example_summary.replace("\n", "\n >")}\n"
         # issue_section_report += f"```\n"
