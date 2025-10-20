@@ -44,6 +44,8 @@ impl EarlyAccessFeatureCacheManager {
             return Ok(cached_early_access_features.clone());
         }
 
+        let _lock = self.fetch_lock.lock().await;
+
         // Attempt to fetch from DB
         match EarlyAccessFeature::list_from_pg(self.reader.clone(), project_id).await {
             Ok(fetched_early_access_features) => {
