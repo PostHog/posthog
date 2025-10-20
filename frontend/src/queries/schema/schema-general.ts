@@ -447,18 +447,21 @@ export interface RecordingsQueryResponse {
     has_next: boolean
 }
 
-export type RecordingOrder =
-    | 'duration'
-    | 'recording_duration'
-    | 'inactive_seconds'
-    | 'active_seconds'
-    | 'start_time'
-    | 'console_error_count'
-    | 'click_count'
-    | 'keypress_count'
-    | 'mouse_activity_count'
-    | 'activity_score'
-    | 'recording_ttl'
+export const VALID_RECORDING_ORDERS: readonly string[] = [
+    'duration',
+    'recording_duration',
+    'inactive_seconds',
+    'active_seconds',
+    'start_time',
+    'console_error_count',
+    'click_count',
+    'keypress_count',
+    'mouse_activity_count',
+    'activity_score',
+    'recording_ttl',
+] as const
+
+export type RecordingOrder = (typeof VALID_RECORDING_ORDERS)[number]
 
 export type RecordingOrderDirection = 'ASC' | 'DESC'
 
