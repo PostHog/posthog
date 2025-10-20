@@ -149,7 +149,8 @@ def _prepare_basic_llm_summary_notebook_content(summaries: list[dict[str, str]],
             create_paragraph_with_content(
                 [
                     create_text_content("Trace ID: ", is_bold=True),
-                    create_text_content(summary["trace_id"]),
+                    create_text_content(f"https://us.posthog.com/project/2/llm-analytics/traces/{summary["trace_id"]}"),
+                    # create_text_content(summary["trace_id"]),
                 ]
             )
         )
