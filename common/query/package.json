@@ -24,9 +24,13 @@
     ],
     "peerDependencies": {
         "react": ">=17",
-        "react-dom": ">=17"
+        "react-dom": ">=17",
+        "@monaco-editor/react": "*",
+        "monaco-editor": "*",
+        "esbuild-visualizer": "^0.7.0"
     },
     "scripts": {
-        "build": "DEBUG=0 node ./build.mjs"
+        "build": "DEBUG=0 node ./build.mjs",
+        "analyze": "pnpm exec esbuild-visualizer --metadata ./@posthog-query-esbuild-meta.json --filename=@posthog-query-esbuild-bundle-visualization.html"
     }
 }

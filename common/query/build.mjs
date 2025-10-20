@@ -26,6 +26,7 @@ await buildInParallel(
             minify: true,
             target: 'esnext',
             sourcemap: false,
+            writeMetaFile: true,
         },
     ],
     {

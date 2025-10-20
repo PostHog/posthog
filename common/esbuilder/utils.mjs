@@ -102,15 +102,15 @@ export function copyIndexHtml(
     // Django caches the generated index.html, and we'll end up loading the wrong chunks after one change.
     const chunksToServe = isDev ? {} : chunks
     const chunkCode = `
-        window.ESBUILD_LOADED_CHUNKS = new Set(); 
-        window.ESBUILD_LOAD_CHUNKS = function(name) { 
+        window.ESBUILD_LOADED_CHUNKS = new Set();
+        window.ESBUILD_LOAD_CHUNKS = function(name) {
             const chunks = ${JSON.stringify(chunksToServe)}[name] || [];
-            for (const chunk of chunks) { 
-                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) { 
-                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js'); 
+            for (const chunk of chunks) {
+                if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) {
+                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js');
                     window.ESBUILD_LOADED_CHUNKS.add(chunk);
-                } 
-            } 
+                }
+            }
         }
         window.ESBUILD_LOAD_CHUNKS('index');
     `
@@ -375,10 +375,8 @@ export async function buildOrWatch(config) {
             const buildResult = await esbuildContext.rebuild()
 
             if (writeMetaFile) {
-                await fs.writeFile(
-                    `${config.name.toLowerCase().replace(' ', '-')}-esbuild-meta.json`,
-                    JSON.stringify(buildResult.metafile)
-                )
+                const filename = `${config.name.toLowerCase().replace('/', '-').replace(' ', '-')}-esbuild-meta.json`
+                await fs.writeFile(filename, JSON.stringify(buildResult.metafile))
             }
 
             inputFiles = getInputFiles(buildResult)
