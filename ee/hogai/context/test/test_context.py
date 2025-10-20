@@ -377,9 +377,9 @@ Query results: 42 events
         state = AssistantState(
             messages=[
                 HumanMessage(content="User message 1"),
-                ContextMessage(content="Existing context 1", id="1", visible=False),
+                ContextMessage(content="Existing context 1", id="1"),
                 AssistantMessage(content="Response"),
-                ContextMessage(content="Existing context 2", id="2", visible=False),
+                ContextMessage(content="Existing context 2", id="2"),
                 HumanMessage(content="User message 2"),
             ]
         )
