@@ -1,3 +1,41 @@
+# Metadata: Category descriptions and help formatting
+metadata:
+    categories:
+        health_checks:
+            title: 'Verify infrastructure readiness'
+            order: 1
+        start:
+            title: 'Start services and background workers'
+            order: 2
+        deploy:
+            title: 'Deploy PostHog to remote instances'
+            order: 3
+        build:
+            title: 'Build and generate code'
+            order: 4
+        docker:
+            title: 'Docker-based service orchestration'
+            order: 5
+        migration:
+            title: 'Database migrations'
+            order: 6
+        testing:
+            title: 'Run tests'
+            order: 7
+        tools:
+            title: 'Developer tools and utilities'
+            order: 8
+        utilities:
+            title: 'Git worktrees and admin'
+            order: 9
+        compositions:
+            title: 'Multi-step workflows'
+            order: 10
+        environment:
+            title: 'Environment and shell'
+            order: 11
+
+# Command categories
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up

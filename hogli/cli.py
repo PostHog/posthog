@@ -5,6 +5,7 @@ import json
 import shlex
 import subprocess
 import importlib.util
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -81,6 +82,27 @@ class ProductInfo:
     package_name: str | None
     has_frontend: bool
     has_backend: bool
+
+
+def _group_commands_by_category() -> dict[str, list[tuple[str, str]]]:
+    """Group all registered commands by their category prefix."""
+    manifest = _load_manifest()
+
+    grouped = defaultdict(list)
+
+    # Group commands from manifest
+    for section_name, commands in manifest.items():
+        if section_name == "metadata":
+            continue
+        if not isinstance(commands, dict):
+            continue
+
+        for cli_name, config in commands.items():
+            if isinstance(config, dict):
+                description = config.get("description", "")
+                grouped[section_name].append((cli_name, description))
+
+    return grouped
 
 
 def _echo_heading(message: str) -> None:
@@ -175,6 +197,29 @@ def _show_version(value: bool) -> None:
     typer.echo(typer.style(HEDGEHOG_ART, fg=typer.colors.CYAN, bold=True))
     typer.echo(typer.style("Version: PostHog hogli", fg=typer.colors.GREEN))
     raise typer.Exit()
+
+
+@app.command("categories")
+def show_categories() -> None:
+    """Show all available commands grouped by category.
+
+    Groups commands with descriptive category headers (like git help).
+    """
+    manifest = _load_manifest()
+    metadata = manifest.get("metadata", {}).get("categories", {})
+
+    grouped = _group_commands_by_category()
+
+    # Sort by order from metadata
+    sorted_categories = sorted(grouped.items(), key=lambda x: metadata.get(x[0], {}).get("order", 999))
+
+    for category, commands in sorted_categories:
+        category_desc = metadata.get(category, {}).get("title", category.replace("_", " "))
+        typer.echo()
+        typer.echo(typer.style(f"{category_desc}", fg=typer.colors.CYAN, bold=True))
+        for cli_name, description in sorted(commands):
+            # Format: "  command    description (truncated)"
+            typer.echo(f"   {cli_name:30} {description[:50]}...")
 
 
 @app.command("dev:up", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
