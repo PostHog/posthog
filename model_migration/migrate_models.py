@@ -1031,7 +1031,6 @@ class {app_name.title()}Config(AppConfig):
 
         # Step 2: Copy individual model files to models/ directory with snake_case naming
         import re
-        import shutil
 
         copied_files = []
         for source_file in source_files:
@@ -1059,6 +1058,26 @@ class {app_name.title()}Config(AppConfig):
                 updated_lines.append(updated_line)
             updated_content = "\n".join(updated_lines)
 
+            # Apply LibCST transformation to update internal imports
+            try:
+                tree = cst.parse_module(updated_content)
+                # Build model-to-filename mapping for transformation
+                model_to_filename_mapping = self._build_model_to_filename_mapping(source_files)
+                module_name = source_file.replace(".py", "")
+                transformer = ImportTransformer(
+                    model_names,
+                    target_app,
+                    module_name,
+                    self.merge_models,
+                    import_base_path=self.import_base_path,
+                    filename_to_model_mapping=model_to_filename_mapping,
+                )
+                new_tree = tree.visit(transformer)
+                updated_content = new_tree.code
+            except Exception as e:
+                logger.warning("⚠️  LibCST transformation failed for %s: %s", source_file, e)
+                # Continue with FK-updated content
+
             # Write to target
             target_file.write_text(updated_content)
             self._ensure_model_db_tables(target_file)
@@ -1071,23 +1090,47 @@ class {app_name.title()}Config(AppConfig):
             for support_file in non_model_files:
                 source_path = self.root_dir / Path(self.source_base_path) / support_file
 
-                # Preserve directory structure in backend/
-                if "/" in support_file:
-                    # For files in subdirectories, keep the structure
-                    # e.g., warehouse/util.py → models/util.py (drop the subdirectory level)
-                    target_file_path = models_dir / support_file.split("/", 1)[1]
-                else:
-                    target_file_path = models_dir / support_file
+                # Preserve full directory structure in models/
+                # e.g., api/test/test_saved_query.py → models/api/test/test_saved_query.py
+                target_file_path = models_dir / support_file
 
                 # Create parent directories if needed
                 target_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-                # Move the file
-                if source_path.exists():
-                    shutil.move(source_path, target_file_path)
-                    logger.info("📄 Moved %s → %s", support_file, target_file_path.relative_to(self.root_dir))
-                else:
+                # Read file content
+                if not source_path.exists():
                     logger.warning("⚠️  Supporting file not found: %s", source_path)
+                    continue
+
+                content = source_path.read_text()
+
+                # Apply LibCST transformation to update internal imports
+                try:
+                    tree = cst.parse_module(content)
+                    # Build model-to-filename mapping for transformation
+                    model_to_filename_mapping = self._build_model_to_filename_mapping(source_files)
+                    module_name = support_file.replace(".py", "")
+                    transformer = ImportTransformer(
+                        model_names,
+                        target_app,
+                        module_name,
+                        self.merge_models,
+                        import_base_path=self.import_base_path,
+                        filename_to_model_mapping=model_to_filename_mapping,
+                    )
+                    new_tree = tree.visit(transformer)
+                    content = new_tree.code
+                except Exception as e:
+                    logger.warning("⚠️  LibCST transformation failed for %s: %s", support_file, e)
+                    # Continue with original content
+
+                # Write to target
+                target_file_path.write_text(content)
+
+                # Remove source file
+                source_path.unlink()
+
+                logger.info("📄 Moved %s → %s", support_file, target_file_path.relative_to(self.root_dir))
 
         # Step 4: Build model-to-filename mapping for no-merge mode
         # This is crucial for correct import paths in no-merge mode
