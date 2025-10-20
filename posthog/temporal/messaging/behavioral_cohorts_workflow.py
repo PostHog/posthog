@@ -1,3 +1,4 @@
+import json
 import datetime as dt
 import dataclasses
 from typing import Any, Optional
@@ -6,12 +7,11 @@ import temporalio.activity
 import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 
@@ -91,7 +91,7 @@ class ConditionsPageResult:
 
 
 @temporalio.activity.defn
-def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -> ConditionsPageResult:
+async def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -> ConditionsPageResult:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -139,6 +139,7 @@ def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -> Cond
             WHERE {where_clause}
             ORDER BY team_id, cohort_id, condition
             LIMIT {limit} OFFSET {offset}
+            FORMAT JSONEachRow
         """.format(where_clause=where_clause, limit=current_limit, offset=inputs.offset)
 
         with tags_context(
@@ -148,7 +149,14 @@ def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -> Cond
             product=Product.MESSAGING,
             query_type="get_unique_conditions_page",
         ):
-            results = sync_execute(query, params, ch_user=ClickHouseUser.COHORTS, workload=Workload.OFFLINE)
+            async with get_client(team_id=inputs.team_id) as client:
+                response = await client.read_query(query, query_parameters=params)
+                # Parse the response as it's returned as bytes
+                results = []
+                for line in response.decode("utf-8").strip().split("\n"):
+                    if line:
+                        row = json.loads(line)
+                        results.append((row["team_id"], row["cohort_id"], row["condition"]))
 
         conditions = [
             {
@@ -175,7 +183,7 @@ def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -> Cond
 
 
 @temporalio.activity.defn
-def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> CohortMembershipResult:
+async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> CohortMembershipResult:
     """Process a batch of conditions to get cohort memberships."""
     logger = LOGGER.bind(batch_number=inputs.batch_number, total_batches=inputs.total_batches)
 
@@ -260,33 +268,38 @@ def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> Coh
                     product=Product.MESSAGING,
                     query_type="get_cohort_memberships_batch",
                 ):
-                    results = sync_execute(
-                        query,
-                        {
-                            "team_id": team_id,
-                            "cohort_id": cohort_id,
-                            "condition": condition_hash,
-                            "days": inputs.days,
-                            "min_matches": inputs.min_matches,
-                        },
-                        ch_user=ClickHouseUser.COHORTS,
-                        workload=Workload.OFFLINE,
+                    # Add FORMAT JSONEachRow to the query
+                    formatted_query = query.replace(
+                        "SETTINGS join_use_nulls = 1;",
+                        "SETTINGS join_use_nulls = 1\n                FORMAT JSONEachRow;",
                     )
 
-                    # TODO: We'll need to stream the query results to avoid memory issues:
-                    # https://clickhouse.com/docs/integrations/language-clients/python/advanced-querying
-                    # To test the producer let's go first with a simple approach
-                    for row in results:
-                        payload = {
-                            "team_id": row[0],
-                            "cohort_id": row[1],
-                            "person_id": str(row[2]),
-                            "last_updated": str(row[3]),
-                            "status": row[4],
-                        }
-                        KafkaProducer().produce(
-                            topic=KAFKA_COHORT_MEMBERSHIP_CHANGED, key=payload["person_id"], data=payload
+                    async with get_client(team_id=team_id) as client:
+                        response = await client.read_query(
+                            formatted_query,
+                            query_parameters={
+                                "team_id": team_id,
+                                "cohort_id": cohort_id,
+                                "condition": condition_hash,
+                                "days": inputs.days,
+                                "min_matches": inputs.min_matches,
+                            },
                         )
+
+                        # Parse the response
+                        for line in response.decode("utf-8").strip().split("\n"):
+                            if line:
+                                row = json.loads(line)
+                                payload = {
+                                    "team_id": row["team_id"],
+                                    "cohort_id": row["cohort_id"],
+                                    "person_id": str(row["person_id"]),
+                                    "last_updated": str(row["last_updated"]),
+                                    "status": row["status"],
+                                }
+                                KafkaProducer().produce(
+                                    topic=KAFKA_COHORT_MEMBERSHIP_CHANGED, key=payload["person_id"], data=payload
+                                )
 
             except Exception as e:
                 logger.exception(
