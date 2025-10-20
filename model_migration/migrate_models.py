@@ -16,7 +16,7 @@ import libcst as cst
 
 # Import from same directory
 sys.path.insert(0, str(Path(__file__).parent))
-from file_handlers import DirectoryPreservingHandler, FileTransformContext
+from file_handlers import FileTransformContext, HandlerFactory
 from import_patterns import FileSpecificImport, ImportTargetResolver, MigrationContext, PackageLevelImport
 
 logger = logging.getLogger(__name__)
@@ -1007,12 +1007,17 @@ class {app_name.title()}Config(AppConfig):
     def _move_model_files_no_merge_mode(self, source_files: list[str], target_app: str) -> bool:
         """Move files using no-merge mode (preserve 1:1 file structure).
 
-        Uses DirectoryPreservingHandler to maintain full directory structure.
+        Uses HandlerFactory to select appropriate handler for each file based on its path.
         """
         logger.info("🔄 Moving %d model files (no-merge mode, preserving structure)...", len(source_files))
 
-        target_dir = self.root_dir / "products" / target_app / "backend"
-        models_dir = target_dir / "models"
+        backend_dir = self.root_dir / "products" / target_app / "backend"
+        models_dir = backend_dir / "models"
+
+        # Create backend directory if it doesn't exist
+        if not backend_dir.exists():
+            backend_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("📁 Created backend directory: %s", backend_dir)
 
         # Create models directory if it doesn't exist
         if not models_dir.exists():
@@ -1040,18 +1045,19 @@ class {app_name.title()}Config(AppConfig):
             model_to_filename_mapping=model_to_filename_mapping,
         )
 
-        # Step 3: Process all files using the directory-preserving handler
-        handler = DirectoryPreservingHandler()
-        logger.info("📁 Moving %d files with directory structure preservation...", len(source_files))
+        # Step 3: Process all files using appropriate handler for each file
+        logger.info("📁 Moving %d files with structure-aware handlers...", len(source_files))
 
         for source_file in source_files:
             source_path = self.root_dir / Path(self.source_base_path) / source_file
 
+            # Use factory to get appropriate handler for this file
+            handler = HandlerFactory.create_handler(source_file, context)
+
             handler.process_file(
                 source_file=source_file,
                 source_path=source_path,
-                models_dir=models_dir,
-                context=context,
+                backend_dir=backend_dir,
                 foreign_key_updater=self._update_foreign_key_references,
                 libcst_transformer_class=ImportTransformer,
                 db_table_ensurer=self._ensure_model_db_tables,

@@ -1,8 +1,8 @@
 """File handlers for different migration strategies in no-merge mode."""
 
 import logging
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Protocol
 
 import libcst as cst
 
@@ -29,63 +29,35 @@ class FileTransformContext:
         self.model_to_filename_mapping = model_to_filename_mapping
 
 
-class FileHandler(Protocol):
-    """Protocol for file handlers that process files during migration."""
+class BaseFileHandler(ABC):
+    """Base handler with common transformation logic."""
 
-    def process_file(
-        self,
-        source_file: str,
-        source_path: Path,
-        models_dir: Path,
-        context: FileTransformContext,
-        foreign_key_updater,
-        libcst_transformer_class,
-        db_table_ensurer,
-    ) -> Path | None:
-        """Process a file and return the target path, or None if skipped."""
+    def __init__(self, context: FileTransformContext):
+        self.context = context
+
+    @abstractmethod
+    def compute_target_path(self, source_file: str, backend_dir: Path) -> Path:
+        """Compute target path for the source file."""
         ...
 
+    @abstractmethod
+    def should_apply_db_table(self, source_file: str) -> bool:
+        """Determine if db_table should be applied to this file."""
+        ...
 
-class DirectoryPreservingHandler:
-    """Handler that preserves full directory structure (for directory mode).
-
-    Example:
-        models/table.py → backend/models/models/table.py
-        api/saved_query.py → backend/models/api/saved_query.py
-        data_load/service.py → backend/models/data_load/service.py
-    """
-
-    def process_file(
+    def apply_transformations(
         self,
+        content: str,
         source_file: str,
-        source_path: Path,
-        models_dir: Path,
-        context: FileTransformContext,
         foreign_key_updater,
         libcst_transformer_class,
-        db_table_ensurer,
-    ) -> Path | None:
-        """Process file while preserving full directory structure."""
-        if not source_path.exists():
-            logger.warning("⚠️  Source file not found: %s", source_path)
-            return None
-
-        # Preserve full directory structure
-        # e.g., models/table.py → models/models/table.py
-        # e.g., api/saved_query.py → models/api/saved_query.py
-        target_file_path = models_dir / source_file
-
-        # Create parent directories if needed
-        target_file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Read and process the source file
-        content = source_path.read_text()
-
+    ) -> str:
+        """Apply FK updates and LibCST transformations to file content."""
         # Update foreign key references
         lines = content.split("\n")
         updated_lines = []
         for line in lines:
-            updated_line = foreign_key_updater(line, context.model_names)
+            updated_line = foreign_key_updater(line, self.context.model_names)
             updated_lines.append(updated_line)
         updated_content = "\n".join(updated_lines)
 
@@ -94,12 +66,12 @@ class DirectoryPreservingHandler:
             tree = cst.parse_module(updated_content)
             module_name = source_file.replace(".py", "")
             transformer = libcst_transformer_class(
-                context.model_names,
-                context.target_app,
+                self.context.model_names,
+                self.context.target_app,
                 module_name,
                 merge_models=False,  # We're in no-merge mode
-                import_base_path=context.import_base_path,
-                filename_to_model_mapping=context.model_to_filename_mapping,
+                import_base_path=self.context.import_base_path,
+                filename_to_model_mapping=self.context.model_to_filename_mapping,
             )
             new_tree = tree.visit(transformer)
             updated_content = new_tree.code
@@ -107,12 +79,121 @@ class DirectoryPreservingHandler:
             logger.warning("⚠️  LibCST transformation failed for %s: %s", source_file, e)
             # Continue with FK-updated content
 
+        return updated_content
+
+    def process_file(
+        self,
+        source_file: str,
+        source_path: Path,
+        backend_dir: Path,
+        foreign_key_updater,
+        libcst_transformer_class,
+        db_table_ensurer,
+    ) -> Path | None:
+        """Process a file and return the target path, or None if skipped."""
+        if not source_path.exists():
+            logger.warning("⚠️  Source file not found: %s", source_path)
+            return None
+
+        # Compute target path using subclass logic
+        target_file_path = self.compute_target_path(source_file, backend_dir)
+
+        # Create parent directories if needed
+        target_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Read and process the source file
+        content = source_path.read_text()
+
+        # Apply transformations
+        updated_content = self.apply_transformations(
+            content, source_file, foreign_key_updater, libcst_transformer_class
+        )
+
         # Write to target
         target_file_path.write_text(updated_content)
 
-        # Ensure db_table for Django model files
-        if source_file.startswith("models/"):
+        # Ensure db_table for Django model files if applicable
+        if self.should_apply_db_table(source_file):
             db_table_ensurer(target_file_path)
 
-        logger.info("📄 Moved %s → %s", source_file, target_file_path.relative_to(context.root_dir))
+        logger.info("📄 Moved %s → %s", source_file, target_file_path.relative_to(self.context.root_dir))
         return target_file_path
+
+
+class ModelsDirectoryHandler(BaseFileHandler):
+    """Handler for files from models/ directory.
+
+    Strips the models/ prefix and writes to backend/models/.
+
+    Example:
+        models/table.py → backend/models/table.py
+        models/saved_query.py → backend/models/saved_query.py
+    """
+
+    def compute_target_path(self, source_file: str, backend_dir: Path) -> Path:
+        """Strip models/ prefix and write to backend/models/."""
+        relative_path = Path(source_file).relative_to("models")
+        return backend_dir / "models" / relative_path
+
+    def should_apply_db_table(self, source_file: str) -> bool:
+        """Apply db_table to files from models/ directory."""
+        return True
+
+
+class BackendSubdirectoryHandler(BaseFileHandler):
+    """Handler for subdirectories at backend level (api/, data_load/, etc.).
+
+    Preserves the subdirectory name and writes to backend/{subdir}/.
+
+    Example:
+        api/saved_query.py → backend/api/saved_query.py
+        data_load/service.py → backend/data_load/service.py
+    """
+
+    def compute_target_path(self, source_file: str, backend_dir: Path) -> Path:
+        """Preserve subdirectory structure at backend level."""
+        return backend_dir / source_file
+
+    def should_apply_db_table(self, source_file: str) -> bool:
+        """Do not apply db_table to non-model files."""
+        return False
+
+
+class BackendRootHandler(BaseFileHandler):
+    """Handler for root-level files.
+
+    Writes files directly to backend/ root.
+
+    Example:
+        hogql.py → backend/hogql.py
+        s3.py → backend/s3.py
+    """
+
+    def compute_target_path(self, source_file: str, backend_dir: Path) -> Path:
+        """Write to backend root."""
+        return backend_dir / source_file
+
+    def should_apply_db_table(self, source_file: str) -> bool:
+        """Do not apply db_table to root files."""
+        return False
+
+
+class HandlerFactory:
+    """Factory to create appropriate handler based on source file path."""
+
+    @staticmethod
+    def create_handler(source_file: str, context: FileTransformContext) -> BaseFileHandler:
+        """Create appropriate handler based on source file path."""
+        source_path = Path(source_file)
+
+        # Check if file is in models/ directory
+        if source_path.parts[0] == "models":
+            return ModelsDirectoryHandler(context)
+
+        # Check if file is in a known backend subdirectory (api/, data_load/, etc.)
+        # These should be at backend level, not under models/
+        if len(source_path.parts) > 1 and source_path.parts[0] in ["api", "data_load", "test"]:
+            return BackendSubdirectoryHandler(context)
+
+        # Root-level files
+        return BackendRootHandler(context)
