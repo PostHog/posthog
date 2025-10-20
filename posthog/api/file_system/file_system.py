@@ -14,6 +14,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
+from posthog.models.file_system.file_system_view_log import annotate_file_system_with_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -274,6 +275,22 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
                 queryset = queryset.order_by(order_by_param)
+            elif order_by_param == "-last_viewed_at" and self.request.user.is_authenticated:
+                queryset = annotate_file_system_with_view_logs(
+                    team_id=self.team.id,
+                    user_id=self.request.user.id,
+                    queryset=queryset,
+                )
+                queryset = queryset.order_by(F("last_viewed_at").desc(nulls_last=True), "-created_at")
+            elif order_by_param == "last_viewed_at" and self.request.user.is_authenticated:
+                queryset = annotate_file_system_with_view_logs(
+                    team_id=self.team.id,
+                    user_id=self.request.user.id,
+                    queryset=queryset,
+                )
+                queryset = queryset.order_by(F("last_viewed_at").asc(nulls_first=True), "created_at")
+            else:
+                queryset = queryset.order_by("-created_at")
         elif self.action == "list":
             if depth_param is not None:
                 queryset = queryset.order_by(

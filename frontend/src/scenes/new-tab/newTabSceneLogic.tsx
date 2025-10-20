@@ -91,7 +91,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     const response = await api.fileSystem.list({
                         search: '"name:' + searchTerm + '"',
                         limit: PAGINATION_LIMIT + 1,
-                        orderBy: '-created_at',
+                        orderBy: '-last_viewed_at',
                         notType: 'folder',
                     })
                     breakpoint()

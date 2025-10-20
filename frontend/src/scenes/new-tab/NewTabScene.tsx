@@ -42,7 +42,7 @@ const getCategoryDisplayName = (category: string): string => {
         'create-new': 'Create new',
         apps: 'Apps',
         'data-management': 'Data management',
-        recents: 'Recents',
+        recents: 'Recently viewed',
     }
     return displayNames[category] || category
 }
