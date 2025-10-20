@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from .cli import app
+from .cli import cli
 
 
 def main() -> None:
-    """Execute the Typer application."""
+    """Execute the Click application."""
 
-    app()
+    cli()
 
 
 if __name__ == "__main__":  # pragma: no cover - module entry point

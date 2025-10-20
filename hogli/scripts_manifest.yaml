@@ -44,13 +44,10 @@ metadata:
 # Command categories
 core:
     categories:
-        python_defined: true
         description: Show all available commands grouped by category
     dev:up:
-        python_defined: true
         description: Start full PostHog dev stack via mprocs
     qa:check:
-        python_defined: true
         description: Run pre-push quality checks (lint + build, ~5 min)
 
 health_checks:
@@ -130,7 +127,6 @@ deploy:
         args: none
 build:
     build:frontend:
-        python_defined: true
         description: Build frontend packages and run TypeScript compilation
     build:schema-python:
         bin_script: build-schema-python.sh
@@ -146,10 +142,8 @@ build:
         args: none
 docker:
     docker:services:up:
-        python_defined: true
         description: Start Docker infrastructure services (Postgres, ClickHouse, Redis, Kafka)
     docker:services:down:
-        python_defined: true
         description: Stop Docker infrastructure services
     docker:
         bin_script: docker
@@ -205,7 +199,6 @@ docker:
         args: none
 migration:
     db:migrate:
-        python_defined: true
         description: Apply database migrations (Django and ClickHouse)
     migration:migrate:
         bin_script: migrate
@@ -222,10 +215,8 @@ migration:
         args: required
 testing:
     test:python:
-        python_defined: true
         description: Run Python test suite
     test:js:
-        python_defined: true
         description: Run JavaScript test suite
     testing:tests:
         bin_script: tests
@@ -239,13 +230,10 @@ testing:
         args: optional
 code_quality:
     lint:check:
-        python_defined: true
         description: Run code quality checks for Python and JavaScript
     lint:fix:
-        python_defined: true
         description: Fix code quality issues automatically
     fmt:code:
-        python_defined: true
         description: Format Python and JavaScript code
 tools:
     tool:temporal-django-worker:
@@ -294,10 +282,8 @@ tools:
         args: none
 utilities:
     git:worktree:
-        python_defined: true
         description: Manage git worktrees for isolated development
     products:list:
-        python_defined: true
         description: List available product packages across frontend and backend
     utilitie:posthog-worktree:
         bin_script: posthog-worktree
