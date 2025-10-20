@@ -311,6 +311,8 @@ KAFKA_PRODUCER_SETTINGS = {
         "max_in_flight_requests_per_connection": get_from_env(
             "KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION", optional=True, type_cast=int
         ),
+        "buffer_memory": get_from_env("KAFKA_PRODUCER_BUFFER_MEMORY", optional=True, type_cast=int),
+        "max_block_ms": get_from_env("KAFKA_PRODUCER_MAX_BLOCK_MS", optional=True, type_cast=int),
     }.items()
     if value is not None
 }
@@ -388,6 +390,14 @@ CDP_API_URL = get_from_env("CDP_API_URL", "")
 
 if not CDP_API_URL:
     CDP_API_URL = "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
+
+
+EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
+
+# Used to generate embeddings on the fly, for use with the document embeddings table
+if not EMBEDDING_API_URL:
+    EMBEDDING_API_URL = "http://localhost:3305" if DEBUG else "http://embedding-api.posthog.svc.cluster.local"
+
 
 CACHES = {
     "default": {

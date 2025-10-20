@@ -43,6 +43,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Track all changes and activities in your organization with detailed filtering and export capabilities.',
     },
     [Scene.AsyncMigrations]: { instanceLevel: true },
+    [Scene.Annotations]: {
+        projectBased: true,
+        name: 'Annotations',
+        description:
+            'Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics.',
+        iconType: 'annotation',
+    },
     [Scene.BillingAuthorizationStatus]: {
         hideProjectNotice: true,
         organizationBased: true,
@@ -65,6 +72,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Cohorts',
         description: 'A catalog of identified persons and your created cohorts.',
         defaultDocsPath: '/docs/data/cohorts',
+        iconType: 'cohort',
+    },
+    [Scene.Comments]: {
+        projectBased: true,
+        name: 'Comments',
+        description: 'Comments allow you to provide context and discussions on various elements in PostHog.',
+        iconType: 'comment',
     },
     [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
@@ -142,11 +156,20 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.EVENT_DEFINITION,
         defaultDocsPath: '/docs/data/events',
     },
-    [Scene.EventDefinition]: {
+    [Scene.EventDefinitions]: {
         projectBased: true,
-        name: 'Data management',
+        name: 'Event definitions',
         activityScope: ActivityScope.EVENT_DEFINITION,
         defaultDocsPath: '/docs/data/events',
+        description: 'Event definitions are a way to define events that can be used in your app or website.',
+    },
+    [Scene.EventDefinition]: {
+        projectBased: true,
+        name: 'Event definitions',
+        activityScope: ActivityScope.EVENT_DEFINITION,
+        defaultDocsPath: '/docs/data/events',
+        description: 'Event definitions are a way to define events that can be used in your app or website.',
+        iconType: 'event_definition',
     },
     [Scene.Experiment]: {
         projectBased: true,
@@ -181,7 +204,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Explore events',
         defaultDocsPath: '/docs/data/events',
         description: 'A catalog of all user interactions with your app or website.',
-        iconType: 'apps',
+        iconType: 'event',
     },
     [Scene.FeatureFlag]: {
         projectBased: true,
@@ -208,6 +231,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Heatmaps',
         iconType: 'heatmap',
+        description: 'Heatmaps are a way to visualize user behavior on your website.',
     },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
@@ -217,6 +241,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/product-analytics/insights',
     },
     [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
+    [Scene.IngestionWarnings]: {
+        projectBased: true,
+        name: 'Ingestion warnings',
+        defaultDocsPath: '/docs/data/ingestion-warnings',
+        iconType: 'ingestion_warning',
+        description: 'Data ingestion related warnings from past 30 days.',
+    },
     [Scene.InviteSignup]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
     [Scene.Link]: { projectBased: true },
@@ -294,10 +325,19 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Data management',
         activityScope: ActivityScope.PROPERTY_DEFINITION,
     },
+    [Scene.PropertyDefinitions]: {
+        projectBased: true,
+        name: 'Property definitions',
+        activityScope: ActivityScope.PROPERTY_DEFINITION,
+        iconType: 'property_definition',
+        description: 'Properties are additional fields you can configure to be sent along with an event capture.',
+    },
     [Scene.PropertyDefinition]: {
         projectBased: true,
-        name: 'Data management',
+        name: 'Property definitions',
         activityScope: ActivityScope.PROPERTY_DEFINITION,
+        iconType: 'property_definition',
+        description: 'Properties are additional fields you can configure to be sent along with an event capture.',
     },
     [Scene.ReplayFilePlayback]: {
         projectBased: true,
@@ -330,6 +370,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/session-replay',
         layout: 'app-full-scene-height',
         iconType: 'session_replay',
+        description:
+            'Replay recordings of user sessions to understand how users interact with your product or website.',
     },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
@@ -343,6 +385,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/cdp/sources',
         layout: 'app-raw-no-header',
         hideProjectNotice: true,
+        description: 'Write and execute SQL queries against your data warehouse',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -382,9 +425,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.WebAnalyticsMarketing]: {
         projectBased: true,
-        name: 'Marketing',
+        name: 'Marketing settings',
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics/marketing',
+        description: 'Analyze your marketing analytics data to understand your marketing performance.',
+        iconType: 'marketing_settings',
     },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
@@ -405,12 +450,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/docs/web-analytics',
         description: 'Analyze your web analytics data to understand website performance and user behavior.',
         iconType: 'web_analytics',
-    },
-    [Scene.EmbeddedAnalytics]: {
-        projectBased: true,
-        name: 'Embedded analytics',
-        description: 'Define queries your application will use via the API and monitor their cost and usage.',
-        layout: 'app-container',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     ...productConfiguration,
@@ -477,7 +516,6 @@ export const redirects: Record<
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
     '/me/settings': urls.settings('user'),
-    '/messaging': urls.messaging('campaigns'),
     '/new': urls.newTab(),
     '/organization/members': urls.settings('organization'),
     '/organization/settings': urls.settings('organization'),
@@ -538,6 +576,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
+    [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],
     [urls.eventDefinitionEdit(':id')]: [Scene.EventDefinitionEdit, 'eventDefinitionEdit'],
@@ -588,6 +627,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
+    [urls.maxHistory()]: [Scene.Max, 'maxHistory'],
     [urls.max()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
     [urls.organizationBilling()]: [Scene.Billing, 'organizationBilling'],

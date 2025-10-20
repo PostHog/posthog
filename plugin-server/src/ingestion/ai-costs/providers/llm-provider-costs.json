@@ -616,6 +616,16 @@
         }
     },
     {
+        "model": "anthropic/claude-haiku-4.5",
+        "provider": "openrouter",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000005,
+            "cache_read_token": 1e-7,
+            "cache_write_token": 0.00000125
+        }
+    },
+    {
         "model": "anthropic/claude-opus-4",
         "provider": "openrouter",
         "cost": {
@@ -1003,6 +1013,16 @@
         "cost": {
             "prompt_token": 0.000003,
             "completion_token": 0.000015
+        }
+    },
+    {
+        "model": "claude-haiku-4-5-20251001",
+        "provider": "anthropic",
+        "cost": {
+            "prompt_token": 0.000001,
+            "completion_token": 0.000005,
+            "cache_read_token": 1e-7,
+            "cache_write_token": 0.00000125
         }
     },
     {

@@ -1,5 +1,6 @@
 import json
 import hashlib
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional, Protocol, TypeVar
 
@@ -7,6 +8,7 @@ from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
 
 import structlog
 import posthoganalytics
@@ -211,7 +213,7 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
 class ErrorTrackingFingerprintSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingIssueFingerprintV2
-        fields = ["fingerprint", "issue_id"]
+        fields = ["fingerprint", "issue_id", "created_at"]
 
 
 class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
@@ -603,7 +605,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 if new_status is None:
                     raise ValidationError("Invalid status")
                 for issue in issues:
-                    log_activity(
+                    _ = log_activity(
                         organization_id=self.organization.id,
                         team_id=self.team_id,
                         user=request.user,
@@ -732,6 +734,7 @@ class ErrorTrackingReleaseSerializer(serializers.ModelSerializer):
 class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingRelease.objects.all()
+    scope_object_read_actions = ["list", "retrieve", "by_hash"]
     serializer_class = ErrorTrackingReleaseSerializer
 
     def safely_get_queryset(self, queryset):
@@ -741,10 +744,10 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
 
     def validate_hash_id(self, hash_id: str, assert_new: bool) -> str:
         if len(hash_id) > 128:
-            raise ValueError("Hash id length cannot exceed 128 bytes")
+            raise ValidationError("Hash id length cannot exceed 128 bytes")
 
         if assert_new and ErrorTrackingRelease.objects.filter(team=self.team, hash_id=hash_id).exists():
-            raise ValueError(f"Hash id {hash_id} already in use")
+            raise ValidationError(f"Hash id {hash_id} already in use")
 
         return hash_id
 
@@ -798,6 +801,12 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         serializer = ErrorTrackingReleaseSerializer(release)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @action(detail=False, methods=["get"], url_path="hash/(?P<hash_id>[^/.]+)")
+    def by_hash(self, request, hash_id=None, **kwargs):
+        obj = get_object_or_404(self.get_queryset(), hash_id=hash_id)
+        serializer = self.get_serializer(obj)
+        return Response(serializer.data)
+
 
 class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
     symbol_set_ref = serializers.CharField(source="symbol_set.ref", default=None)
@@ -835,6 +844,19 @@ class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
         model = ErrorTrackingSymbolSet
         fields = ["id", "ref", "team_id", "created_at", "storage_ptr", "failure_reason"]
         read_only_fields = ["team_id"]
+
+
+@dataclass
+class SymbolSetUpload:
+    chunk_id: str
+    release_id: str | None
+    content_hash: str | None
+
+
+class ErrorTrackingSymbolSetUploadSerializer(serializers.Serializer):
+    chunk_id = serializers.CharField()
+    release_id = serializers.CharField(allow_null=True, default=None)
+    content_hash = serializers.CharField(allow_null=True, default=None)
 
 
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -994,12 +1016,27 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_start_upload(self, request, **kwargs):
+        # Earlier ones send a list of chunk IDs, all associated with one release
         # Extract a list of chunk IDs from the request json
-        chunk_ids: list[str] | None = request.data.get("chunk_ids")
+        chunk_ids: list[str] = request.data.get("chunk_ids") or []
         # Grab the release ID from the request json
         release_id: str | None = request.data.get("release_id", None)
-        if not chunk_ids:
-            return Response({"detail": "chunk_ids query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_upload_started",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id, "endpoint": "bulk_start_upload"},
+            groups=groups(self.team.organization, self.team),
+        )
+
+        # Validate symbol_sets using the serializer
+        symbol_sets: list[SymbolSetUpload] = []
+        if "symbol_sets" in request.data:
+            chunk_serializer = ErrorTrackingSymbolSetUploadSerializer(data=request.data["symbol_sets"], many=True)
+            _ = chunk_serializer.is_valid(raise_exception=True)
+            symbol_sets = [SymbolSetUpload(**data) for data in chunk_serializer.validated_data]
+
+        symbol_sets.extend([SymbolSetUpload(x, release_id, None) for x in chunk_ids])
 
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
@@ -1007,18 +1044,21 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
-        chunk_id_url_map = bulk_create_symbol_sets(chunk_ids, self.team, release_id)
-
+        chunk_id_url_map = bulk_create_symbol_sets(symbol_sets, self.team)
         return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_finish_upload(self, request, **kwargs):
         # Get the map of symbol_set_id:content_hashes
         content_hashes = request.data.get("content_hashes", {})
-        if not content_hashes:
-            return Response(
-                {"detail": "content_hashes query parameter is required"}, status=status.HTTP_400_BAD_REQUEST
-            )
+        if content_hashes is None:
+            return Response({"detail": "content_hashes are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(content_hashes) == 0:
+            # This can happen if someone re-runs an upload against a directory that's already been
+            # uploaded - we'll return no new upload keys, they'll upload nothing, and then
+            # we can early exit here.
+            return Response({"success": True}, status=status.HTTP_201_CREATED)
 
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
@@ -1313,33 +1353,54 @@ def create_symbol_set(
         return symbol_set
 
 
+@posthoganalytics.scoped()
 def bulk_create_symbol_sets(
-    chunk_ids: list[str],
+    new_symbol_sets: list[SymbolSetUpload],
     team: Team,
-    release_id: str | None,
 ) -> dict[str, dict[str, str]]:
-    release = create_release(team, release_id) if release_id else None
+    chunk_ids = [x.chunk_id for x in new_symbol_sets]
+
+    # Check for dupes
+    duplicates = [x for x in chunk_ids if chunk_ids.count(x) > 1]
+    if duplicates:
+        raise ValidationError(
+            code="invalid_chunk_ids",
+            detail=f"Duplicate chunk IDs provided: {', '.join(duplicates)}",
+        )
+
+    # Check we're using all valid release IDs
+    release_ids = {ss.release_id for ss in new_symbol_sets if ss.release_id}
+    fetched_releases = {str(r.id) for r in ErrorTrackingRelease.objects.all().filter(team=team, pk__in=release_ids)}
+    for release_id in release_ids:
+        if release_id not in fetched_releases:
+            raise ValidationError(
+                code="invalid_release_id",
+                detail=f"Unknown release ID provided: {release_id}",
+            )
 
     id_url_map: dict[str, dict[str, str]] = {}
+    new_symbol_set_map = {x.chunk_id: x for x in new_symbol_sets}
 
     with transaction.atomic():
         existing_symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids))
         existing_symbol_set_refs = [s.ref for s in existing_symbol_sets]
-        missing_symbol_set_refs = list(set(chunk_ids) - set(existing_symbol_set_refs))
+        missing_sets = list(set(chunk_ids) - set(existing_symbol_set_refs))
 
         symbol_sets_to_be_created = []
-        for chunk_id in missing_symbol_set_refs:
+        for chunk_id in missing_sets:
             storage_ptr = generate_symbol_set_file_key()
             presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
             id_url_map[chunk_id] = {"presigned_url": presigned_url}
-            symbol_sets_to_be_created.append(
-                ErrorTrackingSymbolSet(
-                    team=team,
-                    ref=chunk_id,
-                    release=release,
-                    storage_ptr=storage_ptr,
-                )
+            # Note that on creation, we /do not set/ the content hash. We use content hashes included in
+            # the create request only to see if we can skip updated - we set the content hash when we
+            # get upload confirmation, during `bulk_finish_upload`, not before
+            to_create = ErrorTrackingSymbolSet(
+                team=team,
+                ref=chunk_id,
+                storage_ptr=storage_ptr,
+                release_id=new_symbol_set_map[chunk_id].release_id,
             )
+            symbol_sets_to_be_created.append(to_create)
 
         # create missing symbol sets
         created_symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
@@ -1348,30 +1409,58 @@ def bulk_create_symbol_sets(
             id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
 
         # update existing symbol sets
-        for symbol_set in existing_symbol_sets:
-            if symbol_set.release is None:
-                symbol_set.release = release
-            elif symbol_set.release != release:
-                raise ValidationError(f"Symbol set has already been uploaded for a different release")
+        to_update = []
+        for existing in existing_symbol_sets:
+            upload = new_symbol_set_map[existing.ref]
+            dirty = False
 
-            storage_ptr = generate_symbol_set_file_key()
-            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
-            id_url_map[symbol_set.ref] = {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.id)}
-            symbol_set.storage_ptr = storage_ptr
-            symbol_set.content_hash = None
-        ErrorTrackingSymbolSet.objects.bulk_update(existing_symbol_sets, ["release", "storage_ptr", "content_hash"])
+            # Allow adding an "orphan" symbol set to a release, but not
+            # moving symbols sets between releases
+            if upload.release_id:
+                if existing.release_id is None:
+                    existing.release_id = upload.release_id
+                    dirty = True
+                elif str(existing.release_id) != upload.release_id:
+                    raise ValidationError(
+                        code="release_id_mismatch",
+                        detail=f"Symbol set {existing.ref} already has a release ID",
+                    )
 
-        # Delete any existing frames associated with this symbol set
-        ErrorTrackingStackFrame.objects.filter(team=team, symbol_set__ref__in=chunk_ids).delete()
+            if existing.content_hash is not None and existing.content_hash != upload.content_hash:
+                # If this symbol set already has a content hash, and they differ, raise. We do not support changing
+                # the content of a symbol set once it's been uploaded - callers should inject a new chunk_id instead.
+                # Note - this will also return an error if the upload's content hash is None. This is
+                # intentional - we can't tell whether its safe to overwrite the existing content hash
+                # here. This will only be the case for older CLI versions, which we expect to misbehave
+                # in this code path anyway.
+                raise ValidationError(
+                    code="content_hash_mismatch",
+                    detail=f"Symbol set {existing.ref} already exists, with different content.",
+                )
+            elif existing.content_hash is None:
+                # If the existing set doesn't have a content hash, we can set it up for an upload, and return it
+                # so the CLI will send the data to s3
+                storage_ptr = generate_symbol_set_file_key()
+                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
+                id_url_map[existing.ref] = {
+                    "presigned_url": presigned_url,
+                    "symbol_set_id": str(existing.id),
+                }
+                existing.storage_ptr = storage_ptr
+                dirty = True
+            else:
+                # No-op with respect to the client - the upload was done already, and the content hash matches.
+                # Called out explicitly for clarity. Note we may still update this record, if the release has changed.
+                pass
+
+            if dirty:
+                to_update.append(existing)
+
+        # We update only the symbol sets we modified the release of - for all others, this is a no-op (we assume they were uploaded
+        # during a prior attempt or something).
+        _ = ErrorTrackingSymbolSet.objects.bulk_update(to_update, ["release", "content_hash", "storage_ptr"])
 
     return id_url_map
-
-
-def create_release(team: Team, release_id: str) -> ErrorTrackingRelease | None:
-    objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)
-    if len(objects) < 1:
-        raise ValueError(f"Unknown release: {release_id}")
-    return objects[0]
 
 
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:

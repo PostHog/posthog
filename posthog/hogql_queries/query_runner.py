@@ -560,6 +560,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "DocumentSimilarityQuery":
+        from .document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
+
+        return DocumentEmbeddingsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "ErrorTrackingIssueCorrelationQuery":
         from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
             ErrorTrackingIssueCorrelationQueryRunner,
@@ -916,9 +927,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 {"cache_key": cache_manager.cache_key},
             )
 
-        if self.is_cached_response(cached_response_candidate):
-            assert isinstance(cached_response, CachedResponse)
-
+        if isinstance(cached_response, CachedResponse):
             if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
                 count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it

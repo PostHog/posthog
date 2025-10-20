@@ -67,12 +67,14 @@ from products.error_tracking.backend.sql import (
 )
 
 operations = [
+    # heatmaps
     run_sql_with_exceptions(DROP_HEATMAPS_TABLE_MV_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DROP_KAFKA_HEATMAPS_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DROP_WRITABLE_HEATMAPS_TABLE_SQL(), node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(KAFKA_HEATMAPS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_MEDIUM]),
-    run_sql_with_exceptions(WRITABLE_HEATMAPS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_MEDIUM]),
-    run_sql_with_exceptions(HEATMAPS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_MEDIUM]),
+    run_sql_with_exceptions(KAFKA_HEATMAPS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
+    run_sql_with_exceptions(WRITABLE_HEATMAPS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
+    run_sql_with_exceptions(HEATMAPS_TABLE_MV_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
+    # app metrics
     run_sql_with_exceptions(DROP_APP_METRICS2_MV_TABLE_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DROP_KAFKA_APP_METRICS2_TABLE_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(KAFKA_APP_METRICS2_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
@@ -80,9 +82,10 @@ operations = [
     run_sql_with_exceptions(APP_METRICS2_MV_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
     run_sql_with_exceptions(DROP_APP_METRICS_MV_TABLE_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DROP_KAFKA_APP_METRICS_TABLE_SQL, node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(KAFKA_APP_METRICS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]),
-    run_sql_with_exceptions(WRITABLE_APP_METRICS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]),
-    run_sql_with_exceptions(APP_METRICS_MV_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]),
+    run_sql_with_exceptions(KAFKA_APP_METRICS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+    run_sql_with_exceptions(WRITABLE_APP_METRICS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+    run_sql_with_exceptions(APP_METRICS_MV_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+    # session replays
     run_sql_with_exceptions(DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(
@@ -94,25 +97,25 @@ operations = [
     run_sql_with_exceptions(
         SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
     ),
+    # log entries
     run_sql_with_exceptions(DROP_LOG_ENTRIES_TABLE_MV_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DROP_KAFKA_LOG_ENTRIES_V3_TABLE_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(LOG_ENTRIES_WRITABLE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(KAFKA_LOG_ENTRIES_V3_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
     run_sql_with_exceptions(LOG_ENTRIES_V3_TABLE_MV_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+    # ingestion warnings
     run_sql_with_exceptions(DROP_INGESTION_WARNINGS_TABLE_MV_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DROP_KAFKA_INGESTION_WARNINGS_TABLE_SQL, node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(
-        WRITABLE_INGESTION_WARNINGS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
-    ),
-    run_sql_with_exceptions(
-        KAFKA_INGESTION_WARNINGS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]
-    ),
-    run_sql_with_exceptions(INGESTION_WARNINGS_MV_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]),
+    run_sql_with_exceptions(WRITABLE_INGESTION_WARNINGS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+    run_sql_with_exceptions(KAFKA_INGESTION_WARNINGS_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+    run_sql_with_exceptions(INGESTION_WARNINGS_MV_TABLE_SQL(), node_roles=[NodeRole.INGESTION_SMALL]),
+    # behavioral cohorts
     run_sql_with_exceptions(DROP_BEHAVIORAL_COHORTS_MATCHES_MV_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DROP_BEHAVIORAL_COHORTS_MATCHES_KAFKA_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
     run_sql_with_exceptions(KAFKA_BEHAVIORAL_COHORTS_MATCHES_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
     run_sql_with_exceptions(BEHAVIORAL_COHORTS_MATCHES_MV_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]),
+    # dead letter queue
     run_sql_with_exceptions(DROP_DEAD_LETTER_QUEUE_MV_TABLE_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(DROP_KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL, node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(

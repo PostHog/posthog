@@ -229,6 +229,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             await self._clone_repository_in_sandbox(setup_sandbox_id)
 
+            await self._inject_personal_api_key(setup_sandbox_id)
+
             await self._setup_repository_in_sandbox(setup_sandbox_id)
 
             snapshot_id = await self._snapshot_sandbox(setup_sandbox_id)
