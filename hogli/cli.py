@@ -96,6 +96,35 @@ def cli() -> None:
     pass
 
 
+@cli.command(name="check", help="Validate manifest against bin scripts (--fix to add missing entries)")
+@click.option("--fix", is_flag=True, help="Generate manifest entries for missing scripts")
+def check(fix: bool) -> None:
+    """Validate that all bin scripts are in the manifest."""
+    from hogli.validate import find_missing_manifest_entries, generate_missing_entries
+
+    missing = find_missing_manifest_entries()
+
+    if not missing:
+        click.echo("✓ All bin scripts are in the manifest")
+        return
+
+    click.echo(f"✗ Found {len(missing)} bin script(s) not in manifest:")
+    for script in sorted(missing):
+        click.echo(f"  - {script}")
+
+    if fix:
+        entries = generate_missing_entries()
+        click.echo(f"\nGenerated entries:\n")
+        import yaml
+
+        click.echo(yaml.dump(entries, default_flow_style=False))
+        click.echo("\nAdd these to manifest.yaml under the appropriate category")
+    else:
+        click.echo("\nRun with --fix to see generated manifest entries")
+
+    raise SystemExit(1)
+
+
 @cli.command(name="concepts", help="Show services and infrastructure concepts")
 def concepts() -> None:
     """Display infrastructure concepts and services with descriptions and related commands."""
