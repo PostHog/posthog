@@ -16,6 +16,7 @@ import libcst as cst
 
 # Import from same directory
 sys.path.insert(0, str(Path(__file__).parent))
+from file_handlers import DirectoryPreservingHandler, FileTransformContext
 from import_patterns import FileSpecificImport, ImportTargetResolver, MigrationContext, PackageLevelImport
 
 logger = logging.getLogger(__name__)
@@ -1004,12 +1005,11 @@ class {app_name.title()}Config(AppConfig):
             return self._move_model_files_no_merge_mode(source_files, target_app)
 
     def _move_model_files_no_merge_mode(self, source_files: list[str], target_app: str) -> bool:
-        """Move files using no-merge mode (preserve 1:1 file structure)"""
-        logger.info("🔄 Moving %d model files (no-merge mode, preserving structure)...", len(source_files))
+        """Move files using no-merge mode (preserve 1:1 file structure).
 
-        # Step 0: Expand any subdirectories to include all their files
-        expanded_files, non_model_files = self._expand_subdirectory_files(source_files)
-        logger.info("📁 Expanded to %d total files (%d supporting files)", len(expanded_files), len(non_model_files))
+        Uses DirectoryPreservingHandler to maintain full directory structure.
+        """
+        logger.info("🔄 Moving %d model files (no-merge mode, preserving structure)...", len(source_files))
 
         target_dir = self.root_dir / "products" / target_app / "backend"
         models_dir = target_dir / "models"
@@ -1025,116 +1025,39 @@ class {app_name.title()}Config(AppConfig):
             models_init.write_text("")
             logger.info("📄 Created %s/__init__.py", models_dir.name)
 
-        # Step 1: Get model class names
+        # Step 1: Get model class names from all source files
         model_names = self._extract_class_names_from_files(source_files)
         logger.info("📋 Model classes found: %s", list(model_names))
 
-        # Step 2: Copy individual model files to models/ directory with snake_case naming
-        import re
+        # Step 2: Build context for file transformations
+        model_to_filename_mapping = self._build_model_to_filename_mapping(source_files)
+        context = FileTransformContext(
+            model_names=model_names,
+            target_app=target_app,
+            import_base_path=self.import_base_path,
+            source_base_path=self.source_base_path,
+            root_dir=self.root_dir,
+            model_to_filename_mapping=model_to_filename_mapping,
+        )
 
-        copied_files = []
+        # Step 3: Process all files using the directory-preserving handler
+        handler = DirectoryPreservingHandler()
+        logger.info("📁 Moving %d files with directory structure preservation...", len(source_files))
+
         for source_file in source_files:
             source_path = self.root_dir / Path(self.source_base_path) / source_file
-            if not source_path.exists():
-                logger.warning("⚠️  Source file not found: %s", source_path)
-                continue
 
-            logger.info("📄 Processing %s", source_file)
+            handler.process_file(
+                source_file=source_file,
+                source_path=source_path,
+                models_dir=models_dir,
+                context=context,
+                foreign_key_updater=self._update_foreign_key_references,
+                libcst_transformer_class=ImportTransformer,
+                db_table_ensurer=self._ensure_model_db_tables,
+            )
 
-            # Convert filename to snake_case for destination
-            filename = source_path.name
-            filename_without_ext = filename.replace(".py", "")
-            snake_name = re.sub(r"(?<!^)(?=[A-Z])", "_", filename_without_ext).lower()
-            target_file = models_dir / f"{snake_name}.py"
-
-            # Read and process the source file
-            content = source_path.read_text()
-
-            # Update foreign key references in the content
-            lines = content.split("\n")
-            updated_lines = []
-            for line in lines:
-                updated_line = self._update_foreign_key_references(line, model_names)
-                updated_lines.append(updated_line)
-            updated_content = "\n".join(updated_lines)
-
-            # Apply LibCST transformation to update internal imports
-            try:
-                tree = cst.parse_module(updated_content)
-                # Build model-to-filename mapping for transformation
-                model_to_filename_mapping = self._build_model_to_filename_mapping(source_files)
-                module_name = source_file.replace(".py", "")
-                transformer = ImportTransformer(
-                    model_names,
-                    target_app,
-                    module_name,
-                    self.merge_models,
-                    import_base_path=self.import_base_path,
-                    filename_to_model_mapping=model_to_filename_mapping,
-                )
-                new_tree = tree.visit(transformer)
-                updated_content = new_tree.code
-            except Exception as e:
-                logger.warning("⚠️  LibCST transformation failed for %s: %s", source_file, e)
-                # Continue with FK-updated content
-
-            # Write to target
-            target_file.write_text(updated_content)
-            self._ensure_model_db_tables(target_file)
-            copied_files.append((source_file, target_file))
-            logger.info("📄 Copied %s → %s", source_file, target_file.relative_to(self.root_dir))
-
-        # Step 3: Copy supporting files (util.py, test files, etc.) if any
-        if non_model_files:
-            logger.info("📁 Copying %d supporting files...", len(non_model_files))
-            for support_file in non_model_files:
-                source_path = self.root_dir / Path(self.source_base_path) / support_file
-
-                # Preserve full directory structure in models/
-                # e.g., api/test/test_saved_query.py → models/api/test/test_saved_query.py
-                target_file_path = models_dir / support_file
-
-                # Create parent directories if needed
-                target_file_path.parent.mkdir(parents=True, exist_ok=True)
-
-                # Read file content
-                if not source_path.exists():
-                    logger.warning("⚠️  Supporting file not found: %s", source_path)
-                    continue
-
-                content = source_path.read_text()
-
-                # Apply LibCST transformation to update internal imports
-                try:
-                    tree = cst.parse_module(content)
-                    # Build model-to-filename mapping for transformation
-                    model_to_filename_mapping = self._build_model_to_filename_mapping(source_files)
-                    module_name = support_file.replace(".py", "")
-                    transformer = ImportTransformer(
-                        model_names,
-                        target_app,
-                        module_name,
-                        self.merge_models,
-                        import_base_path=self.import_base_path,
-                        filename_to_model_mapping=model_to_filename_mapping,
-                    )
-                    new_tree = tree.visit(transformer)
-                    content = new_tree.code
-                except Exception as e:
-                    logger.warning("⚠️  LibCST transformation failed for %s: %s", support_file, e)
-                    # Continue with original content
-
-                # Write to target
-                target_file_path.write_text(content)
-
-                # Remove source file
-                source_path.unlink()
-
-                logger.info("📄 Moved %s → %s", support_file, target_file_path.relative_to(self.root_dir))
-
-        # Step 4: Build model-to-filename mapping for no-merge mode
-        # This is crucial for correct import paths in no-merge mode
-        model_to_filename_mapping = self._build_model_to_filename_mapping(source_files)
+        # Step 4: Store model-to-filename mapping for external import updates
         self.model_to_filename_mapping = model_to_filename_mapping
         logger.info("📋 Built model-to-filename mapping with %d entries", len(model_to_filename_mapping))
 
