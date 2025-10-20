@@ -848,14 +848,12 @@ def postgres_source(
                             offset += len(rows)
             except psycopg.errors.SerializationFailure as e:
                 # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
-                if (
-                    "terminating connection due to conflict with recovery" not in "".join(e.args)
-                    or not using_read_replica
-                ):
-                    raise
+                if using_read_replica and "terminating connection due to conflict with recovery" in "".join(e.args):
+                    logger.debug(f"Falling back to offset chunking for table due to SerializationFailure error: {e}.")
+                    yield from offset_chunking(offset, chunk_size)
+                    return
 
-                logger.debug(f"Falling back to offset chunking for table due to SerializationFailure error: {e}.")
-                yield from offset_chunking(offset, chunk_size)
+                raise
 
     name = NamingConvention().normalize_identifier(table_name)
 
