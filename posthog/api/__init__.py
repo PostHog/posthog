@@ -736,6 +736,13 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
+# Register templates at root level (not nested, as they're global resources)
+router.register(
+    r"hog_functions/templates",
+    hog_function_template.PublicHogFunctionTemplateViewSet,
+    "hog_function_templates",
+)
+
 register_grandfathered_environment_nested_viewset(
     r"hog_flows",
     hog_flow.HogFlowViewSet,
