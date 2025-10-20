@@ -1,8 +1,6 @@
-use common_database::PostgresReader;
+use crate::api::errors::FlagError;
 use crate::early_access_features::early_access_feature_models::EarlyAccessFeature;
-use crate::{
-    api::errors::FlagError,
-};
+use common_database::PostgresReader;
 
 impl EarlyAccessFeature {
     // Returns all early access features for a given team
@@ -37,7 +35,7 @@ impl EarlyAccessFeature {
             .fetch_all(&mut *conn)
             .await
             .map_err(|e| {
-                  tracing::error!(
+                tracing::error!(
                     "Failed to fetch early access features from database for project {}: {}",
                     project_id,
                     e
@@ -45,5 +43,38 @@ impl EarlyAccessFeature {
                 FlagError::Internal(format!("Database query error: {e}"))
             })?;
         Ok(early_access_features)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        early_access_features::early_access_feature_models::EarlyAccessStage,
+        utils::test_utils::TestContext,
+    };
+
+    #[tokio::test]
+    async fn test_list_from_pg() {
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+        context
+            .insert_early_access_feature(team.id, None)
+            .await
+            .expect("Failed to insert early_access_feature1");
+        context
+            .insert_early_access_feature(team.id, Some(EarlyAccessStage::Alpha))
+            .await
+            .expect("Failed to insert early_access_feature2");
+
+        let early_access_features =
+            EarlyAccessFeature::list_from_pg(context.non_persons_reader, team.project_id)
+                .await
+                .expect("Failed to list early_access_features");
+
+        assert_eq!(early_access_features.len(), 2);
     }
 }

@@ -2,6 +2,7 @@ use crate::{
     api::types::FlagValue,
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
+    early_access_features::early_access_feature_models::{EarlyAccessFeature, EarlyAccessStage},
     flags::flag_models::{
         FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
     },
@@ -784,6 +785,78 @@ pub fn create_test_flag_that_depends_on_flag(
     )
 }
 
+pub fn create_test_early_access_feature(
+    id: Option<i32>,
+    team_id: Option<TeamId>,
+    name: Option<String>,
+    description: Option<String>,
+    stage: Option<EarlyAccessStage>,
+    documentation_url: Option<String>,
+) -> EarlyAccessFeature {
+    let flag = create_test_flag(
+        None,
+        Some(team_id.unwrap_or(1)),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    return EarlyAccessFeature {
+        id: id.unwrap_or((1)),
+        team_id: Some(team_id.unwrap_or(1)),
+        feature_flag_id: Some(flag.id),
+        name: name.unwrap_or("Test Early Access Feature".to_string()),
+        description: description.unwrap_or("description".to_string()),
+        stage: stage.unwrap_or(EarlyAccessStage::Concept),
+        documentation_url: documentation_url,
+    };
+}
+
+pub async fn insert_early_access_feature_for_team_in_pg(
+    client: Arc<dyn Client + Send + Sync>,
+    team_id: i32,
+    stage: Option<EarlyAccessStage>,
+) -> Result<EarlyAccessFeature, Error> {
+    let early_access_feature =
+        create_test_early_access_feature(None, Some(team_id), None, None, stage, None);
+    let mut conn = client.get_connection().await?;
+    let row: (i32,) = sqlx::query_as(
+        r#"
+    INSERT INTO posthog_earlyaccessfeature
+    (
+        team_id,
+        feature_flag_id,
+        name,
+        description,
+        stage,
+        documentation_url,
+    )
+    VALUES
+    (
+        $1, $2, $3, $4, $5, $6
+    )
+    RETURNING id
+"#,
+    )
+    .bind(&early_access_feature.team_id) // <- $1
+    .bind(&early_access_feature.feature_flag_id) // <- $2
+    .bind(&early_access_feature.name) // <- $3
+    .bind(&early_access_feature.description) // <- $4
+    .bind(&early_access_feature.stage) // <- $5
+    .bind(&early_access_feature.documentation_url)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    let id = row.0;
+
+    Ok(EarlyAccessFeature {
+        id,
+        ..early_access_feature
+    })
+}
+
 /// Test context that encapsulates all database connections needed for testing
 /// This struct manages the proper routing of database operations to the correct
 /// database (persons vs non-persons) based on the configuration
@@ -1262,5 +1335,13 @@ impl TestContext {
         .execute(&mut *conn)
         .await?;
         Ok(())
+    }
+    pub async fn insert_early_access_feature(
+        &self,
+        team_id: i32,
+        stage: Option<EarlyAccessStage>,
+    ) -> Result<EarlyAccessFeature, Error> {
+        insert_early_access_feature_for_team_in_pg(self.non_persons_writer.clone(), team_id, stage)
+            .await
     }
 }
