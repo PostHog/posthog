@@ -254,126 +254,143 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
 
         # Initialize Kafka producer once before the loop
         kafka_producer = KafkaProducer()
+        messages_produced = 0
 
-        for idx, condition_data in enumerate(inputs.conditions, 1):
-            team_id = condition_data["team_id"]
-            cohort_id = condition_data["cohort_id"]
-            condition_hash = condition_data["condition"]
+        try:
+            for idx, condition_data in enumerate(inputs.conditions, 1):
+                team_id = condition_data["team_id"]
+                cohort_id = condition_data["cohort_id"]
+                condition_hash = condition_data["condition"]
 
-            # Update heartbeat progress every 100 conditions to minimize overhead
-            if idx % 100 == 0 or idx == len(inputs.conditions):
-                heartbeater.details = (
-                    f"Processing condition {idx}/{len(inputs.conditions)} in batch {inputs.batch_number}",
-                )
+                # Update heartbeat progress every 100 conditions to minimize overhead
+                if idx % 100 == 0 or idx == len(inputs.conditions):
+                    heartbeater.details = (
+                        f"Processing condition {idx}/{len(inputs.conditions)} in batch {inputs.batch_number}",
+                    )
 
-            # Log progress within the batch
-            if idx % 100 == 0 or idx == len(inputs.conditions):
-                logger.info(
-                    f"Batch {inputs.batch_number}: Processed {idx}/{len(inputs.conditions)} conditions",
-                    batch_number=inputs.batch_number,
-                    progress=idx,
-                    total=len(inputs.conditions),
-                )
+                # Log progress within the batch
+                if idx % 100 == 0 or idx == len(inputs.conditions):
+                    logger.info(
+                        f"Batch {inputs.batch_number}: Processed {idx}/{len(inputs.conditions)} conditions",
+                        batch_number=inputs.batch_number,
+                        progress=idx,
+                        total=len(inputs.conditions),
+                    )
 
-            query = """
-                SELECT
-                    COALESCE(bcm.team_id, cmc.team_id) as team_id,
-                    COALESCE(bcm.cohort_id, cmc.cohort_id) as cohort_id,
-                    COALESCE(bcm.person_id, cmc.person_id) as person_id,
-                    now64() as last_updated,
-                    CASE
-                        WHEN
-                            cmc.person_id IS NULL -- Does not exist in cohort_membership_changed
-                            THEN 'entered' -- so, new member
-                        WHEN
-                            cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
-                            AND cmc.status = 'left' -- it left the cohort at some point
-                            AND bcm.person_id IS NOT NULL -- but now there is a match in behavioral_cohorts_matches
-                            THEN 'entered' -- so, it re-entered the cohort
-                        WHEN
-                            cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
-                            AND cmc.status = 'entered' -- it is a member at some point
-                            AND bcm.person_id IS NULL -- but there is no match in behavioral_cohorts_matches
-                            THEN 'left' -- so, it left the cohort
-                        ELSE
-                            'unchanged' -- for all other cases, the membership did not change
-                    END as status
-                FROM
-                (
-                    SELECT team_id, cohort_id, person_id
-                    FROM behavioral_cohorts_matches
-                    WHERE
-                        team_id = %(team_id)s
-                        AND cohort_id = %(cohort_id)s
-                        AND condition = %(condition)s
-                        AND date >= now() - toIntervalDay(%(days)s)
-                    GROUP BY team_id, cohort_id, person_id
-                    HAVING sum(matches) >= %(min_matches)s
-                ) bcm
-                FULL OUTER JOIN
-                (
-                    SELECT team_id, cohort_id, person_id, argMax(status, last_updated) as status
-                    FROM cohort_membership
-                    WHERE
-                        team_id = %(team_id)s
-                        AND cohort_id = %(cohort_id)s
-                    GROUP BY team_id, cohort_id, person_id
-                ) cmc ON bcm.team_id = cmc.team_id AND bcm.cohort_id = cmc.cohort_id AND bcm.person_id = cmc.person_id
-                WHERE status != 'unchanged'
-                SETTINGS join_use_nulls = 1;
-            """
+                query = """
+                    SELECT
+                        COALESCE(bcm.team_id, cmc.team_id) as team_id,
+                        COALESCE(bcm.cohort_id, cmc.cohort_id) as cohort_id,
+                        COALESCE(bcm.person_id, cmc.person_id) as person_id,
+                        now64() as last_updated,
+                        CASE
+                            WHEN
+                                cmc.person_id IS NULL -- Does not exist in cohort_membership_changed
+                                THEN 'entered' -- so, new member
+                            WHEN
+                                cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
+                                AND cmc.status = 'left' -- it left the cohort at some point
+                                AND bcm.person_id IS NOT NULL -- but now there is a match in behavioral_cohorts_matches
+                                THEN 'entered' -- so, it re-entered the cohort
+                            WHEN
+                                cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
+                                AND cmc.status = 'entered' -- it is a member at some point
+                                AND bcm.person_id IS NULL -- but there is no match in behavioral_cohorts_matches
+                                THEN 'left' -- so, it left the cohort
+                            ELSE
+                                'unchanged' -- for all other cases, the membership did not change
+                        END as status
+                    FROM
+                    (
+                        SELECT team_id, cohort_id, person_id
+                        FROM behavioral_cohorts_matches
+                        WHERE
+                            team_id = %(team_id)s
+                            AND cohort_id = %(cohort_id)s
+                            AND condition = %(condition)s
+                            AND date >= now() - toIntervalDay(%(days)s)
+                        GROUP BY team_id, cohort_id, person_id
+                        HAVING sum(matches) >= %(min_matches)s
+                    ) bcm
+                    FULL OUTER JOIN
+                    (
+                        SELECT team_id, cohort_id, person_id, argMax(status, last_updated) as status
+                        FROM cohort_membership
+                        WHERE
+                            team_id = %(team_id)s
+                            AND cohort_id = %(cohort_id)s
+                        GROUP BY team_id, cohort_id, person_id
+                    ) cmc ON bcm.team_id = cmc.team_id AND bcm.cohort_id = cmc.cohort_id AND bcm.person_id = cmc.person_id
+                    WHERE status != 'unchanged'
+                    SETTINGS join_use_nulls = 1;
+                """
 
-            try:
-                with tags_context(
-                    team_id=team_id,
-                    feature=Feature.BEHAVIORAL_COHORTS,
-                    cohort_id=cohort_id,
-                    product=Product.MESSAGING,
-                    query_type="get_cohort_memberships_batch",
-                ):
-                    async with get_client(team_id=team_id) as client:
-                        async for row in client.stream_query_as_jsonl(
-                            query,
-                            query_parameters={
-                                "team_id": team_id,
-                                "cohort_id": cohort_id,
-                                "condition": condition_hash,
-                                "days": inputs.days,
-                                "min_matches": inputs.min_matches,
-                            },
-                        ):
-                            payload = {
-                                "team_id": row["team_id"],
-                                "cohort_id": row["cohort_id"],
-                                "person_id": str(row["person_id"]),
-                                "last_updated": str(row["last_updated"]),
-                                "status": row["status"],
-                            }
-                            await asyncio.to_thread(
-                                kafka_producer.produce,
-                                topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
-                                key=payload["person_id"],
-                                data=payload,
-                            )
+                try:
+                    with tags_context(
+                        team_id=team_id,
+                        feature=Feature.BEHAVIORAL_COHORTS,
+                        cohort_id=cohort_id,
+                        product=Product.MESSAGING,
+                        query_type="get_cohort_memberships_batch",
+                    ):
+                        async with get_client(team_id=team_id) as client:
+                            async for row in client.stream_query_as_jsonl(
+                                query,
+                                query_parameters={
+                                    "team_id": team_id,
+                                    "cohort_id": cohort_id,
+                                    "condition": condition_hash,
+                                    "days": inputs.days,
+                                    "min_matches": inputs.min_matches,
+                                },
+                            ):
+                                payload = {
+                                    "team_id": row["team_id"],
+                                    "cohort_id": row["cohort_id"],
+                                    "person_id": str(row["person_id"]),
+                                    "last_updated": str(row["last_updated"]),
+                                    "status": row["status"],
+                                }
+                                await asyncio.to_thread(
+                                    kafka_producer.produce,
+                                    topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                                    key=payload["person_id"],
+                                    data=payload,
+                                )
+                                messages_produced += 1
 
-            except Exception as e:
-                is_retryable = is_retryable_clickhouse_error(e)
-                logger.exception(
-                    "Error processing condition in batch",
-                    condition=condition_hash[:16] + "...",
-                    error=str(e),
-                    retryable=is_retryable,
-                    batch_number=inputs.batch_number,
-                    attempt=temporalio.activity.info().attempt,
-                )
+                                # Flush periodically to prevent buffer buildup in long-running batches
+                                if messages_produced % 1000 == 0:
+                                    logger.debug(f"Flushing Kafka producer after {messages_produced} messages")
+                                    await asyncio.to_thread(kafka_producer.flush, timeout=30)
 
-                # For individual query retries within the batch, add a small backoff
-                if is_retryable:
-                    backoff_seconds = min(2 ** (temporalio.activity.info().attempt - 1), 10)
-                    logger.info(f"Backing off for {backoff_seconds}s before continuing batch processing")
-                    await asyncio.sleep(backoff_seconds)
+                except Exception as e:
+                    is_retryable = is_retryable_clickhouse_error(e)
+                    logger.exception(
+                        "Error processing condition in batch",
+                        condition=condition_hash[:16] + "...",
+                        error=str(e),
+                        retryable=is_retryable,
+                        batch_number=inputs.batch_number,
+                        attempt=temporalio.activity.info().attempt,
+                    )
 
-                continue
+                    # For individual query retries within the batch, add a small backoff
+                    if is_retryable:
+                        backoff_seconds = min(2 ** (temporalio.activity.info().attempt - 1), 10)
+                        logger.info(f"Backing off for {backoff_seconds}s before continuing batch processing")
+                        await asyncio.sleep(backoff_seconds)
+
+                    continue
+
+        finally:
+            # Always flush the producer to ensure buffered messages are sent
+            if messages_produced > 0:
+                logger.info(f"Flushing Kafka producer with {messages_produced} total messages")
+                try:
+                    await asyncio.to_thread(kafka_producer.flush, timeout=60)
+                except Exception as e:
+                    logger.exception("Error flushing Kafka producer", error=str(e))
 
         heartbeater.details = (f"Completed batch {inputs.batch_number}: processed {len(inputs.conditions)} conditions",)
 
