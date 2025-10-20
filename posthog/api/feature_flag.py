@@ -152,9 +152,9 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         if not hasattr(self, "initial_data"):
             return attrs
 
-        # If user doesn't have access to TAGGING feature, skip validation
+        # If user doesn't have access to TAGGING feature or FLAG_EVALUATION_TAGS is disabled, skip validation
         # Evaluation tags are preserved in DB but hidden from user (like regular tags)
-        if not self._is_licensed_for_tagging():
+        if not self._is_licensed_for_tagging() or not self._is_evaluation_tags_feature_enabled():
             return attrs
 
         # Get evaluation_tags from the request
@@ -194,6 +194,31 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
             and self.context["request"].user.organization.is_feature_available(AvailableFeature.TAGGING)
         )
 
+    def _is_evaluation_tags_feature_enabled(self):
+        """Check if FLAG_EVALUATION_TAGS feature flag is enabled."""
+        if "request" not in self.context:
+            return False
+
+        request = self.context["request"]
+        if not hasattr(request, "user") or request.user.is_anonymous:
+            return False
+
+        # Check if FLAG_EVALUATION_TAGS feature flag is enabled for the user
+        try:
+            import posthoganalytics
+
+            return posthoganalytics.feature_enabled(
+                "flag-evaluation-tags",
+                request.user.distinct_id,
+                groups={"organization": str(request.user.organization.id)},
+                group_properties={"organization": {"id": str(request.user.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            # If feature flag check fails, default to False (conservative approach)
+            return False
+
     def _attempt_set_evaluation_tags(self, evaluation_tags, obj):
         """Update evaluation tags for a feature flag using efficient diff logic.
 
@@ -207,9 +232,9 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         if not obj or evaluation_tags is None:
             return
 
-        # If user doesn't have TAGGING access, silently skip evaluation tag updates
+        # If user doesn't have TAGGING access or FLAG_EVALUATION_TAGS is disabled, silently skip evaluation tag updates
         # This preserves existing evaluation tags in the database (like TaggedItemSerializerMixin does)
-        if not self._is_licensed_for_tagging():
+        if not self._is_licensed_for_tagging() or not self._is_evaluation_tags_feature_enabled():
             return
 
         # Normalize and dedupe tags (same as TaggedItemSerializerMixin does)
@@ -256,8 +281,10 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         ret = super().to_representation(obj)
 
         # Include evaluation tags in the serialized output
-        # Hide evaluation_tags if user doesn't have TAGGING access (like TaggedItemSerializerMixin does for tags)
-        if not self._is_licensed_for_tagging():
+        # Hide evaluation_tags if:
+        # 1. User doesn't have TAGGING access (like TaggedItemSerializerMixin does for tags)
+        # 2. FLAG_EVALUATION_TAGS feature flag is disabled
+        if not self._is_licensed_for_tagging() or not self._is_evaluation_tags_feature_enabled():
             ret["evaluation_tags"] = []
         elif hasattr(obj, "evaluation_tags"):
             # Django's prefetch_related creates a cache in _prefetched_objects_cache.

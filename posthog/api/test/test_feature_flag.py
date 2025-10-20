@@ -8311,6 +8311,15 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
             valid_until=dt(future_year, 1, 19, 3, 14, 7),
         )
 
+        # Mock FLAG_EVALUATION_TAGS feature flag to be enabled by default
+        self.feature_flag_patcher = patch("posthoganalytics.feature_enabled")
+        self.mock_feature_enabled = self.feature_flag_patcher.start()
+        self.mock_feature_enabled.return_value = True
+
+    def tearDown(self):
+        self.feature_flag_patcher.stop()
+        super().tearDown()
+
     @pytest.mark.ee
     def test_create_feature_flag_with_evaluation_tags(self):
         response = self.client.post(
@@ -8574,6 +8583,58 @@ class TestFeatureFlagEvaluationTags(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["evaluation_tags"], ["web"])  # Now visible again
+
+    @pytest.mark.ee
+    def test_evaluation_tags_hidden_when_feature_flag_disabled(self):
+        """Test that evaluation tags are hidden when FLAG_EVALUATION_TAGS feature flag is disabled"""
+        # Override the default mock to disable the feature flag
+        self.mock_feature_enabled.return_value = False
+
+        # Create a flag with evaluation tags
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Flag with evaluation tags",
+                "key": "flag-with-eval-tags-disabled",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                "tags": ["web", "mobile"],
+                "evaluation_tags": ["web"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify the flag was created but WITHOUT evaluation tags (feature flag disabled)
+        flag = FeatureFlag.objects.get(key="flag-with-eval-tags-disabled")
+        self.assertEqual(len(flag.evaluation_tags.all()), 0)  # No evaluation tags created
+
+        # Verify evaluation tags are hidden in API response (due to feature flag being disabled)
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["evaluation_tags"], [])  # Hidden due to feature flag
+
+        # Test that evaluation tags can't be created when feature flag is disabled
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
+                "name": "Updated flag with disabled feature flag",
+                "evaluation_tags": ["web", "mobile"],  # Should be ignored
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify evaluation tags were not created (feature flag disabled)
+        flag.refresh_from_db()
+        self.assertEqual(len(flag.evaluation_tags.all()), 0)  # Still no evaluation tags
+
+        # Now enable the feature flag
+        self.mock_feature_enabled.return_value = True
+
+        # Verify evaluation tags are still empty (feature flag was disabled during creation)
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["evaluation_tags"], [])  # Still empty because none were created
 
     @pytest.mark.ee
     def test_evaluation_tags_in_cache(self):
