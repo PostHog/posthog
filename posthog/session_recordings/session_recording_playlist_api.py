@@ -16,13 +16,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import RecordingsQuery
 
 from posthog.api.documentation import extend_schema
+from posthog.api.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
-from posthog.models.file_system.file_system_view_log import log_file_system_view
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -258,7 +259,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
 
 class SessionRecordingPlaylistViewSet(
-    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
+    FileSystemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
     scope_object = "session_recording_playlist"
     queryset = SessionRecordingPlaylist.objects.all()
@@ -501,6 +502,6 @@ class SessionRecordingPlaylistViewSet(
             # that's okay... if the viewed at clashes then we're ok skipping creation
             pass
 
-        log_file_system_view(user=user, obj=playlist)
+        log_api_file_system_view(request, playlist)
 
         return response.Response({"success": True})

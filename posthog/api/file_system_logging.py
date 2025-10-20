@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Optional
+
+from django.conf import settings
+from django.http import HttpRequest
+
+from rest_framework.request import Request
+
+from posthog.models.file_system.file_system_view_log import log_file_system_view
+
+RequestLike = Request | HttpRequest
+
+
+def _has_session_cookie(request: RequestLike) -> bool:
+    try:
+        cookies = request.COOKIES
+    except AttributeError:
+        return False
+
+    return settings.SESSION_COOKIE_NAME in cookies and bool(cookies[settings.SESSION_COOKIE_NAME])
+
+
+def log_api_file_system_view(
+    request: RequestLike,
+    obj: Any,
+    *,
+    viewed_at: Optional[datetime] = None,
+    team_id: Optional[int] = None,
+) -> None:
+    """Log a FileSystem view if the request represents an authenticated session."""
+
+    user = getattr(request, "user", None)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return
+
+    if not _has_session_cookie(request):
+        return
+
+    log_file_system_view(user=user, obj=obj, team_id=team_id, viewed_at=viewed_at)

@@ -34,8 +34,10 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
+from posthog.api.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_variable import map_stale_to_latest
+from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -75,7 +77,6 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.alert import AlertConfiguration, are_alerts_supported_for_insight
 from posthog.models.dashboard import Dashboard
-from posthog.models.file_system.file_system_view_log import log_file_system_view
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
@@ -429,7 +430,7 @@ class InsightSerializer(InsightBasicSerializer):
         )
 
         InsightViewed.objects.create(team_id=team_id, user=request.user, insight=insight, last_viewed_at=now())
-        log_file_system_view(user=request.user, obj=insight)
+        log_api_file_system_view(request, insight)
 
         if dashboards is not None:
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
@@ -852,6 +853,7 @@ Background calculation can be tracked using the `query_status` response field.""
     ),
 )
 class InsightViewSet(
+    FileSystemViewSetMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
@@ -1118,7 +1120,12 @@ When set, the specified dashboard's filters and date range override will be appl
 
             serialized_data["layouts"] = layouts
 
-        return Response(serialized_data)
+        response = Response(serialized_data)
+
+        if dashboard_tile is None:
+            log_api_file_system_view(request, instance)
+
+        return response
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
@@ -1306,7 +1313,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 insight=insight,
                 defaults={"last_viewed_at": viewed_at},
             )
-            log_file_system_view(user=request.user, obj=insight, viewed_at=viewed_at)
+            log_api_file_system_view(request, insight, viewed_at=viewed_at)
 
         return Response(status=status.HTTP_201_CREATED)
 
