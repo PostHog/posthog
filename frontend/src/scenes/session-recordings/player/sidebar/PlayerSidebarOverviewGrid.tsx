@@ -10,12 +10,14 @@ import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/pl
 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { PlayerSidebarEditPinnedPersonPropertiesPopover } from './PlayerSidebarEditPinnedPersonPropertiesPopover'
+import { PlayerSidebarEditPinnedPropertiesPopover } from './PlayerSidebarEditPinnedPropertiesPopover'
 
 export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { displayOverviewItems, loading, sessionPerson, isPersonPopoverOpen } = useValues(playerMetaLogic(logicProps))
-    const { setIsPersonPopoverOpen } = useActions(playerMetaLogic(logicProps))
+    const { displayOverviewItems, loading, sessionPerson, isPropertyPopoverOpen } = useValues(
+        playerMetaLogic(logicProps)
+    )
+    const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
 
     return (
         <>
@@ -49,14 +51,14 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                 )}
                 <div className="px-2 py-2 border-t">
                     <Popover
-                        visible={isPersonPopoverOpen}
-                        onClickOutside={() => setIsPersonPopoverOpen(false)}
+                        visible={isPropertyPopoverOpen}
+                        onClickOutside={() => setIsPropertyPopoverOpen(false)}
                         overlay={
                             sessionPerson?.distinct_ids?.[0] || sessionPerson?.id ? (
-                                <PlayerSidebarEditPinnedPersonPropertiesPopover
+                                <PlayerSidebarEditPinnedPropertiesPopover
                                     distinctId={sessionPerson?.distinct_ids?.[0]}
                                     personId={sessionPerson?.id}
-                                    onClose={() => setIsPersonPopoverOpen(false)}
+                                    onClose={() => setIsPropertyPopoverOpen(false)}
                                 />
                             ) : null
                         }
@@ -66,7 +68,7 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                     />
                     <LemonButton
                         icon={<IconGear />}
-                        onClick={() => setIsPersonPopoverOpen(true)}
+                        onClick={() => setIsPropertyPopoverOpen(true)}
                         fullWidth
                         size="small"
                         type="secondary"

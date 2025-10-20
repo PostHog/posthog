@@ -11,14 +11,14 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { playerMetaLogic } from '../player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
-export type PlayerSidebarEditPinnedPersonPropertiesPopoverProps = {
+export type PlayerSidebarEditPinnedPropertiesPopoverProps = {
     distinctId?: string
     personId?: string
     onClose?: () => void
 }
 
-export function PlayerSidebarEditPinnedPersonPropertiesPopover(
-    props: PlayerSidebarEditPinnedPersonPropertiesPopoverProps
+export function PlayerSidebarEditPinnedPropertiesPopover(
+    props: PlayerSidebarEditPinnedPropertiesPopoverProps
 ): JSX.Element | null {
     const { loadPerson, loadPersonUUID } = useActions(personsLogic({ syncWithUrl: false }))
     const { person, personLoading } = useValues(personsLogic({ syncWithUrl: false }))

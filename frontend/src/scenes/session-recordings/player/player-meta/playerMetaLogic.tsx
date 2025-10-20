@@ -90,7 +90,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
         setPinnedProperties: (properties: string[]) => ({ properties }),
         togglePropertyPin: (propertyKey: string) => ({ propertyKey }),
-        setIsPersonPopoverOpen: (isOpen: boolean) => ({ isOpen }),
+        setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
@@ -131,10 +131,10 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 setPinnedProperties: (_, { properties }) => properties,
             },
         ],
-        isPersonPopoverOpen: [
+        isPropertyPopoverOpen: [
             false,
             {
-                setIsPersonPopoverOpen: (_, { isOpen }) => isOpen,
+                setIsPropertyPopoverOpen: (_, { isOpen }) => isOpen,
             },
         ],
     })),
