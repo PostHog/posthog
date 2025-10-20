@@ -9,6 +9,8 @@ import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordin
 import { ReadingHog } from 'lib/components/hedgehogs'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -255,10 +257,10 @@ export function IngestionWarningsView(): JSX.Element {
     return (
         <SceneContent data-attr="manage-events-table">
             <SceneTitleSection
-                name="Ingestion warnings"
-                description="Data ingestion related warnings from past 30 days."
+                name={sceneConfigurations[Scene.IngestionWarnings].name}
+                description={sceneConfigurations[Scene.IngestionWarnings].description}
                 resourceType={{
-                    type: 'ingestion_warning',
+                    type: sceneConfigurations[Scene.IngestionWarnings].iconType || 'default_icon_type',
                 }}
             />
             <SceneDivider />

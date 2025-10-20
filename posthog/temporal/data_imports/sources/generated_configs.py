@@ -221,7 +221,8 @@ class TemporalIOSourceConfig(config.Config):
 
 @config.config
 class TikTokAdsSourceConfig(config.Config):
-    pass
+    advertiser_id: str
+    tiktok_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config

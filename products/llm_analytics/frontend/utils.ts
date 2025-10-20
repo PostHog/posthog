@@ -79,27 +79,50 @@ export function formatLLMCost(cost: number): string {
     return usdFormatter.format(cost)
 }
 
-export function isLLMTraceEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
+export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
     return 'properties' in item
 }
 
-export function hasSessionID(event: LLMTrace | LLMTraceEvent): boolean {
-    if (isLLMTraceEvent(event)) {
-        return 'properties' in event && typeof event.properties.$session_id === 'string'
-    }
-    return '$session_id' in event
+function normalizeSessionId(value: unknown): string | null {
+    return typeof value === 'string' && value.length > 0 ? value : null
 }
 
-export function getSessionID(event: LLMTrace | LLMTraceEvent): string | null {
-    if (isLLMTraceEvent(event)) {
-        return event.properties.$session_id || null
+function sessionIdFromEvents(events?: LLMTraceEvent[] | null): string | null {
+    if (!events || events.length === 0) {
+        return null
     }
 
-    return event.events.find((e) => e.properties.$session_id !== null)?.properties.$session_id || null
+    const uniqueSessionIds = events.reduce((acc, current) => {
+        const candidate = normalizeSessionId(current.properties?.$session_id)
+        if (candidate) {
+            acc.add(candidate)
+        }
+        return acc
+    }, new Set<string>())
+
+    if (uniqueSessionIds.size !== 1) {
+        return null
+    }
+
+    return Array.from(uniqueSessionIds)[0]
+}
+
+export function getSessionID(event: LLMTrace | LLMTraceEvent, childEvents?: LLMTraceEvent[]): string | null {
+    if (isLLMEvent(event)) {
+        if (event.event === '$ai_trace') {
+            const directSessionId = normalizeSessionId(event.properties?.$session_id)
+
+            return directSessionId ?? sessionIdFromEvents(childEvents)
+        }
+
+        return normalizeSessionId(event.properties?.$session_id)
+    }
+
+    return sessionIdFromEvents(childEvents ?? event.events)
 }
 
 export function getEventType(event: LLMTrace | LLMTraceEvent): string {
-    if (isLLMTraceEvent(event)) {
+    if (isLLMEvent(event)) {
         switch (event.event) {
             case '$ai_generation':
                 return 'generation'
@@ -115,7 +138,7 @@ export function getEventType(event: LLMTrace | LLMTraceEvent): string {
 }
 
 export function getRecordingStatus(event: LLMTrace | LLMTraceEvent): string | null {
-    if (isLLMTraceEvent(event)) {
+    if (isLLMEvent(event)) {
         return event.properties.$recording_status || null
     }
 
@@ -508,7 +531,7 @@ export function getTraceTimestamp(timestamp: string): string {
 }
 
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
-    if (isLLMTraceEvent(event)) {
+    if (isLLMEvent(event)) {
         if (event.event === '$ai_generation') {
             const spanName = event.properties.$ai_span_name
             if (spanName) {

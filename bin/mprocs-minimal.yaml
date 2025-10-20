@@ -54,6 +54,9 @@ procs:
     migrate-persons-db:
         shell: 'bin/check_postgres_up posthog_persons && cd rust && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog_persons sqlx migrate run --source persons_migrations'
 
+    migrate-behavioral-cohorts:
+        shell: 'bin/check_postgres_up behavioral_cohorts && rust/bin/migrate-behavioral-cohorts'
+
     storybook:
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false

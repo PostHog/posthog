@@ -798,28 +798,30 @@ export function DataTable({
                                 )
                             }
                             expandable={
-                                expandable && columnsInResponse?.includes('*')
-                                    ? {
-                                          expandedRowRender: function renderExpand({ result }) {
-                                              if (
-                                                  (isEventsQuery(query.source) ||
-                                                      isRevenueExampleEventsQuery(query.source)) &&
-                                                  Array.isArray(result)
-                                              ) {
-                                                  return (
-                                                      <EventDetails
-                                                          event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                                      />
-                                                  )
-                                              }
-                                              if (result && !Array.isArray(result)) {
-                                                  return <EventDetails event={result as EventType} />
-                                              }
-                                          },
-                                          rowExpandable: ({ result }) => !!result,
-                                          noIndent: true,
-                                      }
-                                    : undefined
+                                context?.expandable
+                                    ? context.expandable
+                                    : expandable && columnsInResponse?.includes('*')
+                                      ? {
+                                            expandedRowRender: function renderExpand({ result }) {
+                                                if (
+                                                    (isEventsQuery(query.source) ||
+                                                        isRevenueExampleEventsQuery(query.source)) &&
+                                                    Array.isArray(result)
+                                                ) {
+                                                    return (
+                                                        <EventDetails
+                                                            event={result[columnsInResponse.indexOf('*')] ?? {}}
+                                                        />
+                                                    )
+                                                }
+                                                if (result && !Array.isArray(result)) {
+                                                    return <EventDetails event={result as EventType} />
+                                                }
+                                            },
+                                            rowExpandable: ({ result }) => !!result,
+                                            noIndent: true,
+                                        }
+                                      : undefined
                             }
                             rowClassName={({ result, label }) =>
                                 clsx('DataTable__row', {
