@@ -35,7 +35,7 @@ from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL, ToolMessagesArtifact
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
-from ee.hogai.utils.helpers import insert_messages_before_start
+from ee.hogai.utils.helpers import convert_tool_messages_to_dict, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -327,7 +327,7 @@ class RootNode(AssistantNode):
 
     def _get_tool_map(self, messages: Sequence[AssistantMessageUnion]) -> dict[str, AssistantToolCallMessage]:
         """Get a map of tool call IDs to tool call messages."""
-        return {message.tool_call_id: message for message in messages if isinstance(message, AssistantToolCallMessage)}
+        return convert_tool_messages_to_dict(messages)
 
     def _convert_to_langchain_messages(
         self,
