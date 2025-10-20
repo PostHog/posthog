@@ -60,14 +60,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         self.limit_context = limit_context
 
     def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        events_query = self._get_events_subquery()
+        events_query = self._base_events_query()
 
         if self._trends_display.is_total_value():
-            return self._get_wrapper_query(events_query)
+            return self._total_value_wrapper_query(events_query)
 
         return self._outer_select_query(inner_query=self._inner_select_query(inner_query=events_query))
 
-    def _get_wrapper_query(self, events_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+    def _total_value_wrapper_query(self, events_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         if not self.breakdown.enabled:
             return events_query
 
@@ -135,7 +135,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             placeholders=self.query_date_range.to_placeholders(),
         )
 
-    def _get_events_subquery(
+    def _base_events_query(
         self,
     ) -> ast.SelectQuery:
         events_filter = self._events_filter(
@@ -488,7 +488,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.ctes = {
                 "min_max": ast.CTE(
                     name="min_max",
-                    expr=self._get_events_subquery(),
+                    expr=self._base_events_query(),
                     cte_type="subquery",
                 )
             }
