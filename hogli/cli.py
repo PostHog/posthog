@@ -177,10 +177,10 @@ def test(
         str,
         typer.Option(
             "--scope",
-            help="Which test suites to run (all, python, js).",
+            help="Which test suite to run (python or js). Pick one—running all tests takes 30+ minutes.",
             case_sensitive=False,
         ),
-    ] = "all",
+    ] = "python",
     pytest_args: Annotated[
         Optional[list[str]],
         typer.Option(
@@ -196,21 +196,21 @@ def test(
         ),
     ] = None,
 ) -> None:
-    """Run Python and JavaScript tests."""
+    """Run a specific test suite. Pick one—tests are slow and shouldn't run together."""
 
     if ctx.invoked_subcommand is not None:
         return
 
     normalized_scope = scope.lower()
-    valid_scopes = {"all", "python", "js"}
+    valid_scopes = {"python", "js"}
     if normalized_scope not in valid_scopes:
-        raise typer.BadParameter("Scope must be one of: all, python, js")
+        raise typer.BadParameter("Scope must be one of: python, js")
 
     try:
-        if normalized_scope in {"all", "python"}:
+        if normalized_scope == "python":
             pytest_forward = list(pytest_args or [])
             _run_pytest(pytest_forward)
-        if normalized_scope in {"all", "js"}:
+        elif normalized_scope == "js":
             jest_forward = list(jest_args or [])
             _run_jest(jest_forward)
     except CommandError as error:
@@ -380,20 +380,21 @@ def services(
 
 @app.command()
 def check(
-    tests: bool = typer.Option(True, "--tests/--skip-tests", help="Toggle running pytest + frontend tests."),
-    linting: bool = typer.Option(True, "--lint/--skip-lint", help="Toggle running Python and JS linters."),
+    linting: bool = typer.Option(True, "--lint/--skip-lint", help="Toggle running Python and JS linters (fast)."),
     build_assets: bool = typer.Option(True, "--build/--skip-build", help="Toggle building the frontend packages."),
 ) -> None:
-    """Run the canonical lint, test, and build workflow in one go."""
+    """Run fast quality checks: lint + build. Run tests separately—they're slow.
 
-    typer.echo(f"{EMOJI_HOG}{EMOJI_SPARKLE} Running the full PostHog quality check…")
+    This skips test runs because tests take 15+ minutes and shouldn't be bundled with lint/build.
+    Run hogli test python or hogli test js separately in another terminal.
+    """
+
+    typer.echo(f"{EMOJI_HOG}{EMOJI_SPARKLE} Running fast quality checks (lint + build)…")
+    typer.echo(typer.style("Tip: run tests separately with hogli test python or hogli test js", fg=typer.colors.YELLOW))
     try:
         if linting:
             _run_python_lint(False)
             _run_js_lint(False)
-        if tests:
-            _run_pytest([])
-            _run_jest([])
         if build_assets:
             _run_frontend_build()
     except CommandError as error:

@@ -10,15 +10,21 @@ The CLI is shipped with the repository and is available automatically inside the
 flox activate && hogli up
 ```
 
-`hogli up` delegates to [`bin/start`](../bin/start), which launches the full stack (Django backend, plugin server, background workers, Storybook, Docker services, migrations, etc.) through `mprocs`. When you need a one-shot way to make sure your branch is ready for review, reach for:
+`hogli up` delegates to [`bin/start`](../bin/start), which launches the full stack (Django backend, plugin server, background workers, Storybook, Docker services, migrations, etc.) through `mprocs`. When you need a one-shot way to verify your code before pushing:
 
 ```bash
 hogli check
 ```
 
-`hogli check` runs the canonical `lint → test → build` workflow in sequence and mirrors the checks that gate CI builds (see the
-[`ci-python`](../.github/workflows/ci-python.yml) and [`ci-frontend`](../.github/workflows/ci-frontend.yml) jobs for the
-closest equivalents).
+`hogli check` runs **fast quality checks** only: linting and building (both complete in ~5 minutes). Tests are intentionally excluded because they're slow (15+ minutes) and shouldn't be bundled with other workflows.
+
+Run tests separately in another terminal:
+
+```bash
+# Pick one—tests are slow and shouldn't run together
+hogli test python posthog/api/test/test_foo.py
+hogli test js frontend/src/scenes/Foo/
+```
 
 To see all available commands run:
 
@@ -28,15 +34,14 @@ hogli --help
 
 Every subcommand is self-documented. You can append `--help` to any command for detailed options, for example `hogli test --help`.
 
-For test runs most engineers target a specific suite. Examples:
+## Design philosophy
 
-```bash
-# Run backend tests for a single module
-hogli test python posthog/api/test/test_persons.py -k test_person_creation
+hogli follows these principles:
 
-# Focus on frontend tests matching a Jest path pattern
-hogli test js frontend/src/scenes/* --watch
-```
+- **Never bundle slow operations** - Tests run separately from lint/build because they take 15+ minutes. Developers should pick **one** test suite per run.
+- **Fast feedback loops** - `hogli check` completes in ~5 minutes so you can verify code locally before CI.
+- **Thin wrapper layer** - hogli doesn't duplicate tool logic; it delegates to existing scripts (`bin/migrate`, `bin/start`, etc.). If you need advanced options, use the underlying tools directly.
+- **Explicit over implicit** - Commands require explicit choices (e.g., `hogli test python` not `hogli test all`) to prevent accidental long-running operations.
 
 ## Command mapping
 
@@ -44,15 +49,14 @@ hogli test js frontend/src/scenes/* --watch
 | --------------------- | ---------------------------------------------------------------------------------------------------- |
 | `hogli up`            | [`bin/start`](../bin/start) → `mprocs` (backend, frontends, infra)                                   |
 | `hogli services`      | `docker compose -f docker-compose.dev.yml up -d db clickhouse redis redis7 zookeeper kafka`          |
-| `hogli test`          | `pytest` + `pnpm --filter @posthog/frontend run test`                                                |
-| `hogli test python …` | `pytest` with all trailing arguments forwarded                                                       |
-| `hogli test js …`     | `pnpm --filter @posthog/frontend run test …`                                                         |
-| `hogli lint`          | `bin/ruff.sh check` / `pnpm --filter @posthog/frontend run lint`                                     |
-| `hogli fmt`           | `bin/ruff.sh format` / `pnpm --filter @posthog/frontend run format`                                  |
+| `hogli test python …` | `pytest` with all trailing arguments forwarded (run individually, not bundled)                       |
+| `hogli test js …`     | `pnpm --filter @posthog/frontend run test …` (run individually, not bundled)                         |
+| `hogli lint`          | `bin/ruff.sh check` / `pnpm --filter @posthog/frontend run lint` (fast, can run both)                |
+| `hogli fmt`           | `bin/ruff.sh format` / `pnpm --filter @posthog/frontend run format` (fast, can run both)             |
 | `hogli migrate`       | [`bin/migrate`](../bin/migrate) (Django + ClickHouse migrations)                                     |
 | `hogli build`         | `pnpm --filter @posthog/frontend run build` + `pnpm --filter @posthog/frontend run typescript:check` |
 | `hogli shell`         | `flox activate`                                                                                      |
-| `hogli check`         | Runs `hogli lint`, `hogli test`, then `hogli build` sequentially                                     |
+| `hogli check`         | Runs `hogli lint` + `hogli build` (skips tests; run them separately)                                 |
 | `hogli worktree …`    | [`bin/phw`](../bin/phw) wrapper (delegates to `phw` + `bin/posthog-worktree`)                        |
 | `hogli products list` | Reads packages from `products/*/package.json` and Python modules from `products/*`                   |
 
