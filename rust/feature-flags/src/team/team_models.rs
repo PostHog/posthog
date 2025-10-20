@@ -16,6 +16,7 @@ pub struct Team {
     /// Thanks to this default-base approach, we avoid invalidating the whole cache needlessly.
     pub project_id: ProjectId,
     pub uuid: Uuid,
+    pub organization_id: Option<Uuid>,
     pub autocapture_opt_out: Option<bool>,
     pub autocapture_exceptions_opt_in: Option<bool>,
     pub autocapture_web_vitals_opt_in: Option<bool>,
