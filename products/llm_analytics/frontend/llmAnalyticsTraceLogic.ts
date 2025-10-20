@@ -46,8 +46,15 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
+export interface LLMAnalyticsTraceLogicProps {
+    traceId?: string
+    debugMode?: boolean
+}
+
 export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
+
+    props({} as LLMAnalyticsTraceLogicProps),
 
     actions({
         setTraceId: (traceId: string) => ({ traceId }),
@@ -215,7 +222,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         initializeMessageStates: ({ inputCount, outputCount }) => {
             // Apply display option when initializing
             const displayOption = values.displayOption
@@ -232,6 +239,11 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
             actions.applySearchResults(inputStates, outputStates)
         },
         setSearchQuery: ({ searchQuery }) => {
+            // Skip router actions in debug mode
+            if (props.debugMode) {
+                return
+            }
+
             // Only update URL if the search query actually changed
             // This prevents infinite loop when setSearchQuery is called from urlToAction
             const currentUrl = window.location.search
