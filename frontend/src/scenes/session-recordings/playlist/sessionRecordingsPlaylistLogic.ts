@@ -110,9 +110,10 @@ function isValidRecordingOrderDirection(direction: unknown): boolean {
 const isReplayURLSearchParams = (x: ReplayURLSearchParamTypes): x is ReplayURLSearchParams => {
     const replayURLSearchParams = x as ReplayURLSearchParams
     return (
-        isValidRecordingFilters(replayURLSearchParams.filters) ||
-        isValidRecordingOrder(replayURLSearchParams.order) ||
-        isValidRecordingOrderDirection(replayURLSearchParams.order_direction)
+        (replayURLSearchParams.filters === undefined || isValidRecordingFilters(replayURLSearchParams.filters)) &&
+        (replayURLSearchParams.order === undefined || isValidRecordingOrder(replayURLSearchParams.order)) &&
+        (replayURLSearchParams.order_direction === undefined ||
+            isValidRecordingOrderDirection(replayURLSearchParams.order_direction))
     )
 }
 
