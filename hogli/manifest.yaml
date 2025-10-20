@@ -333,6 +333,9 @@ utilities:
     utilities:hobby-ci:
         bin_script: hobby-ci.py
         description: DigitalOcean CI automation for Hobby deployment testing
+    utilities:install-hogli-completion:
+        bin_script: install-hogli-completion
+        description: Install shell completion for hogli (bash/zsh)
 compositions:
     dev:reset:
         steps:

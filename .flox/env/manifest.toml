@@ -92,6 +92,17 @@ if [ -d "$UV_PROJECT_ENVIRONMENT/bin" ]; then
   ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
 fi
 
+# Install shell completions for hogli (silent, non-blocking)
+if command -v python &> /dev/null; then
+  if [[ "$SHELL" == *"bash"* ]] && ! grep -q "_hogli_completion" "$HOME/.bash_completion.d/hogli" 2>/dev/null; then
+    mkdir -p "$HOME/.bash_completion.d"
+    python -m hogli.completion --shell bash > "$HOME/.bash_completion.d/hogli" 2>/dev/null || true
+  elif [[ "$SHELL" == *"zsh"* ]] && [ ! -f "$HOME/.zsh/completions/_hogli" ]; then
+    mkdir -p "$HOME/.zsh/completions"
+    python -m hogli.completion --shell zsh > "$HOME/.zsh/completions/_hogli" 2>/dev/null || true
+  fi
+fi
+
 # Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)
 # This also sets up pre-commit hooks via Husky
 if [ ! -d "node_modules" ]; then
