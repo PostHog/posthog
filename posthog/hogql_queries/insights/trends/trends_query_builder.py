@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import cast
 
 from posthog.schema import (
     ActionsNode,
@@ -61,7 +61,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         breakdown = self.breakdown
-        events_query = self._get_events_subquery(False, breakdown=breakdown)
+        events_query = self._get_events_subquery(breakdown=breakdown)
 
         if self._trends_display.is_total_value():
             wrapper_query = self._get_wrapper_query(events_query, breakdown=breakdown)
@@ -142,7 +142,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _get_events_subquery(
         self,
-        no_modifications: Optional[bool],
         breakdown: Breakdown,
     ) -> ast.SelectQuery:
         events_filter = self._events_filter(
@@ -194,7 +193,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             not breakdown.enabled
             and not self._aggregation_operation.requires_query_orchestration()
             and not self._aggregation_operation.aggregating_on_session_duration()
-        ) or no_modifications is True:
+        ):
             return default_query
         # Both breakdowns and complex series aggregation
         elif (
@@ -499,7 +498,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.ctes = {
                 "min_max": ast.CTE(
                     name="min_max",
-                    expr=self._get_events_subquery(no_modifications=False, breakdown=breakdown),
+                    expr=self._get_events_subquery(breakdown=breakdown),
                     cte_type="subquery",
                 )
             }
