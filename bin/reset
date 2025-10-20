@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# TODO: This script is redundant with hogli dev:reset composition. Can be deprecated
+# once hogli provides full workflow orchestration and developers are trained on hogli.
+
 echo "🔄 Resetting PostHog development environment..."
 
 echo "📦 Stopping and removing Docker containers..."

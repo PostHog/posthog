@@ -93,7 +93,6 @@ health_checks:
         services:
             - kafka
             - clickhouse
-        # TODO: candidate for conversion to hogli steps
     check:postgres:
         bin_script: check_postgres_up
         description: Poll PostgreSQL connection until database is available
@@ -163,7 +162,6 @@ build:
     build:schema:
         cmd: pnpm schema:build
         description: Generate schema definitions (frontend, python, latest versions)
-        # TODO: candidate for conversion to hogli steps
     build:schema-python:
         bin_script: build-schema-python.sh
         description: Generate Pydantic schema.py from schema.json with datamodel-codegen
@@ -176,7 +174,6 @@ build:
     build:grammar:
         cmd: pnpm grammar:build
         description: Generate HogQL grammar definitions (Python and C++)
-        # TODO: candidate for conversion to hogli steps
 docker:
     docker:services:up:
         description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
@@ -186,16 +183,13 @@ docker:
     docker:
         bin_script: docker
         description: Run all services (migrate, backend, worker) via Docker orchestration
-        # TODO: candidate for conversion to hogli steps
     docker:dev:
         bin_script: docker-dev
         description: Migrate, run Django dev server on port 8000, and start frontend in
             Docker
-        # TODO: candidate for conversion to hogli steps
     docker:dev-web:
         bin_script: docker-dev-web
         description: Run Django dev server on port 8000 and start frontend in Docker
-        # TODO: candidate for conversion to hogli steps
     docker:backend:
         bin_script: docker-backend
         description: Run Django development server on port 8000 with migrations
@@ -215,7 +209,6 @@ docker:
         bin_script: docker-worker
         description: Start plugin-server and Celery worker/beat in parallel with restart
             loop
-        # TODO: candidate for conversion to hogli steps
     docker:worker-beat:
         bin_script: docker-worker-beat
         description: Run Celery beat scheduler with RedBeat backend
@@ -237,6 +230,9 @@ migration:
     migration:migrate-kafka:
         bin_script: migrate_kafka_data.py
         description: Migrate data between Kafka clusters/topics with consumer group tracking
+    migration:sync-feature-flags:
+        cmd: python manage.py sync_feature_flags
+        description: Sync feature flags from configuration
 testing:
     test:python:
         description: Run Python test suite
@@ -258,7 +254,6 @@ code_quality:
     fmt:all:
         cmd: pnpm format
         description: Format both backend and frontend code
-        # TODO: candidate for conversion to hogli steps
 tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
@@ -300,6 +295,10 @@ tools:
     new:tool:
         bin_script: new-tool
         description: 'TODO: add description for new-tool'
+    reset:
+        bin_script: reset
+        description: Full reset - stop services, migrate, load demo data
+        # TODO: deprecated - use hogli dev:reset instead
 utilities:
     git:worktree:
         description: Manage git worktrees for isolated development
@@ -321,6 +320,16 @@ utilities:
         bin_script: hobby-ci.py
         description: DigitalOcean CI automation for Hobby deployment testing
 compositions:
+    dev:reset:
+        steps:
+            - docker:services:down
+            - docker:services:up
+            - check:postgres
+            - check:clickhouse
+            - migration:migrate
+            - dev:demo-data
+            - migration:sync-feature-flags
+        description: Full reset - stop services, migrate, load demo data, sync flags
     infra:ready:
         steps:
             - check:clickhouse
