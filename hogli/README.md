@@ -78,78 +78,119 @@ Commands are grouped into categories (see `hogli --help`), auto-formatted in git
 
 ## Extending the CLI
 
-### Adding a new command
+### Adding a new command - Decision tree
 
-1. **Create the script** in `bin/` or add to `package.json`
-2. **Register in manifest.yaml** under the appropriate category:
+There are 4 ways to add commands to hogli. Use this decision tree to choose the right approach:
 
-```yaml
-build:
-    build:my-feature:
-        bin_script: my-feature-script
-        description: What this command does
-        services: [docker, postgresql] # optional: which services it relates to
+```
+Need to add a new command?
+│
+├─ Does it manipulate hogli itself (meta-level operations)?
+│  └─ YES → Add @cli.command() in hogli/cli.py
+│     When: Command validates manifest, shows framework info, or uses hogli internals
+│     Examples: quickstart, meta:check, meta:concepts
+│
+├─ Does it orchestrate multiple existing hogli commands?
+│  └─ YES → Add to manifest.yaml with steps: [cmd1, cmd2, ...]
+│     When: Combines hogli commands in sequence (no shell logic needed)
+│     Examples: dev:reset (services down → up → migrate → demo-data)
+│
+├─ Does it need shell scripting (loops, conditionals, multi-step logic)?
+│  └─ YES → Create bin/my-script + add to manifest.yaml with bin_script: my-script
+│     When: Needs bash loops, retry logic, or complex shell operations
+│     Examples: check:postgres (retry loop), migrate (orchestrates multiple tools)
+│
+└─ Is it a simple shell command with no logic?
+   └─ YES → Add to manifest.yaml with cmd: "your command here"
+      When: Single shell command, can be one-liners like docker compose or pnpm
+      Examples: docker:services:up, lint, format, tests:python
 ```
 
-3. **Optional: mark composition candidates** with a TODO for future conversion to `steps`:
+**Special case - trivial Python (3-5 lines):**
+If your command is 3-5 lines of simple Python (just `click.echo()` or basic conditionals) and is **meta/framework-related**, add it to `cli.py`. If it's a **workflow command** (dev tasks, builds, tests), prefer `cmd:` in manifest instead.
 
-```yaml
-docker:
-    bin_script: docker
-    description: Run all services
-    # TODO: candidate for conversion to hogli steps
+**Auto-discovery:**
+hogli automatically discovers missing bin scripts on every invocation (except `meta:check`). Use `hogli meta:check` in CI to enforce manifest completeness.
+
+### Command type reference
+
+Use the decision tree above to choose, then reference these examples for syntax:
+
+**1. Click command in cli.py** - For meta/framework commands:
+
+```python
+@cli.command(name="my-meta-command", help="Does something with hogli internals")
+def my_meta_command() -> None:
+    """Command implementation."""
+    from hogli.manifest import load_manifest
+    manifest = load_manifest()
+    # Your logic here
+    click.echo("Done!")
 ```
 
-hogli automatically discovers missing bin scripts on every invocation (unless running `meta:check`). Use `hogli meta:check` in CI to enforce manifest completeness.
-
-### Command types
-
-**bin_script** - Delegates to a shell script, always accepts extra args:
+**2. steps** - Orchestrates hogli commands (no shell needed):
 
 ```yaml
-tool:ruff:
-    bin_script: ruff.sh
-    description: Python linter
-```
-
-**cmd** - Executes a shell command directly:
-
-```yaml
-flox:activate:
-    cmd: flox activate
-    description: Enter dev environment
-```
-
-**steps** - Composes multiple hogli commands in sequence:
-
-```yaml
-quality:check:
+dev:reset:
     steps:
-        - lint:check
-        - build:frontend
-    description: Quick quality checks
+        - docker:services:down
+        - docker:services:up
+        - migrations:run
+        - dev:demo-data
+    description: Full reset and reload
 ```
 
-### High-level npm commands
+**3. bin_script** - Delegates to shell script with logic:
 
-Only expose npm commands that are high-level workflow entry points:
+Create `bin/my-script`:
 
-✅ **Good candidates:**
+```bash
+#!/usr/bin/env bash
+set -e
+# Shell logic: loops, conditionals, etc.
+for i in {1..5}; do
+    echo "Attempt $i..."
+    if some_check; then break; fi
+done
+```
 
-- `pnpm format` - formats all code (backend + frontend together)
-- `pnpm schema:build` - orchestrates schema generation pipeline
-- `pnpm grammar:build` - generates grammar definitions
-
-❌ **Keep internal:**
-
-- `pnpm build:esbuild` - internal dev server plumbing
-- `pnpm typegen:watch` - developer tool
-- `pnpm start-http` - implementation detail
-
-Add these to manifest with `cmd:` type and mark with TODO if they orchestrate multiple steps:
+Add to manifest:
 
 ```yaml
-fmt:all:
+check:my-service:
+    bin_script: my-script
+    description: Check if service is ready
+    services: [docker]
+```
+
+**4. cmd** - Simple shell one-liner:
+
+```yaml
+lint:
+    cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
+    description: Run code quality checks
+```
+
+### Guidelines for exposing npm commands
+
+Only expose npm commands that are **high-level workflow entry points**:
+
+✅ **Good - user-facing workflows:**
+
+- `pnpm format` (formats all code)
+- `pnpm schema:build` (orchestrates schema pipeline)
+- `pnpm grammar:build` (generates grammar definitions)
+
+❌ **Keep internal - implementation details:**
+
+- `pnpm build:esbuild` (dev server plumbing)
+- `pnpm typegen:watch` (internal dev tool)
+- `pnpm start-http` (server implementation)
+
+Add workflow commands with `cmd:` type. If they could be broken into hogli steps later, mark with TODO:
+
+```yaml
+format:
     cmd: pnpm format
     description: Format backend and frontend code
     # TODO: candidate for conversion to hogli steps
