@@ -506,7 +506,7 @@ def _register_script_commands() -> None:
     if not manifest:
         return
 
-    for _category, scripts in manifest.items():
+    for category, scripts in manifest.items():
         if not isinstance(scripts, dict):
             continue
 
@@ -517,6 +517,7 @@ def _register_script_commands() -> None:
             bin_script = config.get("bin_script")
             description = config.get("description", "")
             allow_extra_args = config.get("allow_extra_args", False)
+            cli_name = config.get("cli_name")  # Explicit name takes precedence
 
             if not bin_script:
                 continue
@@ -542,8 +543,20 @@ def _register_script_commands() -> None:
                 command.__doc__ = desc
                 return command
 
-            # Use normalized name (replace underscores with hyphens for CLI)
-            cli_name = script_name.replace("_", "-")
+            # If cli_name not explicitly set, fall back to auto-generation
+            if not cli_name:
+                # Extract the verb from the category (health_checks → check, start → start, etc.)
+                category_parts = category.rstrip("s").replace("_", "-").split("-")
+                category_prefix = category_parts[-1] if category_parts else category
+                script_suffix = script_name.replace("_", "-")
+
+                # Build the CLI name intelligently:
+                if script_suffix.startswith(f"{category_prefix}-"):
+                    cli_name = script_suffix
+                elif script_suffix == category_prefix:
+                    cli_name = script_suffix
+                else:
+                    cli_name = f"{category_prefix}:{script_suffix}"
 
             # Register the command
             context_settings = {"allow_extra_args": True, "ignore_unknown_options": True} if allow_extra_args else {}

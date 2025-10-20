@@ -4,18 +4,21 @@
 
 health_checks:
     check_clickhouse:
+        cli_name: check:clickhouse
         bin_script: check_clickhouse_up
         description: Poll ClickHouse HTTP port until service is ready
         delegate: true
         args: none
 
     check_dagster_graphql:
+        cli_name: check:dagster-graphql
         bin_script: check_dagster_graphql_up
         description: Wait for Dagster UI to become available
         delegate: true
         args: none
 
     check_hosts:
+        cli_name: check:hosts
         bin_script: check_hosts
         description: Verify DNS resolution for required service hostnames (clickhouse, kafka, etc)
         delegate: true
