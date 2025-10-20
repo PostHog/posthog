@@ -333,21 +333,6 @@ def db_migrate() -> None:
         _fail_with_message(error)
 
 
-@app.command("env:shell")
-def env_shell() -> None:
-    """Enter Flox development environment shell.
-
-    Justification: "shell" is vague (bash? zsh? fish? local? remote?). "env:shell"
-    is explicit: we're entering the ENVironment shell (Flox).
-    """
-    typer.echo(f"{EMOJI_HOG}{EMOJI_SPARKLE} Launching Flox environment shell…")
-    try:
-        os.execvp("flox", ["flox", "activate"])
-    except FileNotFoundError as error:  # pragma: no cover - depends on local toolchain
-        typer.echo(typer.style(f"{EMOJI_ERROR} flox command not found in PATH.", fg=typer.colors.RED))
-        raise typer.Exit(1) from error
-
-
 @app.command("build:frontend")
 def build_frontend(
     scope: str = typer.Option(
@@ -503,7 +488,7 @@ def _discover_products() -> list[ProductInfo]:
 def _register_script_commands() -> None:
     """Dynamically register commands from scripts_manifest.yaml.
 
-    Supports three types of entries:
+    YAML keys are CLI names. Supports three types of entries:
     1. bin_script: Delegate to a shell script
     2. steps: Compose multiple hogli commands in sequence
     3. cmd: Execute a direct shell command
@@ -512,17 +497,16 @@ def _register_script_commands() -> None:
     if not manifest:
         return
 
-    for category, scripts in manifest.items():
+    for _category, scripts in manifest.items():
         if not isinstance(scripts, dict):
             continue
 
-        for script_name, config in scripts.items():
+        for cli_name, config in scripts.items():
             if not isinstance(config, dict):
                 continue
 
             description = config.get("description", "")
             allow_extra_args = config.get("allow_extra_args", False)
-            cli_name = config.get("cli_name")  # Explicit name takes precedence
 
             # Determine command type
             bin_script = config.get("bin_script")
@@ -550,9 +534,6 @@ def _register_script_commands() -> None:
                     command.__doc__ = desc
                     return command
 
-                if not cli_name:
-                    cli_name = _generate_cli_name(category, script_name)
-
                 app.command(cli_name, help=description)(make_steps_command(steps, description))
                 continue
 
@@ -569,9 +550,6 @@ def _register_script_commands() -> None:
 
                     command.__doc__ = desc
                     return command
-
-                if not cli_name:
-                    cli_name = _generate_cli_name(category, script_name)
 
                 app.command(cli_name, help=description)(make_cmd_command(cmd, description))
                 continue
@@ -597,9 +575,6 @@ def _register_script_commands() -> None:
                     command.__doc__ = desc
                     return command
 
-                if not cli_name:
-                    cli_name = _generate_cli_name(category, script_name)
-
                 context_settings = (
                     {"allow_extra_args": True, "ignore_unknown_options": True} if allow_extra_args else {}
                 )
@@ -607,21 +582,7 @@ def _register_script_commands() -> None:
                     cli_name,
                     context_settings=context_settings if context_settings else None,
                     help=description,
-                )(make_command(script_name, script_path, description, allow_extra_args))
-
-
-def _generate_cli_name(category: str, script_name: str) -> str:
-    """Generate CLI name from category and script name."""
-    category_parts = category.rstrip("s").replace("_", "-").split("-")
-    category_prefix = category_parts[-1] if category_parts else category
-    script_suffix = script_name.replace("_", "-")
-
-    if script_suffix.startswith(f"{category_prefix}-"):
-        return script_suffix
-    elif script_suffix == category_prefix:
-        return script_suffix
-    else:
-        return f"{category_prefix}:{script_suffix}"
+                )(make_command(cli_name, script_path, description, allow_extra_args))
 
 
 # Register all script commands from manifest before app runs
