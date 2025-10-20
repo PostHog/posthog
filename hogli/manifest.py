@@ -92,6 +92,22 @@ class Manifest:
 
         return []
 
+    def get_all_commands(self) -> list[str]:
+        """Get all available commands from the manifest."""
+        commands = []
+        for category in self._data.values():
+            if isinstance(category, dict) and category is not self._data.get("metadata"):
+                commands.extend(category.keys())
+        return commands
+
+    def get_command_config(self, command_name: str) -> dict | None:
+        """Get configuration for a specific command."""
+        for category in self._data.values():
+            if isinstance(category, dict) and category is not self._data.get("metadata"):
+                if command_name in category:
+                    return category[command_name]
+        return None
+
 
 # Singleton instance for convenience
 _manifest_instance: Manifest | None = None
