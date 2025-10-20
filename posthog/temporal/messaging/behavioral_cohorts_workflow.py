@@ -3,19 +3,62 @@ import datetime as dt
 import dataclasses
 from typing import Any, Optional
 
+import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import (
+    ClickHouseAllReplicasAreStaleError,
+    ClickHouseClientTimeoutError,
+    get_client,
+)
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 LOGGER = get_logger(__name__)
+
+
+def is_retryable_clickhouse_error(error: Exception) -> bool:
+    """Determine if a ClickHouse error should be retried.
+
+    Returns True for transient errors that may succeed on retry:
+    - Too many simultaneous queries
+    - Cannot schedule task
+    - Client timeouts
+    - Stale replica errors
+    - Connection/network errors
+    """
+    if isinstance(
+        error,
+        CHQueryErrorTooManySimultaneousQueries
+        | CHQueryErrorCannotScheduleTask
+        | ClickHouseClientTimeoutError
+        | ClickHouseAllReplicasAreStaleError,
+    ):
+        return True
+
+    # Check for network/connection errors from aiohttp
+    if hasattr(error, "__module__") and "aiohttp" in str(error.__module__):
+        return True
+
+    # Check error message for known transient patterns
+    error_msg = str(error).lower()
+    transient_patterns = [
+        "connection",
+        "timeout",
+        "network",
+        "temporary failure",
+        "service unavailable",
+        "too many connections",
+    ]
+
+    return any(pattern in error_msg for pattern in transient_patterns)
 
 
 @dataclasses.dataclass
@@ -183,7 +226,13 @@ async def get_unique_conditions_page_activity(inputs: GetConditionsPageInputs) -
             return ConditionsPageResult(conditions=conditions, has_more=has_more, total_fetched=total_fetched)
 
         except Exception as e:
-            logger.exception("Error fetching unique conditions page", error=str(e))
+            is_retryable = is_retryable_clickhouse_error(e)
+            logger.exception(
+                "Error fetching unique conditions page",
+                error=str(e),
+                retryable=is_retryable,
+                attempt=temporalio.activity.info().attempt,
+            )
             raise
 
 
@@ -308,12 +357,22 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                             )
 
             except Exception as e:
+                is_retryable = is_retryable_clickhouse_error(e)
                 logger.exception(
                     "Error processing condition in batch",
                     condition=condition_hash[:16] + "...",
                     error=str(e),
+                    retryable=is_retryable,
                     batch_number=inputs.batch_number,
+                    attempt=temporalio.activity.info().attempt,
                 )
+
+                # For individual query retries within the batch, add a small backoff
+                if is_retryable:
+                    backoff_seconds = min(2 ** (temporalio.activity.info().attempt - 1), 10)
+                    logger.info(f"Backing off for {backoff_seconds}s before continuing batch processing")
+                    await asyncio.sleep(backoff_seconds)
+
                 continue
 
         heartbeater.details = (f"Completed batch {inputs.batch_number}: processed {len(inputs.conditions)} conditions",)
@@ -391,9 +450,20 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
         page_result = await temporalio.workflow.execute_activity(
             get_unique_conditions_page_activity,
             page_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=30),
             heartbeat_timeout=dt.timedelta(minutes=2),
-            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=1),
+                backoff_coefficient=2.0,
+                maximum_interval=dt.timedelta(seconds=30),
+                maximum_attempts=5,
+                non_retryable_error_types=[
+                    # Don't retry on validation errors or permanent failures
+                    "ValueError",
+                    "TypeError",
+                    "PermissionError",
+                ],
+            ),
         )
 
         all_conditions: list[dict[str, Any]] = page_result.conditions
@@ -422,12 +492,19 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
         result = await temporalio.workflow.execute_activity(
             process_condition_batch_activity,
             batch_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=30),
+            start_to_close_timeout=dt.timedelta(hours=30),
             heartbeat_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=3,
-                initial_interval=dt.timedelta(seconds=5),
-                maximum_interval=dt.timedelta(seconds=30),
+                initial_interval=dt.timedelta(seconds=2),
+                backoff_coefficient=2.0,
+                maximum_interval=dt.timedelta(minutes=2),
+                maximum_attempts=7,
+                non_retryable_error_types=[
+                    # Don't retry on validation errors or permanent failures
+                    "ValueError",
+                    "TypeError",
+                    "PermissionError",
+                ],
             ),
         )
 
