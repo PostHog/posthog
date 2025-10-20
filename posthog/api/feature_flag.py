@@ -30,7 +30,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
@@ -152,6 +152,11 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         if not hasattr(self, "initial_data"):
             return attrs
 
+        # If user doesn't have access to TAGGING feature, skip validation
+        # Evaluation tags are preserved in DB but hidden from user (like regular tags)
+        if not self._is_licensed_for_tagging():
+            return attrs
+
         # Get evaluation_tags from the request
         evaluation_tags = self.initial_data.get("evaluation_tags")
 
@@ -181,14 +186,30 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
 
         return attrs
 
+    def _is_licensed_for_tagging(self):
+        """Check if user has access to TAGGING feature."""
+        return (
+            "request" in self.context
+            and not self.context["request"].user.is_anonymous
+            and self.context["request"].user.organization.is_feature_available(AvailableFeature.TAGGING)
+        )
+
     def _attempt_set_evaluation_tags(self, evaluation_tags, obj):
         """Update evaluation tags for a feature flag using efficient diff logic.
+
+        If user doesn't have TAGGING access, clear all evaluation tags to prevent
+        ghost constraints that users can't manage.
 
         Instead of deleting all tags and recreating them (which causes unnecessary
         DB operations and activity logs), we calculate the diff and only modify
         what has actually changed.
         """
         if not obj or evaluation_tags is None:
+            return
+
+        # If user doesn't have TAGGING access, silently skip evaluation tag updates
+        # This preserves existing evaluation tags in the database (like TaggedItemSerializerMixin does)
+        if not self._is_licensed_for_tagging():
             return
 
         # Normalize and dedupe tags (same as TaggedItemSerializerMixin does)
@@ -235,7 +256,10 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         ret = super().to_representation(obj)
 
         # Include evaluation tags in the serialized output
-        if hasattr(obj, "evaluation_tags"):
+        # Hide evaluation_tags if user doesn't have TAGGING access (like TaggedItemSerializerMixin does for tags)
+        if not self._is_licensed_for_tagging():
+            ret["evaluation_tags"] = []
+        elif hasattr(obj, "evaluation_tags"):
             # Django's prefetch_related creates a cache in _prefetched_objects_cache.
             # If the viewset used prefetch_related (which it should for performance),
             # we can access the tags without hitting the database again.
