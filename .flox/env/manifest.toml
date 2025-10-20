@@ -187,6 +187,8 @@ zsh = '''
   # Add hogli completions to fpath for zsh
   fpath=("$FLOX_ENV_CACHE/completions" $fpath)
   source $UV_PROJECT_ENVIRONMENT/bin/activate
+  # Reinitialize zsh completions to pick up hogli
+  autoload -Uz compinit && compinit -i
 '''
 fish = '''
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
