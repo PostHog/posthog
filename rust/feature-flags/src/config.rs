@@ -172,6 +172,16 @@ pub struct Config {
     #[envconfig(default = "")]
     pub redis_reader_url: String,
 
+    // S3 configuration for HyperCache fallback
+    #[envconfig(default = "posthog")]
+    pub object_storage_bucket: String,
+
+    #[envconfig(default = "us-east-1")]
+    pub object_storage_region: String,
+
+    #[envconfig(default = "")]
+    pub object_storage_endpoint: String,
+
     #[envconfig(default = "")]
     pub redis_writer_url: String,
 
@@ -360,8 +370,8 @@ impl Config {
             max_pg_connections_write: 5,
             acquire_timeout_secs: 10,
             acquire_timeout_secs_write: 5,
-            idle_timeout_secs: 300,
-            max_lifetime_secs: 1800,
+            idle_timeout_secs: 60,
+            max_lifetime_secs: 600,
             test_before_acquire: FlexBool(true),
             db_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
@@ -399,8 +409,11 @@ impl Config {
             flag_query_slow_error_threshold_ms: 1000,
             flag_total_execution_warn_threshold_ms: 1000,
             flag_total_execution_error_threshold_ms: 2000,
-            min_pg_connections: 1,       // Small minimum to keep pools warm
-            min_pg_connections_write: 1, // Small minimum to keep pools warm
+            min_pg_connections: 1,
+            min_pg_connections_write: 0,
+            object_storage_bucket: "posthog".to_string(),
+            object_storage_region: "us-east-1".to_string(),
+            object_storage_endpoint: "".to_string(),
         }
     }
 

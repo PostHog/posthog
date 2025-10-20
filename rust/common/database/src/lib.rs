@@ -94,7 +94,7 @@ pub async fn get_pool_with_timeout(
 pub async fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sqlx::Error> {
     let mut options = PgPoolOptions::new()
         .max_connections(config.max_connections)
-        .min_connections(config.min_connections) // Keep minimum connections warm
+        .min_connections(config.min_connections)
         .acquire_timeout(config.acquire_timeout)
         .test_before_acquire(config.test_before_acquire);
 

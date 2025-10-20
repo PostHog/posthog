@@ -224,7 +224,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         .await
         .map_err(|_| {
             warn!("Person query timeout");
-            FlagError::Timeout("Person query")
+            FlagError::TimeoutError(Some("Person query".to_string()))
         })?
         .map(|opt| opt.unwrap_or((None, None)))
         .map_err(|e: sqlx::Error| FlagError::from(e))?
@@ -274,7 +274,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 .await
                 .map_err(|_| {
                     warn!("Cohort query timeout");
-                    FlagError::Timeout("Cohort query")
+                    FlagError::TimeoutError(Some("Cohort query".to_string()))
                 })?
                 .map_err(|e: sqlx::Error| FlagError::from(e))?
             };
@@ -366,7 +366,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             .await
             .map_err(|_| {
                 warn!("Group query timeout");
-                FlagError::Timeout("Group query")
+                FlagError::TimeoutError(Some("Group query".to_string()))
             })?
             .map_err(|e: sqlx::Error| FlagError::from(e))?
         };
@@ -643,7 +643,9 @@ async fn try_get_feature_flag_hash_key_overrides(
                     "Hash key override query timeout for team_id={}, distinct_ids={:?}",
                     team_id, distinct_id_and_hash_key_override
                 );
-                return Err(FlagError::Timeout("Hash key override query exceeded 500ms"));
+                return Err(FlagError::TimeoutError(Some(
+                    "Hash key override query exceeded 500ms".to_string(),
+                )));
             }
         }
     }; // Connection is dropped here

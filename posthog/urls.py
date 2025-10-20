@@ -53,6 +53,7 @@ from .views import (
     login_required,
     preferences_page,
     preflight_check,
+    render_query,
     robots_txt,
     security_txt,
     stats,
@@ -81,10 +82,10 @@ def handler500(request):
     500 error handler.
 
     Templates: :template:`500.html`
-    Context: None
+    Context: request
     """
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render())
+    return HttpResponseServerError(template.render({"request": request}, request))
 
 
 @ensure_csrf_cookie
@@ -210,6 +211,7 @@ urlpatterns = [
         "embedded/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
+    path("render_query", render_query, name="render_query"),
     path("exporter", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
     path(
         "exporter/<str:access_token>",
