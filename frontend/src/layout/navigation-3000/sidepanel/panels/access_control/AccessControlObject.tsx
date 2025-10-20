@@ -48,7 +48,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                 <h2>{props.title}</h2>
                 <p>{props.description}</p>
                 <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
-                    <div className="deprecated-space-y-6">
+                    <div className="gap-y-6">
                         {canEditAccessControls === false ? (
                             <LemonBanner type="warning">
                                 <Tooltip
@@ -59,7 +59,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                             </LemonBanner>
                         ) : null}
 
-                        <div className="deprecated-space-y-2">
+                        <div className="gap-y-2">
                             <h3>Default access to {suffix}</h3>
                             <AccessControlObjectDefaults />
                         </div>
@@ -214,7 +214,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
 
     return (
         <>
-            <div className="deprecated-space-y-2">
+            <div className="gap-y-2">
                 <div className="flex gap-2 items-center justify-between">
                     <h3 className="mb-0">Members</h3>
                     <LemonButton
@@ -327,7 +327,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
 
     return (
         <>
-            <div className="deprecated-space-y-2">
+            <div className="gap-y-2">
                 <div className="flex gap-2 items-center justify-between">
                     <h3 className="mb-0">Roles</h3>
                     <LemonButton

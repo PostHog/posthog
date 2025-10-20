@@ -120,13 +120,7 @@ export function HogFunctionFilters({
     const showEventMatchers = !useMapping && (configuration?.filters?.source ?? 'events') === 'events'
 
     const mainContent = (
-        <div
-            className={clsx(
-                'deprecated-space-y-2 rounded bg-surface-primary',
-                !embedded && 'border p-3',
-                embedded && 'p-2'
-            )}
-        >
+        <div className={clsx('gap-y-2 rounded bg-surface-primary', !embedded && 'border p-3', embedded && 'p-2')}>
             {showSourcePicker && (
                 <LemonField
                     name="filters"

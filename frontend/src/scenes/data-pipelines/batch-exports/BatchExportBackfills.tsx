@@ -187,7 +187,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                     },
                 ]}
                 emptyState={
-                    <div className="deprecated-space-y-2">
+                    <div className="gap-y-2">
                         <div>No backfills in this time range.</div>
                         <LemonButton type="primary" onClick={() => openBackfillModal()}>
                             Start backfill

@@ -124,7 +124,7 @@ export function FeatureFlagVariantsForm({
     }
 
     return (
-        <div className="VariantFormList deprecated-space-y-2 mt-0">
+        <div className="VariantFormList gap-y-2 mt-0">
             <div className="VariantFormList__row grid label-row gap-2 items-center">
                 <div />
                 <div className="col-span-4">Variant key</div>

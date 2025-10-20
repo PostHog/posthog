@@ -227,7 +227,7 @@ export function LemonCalendarSelect({
             />
             <div
                 className={clsx(
-                    'flex deprecated-space-x-2 items-center border-t p-2 pt-4',
+                    'flex gap-x-2 items-center border-t p-2 pt-4',
                     showTimeToggle ? 'justify-between' : 'justify-end'
                 )}
             >
@@ -239,7 +239,7 @@ export function LemonCalendarSelect({
                         bordered
                     />
                 )}
-                <div className="flex deprecated-space-x-2">
+                <div className="flex gap-x-2">
                     {onClose && (
                         <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
                             Cancel

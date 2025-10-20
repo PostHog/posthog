@@ -23,7 +23,7 @@ export function DataColorThemes(): JSX.Element {
 
     return (
         <PayGateMini feature={AvailableFeature.DATA_COLOR_THEMES}>
-            <div className="deprecated-space-y-4">
+            <div className="gap-y-4">
                 <p>
                     These themes can be used in insights. You can also set a default theme for all insights below. For
                     more details, check out our{' '}

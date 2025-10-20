@@ -79,7 +79,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
                 </div>
             }
         >
-            <div className="deprecated-space-y-4">
+            <div className="gap-y-4">
                 <LemonBanner type="info">
                     Adjusting variant distribution may impact the validity of your results. Adjust only if you're aware
                     of how changes will affect your experiment.

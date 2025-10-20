@@ -54,7 +54,7 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
                     modifiers={modifiers}
                 />
             ) : (
-                <div className="deprecated-space-y-4">
+                <div className="gap-y-4">
                     <QueryEditor
                         query={query}
                         setQuery={setQuery}

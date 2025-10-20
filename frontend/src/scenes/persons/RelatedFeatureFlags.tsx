@@ -91,11 +91,11 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
         },
         {
             title: (
-                <div className="inline-flex items-center deprecated-space-x-1">
+                <div className="inline-flex items-center gap-x-1">
                     <div>Match evaluation</div>
                     <Tooltip
                         title={
-                            <div className="deprecated-space-y-2">
+                            <div className="gap-y-2">
                                 <div>
                                     This column simulates the feature flag evaluation based on the selected distinct ID,
                                     current properties, and groups associated with the user. If the actual flag value

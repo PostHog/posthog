@@ -119,7 +119,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
     }
 
     return hasFormula ? (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             {localValues.map((value, index) => (
                 <div key={index} className="space-y-1">
                     <div className="flex items-center gap-2">

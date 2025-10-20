@@ -40,9 +40,9 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
-            <ul className="flex-1 overflow-y-auto p-2 deprecated-space-y-px">
+            <ul className="flex-1 overflow-y-auto p-2 gap-y-px">
                 {activityLoading ? (
-                    <div className="deprecated-space-y-px">
+                    <div className="gap-y-px">
                         <LemonSkeleton className="w-full h-10" repeat={10} />
                     </div>
                 ) : (

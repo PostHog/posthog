@@ -39,7 +39,7 @@ export const ExperimentLastRefresh = ({
     return (
         <div className="flex flex-col">
             <Label intent="menu">Last refreshed</Label>
-            <div className="inline-flex deprecated-space-x-2">
+            <div className="inline-flex gap-x-2">
                 <span
                     className={`${
                         lastRefresh
@@ -111,7 +111,7 @@ export function LegacyExperimentInfo(): JSX.Element | null {
     return (
         <SceneContent>
             <div className="flex flex-wrap justify-between gap-4">
-                <div className="inline-flex deprecated-space-x-8">
+                <div className="inline-flex gap-x-8">
                     <div className="flex flex-col" data-attr="experiment-status">
                         <Label intent="menu">Status</Label>
                         <StatusTag status={status} />
@@ -155,7 +155,7 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                     )}
                     <div className="flex flex-col">
                         <Label intent="menu">Stats Engine</Label>
-                        <div className="inline-flex deprecated-space-x-2">
+                        <div className="inline-flex gap-x-2">
                             <span>{statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}</span>
                             {usesNewQueryRunner && (
                                 <>
@@ -176,7 +176,7 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                 </div>
 
                 <div className="flex flex-col">
-                    <div className="inline-flex deprecated-space-x-8">
+                    <div className="inline-flex gap-x-8">
                         {experiment.start_date && (
                             <ExperimentLastRefresh
                                 isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}

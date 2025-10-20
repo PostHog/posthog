@@ -26,9 +26,9 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             <LemonTableLink
                 title={record.name || 'Unknown Type'}
                 description={
-                    <div className="deprecated-space-y-1">
+                    <div className="gap-y-1">
                         <div className="line-clamp-1">{record.description}</div>
-                        <div className="deprecated-space-x-1">
+                        <div className="gap-x-1">
                             <TZLabel time={record.last_seen} className="border-dotted border-b" />
                         </div>
                     </div>

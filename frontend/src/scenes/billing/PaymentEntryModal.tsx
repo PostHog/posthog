@@ -49,7 +49,7 @@ export const PaymentForm = (): JSX.Element => {
                 in 7 days.
             </p>
             {stripeError && <LemonBanner type="error">{stripeError}</LemonBanner>}
-            <div className="flex justify-end deprecated-space-x-2 mt-2">
+            <div className="flex justify-end gap-x-2 mt-2">
                 <LemonButton disabled={isLoading} type="secondary" onClick={hidePaymentEntryModal}>
                     Cancel
                 </LemonButton>

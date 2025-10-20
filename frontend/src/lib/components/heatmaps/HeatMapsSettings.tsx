@@ -44,7 +44,7 @@ const SectionSetting = ({
 }): JSX.Element => {
     const [showInfo, setShowInfo] = useState(false)
     return (
-        <div className="deprecated-space-y-2 mb-2">
+        <div className="gap-y-2 mb-2">
             <div className="flex items-center gap-2">
                 <LemonLabel className="flex-1">
                     <span>{title}</span>

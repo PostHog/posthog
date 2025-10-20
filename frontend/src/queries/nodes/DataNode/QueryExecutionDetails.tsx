@@ -61,13 +61,13 @@ export function QueryExecutionDetails(): JSX.Element | null {
             placement="bottom"
             showArrow={true}
             overlay={
-                <div className="deprecated-space-y-1 p-2">
+                <div className="gap-y-1 p-2">
                     {queryLogLoading ? (
                         <div className="py-1">Loading execution details...</div>
                     ) : hasData ? (
                         <>
                             {memoryUsage !== null && (
-                                <div className="flex justify-between items-start deprecated-space-x-2 py-1">
+                                <div className="flex justify-between items-start gap-x-2 py-1">
                                     <span>Memory usage:</span>
                                     <Tooltip title={`${memoryUsage} bytes`}>
                                         <span className="font-mono">{humanizeBytes(memoryUsage)}</span>
@@ -75,7 +75,7 @@ export function QueryExecutionDetails(): JSX.Element | null {
                                 </div>
                             )}
                             {readBytes !== null && (
-                                <div className="flex justify-between items-start deprecated-space-x-2 py-1">
+                                <div className="flex justify-between items-start gap-x-2 py-1">
                                     <span>Data read:</span>
                                     <Tooltip title={`${readBytes} bytes`}>
                                         <span className="font-mono">{humanizeBytes(readBytes)}</span>
@@ -83,7 +83,7 @@ export function QueryExecutionDetails(): JSX.Element | null {
                                 </div>
                             )}
                             {cpuMicroseconds !== null && (
-                                <div className="flex justify-between items-start deprecated-space-x-2 py-1">
+                                <div className="flex justify-between items-start gap-x-2 py-1">
                                     <span>CPU time:</span>
                                     <Tooltip title={`${cpuMicroseconds} microseconds`}>
                                         <span className="font-mono">{formatCpuTime(cpuMicroseconds)}</span>
@@ -91,7 +91,7 @@ export function QueryExecutionDetails(): JSX.Element | null {
                                 </div>
                             )}
                             {queryDurationMs !== null && (
-                                <div className="flex justify-between items-start deprecated-space-x-2 py-1">
+                                <div className="flex justify-between items-start gap-x-2 py-1">
                                     <span>Duration:</span>
                                     {queryDurationMs > 999 ? (
                                         <Tooltip title={`${queryDurationMs}ms`}>

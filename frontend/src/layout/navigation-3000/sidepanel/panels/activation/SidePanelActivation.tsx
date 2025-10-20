@@ -31,8 +31,8 @@ export const SidePanelActivation = (): JSX.Element | null => {
     return (
         <>
             <SidePanelPaneHeader title="Quick start" />
-            <div className="py-4 deprecated-space-y-2 overflow-y-auto no-scrollbar">
-                <div className="flex flex-col px-4 deprecated-space-y-2">
+            <div className="py-4 gap-y-2 overflow-y-auto no-scrollbar">
+                <div className="flex flex-col px-4 gap-y-2">
                     <div className="flex">
                         <p>
                             Use our Quick Start guide to learn about everything PostHog can do for you and your product.
@@ -182,7 +182,7 @@ const ActivationSectionComponent = ({
                 </div>
             </button>
             {section.visible && section.open && (
-                <ul className="deprecated-space-y-2 mt-2">
+                <ul className="gap-y-2 mt-2">
                     {sectionTasks.map((task: ActivationTaskType) => (
                         <ActivationTask key={task.id} {...task} />
                     ))}

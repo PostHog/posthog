@@ -301,9 +301,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                         <Group key={index} name={['parameters', 'feature_flag_variants', index]}>
                                             <div
                                                 key={`variant-${index}`}
-                                                className={`flex items-center deprecated-space-x-2 ${
-                                                    index > 1 && 'mt-2'
-                                                }`}
+                                                className={`flex items-center gap-x-2 ${index > 1 && 'mt-2'}`}
                                             >
                                                 <ExperimentVariantNumber index={index} className="h-7 w-7 text-base" />
                                                 <LemonField name="key" className="flex-grow">
@@ -438,7 +436,7 @@ export function ExperimentForm(): JSX.Element {
                 formKey="experiment"
                 props={props}
                 enableFormOnSubmit
-                className="deprecated-space-y-6 experiment-form"
+                className="gap-y-6 experiment-form"
             >
                 <ExperimentFormFields />
             </Form>
@@ -498,7 +496,7 @@ const SelectExistingFeatureFlagModal = ({
 
     return (
         <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag" width="50%">
-            <div className="deprecated-space-y-2">
+            <div className="gap-y-2">
                 <div className="text-muted mb-2 max-w-xl">
                     Select an existing multivariate feature flag to use with this experiment. The feature flag must use
                     multiple variants with <code>'control'</code> as the first.

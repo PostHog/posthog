@@ -192,7 +192,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                             {
                                 item: "Credits you'll receive",
                                 value: (
-                                    <span className="flex deprecated-space-x-2">
+                                    <span className="flex gap-x-2">
                                         $
                                         {creditInputValue.toLocaleString('en-US', {
                                             minimumFractionDigits: 0,

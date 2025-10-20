@@ -52,17 +52,17 @@ export function BatchExportConfiguration(): JSX.Element {
     const requiredFieldsMissing = requiredFields.filter((field) => !configuration[field])
 
     return (
-        <div className="deprecated-space-y-3">
+        <div className="gap-y-3">
             <>
                 <Form
                     logic={batchExportConfigurationLogic}
                     props={logicProps}
                     formKey="configuration"
-                    className="deprecated-space-y-3"
+                    className="gap-y-3"
                 >
                     <div className="flex flex-wrap gap-4 items-start">
-                        <div className="flex flex-col flex-1 min-w-100 deprecated-space-y-3">
-                            <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                        <div className="flex flex-col flex-1 min-w-100 gap-y-3">
+                            <div className="p-3 rounded border bg-surface-primary gap-y-2">
                                 <LemonField
                                     label="Status"
                                     name="paused"
@@ -105,7 +105,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                     </LemonField>
                                 </div>
                             </div>
-                            <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                            <div className="p-3 rounded border bg-surface-primary gap-y-2">
                                 <div className="flex gap-2 min-h-16">
                                     <LemonField
                                         name="model"
@@ -238,7 +238,7 @@ export function BatchExportConfiguration(): JSX.Element {
                             </div>
                         </div>
 
-                        <div className="gap-4 flex-2 deprecated-space-y-4 min-w-100">
+                        <div className="gap-4 flex-2 gap-y-4 min-w-100">
                             <div className="p-3 rounded border bg-surface-primary">
                                 <BatchExportConfigurationFields
                                     isNew={isNew}

@@ -61,7 +61,7 @@ export function SimpleKeyValueList({
     }, [item, promotedKeys, sortItems])
 
     return (
-        <div className="text-xs deprecated-space-y-1 max-w-full">
+        <div className="text-xs gap-y-1 max-w-full">
             {header}
             {sortedItemsPromotedFirst.map(([key, value]) => {
                 const isComplexStructure = Array.isArray(value) || isObject(value)

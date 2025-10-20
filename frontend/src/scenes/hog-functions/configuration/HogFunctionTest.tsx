@@ -189,13 +189,13 @@ export function HogFunctionTest(): JSX.Element {
             <div
                 ref={testResultsRef}
                 className={clsx(
-                    'p-3 rounded border deprecated-space-y-2',
+                    'p-3 rounded border gap-y-2',
                     expanded ? 'bg-surface-primary' : 'bg-surface-secondary',
                     expanded ? 'min-h-120' : ''
                 )}
             >
                 <div className="flex gap-2 justify-end items-center">
-                    <div className="flex-1 deprecated-space-y-2">
+                    <div className="flex-1 gap-y-2">
                         <h2 className="flex gap-2 items-center mb-0">
                             <span>Testing</span>
                         </h2>
@@ -352,7 +352,7 @@ export function HogFunctionTest(): JSX.Element {
                 {expanded ? (
                     <>
                         {testResult ? (
-                            <div className="deprecated-space-y-2" data-attr="test-results">
+                            <div className="gap-y-2" data-attr="test-results">
                                 <LemonBanner
                                     type={
                                         testResult.status === 'success'
@@ -470,11 +470,11 @@ export function HogFunctionTest(): JSX.Element {
                                 />
                             </div>
                         ) : (
-                            <div className="deprecated-space-y-2">
+                            <div className="gap-y-2">
                                 <LemonField name="globals">
                                     {({ value, onChange }) => (
                                         <>
-                                            <div className="deprecated-space-y-2">
+                                            <div className="gap-y-2">
                                                 <div>Here are all the global variables you can use in your code:</div>
                                                 {sampleGlobalsError ? (
                                                     <div className="text-warning">{sampleGlobalsError}</div>

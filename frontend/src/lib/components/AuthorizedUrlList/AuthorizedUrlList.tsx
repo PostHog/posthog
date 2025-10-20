@@ -113,7 +113,7 @@ export function AuthorizedUrlList({
                         <span title={keyedURL.url} className="flex-1 truncate">
                             {keyedURL.url}
                         </span>
-                        <div className="Actions flex deprecated-space-x-2 shrink-0">
+                        <div className="Actions flex gap-x-2 shrink-0">
                             {keyedURL.type === 'suggestion' && allowAdd ? (
                                 <LemonButton
                                     onClick={() => addUrl(keyedURL.url)}

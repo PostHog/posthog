@@ -62,7 +62,7 @@ export function GroupsNew(): JSX.Element {
                     }}
                 />
                 <SceneDivider />
-                <div className="deprecated-space-y-2 max-w-200 gap-4">
+                <div className="gap-y-2 max-w-200 gap-4">
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
                             <LemonField name="name" label="Name">
@@ -77,7 +77,7 @@ export function GroupsNew(): JSX.Element {
                     </div>
                     <LemonDivider className="my-4" />
                 </div>
-                <div className="deprecated-space-y-2 max-w-214 gap-4">
+                <div className="gap-y-2 max-w-214 gap-4">
                     <div className="mt-4">
                         <h3 className="text-md font-medium mb-2">Properties</h3>
 

@@ -286,7 +286,7 @@ function DictionaryField({
     }
 
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             {!entries.some(([key]) => key === EXTEND_OBJECT_KEY) ? (
                 <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={handleEnableIncludeObject}>
                     Include properties from an entire object
@@ -737,7 +737,7 @@ function CyclotronJobInputWithSchema({
                     </>
                 </LemonField.Pure>
             ) : (
-                <div className="p-2 rounded border border-dashed deprecated-space-y-4">
+                <div className="p-2 rounded border border-dashed gap-y-4">
                     <CyclotronJobInputSchemaControls
                         value={schema}
                         onChange={onSchemaChange}

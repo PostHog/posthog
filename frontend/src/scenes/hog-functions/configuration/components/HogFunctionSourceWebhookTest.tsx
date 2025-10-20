@@ -48,7 +48,7 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
                 )}
             >
                 <div className="flex gap-2 justify-end items-center mb-2">
-                    <div className="flex-1 deprecated-space-y-2">
+                    <div className="flex-1 gap-y-2">
                         <h2 className="flex gap-2 items-center mb-0">
                             <span>Testing</span>
                         </h2>

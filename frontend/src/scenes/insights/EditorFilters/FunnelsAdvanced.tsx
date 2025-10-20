@@ -16,7 +16,7 @@ export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             <LemonField.Pure label="Step order" info={<StepOrderInfo />}>
                 <FunnelStepOrderPicker />
             </LemonField.Pure>

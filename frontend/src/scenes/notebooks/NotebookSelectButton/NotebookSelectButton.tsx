@@ -123,7 +123,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
 
     return (
         <div className="flex flex-col flex-1 h-full overflow-hidden">
-            <div className="deprecated-space-y-2 flex-0">
+            <div className="gap-y-2 flex-0">
                 <LemonInput
                     type="search"
                     placeholder="Search notebooks..."
@@ -158,7 +158,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
             <LemonDivider />
             <div className="overflow-y-auto flex-1">
                 {notebooksLoading && !notebooksNotContainingResource.length && !notebooksContainingResource.length ? (
-                    <div className="px-2 py-1 flex flex-row items-center deprecated-space-x-1">
+                    <div className="px-2 py-1 flex flex-row items-center gap-x-1">
                         {notebooksLoading ? (
                             'Loading...'
                         ) : searchQuery.length ? (

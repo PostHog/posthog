@@ -15,9 +15,9 @@ const AssetProportions = ({ data }: AssetProportionsProps): JSX.Element => {
     const totalBytes = Object.values(data).reduce((acc, item) => acc + (item.bytes || 0), 0)
 
     return (
-        <div className="flex flex-col deprecated-space-y-2 w-full">
+        <div className="flex flex-col gap-y-2 w-full">
             <h3 className="mb-0">Asset breakdown</h3>
-            <div className="flex flex-row w-full deprecated-space-x-1 items-center">
+            <div className="flex flex-row w-full gap-x-1 items-center">
                 {Object.entries(data).map(([label, sizeInfo]) => {
                     return <Asset key={label} label={label} bytes={sizeInfo.bytes} totalBytes={totalBytes} />
                 })}

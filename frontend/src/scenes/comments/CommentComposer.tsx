@@ -31,7 +31,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
     }, [key, clearItemContext])
 
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             <LemonRichContentEditor
                 logicKey="discussions"
                 placeholder={placeholder}

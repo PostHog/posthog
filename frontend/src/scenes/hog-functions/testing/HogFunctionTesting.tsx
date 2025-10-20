@@ -81,7 +81,7 @@ export function HogFunctionTesting(): JSX.Element | null {
 
     return (
         <BindLogic logic={hogFunctionTestingLogic} props={{ id }}>
-            <div className="deprecated-space-y-3">
+            <div className="gap-y-3">
                 <LemonBanner type="info">
                     <span>
                         This is a list of all events matching your filters. You can run the function using these
@@ -234,7 +234,7 @@ function RunsFilters(): JSX.Element {
                         logic={hogFunctionConfigurationLogic}
                         props={logicProps}
                         formKey="configuration"
-                        className="deprecated-space-y-3"
+                        className="gap-y-3"
                     >
                         <HogFunctionFilters embedded={true} showTriggerOptions={false} />
                         <div className="flex justify-end mt-2">

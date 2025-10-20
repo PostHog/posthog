@@ -52,9 +52,9 @@ export function MetricsTab(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <div className="flex deprecated-space-x-8 mb-4">
+            <div className="flex gap-x-8 mb-4">
                 {singleValueMetrics.map((row) => (
-                    <div key={row.key} className="deprecated-space-y-1">
+                    <div key={row.key} className="gap-y-1">
                         <div>{row.metric}</div>
                         <div className="text-2xl">{(row.value || '0').toLocaleString('en-US')}</div>
                     </div>

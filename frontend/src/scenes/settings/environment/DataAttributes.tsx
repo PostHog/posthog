@@ -34,7 +34,7 @@ export function DataAttributes(): JSX.Element {
                 <code>data-custom-id</code> attribute. If you allow it here, the selector for your button will instead
                 be <code>button[data-custom-id='cta-button']</code>.
             </p>
-            <div className="deprecated-space-y-4 max-w-160">
+            <div className="gap-y-4 max-w-160">
                 <LemonInputSelect
                     mode="multiple"
                     allowCustomValues

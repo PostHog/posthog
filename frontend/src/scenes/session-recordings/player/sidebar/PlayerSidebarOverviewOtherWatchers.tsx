@@ -15,7 +15,7 @@ import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 function OtherWatchersLoading(): JSX.Element {
     return (
-        <div className="flex flex-row deprecated-space-x-2 items-center justify-center px-2 py-1">
+        <div className="flex flex-row gap-x-2 items-center justify-center px-2 py-1">
             <IconPeople />
             <LemonSkeleton.Row repeat={1} className="h-5" />
         </div>
@@ -52,7 +52,7 @@ function OtherWatchersDisplay({
 
     return (
         <div className="flex flex-col gap-2 px-2 py-1">
-            <div className="flex flex-row deprecated-space-x-2 items-center justify-center">
+            <div className="flex flex-row gap-x-2 items-center justify-center">
                 <ProfileBubbles people={otherViewers.map((v) => ({ email: v }))} />
                 <span>
                     {count} other {varyingText} watched this recording.
@@ -80,7 +80,7 @@ function OtherWatchersDisplay({
 
 function NoOtherWatchers(): JSX.Element {
     return (
-        <div className="flex flex-row deprecated-space-x-2 items-center justify-center px-2 py-1">
+        <div className="flex flex-row gap-x-2 items-center justify-center px-2 py-1">
             <IconPeople />
             <span>Nobody else has watched this recording.</span>
         </div>

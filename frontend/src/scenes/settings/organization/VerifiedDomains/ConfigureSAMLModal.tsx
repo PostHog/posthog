@@ -33,7 +33,7 @@ export function ConfigureSAMLModal(): JSX.Element {
                 <LemonModal.Header>
                     <h3>Configure SAML authentication and provisioning</h3>
                 </LemonModal.Header>
-                <LemonModal.Content className="deprecated-space-y-2">
+                <LemonModal.Content className="gap-y-2">
                     <p>
                         <Link to="https://posthog.com/docs/data/sso#setting-up-saml" target="_blank" targetBlankIcon>
                             Read the docs

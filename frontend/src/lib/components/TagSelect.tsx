@@ -51,7 +51,7 @@ export function TagSelect({
             actionable
             onVisibilityChange={setShowPopover}
             overlay={
-                <div className="max-w-100 deprecated-space-y-2 overflow-hidden">
+                <div className="max-w-100 gap-y-2 overflow-hidden">
                     <LemonInput
                         type="search"
                         placeholder="Search tags"
@@ -60,7 +60,7 @@ export function TagSelect({
                         onChange={setSearch}
                         fullWidth
                     />
-                    <ul className="deprecated-space-y-px">
+                    <ul className="gap-y-px">
                         {filteredTags.map((tag: string) => (
                             <li key={tag}>
                                 <LemonButton

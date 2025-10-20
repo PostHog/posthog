@@ -742,7 +742,7 @@ export const WebExternalClicksTile = ({
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             {!isPageReportsPage && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
-                    <div className="flex flex-row items-center deprecated-space-x-2">
+                    <div className="flex flex-row items-center gap-x-2">
                         <LemonSwitch
                             label="Strip query parameters"
                             checked={shouldStripQueryParams}

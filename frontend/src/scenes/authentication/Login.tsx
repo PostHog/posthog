@@ -87,7 +87,7 @@ export function Login(): JSX.Element {
             footer={<SupportModalButton />}
         >
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
-            <div className="deprecated-space-y-4">
+            <div className="gap-y-4">
                 <h2>Log in</h2>
                 {generalError && (
                     <LemonBanner type="error">
@@ -100,7 +100,7 @@ export function Login(): JSX.Element {
                         )}
                     </LemonBanner>
                 )}
-                <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="deprecated-space-y-4">
+                <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="gap-y-4">
                     <RegionSelect />
                     <LemonField name="email" label="Email">
                         <LemonInput

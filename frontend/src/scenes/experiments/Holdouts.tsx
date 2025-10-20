@@ -126,7 +126,7 @@ export function Holdouts(): JSX.Element {
     ]
 
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             <LemonModal
                 isOpen={isHoldoutModalOpen}
                 onClose={closeModal}
@@ -151,7 +151,7 @@ export function Holdouts(): JSX.Element {
                     </>
                 }
             >
-                <div className="deprecated-space-y-4">
+                <div className="gap-y-4">
                     <div>
                         <LemonLabel>Name</LemonLabel>
                         <LemonInput
@@ -170,7 +170,7 @@ export function Holdouts(): JSX.Element {
                     <div>
                         <LemonDivider />
                         <LemonBanner type="info">
-                            <div className="deprecated-space-y-2">
+                            <div className="gap-y-2">
                                 <div>
                                     Specify the percentage population that should be included in this holdout group.
                                     This is stable across experiments.
@@ -213,7 +213,7 @@ export function Holdouts(): JSX.Element {
             </LemonModal>
 
             <LemonBanner type="info">
-                <div className="deprecated-space-y-2">
+                <div className="gap-y-2">
                     <div>
                         Holdouts are stable groups of users excluded from experiment variations.They act as a baseline,
                         helping you see how users behave without any changes applied. This lets you directly compare

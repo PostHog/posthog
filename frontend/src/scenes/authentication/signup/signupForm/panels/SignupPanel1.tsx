@@ -24,7 +24,7 @@ export function SignupPanel1(): JSX.Element | null {
     }, [preflight?.demo])
 
     return (
-        <div className="deprecated-space-y-4 Signup__panel__1">
+        <div className="gap-y-4 Signup__panel__1">
             <RegionSelect />
             {!preflight?.demo && socialAuthAvailable && (
                 <>
@@ -32,7 +32,7 @@ export function SignupPanel1(): JSX.Element | null {
                     <p className="text-secondary text-center mb-0">Or use email & password</p>
                 </>
             )}
-            <Form logic={signupLogic} formKey="signupPanel1" className="deprecated-space-y-4" enableFormOnSubmit>
+            <Form logic={signupLogic} formKey="signupPanel1" className="gap-y-4" enableFormOnSubmit>
                 <LemonField
                     name="email"
                     label="Email"

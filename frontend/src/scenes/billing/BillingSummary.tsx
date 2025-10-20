@@ -13,7 +13,7 @@ export const BillingSummary = (): JSX.Element => {
     return (
         <div className="flex flex-wrap gap-6 w-fit">
             <div className="flex-1 pt-2">
-                <div className="deprecated-space-y-4">
+                <div className="gap-y-4">
                     {billing?.has_active_subscription && billing.billing_period && (
                         <>
                             <div className="flex flex-row flex-wrap gap-x-10 gap-y-4 items-end">

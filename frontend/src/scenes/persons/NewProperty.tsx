@@ -49,7 +49,7 @@ export function NewProperty({ onSave }: NewPropertyProps): JSX.Element {
                     </LemonButton>
                 }
             >
-                <div className="deprecated-space-y-2">
+                <div className="gap-y-2">
                     <div>
                         <LemonLabel>Key</LemonLabel>
                         <LemonInput

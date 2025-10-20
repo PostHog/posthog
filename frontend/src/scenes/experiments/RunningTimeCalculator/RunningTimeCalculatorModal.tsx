@@ -105,7 +105,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                 />
             )}
 
-            <div className="deprecated-space-y-6">
+            <div className="gap-y-6">
                 {!metricResultLoading && uniqueUsers !== null && (
                     <>
                         <RunningTimeCalculatorModalStep

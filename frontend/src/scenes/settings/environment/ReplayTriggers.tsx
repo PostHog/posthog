@@ -89,7 +89,7 @@ function LinkedFlagSelector(): JSX.Element | null {
 
     return (
         <>
-            <div className="flex flex-col deprecated-space-y-2 mt-2">
+            <div className="flex flex-col gap-y-2 mt-2">
                 <div className="flex justify-between">
                     <LemonLabel className="text-base">
                         {selectedPlatform === 'mobile' ? null : <TriggerMatchTypeTag />} Enable recordings using feature
@@ -319,7 +319,7 @@ function UrlConfigRow({
                     </span>
                 )}
             </span>
-            <div className="Actions flex deprecated-space-x-1 shrink-0">
+            <div className="Actions flex gap-x-1 shrink-0">
                 <AccessControlAction
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
@@ -385,7 +385,7 @@ function UrlConfigSection({
     onRemove: (index: number) => void
 }): JSX.Element {
     return (
-        <div className="flex flex-col deprecated-space-y-2 mt-4">
+        <div className="flex flex-col gap-y-2 mt-4">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">
                     {title} <Since web={{ version: '1.171.0' }} />
@@ -565,7 +565,7 @@ function EventTriggerOptions(): JSX.Element | null {
     const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
 
     return (
-        <div className="flex flex-col deprecated-space-y-2 mt-2">
+        <div className="flex flex-col gap-y-2 mt-2">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">
                     <TriggerMatchTypeTag /> Event emitted <Since web={{ version: '1.186.0' }} />

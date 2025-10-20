@@ -68,7 +68,7 @@ export function MemberSelect({
             actionable
             onVisibilityChange={(visible) => setShowPopover(visible)}
             overlay={
-                <div className="max-w-100 deprecated-space-y-2 overflow-hidden">
+                <div className="max-w-100 gap-y-2 overflow-hidden">
                     <LemonInput
                         type="search"
                         placeholder="Search"
@@ -77,7 +77,7 @@ export function MemberSelect({
                         onChange={setSearch}
                         fullWidth
                     />
-                    <ul className="deprecated-space-y-px">
+                    <ul className="gap-y-px">
                         {allowNone && (
                             <li>
                                 <LemonButton fullWidth role="menuitem" size="small" onClick={() => _onChange(null)}>

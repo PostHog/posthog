@@ -20,13 +20,13 @@ export const UploadModal = (): JSX.Element => {
                 <LemonModal.Header>
                     <h3>Upload javscript symbol set</h3>
                 </LemonModal.Header>
-                <LemonModal.Content className="deprecated-space-y-2">
+                <LemonModal.Content className="gap-y-2">
                     <LemonField name="minified">
                         <LemonFileInput
                             accept="text/javascript"
                             multiple={false}
                             callToAction={
-                                <div className="flex flex-col items-center justify-center deprecated-space-y-2 border border-dashed rounded p-4 w-full">
+                                <div className="flex flex-col items-center justify-center gap-y-2 border border-dashed rounded p-4 w-full">
                                     <span className="flex items-center gap-2 font-semibold">
                                         <IconUploadFile className="text-2xl" /> Add minified source
                                     </span>
@@ -42,7 +42,7 @@ export const UploadModal = (): JSX.Element => {
                             accept="*"
                             multiple={false}
                             callToAction={
-                                <div className="flex flex-col items-center justify-center deprecated-space-y-2 border border-dashed rounded p-4 w-full">
+                                <div className="flex flex-col items-center justify-center gap-y-2 border border-dashed rounded p-4 w-full">
                                     <span className="flex items-center gap-2 font-semibold">
                                         <IconUploadFile className="text-2xl" /> Add source map
                                     </span>

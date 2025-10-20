@@ -76,7 +76,7 @@ export function LegacySharedFunnelsMetricForm(): JSX.Element {
                 showNestedArrow={true}
                 {...actionFilterProps}
             />
-            <div className="mt-4 deprecated-space-y-4">
+            <div className="mt-4 gap-y-4">
                 <FunnelAggregationSelect
                     value={getHogQLValue(
                         sharedMetricQuery.funnels_query.aggregation_group_type_index ?? undefined,

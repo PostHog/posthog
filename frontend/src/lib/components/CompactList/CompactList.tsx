@@ -54,7 +54,7 @@ export function CompactList({
             )}
             <div className={clsx('CompactList__content', contentHeightBehavior === 'shrink' && 'max-h-[16rem] h-auto')}>
                 {loading ? (
-                    <div className="p-2 deprecated-space-y-6">
+                    <div className="p-2 gap-y-6">
                         {Array.from({ length: 6 }, (_, index) => (
                             <LemonSkeleton key={index} />
                         ))}

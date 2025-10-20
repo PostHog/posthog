@@ -45,7 +45,7 @@ const DashboardRelationRow = ({
             data-attr="dashboard-list-item"
             /* eslint-disable-next-line react/forbid-dom-props */
             style={style}
-            className={clsx('flex items-center deprecated-space-x-2', isHighlighted && 'highlighted')}
+            className={clsx('flex items-center gap-x-2', isHighlighted && 'highlighted')}
         >
             <Link
                 to={urls.dashboard(dashboard.id)}
@@ -148,7 +148,7 @@ export function AddToDashboardModal({
                 </>
             }
         >
-            <div className="deprecated-space-y-2 w-192 max-w-full">
+            <div className="gap-y-2 w-192 max-w-full">
                 <LemonInput
                     data-attr="dashboard-searchfield"
                     type="search"

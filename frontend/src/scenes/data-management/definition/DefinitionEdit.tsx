@@ -101,13 +101,13 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                 <SceneDivider />
 
                 {definitionLoading ? (
-                    <div className="deprecated-space-y-4">
+                    <div className="gap-y-4">
                         <LemonSkeleton className="h-10 w-1/3" />
                         <LemonSkeleton className="h-6 w-1/2" />
                         <LemonSkeleton className="h-30 w-1/2" />
                     </div>
                 ) : (
-                    <div className="deprecated-space-y-4">
+                    <div className="gap-y-4">
                         <div className="flex flex-wrap items-center gap-2 text-secondary">
                             <div>{isProperty ? 'Property' : 'Event'} name:</div>
                             <LemonTag className="font-mono">{editDefinition.name}</LemonTag>

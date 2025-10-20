@@ -59,7 +59,7 @@ export function TemplateLinkSection({
     const contentVisible = collapsible ? isExpanded : true
 
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             {typeof heading === 'string' &&
                 heading &&
                 (collapsible ? (

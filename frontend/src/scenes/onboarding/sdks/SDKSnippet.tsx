@@ -21,8 +21,8 @@ export const SDKSnippet = ({
                     Read the docs
                 </Link>
             </div>
-            <div className="deprecated-space-y-4">{sdkInstructions()}</div>
-            <div className="deprecated-space-y-4">
+            <div className="gap-y-4">{sdkInstructions()}</div>
+            <div className="gap-y-4">
                 {/* Only show survey announcements in non surveys product context */}
                 {productKey !== ProductKey.SURVEYS && (
                     <>

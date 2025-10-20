@@ -22,9 +22,7 @@ function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }):
 
     return (
         <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'border rounded')}>
-            <div
-                className={clsx('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}
-            >
+            <div className={clsx('ActivityLogRow flex gap-x-2', logItem.unread && 'ActivityLogRow--unread')}>
                 <ProfilePicture
                     showName={false}
                     user={{
@@ -60,8 +58,8 @@ function QueryHistoryLogDiff({ logItem }: { logItem: HumanizedActivityLogItem })
     const changes = logItem.unprocessed?.detail.changes
 
     return (
-        <div className="flex flex-col deprecated-space-y-2 px-2 py-1">
-            <div className="flex flex-col deprecated-space-y-2">
+        <div className="flex flex-col gap-y-2 px-2 py-1">
+            <div className="flex flex-col gap-y-2">
                 {changes?.length ? (
                     changes.map((change, i) => {
                         return <QueryDiffViewer key={i} before={change.before} after={change.after} />
@@ -111,22 +109,22 @@ function QueryHistoryLog({ id }: { id?: number | string }): JSX.Element {
 
     if (!activityLoading && humanizedActivity.length === 0) {
         return (
-            <div className="deprecated-space-y-2">
+            <div className="gap-y-2">
                 <div className="text-secondary">No history found</div>
             </div>
         )
     }
 
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             {activityLoading ? (
-                <div className="deprecated-space-y-2">
+                <div className="gap-y-2">
                     <SkeletonLog />
                     <SkeletonLog />
                     <SkeletonLog />
                 </div>
             ) : (
-                <div className="deprecated-space-y-2">
+                <div className="gap-y-2">
                     {humanizedActivity.map((logItem: HumanizedActivityLogItem, index: number) => (
                         <QueryHistoryLogRow key={index} logItem={logItem} />
                     ))}

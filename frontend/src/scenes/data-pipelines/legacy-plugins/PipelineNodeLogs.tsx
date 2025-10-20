@@ -16,7 +16,7 @@ export function PipelineNodeLogs({ id }: PipelineNodeLogsLogicProps): JSX.Elemen
     const { revealBackground, loadMoreLogs, setSelectedLogLevels, setSearchTerm, setInstanceId } = useActions(logic)
 
     return (
-        <div className="flex-1 ph-no-capture deprecated-space-y-2">
+        <div className="flex-1 ph-no-capture gap-y-2">
             <LemonInput
                 type="search"
                 placeholder="Search for messages containing…"

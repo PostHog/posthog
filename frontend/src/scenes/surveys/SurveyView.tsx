@@ -349,7 +349,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             <SurveyResponseFilters />
             <SurveyStatsSummary />
             {isAnyResultsLoading || atLeastOneResponse ? (

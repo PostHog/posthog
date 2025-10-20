@@ -146,7 +146,7 @@ function DashboardScene(): JSX.Element {
                                 )}
                             {placement !== DashboardPlacement.Export && (
                                 <div
-                                    className={clsx('flex shrink-0 deprecated-space-x-4 dashoard-items-actions', {
+                                    className={clsx('flex shrink-0 gap-x-4 dashoard-items-actions', {
                                         'mt-7': hasVariables,
                                     })}
                                 >

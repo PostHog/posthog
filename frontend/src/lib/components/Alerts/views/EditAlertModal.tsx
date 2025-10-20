@@ -172,8 +172,8 @@ export function EditAlertModal({
                     </LemonModal.Header>
 
                     <LemonModal.Content>
-                        <div className="deprecated-space-y-8">
-                            <div className="deprecated-space-y-4">
+                        <div className="gap-y-8">
+                            <div className="gap-y-4">
                                 <div className="flex gap-4 items-center">
                                     <LemonField className="flex-auto" name="name">
                                         <LemonInput placeholder="Alert name" data-attr="alertForm-name" />
@@ -196,9 +196,9 @@ export function EditAlertModal({
                                 ) : null}
                             </div>
 
-                            <div className="deprecated-space-y-6">
+                            <div className="gap-y-6">
                                 <h3>Definition</h3>
-                                <div className="deprecated-space-y-5">
+                                <div className="gap-y-5">
                                     {isBreakdownValid && (
                                         <LemonBanner type="warning">
                                             For trends with breakdown, the alert will fire if any of the breakdown
@@ -418,7 +418,7 @@ export function EditAlertModal({
                                 </div>
                             </div>
 
-                            <div className="deprecated-space-y-2">
+                            <div className="gap-y-2">
                                 <LemonCollapse
                                     panels={[
                                         {

@@ -26,7 +26,7 @@ Standard.args = { content: '@' }
 
 export const Positioning: StoryFn<typeof LemonBadge> = () => {
     return (
-        <div className="deprecated-space-y-4 m-2">
+        <div className="gap-y-4 m-2">
             <LemonButton type="secondary">
                 top-right
                 <LemonBadge content={<IconPlusSmall />} position="top-right" />
@@ -52,7 +52,7 @@ export const Positioning: StoryFn<typeof LemonBadge> = () => {
 
 export const Sizes: StoryFn<typeof LemonBadge> = () => {
     return (
-        <div className="flex deprecated-space-x-2 items-center">
+        <div className="flex gap-x-2 items-center">
             <span>small:</span>
             <LemonBadge content={<IconPlusSmall />} size="small" />
             <span>medium:</span>
@@ -66,7 +66,7 @@ export const Sizes: StoryFn<typeof LemonBadge> = () => {
 export const Status: StoryFn<typeof LemonBadge> = () => {
     const statuses = ['primary', 'success', 'warning', 'danger', 'muted', 'data']
     return (
-        <div className="flex deprecated-space-x-2 items-center">
+        <div className="flex gap-x-2 items-center">
             {statuses.map((status) => (
                 <React.Fragment key={status}>
                     <span>{status}</span>
@@ -79,7 +79,7 @@ export const Status: StoryFn<typeof LemonBadge> = () => {
 
 export const Active: StoryFn<typeof LemonBadge> = () => {
     return (
-        <div className="flex deprecated-space-x-2 items-center my-1 mr-1">
+        <div className="flex gap-x-2 items-center my-1 mr-1">
             <span>inactive:</span>
             <LemonBadge content={<IconPlusSmall />} />
             <span>active:</span>

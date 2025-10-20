@@ -54,7 +54,7 @@ export function DuplicateDashboardModal(): JSX.Element {
                 formKey="duplicateDashboard"
                 id="duplicate-dashboard-form"
                 enableFormOnSubmit
-                className="deprecated-space-y-2"
+                className="gap-y-2"
             >
                 <LemonField
                     name="duplicateTiles"

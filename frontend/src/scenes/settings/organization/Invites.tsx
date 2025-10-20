@@ -144,7 +144,7 @@ export function Invites(): JSX.Element {
     const userCannotInvite = restrictionReason && !currentOrganization?.members_can_invite
 
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             {!preflight?.email_service_available && <EmailUnavailableForInvitesBanner />}
             <InvitesTable />
             <LemonButton

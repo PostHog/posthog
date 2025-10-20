@@ -112,7 +112,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     allowedMathTypes={LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES}
                                     {...commonActionFilterProps}
                                 />
-                                <div className="mt-4 deprecated-space-y-4">
+                                <div className="mt-4 gap-y-4">
                                     <TestAccountFilterSwitch
                                         checked={hasFilters ? !!currentMetric.count_query?.filterTestAccounts : false}
                                         onChange={(checked: boolean) => {
@@ -263,7 +263,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             showNumericalPropsOnly={true}
                                             {...commonActionFilterProps}
                                         />
-                                        <div className="mt-4 deprecated-space-y-4">
+                                        <div className="mt-4 gap-y-4">
                                             <TestAccountFilterSwitch
                                                 checked={(() => {
                                                     const val = currentMetric.exposure_query?.filterTestAccounts

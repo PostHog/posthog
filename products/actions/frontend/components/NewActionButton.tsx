@@ -54,7 +54,7 @@ export function NewActionButton({ onSelectOption }: { onSelectOption?: () => voi
                 }
             >
                 {!appUrlsVisible ? (
-                    <div className="deprecated-space-y-2">
+                    <div className="gap-y-2">
                         <LemonButton
                             type="secondary"
                             icon={<IconSearch />}

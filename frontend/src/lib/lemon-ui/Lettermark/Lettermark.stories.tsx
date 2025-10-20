@@ -32,7 +32,7 @@ Base.args = { name: 'Athena' }
 
 export const Overview = (): JSX.Element => {
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             <div>
                 <Lettermark name="Ben" /> Text
             </div>
@@ -45,7 +45,7 @@ export const Overview = (): JSX.Element => {
 
             <div>
                 <p>Color based on index</p>
-                <div className="deprecated-space-x-1">
+                <div className="gap-x-1">
                     {range(20).map((x) => (
                         <Lettermark key={x} index={x} name={x + 1} />
                     ))}

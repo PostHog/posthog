@@ -60,7 +60,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
 
     if (playlistLoading) {
         return (
-            <div className="deprecated-space-y-4 mt-6">
+            <div className="gap-y-4 mt-6">
                 <LemonSkeleton className="h-10 w-1/4" />
                 <LemonSkeleton className="h-4 w-1/3" />
                 <LemonSkeleton className="h-4 w-1/4" />
@@ -74,7 +74,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 </div>
 
                 <div className="flex justify-between gap-4 mt-8">
-                    <div className="deprecated-space-y-8 w-1/4">
+                    <div className="gap-y-8 w-1/4">
                         <LemonSkeleton className="h-10" repeat={10} />
                     </div>
                     <div className="flex-1" />

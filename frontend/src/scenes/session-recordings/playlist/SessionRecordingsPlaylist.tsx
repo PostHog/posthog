@@ -66,7 +66,7 @@ export function SessionRecordingsPlaylist({
         sections.push({
             key: 'pinned',
             title: (
-                <div className="flex flex-row deprecated-space-x-1 items-center">
+                <div className="flex flex-row gap-x-1 items-center">
                     <span>Pinned recordings</span>
                     <LemonBadge.Number count={pinnedRecordings.length} status="muted" size="small" />
                 </div>
@@ -79,7 +79,7 @@ export function SessionRecordingsPlaylist({
         sections.push({
             key: 'other',
             title: (
-                <div className="flex flex-row deprecated-space-x-1 items-center">
+                <div className="flex flex-row gap-x-1 items-center">
                     <span>Results</span>
                     <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
                 </div>
@@ -107,7 +107,7 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className="h-full deprecated-space-y-2">
+            <div className="h-full gap-y-2">
                 <Playlist
                     data-attr="session-recordings-playlist"
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}

@@ -124,7 +124,7 @@ export function SharedMetrics(): JSX.Element {
     ]
 
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             <LemonBanner type="info">
                 Shared metrics let you create reusable metrics that you can quickly add to any experiment. They are
                 ideal for tracking key metrics like conversion rates or revenue across different experiments without

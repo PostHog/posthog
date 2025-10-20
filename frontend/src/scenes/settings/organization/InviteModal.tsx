@@ -324,7 +324,7 @@ export function InviteTeamMatesComponent(): JSX.Element {
                     Please contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> to upgrade your license.
                 </LemonBanner>
             )}
-            <div className="deprecated-space-y-4">
+            <div className="gap-y-4">
                 <div className="flex gap-2">
                     <b className="flex-2">Email address</b>
                     {preflight?.email_service_available && <b className="flex-1">Name (optional)</b>}

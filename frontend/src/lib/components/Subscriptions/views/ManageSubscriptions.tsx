@@ -91,12 +91,12 @@ export function ManageSubscriptions({
             </LemonModal.Header>
             <LemonModal.Content>
                 {subscriptionsLoading && !subscriptions.length ? (
-                    <div className="deprecated-space-y-2">
+                    <div className="gap-y-2">
                         <LemonSkeleton className="w-1/2 h-4" />
                         <LemonSkeleton.Row repeat={2} />
                     </div>
                 ) : subscriptions.length ? (
-                    <div className="deprecated-space-y-2">
+                    <div className="gap-y-2">
                         <div>
                             <strong>{subscriptions?.length}</strong>
                             {' active '}

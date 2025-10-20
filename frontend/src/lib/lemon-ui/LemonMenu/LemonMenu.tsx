@@ -210,7 +210,7 @@ export function LemonMenuSectionList({
             {sections.map((section, i) => {
                 const sectionElement = (
                     <li key={section.key || i}>
-                        <section className="deprecated-space-y-px">
+                        <section className="gap-y-px">
                             {section.title ? (
                                 typeof section.title === 'string' ? (
                                     <h5 className="mx-2 my-1">{section.title}</h5>
@@ -255,7 +255,7 @@ export function LemonMenuItemList({
     itemsRef,
 }: LemonMenuItemListProps): JSX.Element {
     return (
-        <ul className="deprecated-space-y-px">
+        <ul className="gap-y-px">
             {items.map((item, itemIndex) => (
                 <li key={item.key || itemIndex}>
                     <LemonMenuItemButton

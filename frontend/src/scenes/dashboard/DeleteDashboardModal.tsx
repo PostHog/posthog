@@ -46,7 +46,7 @@ export function DeleteDashboardModal(): JSX.Element {
                 formKey="deleteDashboard"
                 id="delete-dashboard-form"
                 enableFormOnSubmit
-                className="deprecated-space-y-2"
+                className="gap-y-2"
             >
                 <LemonField
                     name="deleteInsights"

@@ -67,7 +67,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                 <Form
                     logic={timeSensitiveAuthenticationLogic}
                     formKey="reauthentication"
-                    className="deprecated-space-y-4"
+                    className="gap-y-4"
                     enableFormOnSubmit
                 >
                     {!twoFactorRequired ? (
@@ -97,7 +97,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
             ) : null}
 
             {!ssoEnforcement ? (
-                <div className="deprecated-space-y-2">
+                <div className="gap-y-2">
                     <SocialLoginButtons
                         className="mt-4"
                         caption={showPassword ? 'Or re-authenticate with' : undefined}

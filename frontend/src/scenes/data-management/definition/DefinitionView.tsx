@@ -261,7 +261,7 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
 
             <SceneDivider />
 
-            <div className="deprecated-space-y-2">
+            <div className="gap-y-2">
                 {definition.description || isProperty || hasTaxonomyFeatures ? (
                     <EditableField
                         multiline

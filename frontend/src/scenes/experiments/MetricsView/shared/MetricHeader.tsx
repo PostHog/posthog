@@ -127,7 +127,7 @@ export const MetricHeader = ({
 
     return (
         <div className="text-xs font-semibold flex flex-col justify-between h-full">
-            <div className="deprecated-space-y-1">
+            <div className="gap-y-1">
                 <div className="flex items-start justify-between gap-2 min-w-0">
                     <div className="text-xs font-semibold flex items-start min-w-0 flex-1">
                         {displayOrder !== undefined && <span className="mr-1 flex-shrink-0">{displayOrder + 1}.</span>}
@@ -221,7 +221,7 @@ export const MetricHeader = ({
                         </div>
                     </div>
                 </div>
-                <div className="deprecated-space-x-1">
+                <div className="gap-x-1">
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
                     </LemonTag>

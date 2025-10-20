@@ -127,7 +127,7 @@ export function PipelinePluginConfiguration({
     )
 
     return (
-        <div className="deprecated-space-y-3">
+        <div className="gap-y-3">
             <div className="flex justify-end w-full">
                 <div className="shrink-0">{buttons}</div>
             </div>
@@ -164,11 +164,11 @@ export function PipelinePluginConfiguration({
                 logic={pipelinePluginConfigurationLogic}
                 props={logicProps}
                 formKey="configuration"
-                className="deprecated-space-y-3"
+                className="gap-y-3"
             >
                 <div className="flex flex-wrap gap-4 items-start">
                     <div className="flex flex-col flex-1 gap-4 min-w-100">
-                        <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                        <div className="p-3 rounded border bg-surface-primary gap-y-2">
                             <div className="flex flex-row gap-2 items-center min-h-16">
                                 <RenderApp plugin={plugin} imageSize="medium" />
                                 <div className="flex flex-col flex-1 py-1">
@@ -213,8 +213,8 @@ export function PipelinePluginConfiguration({
                         </div>{' '}
                     </div>
 
-                    <div className="flex-2 min-w-100 deprecated-space-y-4">
-                        <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                    <div className="flex-2 min-w-100 gap-y-4">
+                        <div className="p-3 rounded border bg-surface-primary gap-y-2">
                             <>
                                 {fields.length ? (
                                     fields

@@ -29,7 +29,7 @@ export function OrganizationLogo(): JSX.Element {
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             <LemonFileInput
                 accept="image/*"
                 multiple={false}

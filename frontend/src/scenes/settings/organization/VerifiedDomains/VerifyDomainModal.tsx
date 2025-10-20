@@ -40,7 +40,7 @@ export function VerifyDomainModal(): JSX.Element {
                     <li>Sign in to your DNS provider.</li>
                     <li>
                         Add the following <b>TXT</b> record.
-                        <div className="my-4 deprecated-space-y-2">
+                        <div className="my-4 gap-y-2">
                             <LemonField.Pure label="Name">
                                 <div className="flex items-center gap-2">
                                     <div className="border rounded p-2 h-10 flex-1">{challengeName}</div>

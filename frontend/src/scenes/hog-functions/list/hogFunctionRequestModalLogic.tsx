@@ -33,7 +33,7 @@ export const hogFunctionRequestModalLogic = kea<hogFunctionRequestModalLogicType
                 },
                 description: undefined,
                 content: (
-                    <div className="deprecated-space-y-2">
+                    <div className="gap-y-2">
                         <LemonField name="name" label={`Name of the ${humanizedType}`}>
                             <LemonInput placeholder="e.g. PostHog" autoFocus />
                         </LemonField>

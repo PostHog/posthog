@@ -22,7 +22,7 @@ const Functions = ({ action }: { action: ActionType }): JSX.Element => {
     )
     return (
         <SceneSection
-            className={cn('@container my-4 deprecated-space-y-2')}
+            className={cn('@container my-4 gap-y-2')}
             title="Connected destinations"
             description="Actions can be used as filters for destinations such as Slack or Webhook delivery"
         >

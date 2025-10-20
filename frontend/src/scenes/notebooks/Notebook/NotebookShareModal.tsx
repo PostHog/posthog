@@ -44,7 +44,7 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
                 </LemonButton>
             }
         >
-            <div className="deprecated-space-y-4">
+            <div className="gap-y-4">
                 <AccessControlPopoutCTA
                     resourceType={AccessControlResourceType.Notebook}
                     callback={() => {

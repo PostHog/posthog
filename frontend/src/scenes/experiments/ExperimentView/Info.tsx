@@ -38,7 +38,7 @@ export const ExperimentLastRefresh = ({
     return (
         <div className="flex flex-col">
             <Label intent="menu">Last refreshed</Label>
-            <div className="inline-flex deprecated-space-x-2">
+            <div className="inline-flex gap-x-2">
                 <span
                     className={`${
                         lastRefresh
@@ -111,7 +111,7 @@ export function Info(): JSX.Element {
                 {/* Column 1 */}
                 <div className="flex flex-col gap-0 overflow-hidden">
                     {/* Row 1: Status, Feature flag, Stats engine */}
-                    <div className="inline-flex deprecated-space-x-8">
+                    <div className="inline-flex gap-x-8">
                         <div className="flex flex-col" data-attr="experiment-status">
                             <Label intent="menu">Status</Label>
                             <StatusTag status={status} />
@@ -155,7 +155,7 @@ export function Info(): JSX.Element {
                         )}
                         <div className="flex flex-col">
                             <Label intent="menu">Stats Engine</Label>
-                            <div className="inline-flex deprecated-space-x-2">
+                            <div className="inline-flex gap-x-2">
                                 <span>
                                     {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
                                 </span>
@@ -233,7 +233,7 @@ export function Info(): JSX.Element {
 
                     {/* Row 2: Last refreshed, Created by */}
                     <div className="flex flex-col overflow-hidden items-start min-[1200px]:items-end">
-                        <div className="inline-flex deprecated-space-x-8">
+                        <div className="inline-flex gap-x-8">
                             {experiment.start_date && (
                                 <ExperimentLastRefresh
                                     isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}

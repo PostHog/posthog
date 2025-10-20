@@ -249,7 +249,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         </div>
                     </div>
 
-                    <div className="deprecated-space-y-4">
+                    <div className="gap-y-4">
                         {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
                             <>
                                 <div className="border rounded p-4">

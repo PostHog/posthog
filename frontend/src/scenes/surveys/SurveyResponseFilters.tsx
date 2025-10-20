@@ -129,7 +129,7 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
     })
 
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             <div className="flex justify-between items-center">
                 <h3 className="m-0">Filter survey results</h3>
                 <LemonButton size="small" type="secondary" icon={<IconCode />} onClick={() => setSqlHelperOpen(true)}>

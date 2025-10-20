@@ -43,7 +43,7 @@ she will get to it dependant on work load.
 export default meta
 export function Library(): JSX.Element {
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             <LemonTable
                 dataSource={allHedgehogs}
                 columns={[

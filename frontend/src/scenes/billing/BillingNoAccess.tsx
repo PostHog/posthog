@@ -9,7 +9,7 @@ interface BillingNoAccessProps {
 
 export function BillingNoAccess({ title = 'Billing', reason }: BillingNoAccessProps): JSX.Element {
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             <h1>{title}</h1>
             <LemonBanner type="warning">{reason}</LemonBanner>
             <div className="flex">

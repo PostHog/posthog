@@ -106,7 +106,7 @@ export function SupportForm(): JSX.Element | null {
             formKey="sendSupportRequest"
             id="support-modal-form"
             enableFormOnSubmit
-            className="deprecated-space-y-4"
+            className="gap-y-4"
         >
             {!user && (
                 <>

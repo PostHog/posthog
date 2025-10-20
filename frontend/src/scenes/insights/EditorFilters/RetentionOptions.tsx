@@ -17,7 +17,7 @@ export function RetentionOptions(): JSX.Element {
     const { minimumOccurrences = 1 } = retentionFilter || {}
 
     return (
-        <div className="deprecated-space-y-3" data-attr="retention-options">
+        <div className="gap-y-3" data-attr="retention-options">
             <div className="flex items-center gap-2">
                 <div>Retention relative to</div>
                 <RetentionReferencePicker />

@@ -118,7 +118,7 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
     }
 
     return (
-        <div className="deprecated-space-y-px">
+        <div className="gap-y-px">
             {filteredMembers.map((member, index) => (
                 <LemonButton
                     key={member.id}

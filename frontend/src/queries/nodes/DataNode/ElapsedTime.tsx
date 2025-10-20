@@ -109,7 +109,7 @@ export function Timings({ timings, elapsedTime }: TimingsProps): JSX.Element | n
             <div
                 key={pathKey}
                 className={clsx(
-                    'flex justify-between items-start deprecated-space-x-2 py-1.5',
+                    'flex justify-between items-start gap-x-2 py-1.5',
                     displayTime > maxTime * 0.5 ? 'font-bold' : ''
                 )}
             >
@@ -141,10 +141,10 @@ export function Timings({ timings, elapsedTime }: TimingsProps): JSX.Element | n
     }
 
     return (
-        <div className="deprecated-space-y-2 p-2 divide-y divide-y-2">
+        <div className="gap-y-2 p-2 divide-y divide-y-2">
             {rootNodes.flatMap((node) => renderNode(node, 0))}
             {elapsedTime !== undefined && timings.length > 0 ? (
-                <div className={clsx('flex justify-between items-start deprecated-space-x-2 py-1.5')}>
+                <div className={clsx('flex justify-between items-start gap-x-2 py-1.5')}>
                     <div>+ HTTP overhead</div>
                     <div>{(elapsedTime / 1000 - timings[timings.length - 1].t).toFixed(3)}s</div>
                 </div>

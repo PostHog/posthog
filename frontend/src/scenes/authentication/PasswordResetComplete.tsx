@@ -56,12 +56,7 @@ function NewPasswordForm(): JSX.Element {
                         'Could not complete your password reset request. Please try again.'}
                 </LemonBanner>
             )}
-            <Form
-                logic={passwordResetLogic}
-                formKey="passwordReset"
-                className="deprecated-space-y-4"
-                enableFormOnSubmit
-            >
+            <Form logic={passwordResetLogic} formKey="passwordReset" className="gap-y-4" enableFormOnSubmit>
                 <LemonField
                     name="password"
                     label={

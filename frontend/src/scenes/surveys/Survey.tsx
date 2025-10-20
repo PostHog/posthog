@@ -63,14 +63,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, targetingFlagFilters } = useValues(surveyLogic)
 
     return (
-        <Form
-            id="survey"
-            formKey="survey"
-            logic={surveyLogic}
-            props={{ id }}
-            className="deprecated-space-y-4"
-            enableFormOnSubmit
-        >
+        <Form id="survey" formKey="survey" logic={surveyLogic} props={{ id }} className="gap-y-4" enableFormOnSubmit>
             <SurveyEdit id={id} />
             <LemonDivider />
             <SurveyDisplaySummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />

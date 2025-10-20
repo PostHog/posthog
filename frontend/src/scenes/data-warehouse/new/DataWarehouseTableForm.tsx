@@ -56,13 +56,7 @@ export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
     const provider = manualLinkingProvider ?? 'aws'
 
     return (
-        <Form
-            formKey="table"
-            logic={dataWarehouseTableLogic}
-            className="deprecated-space-y-4"
-            enableFormOnSubmit
-            autoComplete="off"
-        >
+        <Form formKey="table" logic={dataWarehouseTableLogic} className="gap-y-4" enableFormOnSubmit autoComplete="off">
             <div className="flex flex-col gap-2">
                 <LemonField name="name" label="Table name">
                     {({ value = '', onChange }) => (

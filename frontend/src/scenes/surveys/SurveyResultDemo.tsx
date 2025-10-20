@@ -161,7 +161,7 @@ function DemoDataTable(): JSX.Element {
 
 export function SurveyResultDemo(): JSX.Element {
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             <LemonBanner type="info">
                 <div className="flex items-center gap-2">
                     <IconInfo className="text-muted" />

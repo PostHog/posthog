@@ -20,8 +20,8 @@ const meta: Meta = {
 
 [Related Figma area](https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=3139%3A1388)
 
-Lemon Icons are generally [Material Icons](https://fonts.google.com/icons) with some matching in-house additions. 
-All should be based on a 24px (1.5rem) square viewbox, with icon contents fitting into a 20px (1.25rem) or smaller square. 
+Lemon Icons are generally [Material Icons](https://fonts.google.com/icons) with some matching in-house additions.
+All should be based on a 24px (1.5rem) square viewbox, with icon contents fitting into a 20px (1.25rem) or smaller square.
 
 When adding new icons from Figma please make sure to:
 - [ ] Export the item as an SVG using the 24x24 frame surrounding it
@@ -56,7 +56,7 @@ const LibraryTemplate: StoryFn<{ letter?: string | null }> = ({ letter }) => {
               : allIcons.filter((icon) => !icon.name.replace('Icon', '').toLowerCase().match(/[a-z]/))
 
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             <LemonCheckbox bordered checked={showBorder} onChange={setShowBorder} label="Show border" />
             <LemonTable
                 dataSource={filteredIcons}

@@ -27,16 +27,16 @@ export function UpdateEmailPreferences(): JSX.Element {
     const [weeklyDigestProjectsExpanded, setWeeklyDigestProjectsExpanded] = useState(weeklyDigestEnabled)
 
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             <h3>Email notifications</h3>
             <p>Configure which email notifications you want to receive.</p>
 
-            <div className="deprecated-space-y-4">
-                <div className="deprecated-space-y-4">
+            <div className="gap-y-4">
+                <div className="gap-y-4">
                     <h4>Notification types</h4>
 
                     {/* Weekly Digest Section */}
-                    <div className="border rounded p-4 deprecated-space-y-3">
+                    <div className="border rounded p-4 gap-y-3">
                         <SimpleSwitch
                             setting="all_weekly_digest_disabled"
                             label="Weekly digest"
@@ -59,7 +59,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                                 </LemonButton>
 
                                 {weeklyDigestProjectsExpanded && (
-                                    <div className="mt-3 ml-6 deprecated-space-y-2">
+                                    <div className="mt-3 ml-6 gap-y-2">
                                         <div className="flex flex-col gap-2">
                                             <div className="flex flex-row items-center gap-4">
                                                 <LemonButton

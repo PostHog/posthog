@@ -31,7 +31,7 @@ export function IntegrationsList({
         <div>
             {titleText ? <p>{titleText}</p> : null}
 
-            <div className="deprecated-space-y-2">
+            <div className="gap-y-2">
                 {filteredIntegrations?.length
                     ? filteredIntegrations.map((integration) => (
                           <IntegrationView key={integration.id} integration={integration} />

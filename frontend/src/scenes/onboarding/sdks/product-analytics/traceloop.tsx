@@ -19,7 +19,7 @@ export function ProductAnalyticsTraceloopInstructions(): JSX.Element {
                 supports most popular LLM models and you can bring your Traceloop data into PostHog for analysis. To get
                 started:
             </p>
-            <ol className="deprecated-space-y-4">
+            <ol className="gap-y-4">
                 <li>
                     Go to the{' '}
                     <Link to="https://app.traceloop.com/settings/integrations" target="_blank">

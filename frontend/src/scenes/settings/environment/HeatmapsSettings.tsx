@@ -22,7 +22,7 @@ export function HeatmapsSettings(): JSX.Element {
                 generated based on overall mouse or touch positions and are useful for understanding more general user
                 behavior across your site.
             </p>
-            <div className="deprecated-space-y-2">
+            <div className="gap-y-2">
                 <LemonSwitch
                     id="posthog-heatmaps-switch"
                     onChange={(checked) => {

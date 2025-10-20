@@ -21,7 +21,7 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
     const [localTentativeValue, setLocalTentativeValue] = useState(variant)
     const { addNewTransformation, setExperimentFormValue } = useActions(experimentsTabLogic)
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             {selectedExperimentId === 'new' && experimentForm.variants && experimentForm.variants[variant].is_new && (
                 <div>
                     <LemonLabel>Variant key</LemonLabel>

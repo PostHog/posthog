@@ -90,7 +90,7 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
                 <div className="flex items-center justify-start w-full h-full">
                     <Tooltip title={tooltip}>
                         {hasResults ? (
-                            <span className="flex items-center deprecated-space-x-1">
+                            <span className="flex items-center gap-x-1">
                                 <LemonBadge.Number
                                     status={unwatchedSavedFiltersCount ? 'primary' : 'muted'}
                                     className="text-xs cursor-pointer"

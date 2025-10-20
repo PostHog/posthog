@@ -19,7 +19,7 @@ export function ProductAnalyticsHeliconeInstructions(): JSX.Element {
                 supports most popular LLM models and you can bring your Helicone data into PostHog for analysis. To get
                 started:
             </p>
-            <ol className="deprecated-space-y-4">
+            <ol className="gap-y-4">
                 <li>
                     Sign up to{' '}
                     <Link to="https://www.helicone.ai/" target="_blank">
@@ -40,11 +40,11 @@ export function ProductAnalyticsHeliconeInstructions(): JSX.Element {
                     details:
                     <CodeSnippet language={Language.Python}>
                         {`# Example for adding it to OpenAI in Python
-                        
+
 client = OpenAI(
 api_key="your-api-key-here",  # Replace with your OpenAI API key
 base_url="https://oai.hconeai.com/v1",  # Set the API endpoint
-default_headers= { 
+default_headers= {
     "Helicone-Auth": f"Bearer {HELICONE_API_KEY}",
     "Helicone-Posthog-Key": "${currentTeam?.api_token}}",
     "Helicone-Posthog-Host": "${apiHostOrigin()}",

@@ -253,7 +253,7 @@ export function SourceFormComponent({
     }
 
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             <Group name="payload">
                 {availableSources[sourceConfig.name].fields.map((field) =>
                     sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)

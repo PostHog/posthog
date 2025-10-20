@@ -346,7 +346,7 @@ export function InsightDisplayConfig(): JSX.Element {
 }
 
 function ConfigFilter({ children }: { children: ReactNode }): JSX.Element {
-    return <span className="deprecated-space-x-2 flex items-center text-sm">{children}</span>
+    return <span className="gap-x-2 flex items-center text-sm">{children}</span>
 }
 
 function DecimalPrecisionInput(): JSX.Element {

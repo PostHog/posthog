@@ -236,7 +236,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     if (featureFlagLoading) {
         return (
-            <div className="deprecated-space-y-2">
+            <div className="gap-y-2">
                 <LemonSkeleton active className="h-4 w-2/5" />
                 <LemonSkeleton active className="h-4 w-full" />
                 <LemonSkeleton active className="h-4 w-full" />
@@ -355,7 +355,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         props={props}
                         formKey="featureFlag"
                         enableFormOnSubmit
-                        className="deprecated-space-y-4"
+                        className="gap-y-4"
                     >
                         <SceneTitleSection
                             name={featureFlag.key}
@@ -400,7 +400,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </Link>
                                 </LemonBanner>
                             )}
-                            <div className="max-w-1/2 deprecated-space-y-4">
+                            <div className="max-w-1/2 gap-y-4">
                                 <LemonField
                                     name="key"
                                     label="Key"

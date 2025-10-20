@@ -44,7 +44,7 @@ export function ErrorDisplayContent(): JSX.Element {
     const browserInfo = concatValues(exceptionAttributes, 'browser', 'browserVersion')
     const appInfo = concatValues(exceptionAttributes, 'appNamespace', 'appVersion')
     return (
-        <div className="flex flex-col deprecated-space-y-2 pb-2">
+        <div className="flex flex-col gap-y-2 pb-2">
             <h1 className="mb-0">{type || level}</h1>
             {!hasStacktrace && !!value && <div className="text-secondary italic">{value}</div>}
             <div className="flex flex-row gap-2 flex-wrap">

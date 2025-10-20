@@ -58,12 +58,7 @@ export function ConfirmOrganization(): JSX.Element {
                 </AnimatedCollapsible>
             </div>
 
-            <Form
-                logic={confirmOrganizationLogic}
-                formKey="confirmOrganization"
-                enableFormOnSubmit
-                className="deprecated-space-y-4"
-            >
+            <Form logic={confirmOrganizationLogic} formKey="confirmOrganization" enableFormOnSubmit className="gap-y-4">
                 <LemonField name="email" label="Email">
                     <LemonInput className="ph-ignore-input" value={email} disabled />
                 </LemonField>

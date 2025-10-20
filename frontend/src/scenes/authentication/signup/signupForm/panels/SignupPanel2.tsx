@@ -18,8 +18,8 @@ export function SignupPanel2(): JSX.Element | null {
     const { isSignupPanel2Submitting } = useValues(signupLogic)
 
     return (
-        <div className="deprecated-space-y-4 Signup__panel__2">
-            <Form logic={signupLogic} formKey="signupPanel2" className="deprecated-space-y-4" enableFormOnSubmit>
+        <div className="gap-y-4 Signup__panel__2">
+            <Form logic={signupLogic} formKey="signupPanel2" className="gap-y-4" enableFormOnSubmit>
                 <LemonField name="name" label="Your name">
                     <LemonInput
                         className="ph-ignore-input"

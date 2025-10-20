@@ -49,7 +49,7 @@ export function OverviewGridItem({
     itemKeyTooltip?: ReactNode
 }): JSX.Element {
     return (
-        <div className="flex flex-1 w-full justify-between items-center deprecated-space-x-4">
+        <div className="flex flex-1 w-full justify-between items-center gap-x-4">
             <div className={clsx('text-sm', fadeLabel && 'font-light')}>
                 <Tooltip title={itemKeyTooltip}>
                     {icon} {label}

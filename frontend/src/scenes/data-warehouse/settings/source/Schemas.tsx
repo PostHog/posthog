@@ -493,7 +493,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
             }
         >
             {schemaLoading && (
-                <div className="deprecated-space-y-2">
+                <div className="gap-y-2">
                     <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton.Row repeat={3} />
                 </div>

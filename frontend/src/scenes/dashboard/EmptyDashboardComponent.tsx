@@ -19,8 +19,8 @@ import { dashboardLogic } from './dashboardLogic'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
-        <div className="border rounded p-10 h-full deprecated-space-y-4 flex-1 flex flex-col justify-between">
-            <div className="deprecated-space-y-4">
+        <div className="border rounded p-10 h-full gap-y-4 flex-1 flex flex-col justify-between">
+            <div className="gap-y-4">
                 <LemonSkeleton className="w-1/3 h-4" active={active} />
                 <LemonSkeleton className="w-1/2 h-4" active={active} />
             </div>

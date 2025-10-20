@@ -151,7 +151,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
             </div>
 
             {editingComment?.id === comment.id ? (
-                <div className="deprecated-space-y-2 border-t p-2">
+                <div className="gap-y-2 border-t p-2">
                     <LemonRichContentEditor
                         placeholder="Edit comment"
                         initialContent={comment.rich_content}
@@ -201,7 +201,7 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
     // TODO: Permissions
 
     return (
-        <div className="relative deprecated-space-y-2">
+        <div className="relative gap-y-2">
             {comment ? (
                 <Comment comment={comment} />
             ) : (
@@ -210,7 +210,7 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
                 </div>
             )}
 
-            <div className="pl-8 deprecated-space-y-2">
+            <div className="pl-8 gap-y-2">
                 {replies?.map((x) => (
                     <CommentWithReplies
                         key={x.id}

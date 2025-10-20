@@ -27,7 +27,7 @@ export const NetworkRequestTiming = ({
     const { isValid: isValidForTimelineView } = convertForTimelineView(performanceEvent)
 
     return (
-        <div className="flex flex-col deprecated-space-y-2">
+        <div className="flex flex-col gap-y-2">
             <div className="flex flex-row justify-end">
                 <LemonButton
                     type="secondary"

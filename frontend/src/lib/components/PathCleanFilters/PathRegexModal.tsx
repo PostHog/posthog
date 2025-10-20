@@ -44,7 +44,7 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
 
             <LemonModal.Content>
                 <div className="px-2 py-1" data-attr="path-regex-modal-content">
-                    <div className="deprecated-space-y-2">
+                    <div className="gap-y-2">
                         <div>
                             <span>Regex</span>
                             <LemonInput

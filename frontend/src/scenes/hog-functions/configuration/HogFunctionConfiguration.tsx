@@ -83,7 +83,7 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
         ) : null
 
     return (
-        <div className="deprecated-space-y-3">
+        <div className="gap-y-3">
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
@@ -132,11 +132,11 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                     logic={hogFunctionConfigurationLogic}
                     props={logicProps}
                     formKey="configuration"
-                    className="deprecated-space-y-3"
+                    className="gap-y-3"
                 >
                     <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex flex-col flex-1 gap-4 min-w-100">
-                            <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
+                            <div className={clsx('p-3 rounded border gap-y-2 bg-surface-primary')}>
                                 <div className="flex items-center justify-between">
                                     <LemonLabel>Status</LemonLabel>
                                     {hogFunction && <HogFunctionStatusIndicator hogFunction={hogFunction} />}
@@ -173,7 +173,7 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                             {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
                         </div>
 
-                        <div className="deprecated-space-y-4 flex-2 min-w-100">
+                        <div className="gap-y-4 flex-2 min-w-100">
                             {mightDropEvents && (
                                 <div>
                                     <LemonBanner type="info">

@@ -15,7 +15,7 @@ export function PreLaunchChecklist(): JSX.Element {
 
     return (
         <div>
-            <div className="flex items-center deprecated-space-x-2 mb-2">
+            <div className="flex items-center gap-x-2 mb-2">
                 <h2 className="mb-0 font-semibold text-lg leading-6">Pre-launch checklist</h2>
             </div>
 

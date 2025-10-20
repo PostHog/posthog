@@ -40,7 +40,7 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
     const { sessionPerson } = useValues(playerMetaLogic(logicProps))
 
     return (
-        <div className="flex flex-col overflow-auto bg-primary px-2 py-1 h-full deprecated-space-y-1">
+        <div className="flex flex-col overflow-auto bg-primary px-2 py-1 h-full gap-y-1">
             <div className="flex flex-row justify-between">
                 <PersonDisplay person={sessionPerson} withIcon withCopyButton placement="bottom" />
                 <ResolutionView />

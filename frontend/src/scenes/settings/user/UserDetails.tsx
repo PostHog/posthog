@@ -15,7 +15,7 @@ export function UserDetails(): JSX.Element {
             logic={userLogic}
             formKey="userDetails"
             enableFormOnSubmit
-            className="deprecated-space-y-4"
+            className="gap-y-4"
             style={{
                 maxWidth: '28rem',
             }}

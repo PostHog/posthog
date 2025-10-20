@@ -278,7 +278,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                           ))
                         : null}
                     {!debugResponseLoading && !!debugResponse.stats ? (
-                        <div className="flex flex-row deprecated-space-x-4 p-4 border rounded bg-surface-primary">
+                        <div className="flex flex-row gap-x-4 p-4 border rounded bg-surface-primary">
                             <div className="flex flex-col items-center">
                                 <span className="text-sm font-bold">last 14 days</span>
                             </div>
@@ -350,7 +350,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                         title: 'Query',
                         render: function Query(_, item) {
                             return (
-                                <div className="max-w-200 py-1 deprecated-space-y-2">
+                                <div className="max-w-200 py-1 gap-y-2">
                                     <div>
                                         <LemonTag className="inline-block">
                                             <span className="font-bold tracking-wide">ID:</span>{' '}

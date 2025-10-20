@@ -165,7 +165,7 @@ export function SharingModalContent({
     }, [iframeProperties.src, iframeProperties.key, sharingConfiguration?.enabled, showPreview])
 
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             {dashboardId ? (
                 <>
                     <AccessControlPopoutCTA
@@ -190,7 +190,7 @@ export function SharingModalContent({
                 </>
             ) : undefined}
 
-            <div className="deprecated-space-y-2">
+            <div className="gap-y-2">
                 {!sharingConfiguration && sharingConfigurationLoading ? (
                     <LemonSkeleton.Row repeat={3} />
                 ) : !sharingConfiguration ? (
@@ -221,7 +221,7 @@ export function SharingModalContent({
 
                         {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
-                                <div className="deprecated-space-y-2">
+                                <div className="gap-y-2">
                                     {passwordProtectedSharesEnabled && (
                                         <div className="LemonSwitch LemonSwitch--medium LemonSwitch--bordered LemonSwitch--full-width flex-col py-1.5">
                                             <LemonSwitch
@@ -293,7 +293,7 @@ export function SharingModalContent({
                                         logic={sharingLogic}
                                         props={logicProps}
                                         formKey="sharingSettings"
-                                        className="deprecated-space-y-2"
+                                        className="gap-y-2"
                                     >
                                         <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
                                             {insight && (

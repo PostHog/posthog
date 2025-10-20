@@ -32,7 +32,7 @@ Basic.args = {}
 
 export const Overview = (): JSX.Element => {
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             <LemonSwitch label="Unchecked" checked={false} />
             <LemonSwitch label="Checked" checked />
 
@@ -123,7 +123,7 @@ SizesLoading.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 
 export const WithAccessControl = (): JSX.Element => {
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             <AccessControlAction
                 resourceType={AccessControlResourceType.Project}
                 minAccessLevel={AccessControlLevel.Admin}

@@ -37,8 +37,8 @@ export function HogFunctionInputs(): JSX.Element {
     } = useActions(hogFunctionConfigurationLogic)
 
     const content = (
-        <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
-            <div className="deprecated-space-y-2">
+        <div className={clsx('p-3 rounded border gap-y-2 bg-surface-primary')}>
+            <div className="gap-y-2">
                 {usesGroups && !hasGroupsAddon ? (
                     <LemonBanner type="warning">
                         <span className="flex gap-2 items-center">

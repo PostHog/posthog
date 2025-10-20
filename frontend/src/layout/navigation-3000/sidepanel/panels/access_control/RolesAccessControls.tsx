@@ -98,7 +98,7 @@ export function RolesAccessControls(): JSX.Element {
     ]
 
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             <p>
                 Use roles to group your organization members and assign them permissions. Roles are currently used for
                 access control but we will be expanding their uses in the future.
@@ -204,7 +204,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
     }
 
     return (
-        <div className="my-2 pr-2 deprecated-space-y-2">
+        <div className="my-2 pr-2 gap-y-2">
             <div className="flex items-center gap-2 justify-between min-h-10">
                 <div className="flex items-center gap-2">
                     <div className="min-w-[16rem]">

@@ -51,7 +51,7 @@ interface Props {
 export function DataPipelinesSelfManagedSourceTable({ table, updateTable }: Props): JSX.Element {
     return (
         <>
-            <div className="deprecated-space-y-4">
+            <div className="gap-y-4">
                 <DatawarehouseTableForm
                     onUpdate={() =>
                         updateTable({

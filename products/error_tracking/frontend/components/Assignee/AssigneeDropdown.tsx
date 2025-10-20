@@ -20,9 +20,9 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
     const { setSearch } = useActions(assigneeSelectLogic)
 
     return (
-        <div className="max-w-100 deprecated-space-y-2 overflow-hidden">
+        <div className="max-w-100 gap-y-2 overflow-hidden">
             <LemonInput type="search" placeholder="Search" autoFocus value={search} onChange={setSearch} fullWidth />
-            <ul className="deprecated-space-y-2">
+            <ul className="gap-y-2">
                 {assignee && (
                     <li>
                         <LemonButton
@@ -100,7 +100,7 @@ const Section = ({
 }): JSX.Element => {
     return (
         <li>
-            <section className="deprecated-space-y-px">
+            <section className="gap-y-px">
                 <h5 className="mx-2 my-0.5">{title}</h5>
                 {items.map((item) => (
                     <li key={item?.id || 'unassigned'}>

@@ -31,7 +31,7 @@ export function WebExperimentImplementationDetails({ experiment }: WebExperiment
     return (
         <>
             <div>
-                <div className="border p-6 rounded bg-surface-primary deprecated-space-y-2">
+                <div className="border p-6 rounded bg-surface-primary gap-y-2">
                     <div className="font-semibold leading-tight text-base text-current">
                         Define variant changes directly on your website
                     </div>

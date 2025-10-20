@@ -10,7 +10,7 @@ export function EmailIntegrationsList(): JSX.Element {
     const { integrationsLoading, domainGroupedEmailIntegrations } = useValues(integrationsLogic)
 
     return (
-        <div className="deprecated-space-y-2">
+        <div className="gap-y-2">
             {integrationsLoading ? (
                 <LemonSkeleton className="h-10" />
             ) : (

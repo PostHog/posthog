@@ -10,7 +10,7 @@ export function HogFunctionSourceWebhookInfo(): JSX.Element {
     const { logicProps } = useValues(hogFunctionConfigurationLogic)
     const { id } = logicProps
     return (
-        <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">
+        <div className="p-3 rounded border gap-y-2 bg-surface-primary">
             <LemonLabel>Webhook URL</LemonLabel>
             <CodeSnippet thing="Webhook URL">
                 {!id

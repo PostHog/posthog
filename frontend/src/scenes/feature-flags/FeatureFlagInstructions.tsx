@@ -173,7 +173,7 @@ export function CodeInstructions({
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,
                 labelInMenu: (
-                    <div className="flex items-center deprecated-space-x-2">
+                    <div className="flex items-center gap-x-2">
                         <option.Icon />
                         <span>{option.value}</span>
                     </div>
@@ -187,7 +187,7 @@ export function CodeInstructions({
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,
                 labelInMenu: (
-                    <div className="flex items-center deprecated-space-x-2">
+                    <div className="flex items-center gap-x-2">
                         <option.Icon />
                         <span>{option.value}</span>
                     </div>
@@ -203,7 +203,7 @@ export function CodeInstructions({
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,
                 labelInMenu: (
-                    <div className="flex items-center deprecated-space-x-2">
+                    <div className="flex items-center gap-x-2">
                         <option.Icon />
                         <span>{option.value}</span>
                     </div>

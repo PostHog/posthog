@@ -196,7 +196,7 @@ const CodeTab = (): JSX.Element => {
 
 const VariantsTab = (): JSX.Element => {
     return (
-        <div className="deprecated-space-y-8 mt-2">
+        <div className="gap-y-8 mt-2">
             <ReleaseConditionsTable />
             <DistributionTable />
         </div>

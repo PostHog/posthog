@@ -53,7 +53,7 @@ export function ActionStep({
                     <OperandTag operand="or" />
                 </div>
             )}
-            <div className="deprecated-space-y-4">
+            <div className="gap-y-4">
                 <div className="flex items-center justify-between">
                     <b>Match Group #{index + 1}</b>
 
@@ -79,7 +79,7 @@ export function ActionStep({
                     />
                 )}
                 {step.event !== undefined && step.event !== '$autocapture' && step.event !== '$pageview' && (
-                    <div className="deprecated-space-y-1">
+                    <div className="gap-y-1">
                         <LemonLabel>Event name</LemonLabel>
                         <EventName
                             value={step.event}
@@ -125,7 +125,7 @@ export function ActionStep({
                     </div>
                 )}
 
-                <div className="mt-4 deprecated-space-y-2">
+                <div className="mt-4 gap-y-2">
                     <LemonLabel>Filters</LemonLabel>
                     <PropertyFilters
                         propertyFilters={step.properties}
@@ -174,7 +174,7 @@ function Option({
     }
 
     return (
-        <div className="deprecated-space-y-1">
+        <div className="gap-y-1">
             <div className="flex flex-wrap gap-1">
                 <LemonLabel>{label}</LemonLabel>
                 {extra_options}
@@ -229,7 +229,7 @@ function AutocaptureFields({
         })
     }
     return (
-        <div className="deprecated-space-y-4">
+        <div className="gap-y-4">
             <div className="flex items-center gap-2">
                 <LemonButton
                     size="small"

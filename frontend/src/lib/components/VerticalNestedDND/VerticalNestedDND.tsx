@@ -358,7 +358,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
             }}
             onDragCancel={onDragCancel}
         >
-            <div className="deprecated-space-y-2">
+            <div className="gap-y-2">
                 <SortableContext items={containers} strategy={verticalListSortingStrategy}>
                     {containers.map((containerId) => (
                         <DroppableContainer
@@ -397,7 +397,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
                         </DroppableContainer>
                     ))}
                 </SortableContext>
-                <div className="px-[calc(1.5rem+1px)] flex flex-row justify-end deprecated-space-x-2">
+                <div className="px-[calc(1.5rem+1px)] flex flex-row justify-end gap-x-2">
                     {renderAddContainerItem ? (
                         renderAddContainerItem({ onAddContainer: handleAddContainerItem })
                     ) : (
@@ -700,7 +700,7 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
     return (
         <Component
             {...props}
-            className={`flex flex-col p-4 bg-surface-primary border rounded overflow-hidden deprecated-space-y-2 ${
+            className={`flex flex-col p-4 bg-surface-primary border rounded overflow-hidden gap-y-2 ${
                 isDragging ? 'opacity-40' : ''
             }`}
             style={{
@@ -712,7 +712,7 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
             onClick={onClick}
             tabIndex={onClick ? 0 : undefined}
         >
-            <div className="flex flex-row justify-between px-2 deprecated-space-x-2 items-start">
+            <div className="flex flex-row justify-between px-2 gap-x-2 items-start">
                 <Handle {...handleProps} />
                 <div className="flex-1 self-stretch">
                     {renderContainerItem ? (
@@ -725,8 +725,8 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
                 </div>
                 <Remove onClick={onRemove} />
             </div>
-            {placeholder ? children : <ul className="deprecated-space-y-2">{children}</ul>}
-            <div className="flex flex-row justify-end px-2 mb-2 deprecated-space-x-2">
+            {placeholder ? children : <ul className="gap-y-2">{children}</ul>}
+            <div className="flex flex-row justify-end px-2 mb-2 gap-x-2">
                 {renderAddChildItem ? (
                     renderAddChildItem(item, { onAddChild })
                 ) : (
@@ -815,7 +815,7 @@ export const ChildItem = React.memo(
                     {...(!handle ? listeners : undefined)}
                     {...props}
                     tabIndex={!handle ? 0 : undefined}
-                    className="flex flex-row justify-between w-full deprecated-space-x-2 items-start"
+                    className="flex flex-row justify-between w-full gap-x-2 items-start"
                 >
                     <Handle {...handleProps} {...listeners} />
                     <div className="flex-1 self-stretch">

@@ -28,7 +28,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
     const { targetEntity, returningEntity, retentionType, totalIntervals, period } = retentionFilter || {}
 
     return (
-        <div className="deprecated-space-y-3 mb-4" data-attr="retention-condition">
+        <div className="gap-y-3 mb-4" data-attr="retention-condition">
             <div className="flex items-center">
                 For
                 {showGroupsOptions ? (

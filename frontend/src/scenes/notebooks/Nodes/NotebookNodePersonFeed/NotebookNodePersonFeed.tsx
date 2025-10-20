@@ -15,7 +15,7 @@ import { Session } from './Session'
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 
 const FeedSkeleton = (): JSX.Element => (
-    <div className="deprecated-space-y-4 p-4">
+    <div className="gap-y-4 p-4">
         <LemonSkeleton className="h-8" repeat={10} />
     </div>
 )

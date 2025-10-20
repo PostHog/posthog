@@ -80,7 +80,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 ]}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
             />
-            <div className="mt-4 deprecated-space-y-4">
+            <div className="mt-4 gap-y-4">
                 {showGroupsOptions && (
                     <div className="flex items-center w-full gap-2">
                         <span>Aggregating by</span>

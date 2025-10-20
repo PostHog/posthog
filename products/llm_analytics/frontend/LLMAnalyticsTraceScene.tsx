@@ -595,7 +595,7 @@ const EventContent = React.memo(
                     <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
                 ) : (
                     <>
-                        <header className="deprecated-space-y-2">
+                        <header className="gap-y-2">
                             <div className="flex-row flex items-center gap-2">
                                 <EventTypeTag event={event} />
                                 <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">

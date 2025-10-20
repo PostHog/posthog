@@ -40,13 +40,10 @@ export function HogFunctionCode(): JSX.Element {
     const content = (
         <div
             ref={sourceCodeRef}
-            className={clsx(
-                'p-3 rounded border deprecated-space-y-2',
-                showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
-            )}
+            className={clsx('p-3 rounded border gap-y-2', showSource ? 'bg-surface-primary' : 'bg-surface-secondary')}
         >
             <div className="flex gap-2 justify-end items-center">
-                <div className="flex-1 deprecated-space-y-2">
+                <div className="flex-1 gap-y-2">
                     <h2 className="mb-0">Edit source</h2>
                     {!showSource ? <p>Click here to edit the function's source code</p> : null}
                 </div>
