@@ -19,7 +19,7 @@ type FilterOption = { value: string; label: string }
 /**
  * Options for the 'Trigger' field on the new destination page
  */
-export const getInternalEventFilterOptions = (contextId: HogFunctionConfigurationContextId): FilterOption[] => {
+export const getProductEventFilterOptions = (contextId: HogFunctionConfigurationContextId): FilterOption[] => {
     switch (contextId) {
         case 'error-tracking':
             return [
@@ -53,7 +53,7 @@ export const getInternalEventFilterOptions = (contextId: HogFunctionConfiguratio
     }
 }
 
-export const getInternalEventPropertyFilterOptions = (contextId: HogFunctionConfigurationContextId): string[] => {
+export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfigurationContextId): string[] => {
     switch (contextId) {
         case 'activity-log':
             return [
@@ -95,7 +95,7 @@ const setSimpleFilterValue = (options: FilterOption[], value: string): Cyclotron
 export function HogFunctionFiltersInternal(): JSX.Element {
     const { contextId } = useValues(hogFunctionConfigurationLogic)
 
-    const options = useMemo(() => getInternalEventFilterOptions(contextId), [contextId])
+    const options = useMemo(() => getProductEventFilterOptions(contextId), [contextId])
 
     const taxonomicGroupTypes = useMemo(() => {
         if (contextId === 'error-tracking') {

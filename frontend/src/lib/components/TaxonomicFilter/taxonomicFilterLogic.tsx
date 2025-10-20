@@ -34,8 +34,8 @@ import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
 import {
-    getInternalEventFilterOptions,
-    getInternalEventPropertyFilterOptions,
+    getProductEventFilterOptions,
+    getProductEventPropertyFilterOptions,
 } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
@@ -288,7 +288,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.InternalEvents,
                         options: [
                             { name: 'All internal events', value: null },
-                            ...getInternalEventFilterOptions('activity-log').map((item) => ({
+                            ...getProductEventFilterOptions('activity-log').map((item) => ({
                                 name: item.label,
                                 value: item.value,
                             })),
@@ -404,7 +404,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Internal event properties',
                         searchPlaceholder: 'internal event properties',
                         type: TaxonomicFilterGroupType.InternalEventProperties,
-                        options: getInternalEventPropertyFilterOptions('activity-log').map((value) => ({
+                        options: getProductEventPropertyFilterOptions('activity-log').map((value) => ({
                             name: value,
                             value,
                             group: TaxonomicFilterGroupType.EventProperties,
@@ -486,7 +486,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'exceptions',
                         type: TaxonomicFilterGroupType.ErrorTrackingProperties,
                         options: [
-                            ...getInternalEventPropertyFilterOptions('error-tracking').map((value) => ({
+                            ...getProductEventPropertyFilterOptions('error-tracking').map((value) => ({
                                 name: value,
                                 value,
                                 group: TaxonomicFilterGroupType.EventProperties,
