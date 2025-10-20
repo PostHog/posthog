@@ -87,11 +87,6 @@ fi
 # Ensure Python virtual environment - Python version is defined in pyproject.toml
 uv sync
 
-# Expose hogli CLI on PATH via the uv-managed virtualenv
-if [ -d "$UV_PROJECT_ENVIRONMENT/bin" ]; then
-  ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
-fi
-
 # Install shell completions for hogli in flox environment cache
 # Must run after uv sync so hogli.completion module is available
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
