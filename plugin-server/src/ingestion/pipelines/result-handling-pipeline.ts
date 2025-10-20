@@ -102,11 +102,4 @@ export class ResultHandlingPipeline<
 
         return sideEffects
     }
-
-    static of<TInput, TOutput, CInput extends { message: Message }, COutput extends { message: Message } = CInput>(
-        pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>,
-        config: PipelineConfig
-    ): ResultHandlingPipeline<TInput, TOutput, CInput, COutput> {
-        return new ResultHandlingPipeline(pipeline, config)
-    }
 }

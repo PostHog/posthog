@@ -110,9 +110,7 @@ export class MessageAwareBatchPipelineBuilder<
     constructor(protected pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {}
 
     handleResults(config: PipelineConfig): BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
-        return new BatchPipelineBuilder(
-            ResultHandlingPipeline.of<TInput, TOutput, CInput, COutput>(this.pipeline, config)
-        )
+        return new BatchPipelineBuilder(new ResultHandlingPipeline(this.pipeline, config))
     }
 }
 

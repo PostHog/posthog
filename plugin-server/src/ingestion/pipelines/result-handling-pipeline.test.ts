@@ -68,7 +68,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -81,7 +81,7 @@ describe('ResultHandlingPipeline', () => {
 
         it('should handle empty batch', async () => {
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed([])
             const results = await resultPipeline.next()
 
@@ -105,7 +105,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -135,7 +135,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -190,7 +190,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -243,7 +243,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -295,7 +295,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -341,7 +341,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -390,7 +390,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -455,7 +455,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -484,7 +484,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -512,7 +512,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -539,7 +539,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const pipeline = createNewBatchPipeline().build()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -610,7 +610,7 @@ describe('Integration tests', () => {
         ]
 
         const pipeline = createNewBatchPipeline().build()
-        const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+        const resultPipeline = new ResultHandlingPipeline(pipeline, config)
         resultPipeline.feed(batchResults)
         const results = await resultPipeline.next()
 
@@ -636,7 +636,7 @@ describe('Integration tests', () => {
         ]
 
         const pipeline = createNewBatchPipeline().build()
-        const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+        const resultPipeline = new ResultHandlingPipeline(pipeline, config)
         resultPipeline.feed(batchResults)
         const results = await resultPipeline.next()
 
