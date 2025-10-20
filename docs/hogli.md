@@ -7,23 +7,39 @@
 The CLI is shipped with the repository and is available automatically inside the Flox environment.
 
 ```bash
-flox activate && hogli up
+flox activate && hogli quickstart
 ```
 
-`hogli up` delegates to [`bin/start`](../bin/start), which launches the full stack (Django backend, plugin server, background workers, Storybook, Docker services, migrations, etc.) through `mprocs`. When you need a one-shot way to verify your code before pushing:
+### Getting started
+
+New to PostHog development? Run `hogli quickstart` to see the essential commands for getting up and running. It shows:
+
+1. How to start the full dev stack
+2. Daily workflows (format code, run checks, etc.)
+3. Where to find more commands
+
+### Common workflows
+
+To launch the full development stack (backend, plugin server, workers, frontend):
 
 ```bash
-hogli check
+hogli start
 ```
 
-`hogli check` runs **fast quality checks** only: linting and building (both complete in ~5 minutes). Tests are intentionally excluded because they're slow (15+ minutes) and shouldn't be bundled with other workflows.
+`hogli start` delegates to [`bin/start`](../bin/start), which orchestrates all services through `mprocs`. When you need a one-shot way to verify your code before pushing:
+
+```bash
+hogli qa:check
+```
+
+`hogli qa:check` (equivalent to the older `hogli check`) runs **fast quality checks** only: linting and building (both complete in ~5 minutes). Tests are intentionally excluded because they're slow (15+ minutes) and shouldn't be bundled with other workflows.
 
 Run tests separately in another terminal:
 
 ```bash
 # Pick one—tests are slow and shouldn't run together
-hogli test python posthog/api/test/test_foo.py
-hogli test js frontend/src/scenes/Foo/
+hogli test:python posthog/api/test/test_foo.py
+hogli test:js frontend/src/scenes/Foo/
 ```
 
 To see all available commands run:
@@ -32,7 +48,7 @@ To see all available commands run:
 hogli --help
 ```
 
-Every subcommand is self-documented. You can append `--help` to any command for detailed options, for example `hogli test --help`.
+Every subcommand is self-documented. You can append `--help` to any command for detailed options, for example `hogli test:python --help`.
 
 ## Design philosophy
 

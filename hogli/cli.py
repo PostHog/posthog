@@ -112,6 +112,40 @@ def cli(ctx: click.Context) -> None:
         _auto_update_manifest()
 
 
+@cli.command(name="quickstart", help="Show getting started with PostHog development")
+def quickstart() -> None:
+    """Display essential commands for getting up and running."""
+    click.echo("")
+    click.echo(click.style("🚀 PostHog Development Quickstart", fg="green", bold=True))
+    click.echo("")
+    click.echo("Get PostHog running locally:")
+    click.echo("")
+    click.echo("  1. Start services")
+    click.echo("     hogli docker:services:up")
+    click.echo("")
+    click.echo("  2. Run migrations")
+    click.echo("     hogli migration:migrate")
+    click.echo("")
+    click.echo("  3. Start the full stack")
+    click.echo("     hogli start")
+    click.echo("")
+    click.echo("  4. Generate test data (optional)")
+    click.echo("     hogli dev:demo-data")
+    click.echo("")
+    click.echo("Daily development workflow:")
+    click.echo("")
+    click.echo("  Start dev stack              hogli start")
+    click.echo("  Format code                  hogli fmt:all")
+    click.echo("  Run quality checks           hogli qa:check")
+    click.echo("  Reset environment            hogli dev:reset")
+    click.echo("  Run tests (Python)           hogli test:python <path>")
+    click.echo("  Run tests (JS)               hogli test:js <path>")
+    click.echo("")
+    click.echo("For full command list:")
+    click.echo("  hogli --help")
+    click.echo("")
+
+
 @cli.command(name="meta:check", help="Validate manifest against bin scripts (for CI)")
 def meta_check() -> None:
     """Validate that all bin scripts are in the manifest."""

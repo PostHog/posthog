@@ -2,22 +2,22 @@ metadata:
     categories:
         - key: core
           title: Core development commands
-        - key: health_checks
-          title: Verify infrastructure readiness
         - key: start
           title: Start services and background workers
-        - key: deploy
-          title: Deploy PostHog to remote instances
-        - key: build
-          title: Build and generate code
-        - key: docker
-          title: Docker-based service orchestration
+        - key: health_checks
+          title: Verify infrastructure readiness
         - key: migration
           title: Database migrations
         - key: testing
           title: Run tests
         - key: code_quality
           title: Code quality and formatting
+        - key: build
+          title: Build and generate code
+        - key: docker
+          title: Docker-based service orchestration
+        - key: deploy
+          title: Deploy PostHog to remote instances
         - key: tools
           title: Developer tools and utilities
         - key: utilities
@@ -304,19 +304,19 @@ utilities:
         description: Manage git worktrees for isolated development
     products:list:
         description: List available product packages across frontend and backend
-    utilitie:posthog-worktree:
+    utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development
-    utilitie:phw:
+    utilities:phw:
         bin_script: phw
         description: Shell function wrapper for worktree management with auto-cd
-    utilitie:update-bots-list:
+    utilities:update-bots-list:
         bin_script: update-bots-list
         description: Download bot IP list from GoodBots GitHub and save locally
-    utilitie:dump-hogvmrs-stl:
+    utilities:dump-hogvmrs-stl:
         bin_script: dump_hogvmrs_stl
         description: Generate Rust HogVM standard library definitions for error tracking
-    utilitie:hobby-ci:
+    utilities:hobby-ci:
         bin_script: hobby-ci.py
         description: DigitalOcean CI automation for Hobby deployment testing
 compositions:
