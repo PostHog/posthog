@@ -8,7 +8,7 @@ from django.utils import timezone
 import structlog
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantToolCallMessage
+from posthog.schema import AssistantToolCallMessage, NotebookUpdateMessage
 
 from products.notebooks.backend.util import (
     TipTapNode,
@@ -39,10 +39,36 @@ class LLMTracesSummarizationNode(AssistantNode):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    async def _stream_notebook_content(self, content: dict, state: AssistantState, partial: bool = True) -> None:
+        """Stream TipTap content directly to a notebook if notebook_id is present in state."""
+        # Check if we have a notebook_id in the state
+        if not state.notebook_short_id:
+            self.logger.exception("No notebook_short_id in state, skipping notebook update")
+            return
+        if partial:
+            # Create a notebook update message; not providing id to count it as a partial message on FE
+            notebook_message = NotebookUpdateMessage(notebook_id=state.notebook_short_id, content=content)
+        else:
+            # If not partial - means the final state of the notebook to show "Open the notebook" button in the UI
+            notebook_message = NotebookUpdateMessage(
+                notebook_id=state.notebook_short_id, content=content, id=str(uuid4())
+            )
+        # Stream the notebook update
+        await self._write_message(notebook_message)
+
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
         llm_traces_summarization_query = state.llm_traces_summarization_query
+        notebook = await create_empty_notebook_for_summary(
+            user=self._user,
+            team=self._team,
+            summary_title=_create_notebook_title(query=llm_traces_summarization_query),
+        )
+        state.notebook_short_id = notebook.short_id
+        await self._stream_notebook_content(
+            content=_prepare_initial_notebook_state(query=llm_traces_summarization_query), state=state
+        )
         try:
             # Search for similar traces
             similar_documents = EmbeddingSearcher.prepare_input_data(
@@ -54,11 +80,7 @@ class LLMTracesSummarizationNode(AssistantNode):
             notebook_content = _prepare_basic_llm_summary_notebook_content(
                 summaries=similar_documents, query=llm_traces_summarization_query
             )
-            notebook = await create_empty_notebook_for_summary(
-                user=self._user,
-                team=self._team,
-                summary_title=_create_notebook_title(query=llm_traces_summarization_query),
-            )
+            await self._stream_notebook_content(content=notebook_content, state=state)
             await update_notebook_from_summary_content(
                 notebook=notebook, summary_content=notebook_content, session_ids=[]
             )
@@ -67,7 +89,7 @@ class LLMTracesSummarizationNode(AssistantNode):
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        content=json.dumps(similar_documents),
+                        content=f"Here are 5 latest traces for the requested query (specify 'latest' explicitly in your response):\n\n{json.dumps(similar_documents)}",
                         tool_call_id=state.root_tool_call_id or "unknown",
                         id=str(uuid4()),
                     ),
@@ -110,7 +132,7 @@ class LLMTracesSummarizationNode(AssistantNode):
 
 
 def _create_notebook_title(query: str) -> str:
-    title = f'LLM traces summaries report - "{query}"'
+    title = f'LLM traces summaries report (last 5) - "{query}"'
     timestamp = timezone.now().strftime("%Y-%m-%d")
     title += f" ({timestamp})"
     return title
@@ -146,15 +168,10 @@ def _prepare_basic_llm_summary_notebook_content(summaries: list[dict[str, str]],
     }
 
 
-# async def create_notebook_from_summary_content(
-#     user: User, team: Team, summary_content: TipTapNode, query: str
-# ) -> Notebook:
-#     """Create a notebook with session summary patterns."""
-#     notebook = await Notebook.objects.acreate(
-#         team=team,
-#         title=_create_notebook_title(query=query),
-#         content=summary_content,
-#         created_by=user,
-#         last_modified_by=user,
-#     )
-#     return notebook
+def _prepare_initial_notebook_state(query: str):
+    content = []
+    # Title
+    content.append(create_heading_with_text(_create_notebook_title(query=query), 1))
+    # Initial content
+    content.append(create_paragraph_with_content([create_text_content("📖 Reading through traces intensively...")]))
+    return {"type": "doc", "content": content}
