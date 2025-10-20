@@ -9,7 +9,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
@@ -270,7 +269,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
             "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
-            "billing": AssistantNodeName.BILLING,
             "end": AssistantNodeName.END,
             "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
             "session_summarization": AssistantNodeName.SESSION_SUMMARIZATION,
@@ -385,12 +383,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         )
         return self
 
-    def add_billing(self):
-        billing_node = BillingNode(self._team, self._user)
-        self.add_node(AssistantNodeName.BILLING, billing_node)
-        self._graph.add_edge(AssistantNodeName.BILLING, AssistantNodeName.ROOT)
-        return self
-
     def add_insights_search(self, end_node: AssistantNodeName = AssistantNodeName.END):
         path_map = {
             "end": end_node,
@@ -428,7 +420,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_root()
             .add_insights()
             .add_inkeep_docs()
-            .add_billing()
             .add_insights_search()
             .add_session_summarization()
             .add_dashboard_creation()

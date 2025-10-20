@@ -2047,6 +2047,98 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         config = assistant._get_config()
         self.assertEqual(config["configurable"]["billing_context"], billing_context)
 
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
+    async def test_billing_tool_execution(self, root_mock):
+        """Test that the billing tool can be called and returns formatted billing information."""
+        billing_context = MaxBillingContext(
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
+            billing_plan="startup",
+            has_active_subscription=True,
+            is_deactivated=False,
+            products=[
+                MaxProductInfo(
+                    name="Product Analytics",
+                    type="analytics",
+                    description="Track user behavior",
+                    current_usage=50000,
+                    usage_limit=100000,
+                    has_exceeded_limit=False,
+                    is_used=True,
+                    percentage_usage=0.5,
+                    addons=[],
+                )
+            ],
+            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
+        )
+
+        # Mock the root node to call the read_data tool with billing_info kind
+        tool_call_id = str(uuid4())
+
+        def root_side_effect(msgs: list[BaseMessage]):
+            # Check if we've already received a tool result
+            last_message = msgs[-1]
+            if (
+                isinstance(last_message.content, list)
+                and isinstance(last_message.content[-1], dict)
+                and last_message.content[-1]["type"] == "tool_result"
+            ):
+                # After tool execution, respond with final message
+                return messages.AIMessage(content="Your billing information shows you're on a startup plan.")
+
+            # First call - request the billing tool
+            return messages.AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": tool_call_id,
+                        "name": "read_data",
+                        "args": {"kind": "billing_info"},
+                    }
+                ],
+            )
+
+        root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(root_side_effect)
+
+        # Create a minimal test graph
+        test_graph = (
+            AssistantGraph(self.team, self.user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root(
+                {
+                    "root": AssistantNodeName.ROOT,
+                    "end": AssistantNodeName.END,
+                }
+            )
+            .compile()
+        )
+
+        # Run the assistant with billing context
+        assistant = Assistant.create(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            new_message=HumanMessage(content="What's my current billing status?"),
+            billing_context=billing_context,
+        )
+        assistant._graph = AssistantCompiledStateGraph(test_graph, {})
+
+        output: list[AssistantOutput] = []
+        async for event in assistant.astream():
+            output.append(event)
+
+        # Verify we received messages
+        self.assertGreater(len(output), 0)
+
+        # Find the assistant's final response
+        assistant_messages = [msg for event_type, msg in output if isinstance(msg, AssistantMessage)]
+        self.assertGreater(len(assistant_messages), 0)
+
+        # Verify the assistant received and used the billing information
+        # The mock returns "Your billing information shows you're on a startup plan."
+        final_message = cast(AssistantMessage, assistant_messages[-1])
+        self.assertIn("billing", final_message.content.lower())
+        self.assertIn("startup", final_message.content.lower())
+
     def test_handles_mixed_content_types_in_chunks(self):
         """Test that assistant correctly handles switching between string and list content formats."""
         assistant = Assistant.create(
