@@ -8,7 +8,9 @@ from posthoganalytics import capture_exception
 
 from posthog.schema import AssistantToolCallMessage
 
-from posthog.api.search import ENTITY_MAP, class_queryset
+from posthog.api.search import EntityConfig, class_queryset
+from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey
+from posthog.models.notebook.notebook import Notebook
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
@@ -17,6 +19,50 @@ from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, EntityT
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE, HYPERLINK_USAGE_INSTRUCTIONS
+
+ENTITY_MAP: dict[str, EntityConfig] = {
+    "insight": {
+        "klass": Insight,
+        "search_fields": {"name": "A", "description": "C", "query_metadata": "B"},
+        "extra_fields": ["name", "description", "query", "query_metadata"],
+    },
+    "dashboard": {
+        "klass": Dashboard,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "experiment": {
+        "klass": Experiment,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "feature_flag": {"klass": FeatureFlag, "search_fields": {"key": "A", "name": "C"}, "extra_fields": ["key", "name"]},
+    "notebook": {
+        "klass": Notebook,
+        "search_fields": {"title": "A", "text_content": "C"},
+        "extra_fields": ["title", "content"],
+    },
+    "action": {
+        "klass": Action,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "cohort": {
+        "klass": Cohort,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "survey": {
+        "klass": Survey,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+}
+"""
+Map of entity names to their class, search_fields and extra_fields.
+
+The value in search_fields corresponds to the PostgreSQL weighting i.e. A, B, C or D.
+"""
 
 
 class EntitySearchTaskResult(TypedDict):
@@ -55,8 +101,6 @@ class EntitySearchNode(BaseAssistantNode[AssistantState, AssistantState]):
                 return f"{base_url}/data-management/actions/{result_id}"
             case EntityType.COHORT:
                 return f"{base_url}/cohorts/{result_id}"
-            case EntityType.EVENT_DEFINITION:
-                return f"{base_url}/data-management/events/{result_id}"
             case EntityType.SURVEY:
                 return f"{base_url}/surveys/{result_id}"
             case _:
