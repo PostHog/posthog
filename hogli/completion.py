@@ -39,7 +39,8 @@ def generate_zsh_completion(cli_name: str = "hogli") -> str:
     manifest = get_manifest()
     commands = manifest.get_all_commands()
 
-    # Build completion lines: "command\tdescription" (tab-separated)
+    # Build completion lines: "command\:name:description"
+    # Escape colons in command names so zsh doesn't treat them as separators
     completion_lines = []
     for cmd in sorted(commands):
         # Get command config from manifest
@@ -52,7 +53,9 @@ def generate_zsh_completion(cli_name: str = "hogli") -> str:
             desc = desc.replace("[", "\\[").replace("]", "\\]")
             desc = desc.replace("'", "\\'")
 
-        completion_lines.append(f"'{cmd}\t{desc}'")
+        # Escape colons in command name for zsh completion format
+        escaped_cmd = cmd.replace(":", "\\:")
+        completion_lines.append(f"'{escaped_cmd}:{desc}'")
 
     completions_str = "\n    ".join(completion_lines)
 
