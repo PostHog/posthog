@@ -1,13 +1,14 @@
-use anyhow::{anyhow, bail, Ok, Result};
+use anyhow::{anyhow, bail, Result};
 use std::path::PathBuf;
 use tracing::info;
-use uuid;
+use walkdir::DirEntry;
 
 use crate::{
     api::releases::ReleaseBuilder,
     invocation_context::context,
     sourcemaps::source_pair::{read_pairs, SourcePair},
     utils::git::get_git_info,
+    api::releases::ReleaseBuilder, sourcemaps::source_pairs::read_pairs, utils::git::get_git_info,
 };
 
 #[derive(clap::Args)]
@@ -34,12 +35,12 @@ pub struct InjectArgs {
 
     /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
     /// to have the uploaded chunks associated with a specific release. Overrides release information set during
-    /// injection. Strongly prefer setting release information during injection.
+    /// injection.
     #[arg(long)]
     pub version: Option<String>,
 }
 
-pub fn inject(args: &InjectArgs) -> Result<()> {
+pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Result<()> {
     let InjectArgs {
         directory,
         public_path_prefix,
@@ -47,8 +48,6 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
         project,
         version,
     } = args;
-
-    context().capture_command_invoked("sourcemap_inject");
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -60,6 +59,7 @@ pub fn inject(args: &InjectArgs) -> Result<()> {
 
     info!("Processing directory: {}", directory.display());
     let mut pairs = read_pairs(&directory, ignore, public_path_prefix)?;
+    let mut pairs = read_pairs(&directory, &ignore, matcher)?;
     if pairs.is_empty() {
         bail!("No source files found");
     }

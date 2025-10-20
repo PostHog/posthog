@@ -1,16 +1,16 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Ok, Result};
+use anyhow::{Context, Result};
 use tracing::{info, warn};
 
-use crate::api::symbol_sets::{upload, SymbolSetUpload};
-use crate::invocation_context::context;
-
-use crate::sourcemaps::source_pair::read_pairs;
-use crate::utils::files::delete_files;
+use crate::{
+    api::symbol_sets::{self, SymbolSetUpload},
+    sourcemaps::{source_pairs::read_pairs, web::inject::is_javascript_file},
+    utils::files::delete_files,
+};
 
 #[derive(clap::Args, Clone)]
-pub struct UploadArgs {
+pub struct Args {
     /// The directory containing the bundled chunks
     #[arg(short, long)]
     pub directory: PathBuf,
@@ -29,11 +29,6 @@ pub struct UploadArgs {
     #[arg(long, default_value = "false")]
     pub delete_after: bool,
 
-    /// Whether to skip SSL verification when uploading chunks - only use when using self-signed certificates for
-    /// self-deployed instances
-    #[arg(long, default_value = "false")]
-    pub skip_ssl_verification: bool,
-
     /// The maximum number of chunks to upload in a single batch
     #[arg(long, default_value = "50")]
     pub batch_size: usize,
@@ -45,6 +40,10 @@ pub struct UploadArgs {
     /// DEPRECATED: Does nothing. Set version during `inject` instead
     #[arg(long)]
     pub version: Option<String>,
+
+    /// DEPRECATED - use top-level `--skip-ssl-verification` instead
+    #[arg(long, default_value = "false")]
+    pub skip_ssl_verification: bool,
 }
 
 pub fn upload_cmd(args: UploadArgs) -> Result<()> {
@@ -66,6 +65,12 @@ pub fn upload_cmd(args: UploadArgs) -> Result<()> {
     context().capture_command_invoked("sourcemap_upload");
 
     let pairs = read_pairs(&directory, &ignore, &public_path_prefix)?;
+pub fn upload(args: &Args) -> Result<()> {
+    if args.project.is_some() || args.version.is_some() {
+        warn!("`--project` and `--version` are deprecated and do nothing. Set project and version during `inject` instead.");
+    }
+
+    let pairs = read_pairs(&args.directory, &args.ignore, is_javascript_file)?;
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.inner.path.clone())
@@ -78,9 +83,9 @@ pub fn upload_cmd(args: UploadArgs) -> Result<()> {
         .collect::<Result<Vec<SymbolSetUpload>>>()
         .context("While preparing files for upload")?;
 
-    upload(&uploads, batch_size)?;
+    symbol_sets::upload(&uploads, args.batch_size)?;
 
-    if delete_after {
+    if args.delete_after {
         delete_files(sourcemap_paths).context("While deleting sourcemaps")?;
     }
 
