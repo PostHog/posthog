@@ -88,7 +88,7 @@ class MarketingSourceFactory:
         # Cache warehouse data to avoid repeated queries
         database = create_hogql_database(team=self.context.team)
         self._warehouse_tables = DataWarehouseTable.objects.filter(
-            team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_tables()
+            team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_table_names()
         ).prefetch_related("externaldataschema_set")
         self._sources_map = self.context.team.marketing_analytics_config.sources_map_typed
 

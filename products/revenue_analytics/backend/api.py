@@ -31,7 +31,7 @@ def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str
 
     # Try and find the union view for this class
     union_view: RevenueAnalyticsBaseView | None = None
-    for view_name in database.get_views():
+    for view_name in database.get_view_names():
         view = database.get_table(view_name)
         if isinstance(view, view_class) and view.union_all:
             union_view = view

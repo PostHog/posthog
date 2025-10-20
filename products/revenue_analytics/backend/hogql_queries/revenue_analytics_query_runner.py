@@ -307,7 +307,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         ViewKind: Optional[type[RevenueAnalyticsBaseView]] = None,
         union: bool = False,
     ) -> Iterable[RevenueAnalyticsBaseView]:
-        for view_name in self.database.get_views():
+        for view_name in self.database.get_view_names():
             view = self.database.get_table(view_name)
             if isinstance(view, RevenueAnalyticsBaseView):
                 if ViewKind is None:

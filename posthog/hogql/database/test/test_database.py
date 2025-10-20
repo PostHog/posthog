@@ -106,8 +106,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
-        tables = database.get_posthog_tables()
-        for table_name in tables:
+        posthog_table_names = database.get_posthog_table_names()
+        for table_name in posthog_table_names:
             assert serialized_database.get(table_name) is not None
 
     def test_serialize_database_deleted_saved_query(self):
@@ -1106,8 +1106,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
     def test_team_id_on_all_tables(self):
         db = create_hogql_database(team=self.team)
 
-        tables = db.get_all_tables()
-        for table_name in tables:
+        table_names = db.get_all_table_names()
+        for table_name in table_names:
             table = db.get_table(table_name)
             assert table is not None
             assert isinstance(table, Table)

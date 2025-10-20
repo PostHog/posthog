@@ -29,9 +29,9 @@ def test_get_system_prompt(snapshot):
     team = Team.objects.create(organization=org)
 
     database = create_hogql_database(team.id)
-    all_tables = database.get_all_tables()
+    all_table_names = database.get_all_table_names()
 
-    res = _get_system_prompt(all_tables)
+    res = _get_system_prompt(all_table_names)
 
     assert res == snapshot
 
