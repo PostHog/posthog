@@ -465,7 +465,7 @@ class HogQLCohortQuery:
         )
 
     def _add_chunk_filter(self, query: ast.SelectQuery) -> ast.SelectQuery:
-        """Add cursor-based or hash-based chunking filter to a query"""
+        """Add hash-based chunking filter to a query"""
         # Hash-based filtering
         if self.chunk_index is not None and self.total_chunks is not None and self.total_chunks > 1:
             # Create the hash condition: cityHash64(id) % total_chunks = chunk_index
