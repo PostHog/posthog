@@ -8,7 +8,7 @@ from typing import Any
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MANIFEST_FILE = Path(__file__).parent / "scripts_manifest.yaml"
+MANIFEST_FILE = Path(__file__).parent / "manifest.yaml"
 
 
 class Manifest:
