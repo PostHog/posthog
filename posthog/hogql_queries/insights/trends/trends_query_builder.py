@@ -115,25 +115,168 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             },
         )
 
-    def _get_date_subqueries(self) -> ast.Expr:
-        return parse_expr(
+    def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        total_array = parse_expr(
             """
             arrayMap(
-                number -> {date_from_start_of_interval} + {number_interval_period}, -- NOTE: flipped the order around to use start date
-                range(
-                    0,
-                    coalesce(
-                        dateDiff(
-                            {interval},
-                            {date_from_start_of_interval},
-                            {date_to_start_of_interval}
+                _match_date ->
+                    arraySum(
+                        arraySlice(
+                            groupArray(ifNull(count, 0)),
+                            indexOf(groupArray(day_start) as _days_for_count, _match_date) as _index,
+                            arrayLastIndex(x -> x = _match_date, _days_for_count) - _index + 1
                         )
-                    ) + 1
-                )
-            ) as date
-        """,
-            placeholders=self.query_date_range.to_placeholders(),
+                    ),
+                date
+            )
+        """
         )
+
+        if self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
+            # fill zeros in with the previous value
+            total_array = parse_expr(
+                """
+            arrayFill(x -> x > 0, {total_array} )
+            """,
+                {"total_array": total_array},
+            )
+
+        select: list[ast.Expr] = [
+            self._get_date_subqueries(),
+        ]
+
+        if (
+            self.query.trendsFilter is not None
+            and self.query.trendsFilter.smoothingIntervals is not None
+            and self.query.trendsFilter.smoothingIntervals > 1
+        ):
+            rolling_average = ast.Alias(
+                alias="total",
+                expr=parse_expr(
+                    """
+                    arrayMap(
+                        i -> floor(arrayAvg(
+                            arraySlice(
+                                total_array,
+                                greatest(i-{smoothing_interval} + 1, 1),
+                                least(i, {smoothing_interval})
+                            )
+                        )),
+                        arrayEnumerate(total_array)
+                    )
+                """,
+                    {
+                        "smoothing_interval": ast.Constant(value=int(self.query.trendsFilter.smoothingIntervals)),
+                        "total_array": total_array,
+                    },
+                ),
+            )
+            select = [
+                *select,
+                ast.Alias(alias="total_array", expr=total_array),
+                rolling_average,
+            ]
+        else:
+            select.append(ast.Alias(alias="total", expr=total_array))
+
+        query = ast.SelectQuery(
+            select=select,
+            select_from=ast.JoinExpr(table=inner_query),
+        )
+
+        query.order_by = []
+
+        if self.breakdown.enabled:
+            query.select.append(
+                ast.Alias(
+                    alias="breakdown_value",
+                    expr=ast.Field(chain=["breakdown_value"]),
+                )
+            )
+
+            query.select.append(ast.Alias(alias="row_number", expr=parse_expr("rowNumberInAllBlocks()")))
+            query.group_by = [ast.Field(chain=["breakdown_value"])]
+
+            query.order_by.append(ast.OrderExpr(expr=self._breakdown_query_order_by(self.breakdown), order="ASC"))
+            query.order_by.append(
+                ast.OrderExpr(expr=ast.Call(name="arraySum", args=[ast.Field(chain=["total"])]), order="DESC")
+            )
+            query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
+
+            # TODO: What happens with cohorts and this limit?
+            # arrayFold is basically arrayReduce (but you can pass your own lambda function)
+            # it takes result array from the outer query which looks like this (if they're grouped under "other" values):
+            # [
+            #   [0, 0, 1],
+            #   [0, 1, 0]
+            # ]
+            # and turns it into
+            # [0, 1, 1]
+            return parse_select(
+                """
+                SELECT
+                    groupArray(1)(date)[1] as date,
+                    arrayFold(
+                        (acc, x) -> arrayMap(
+                            i -> acc[i] + x[i],
+                            range(1, length(date) + 1)
+                        ),
+                        groupArray(ifNull(total, 0)),
+                        arrayWithConstant(length(date), reinterpretAsFloat64(0))
+                    ) as total,
+                    {breakdown_select}
+                FROM {outer_query}
+                WHERE {breakdown_filter}
+                GROUP BY breakdown_value
+                ORDER BY
+                    {breakdown_order_by},
+                    arraySum(total) DESC,
+                    breakdown_value ASC
+            """,
+                {
+                    "breakdown_select": self._breakdown_outer_query_select(self.breakdown),
+                    "outer_query": query,
+                    "breakdown_filter": self._breakdown_outer_query_filter(self.breakdown),
+                    "breakdown_order_by": self._breakdown_query_order_by(self.breakdown),
+                },
+            )
+
+        query.order_by.append(
+            ast.OrderExpr(expr=ast.Call(name="arraySum", args=[ast.Field(chain=["total"])]), order="DESC")
+        )
+
+        return query
+
+    def _inner_select_query(self, inner_query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    sum(total) AS count
+                FROM {inner_query}
+            """,
+                placeholders={"inner_query": inner_query},
+            ),
+        )
+
+        query.group_by = []
+        query.order_by = []
+
+        if not self._trends_display.is_total_value():
+            query.select.append(ast.Field(chain=["day_start"]))
+            query.group_by.append(ast.Field(chain=["day_start"]))
+            query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"))
+
+        if self.breakdown.enabled:
+            query = self._inner_breakdown_subquery(query, self.breakdown)
+
+        if self._trends_display.should_wrap_inner_query():
+            query = self._trends_display.wrap_inner_query(query, self.breakdown.enabled)
+            if self.breakdown.enabled:
+                query.select.append(ast.Field(chain=["breakdown_value"]))
+
+        return query
 
     def _base_events_query(
         self,
@@ -304,137 +447,25 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         return default_query
 
-    def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
-        total_array = parse_expr(
+    def _get_date_subqueries(self) -> ast.Expr:
+        return parse_expr(
             """
             arrayMap(
-                _match_date ->
-                    arraySum(
-                        arraySlice(
-                            groupArray(ifNull(count, 0)),
-                            indexOf(groupArray(day_start) as _days_for_count, _match_date) as _index,
-                            arrayLastIndex(x -> x = _match_date, _days_for_count) - _index + 1
+                number -> {date_from_start_of_interval} + {number_interval_period}, -- NOTE: flipped the order around to use start date
+                range(
+                    0,
+                    coalesce(
+                        dateDiff(
+                            {interval},
+                            {date_from_start_of_interval},
+                            {date_to_start_of_interval}
                         )
-                    ),
-                date
-            )
-        """
-        )
-
-        if self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
-            # fill zeros in with the previous value
-            total_array = parse_expr(
-                """
-            arrayFill(x -> x > 0, {total_array} )
-            """,
-                {"total_array": total_array},
-            )
-
-        select: list[ast.Expr] = [
-            self._get_date_subqueries(),
-        ]
-
-        if (
-            self.query.trendsFilter is not None
-            and self.query.trendsFilter.smoothingIntervals is not None
-            and self.query.trendsFilter.smoothingIntervals > 1
-        ):
-            rolling_average = ast.Alias(
-                alias="total",
-                expr=parse_expr(
-                    """
-                    arrayMap(
-                        i -> floor(arrayAvg(
-                            arraySlice(
-                                total_array,
-                                greatest(i-{smoothing_interval} + 1, 1),
-                                least(i, {smoothing_interval})
-                            )
-                        )),
-                        arrayEnumerate(total_array)
-                    )
-                """,
-                    {
-                        "smoothing_interval": ast.Constant(value=int(self.query.trendsFilter.smoothingIntervals)),
-                        "total_array": total_array,
-                    },
-                ),
-            )
-            select = [
-                *select,
-                ast.Alias(alias="total_array", expr=total_array),
-                rolling_average,
-            ]
-        else:
-            select.append(ast.Alias(alias="total", expr=total_array))
-
-        query = ast.SelectQuery(
-            select=select,
-            select_from=ast.JoinExpr(table=inner_query),
-        )
-
-        query.order_by = []
-
-        if self.breakdown.enabled:
-            query.select.append(
-                ast.Alias(
-                    alias="breakdown_value",
-                    expr=ast.Field(chain=["breakdown_value"]),
+                    ) + 1
                 )
-            )
-
-            query.select.append(ast.Alias(alias="row_number", expr=parse_expr("rowNumberInAllBlocks()")))
-            query.group_by = [ast.Field(chain=["breakdown_value"])]
-
-            query.order_by.append(ast.OrderExpr(expr=self._breakdown_query_order_by(self.breakdown), order="ASC"))
-            query.order_by.append(
-                ast.OrderExpr(expr=ast.Call(name="arraySum", args=[ast.Field(chain=["total"])]), order="DESC")
-            )
-            query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"))
-
-            # TODO: What happens with cohorts and this limit?
-            # arrayFold is basically arrayReduce (but you can pass your own lambda function)
-            # it takes result array from the outer query which looks like this (if they're grouped under "other" values):
-            # [
-            #   [0, 0, 1],
-            #   [0, 1, 0]
-            # ]
-            # and turns it into
-            # [0, 1, 1]
-            return parse_select(
-                """
-                SELECT
-                    groupArray(1)(date)[1] as date,
-                    arrayFold(
-                        (acc, x) -> arrayMap(
-                            i -> acc[i] + x[i],
-                            range(1, length(date) + 1)
-                        ),
-                        groupArray(ifNull(total, 0)),
-                        arrayWithConstant(length(date), reinterpretAsFloat64(0))
-                    ) as total,
-                    {breakdown_select}
-                FROM {outer_query}
-                WHERE {breakdown_filter}
-                GROUP BY breakdown_value
-                ORDER BY
-                    {breakdown_order_by},
-                    arraySum(total) DESC,
-                    breakdown_value ASC
-            """,
-                {
-                    "breakdown_select": self._breakdown_outer_query_select(self.breakdown),
-                    "outer_query": query,
-                    "breakdown_filter": self._breakdown_outer_query_filter(self.breakdown),
-                    "breakdown_order_by": self._breakdown_query_order_by(self.breakdown),
-                },
-            )
-
-        query.order_by.append(
-            ast.OrderExpr(expr=ast.Call(name="arraySum", args=[ast.Field(chain=["total"])]), order="DESC")
+            ) as date
+        """,
+            placeholders=self.query_date_range.to_placeholders(),
         )
-
-        return query
 
     def _get_breakdown_limit(self) -> int:
         if self._trends_display.display_type == ChartDisplayType.WORLD_MAP:
@@ -443,37 +474,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return (
             self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit
         ) or get_breakdown_limit_for_context(self.limit_context)
-
-    def _inner_select_query(self, inner_query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
-        query = cast(
-            ast.SelectQuery,
-            parse_select(
-                """
-                SELECT
-                    sum(total) AS count
-                FROM {inner_query}
-            """,
-                placeholders={"inner_query": inner_query},
-            ),
-        )
-
-        query.group_by = []
-        query.order_by = []
-
-        if not self._trends_display.is_total_value():
-            query.select.append(ast.Field(chain=["day_start"]))
-            query.group_by.append(ast.Field(chain=["day_start"]))
-            query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"))
-
-        if self.breakdown.enabled:
-            query = self._inner_breakdown_subquery(query, self.breakdown)
-
-        if self._trends_display.should_wrap_inner_query():
-            query = self._trends_display.wrap_inner_query(query, self.breakdown.enabled)
-            if self.breakdown.enabled:
-                query.select.append(ast.Field(chain=["breakdown_value"]))
-
-        return query
 
     def _inner_breakdown_subquery(self, query: ast.SelectQuery, breakdown: Breakdown) -> ast.SelectQuery:
         assert self.query.breakdownFilter is not None  # type checking
