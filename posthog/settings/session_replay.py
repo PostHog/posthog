@@ -42,6 +42,11 @@ SESSION_REPLAY_RRWEB_SCRIPT = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT", None, 
 # can be a comma separated list of team ids or '*' to allow all teams
 SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = get_list(get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", ""))
 
+# sample rate for teams to receive SESSION_REPLAY_RRWEB_SCRIPT (value between 0.0 and 1.0)
+# teams will receive the script if they are in the allowlist OR pass the sample rate check
+# uses stable hash-based sampling so the same team always gets the same result
+SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE", 0.01, type_cast=float)
+
 # an AI model to use for session recording filters
 SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4.1-mini")
 

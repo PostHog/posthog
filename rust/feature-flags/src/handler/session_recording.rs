@@ -1,6 +1,7 @@
 use crate::{
     api::types::{SessionRecordingConfig, SessionRecordingField},
     config::{Config, TeamIdCollection},
+    flags::flag_matching_utils::calculate_hash,
     team::team_models::Team,
 };
 use axum::http::HeaderMap;
@@ -47,11 +48,17 @@ pub fn session_recording_config_response(
     );
 
     let rrweb_script_config = if !config.session_replay_rrweb_script.is_empty() {
-        let is_team_allowed = match &config.session_replay_rrweb_script_allowed_teams {
+        let in_allowlist = match &config.session_replay_rrweb_script_allowed_teams {
             TeamIdCollection::All => true,
             TeamIdCollection::None => false,
             TeamIdCollection::TeamIds(ids) => ids.contains(&team.id),
         };
+
+        let passes_sample_rate = calculate_hash("rrweb-script-", &team.id.to_string(), "")
+            .map(|hash| hash <= config.session_replay_rrweb_script_sample_rate)
+            .unwrap_or(false);
+
+        let is_team_allowed = in_allowlist || passes_sample_rate;
 
         if is_team_allowed {
             Some(serde_json::json!({

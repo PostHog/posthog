@@ -867,4 +867,95 @@ mod tests {
             panic!("Expected SessionRecordingField::Config when recording_domains is empty list");
         }
     }
+
+    #[test]
+    fn test_session_recording_rrweb_script_sample_rate_all_sampled() {
+        let mut config = Config::default_test_config();
+        config.session_replay_rrweb_script = "console.log('sampled script')".to_string();
+        config.session_replay_rrweb_script_allowed_teams = "none".parse().unwrap();
+        config.session_replay_rrweb_script_sample_rate = 1.0; // 100% sample rate
+
+        let mut team = create_base_team();
+        team.session_recording_opt_in = true;
+        team.id = 999; // Not in allowlist
+
+        let headers = axum::http::HeaderMap::new();
+        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+
+        if let Some(SessionRecordingField::Config(config)) = result {
+            assert!(config.script_config.is_some());
+            let script_config = config.script_config.unwrap();
+            assert_eq!(script_config["script"], "console.log('sampled script')");
+        } else {
+            panic!("Expected SessionRecordingField::Config with script_config");
+        }
+    }
+
+    #[test]
+    fn test_session_recording_rrweb_script_sample_rate_none_sampled() {
+        let mut config = Config::default_test_config();
+        config.session_replay_rrweb_script = "console.log('sampled script')".to_string();
+        config.session_replay_rrweb_script_allowed_teams = "none".parse().unwrap();
+        config.session_replay_rrweb_script_sample_rate = 0.0; // 0% sample rate
+
+        let mut team = create_base_team();
+        team.session_recording_opt_in = true;
+        team.id = 999; // Not in allowlist
+
+        let headers = axum::http::HeaderMap::new();
+        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+
+        if let Some(SessionRecordingField::Config(config)) = result {
+            assert!(config.script_config.is_none());
+        } else {
+            panic!("Expected SessionRecordingField::Config without script_config");
+        }
+    }
+
+    #[test]
+    fn test_session_recording_rrweb_script_allowlist_bypasses_sample_rate() {
+        let mut config = Config::default_test_config();
+        config.session_replay_rrweb_script = "console.log('allowlist script')".to_string();
+        config.session_replay_rrweb_script_allowed_teams = "1".parse().unwrap(); // Team 1 in allowlist
+        config.session_replay_rrweb_script_sample_rate = 0.0; // 0% sample rate
+
+        let mut team = create_base_team();
+        team.session_recording_opt_in = true;
+        team.id = 1; // In allowlist
+
+        let headers = axum::http::HeaderMap::new();
+        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+
+        if let Some(SessionRecordingField::Config(config)) = result {
+            assert!(config.script_config.is_some());
+            let script_config = config.script_config.unwrap();
+            assert_eq!(script_config["script"], "console.log('allowlist script')");
+        } else {
+            panic!("Expected SessionRecordingField::Config with script_config");
+        }
+    }
+
+    #[test]
+    fn test_session_recording_rrweb_script_stable_hashing() {
+        let mut config = Config::default_test_config();
+        config.session_replay_rrweb_script = "console.log('stable script')".to_string();
+        config.session_replay_rrweb_script_allowed_teams = "none".parse().unwrap();
+        config.session_replay_rrweb_script_sample_rate = 0.5;
+
+        let mut team = create_base_team();
+        team.session_recording_opt_in = true;
+        team.id = 123;
+
+        let headers = axum::http::HeaderMap::new();
+
+        let result1 = session_recording::session_recording_config_response(&team, &headers, &config);
+        let result2 = session_recording::session_recording_config_response(&team, &headers, &config);
+
+        match (result1, result2) {
+            (Some(SessionRecordingField::Config(c1)), Some(SessionRecordingField::Config(c2))) => {
+                assert_eq!(c1.script_config.is_some(), c2.script_config.is_some());
+            }
+            _ => panic!("Expected consistent SessionRecordingField::Config results"),
+        }
+    }
 }
