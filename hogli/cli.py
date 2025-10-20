@@ -46,7 +46,7 @@ HEDGEHOG_ART = r"""
 
 app = typer.Typer(
     name="hogli",
-    help="Unified developer experience for the PostHog monorepo.",
+    help=f"{HEDGEHOG_ART}\nUnified developer experience for the PostHog monorepo.",
     pretty_exceptions_enable=False,
     rich_markup_mode="rich",
 )
