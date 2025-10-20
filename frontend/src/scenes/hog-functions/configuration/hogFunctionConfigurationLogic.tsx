@@ -20,6 +20,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
@@ -27,6 +28,7 @@ import { performQuery } from '~/queries/query'
 import { DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
+    ActivityScope,
     AnyPropertyFilter,
     AvailableFeature,
     BaseMathType,
@@ -1181,6 +1183,24 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.template, s.hogFunction],
             (template, hogFunction) => {
                 return (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
+            },
+        ],
+
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.hogFunction, s.type],
+            (hogFunction, type): SidePanelSceneContext => {
+                const context: SidePanelSceneContext = {
+                    activity_scope: ActivityScope.HOG_FUNCTION,
+                    activity_item_id: hogFunction?.id,
+                }
+
+                // Only add access control for transformations (CDP transformations)
+                if (type === 'transformation') {
+                    context.access_control_resource = 'cdp_transformations'
+                    context.access_control_resource_id = hogFunction?.id
+                }
+
+                return context
             },
         ],
     })),

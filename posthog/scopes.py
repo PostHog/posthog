@@ -13,6 +13,7 @@ APIScopeObject = Literal[
     "annotation",
     "batch_export",
     "batch_import",
+    "cdp_transformations",
     "cohort",
     "dashboard",
     "dashboard_template",

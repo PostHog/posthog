@@ -42,6 +42,8 @@ from posthog.models.hog_functions.hog_function import (
 )
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control_serializer_mixin import UserAccessControlSerializerMixin
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
@@ -56,10 +58,11 @@ class HogFunctionStatusSerializer(serializers.Serializer):
     tokens: serializers.IntegerField = serializers.IntegerField()
 
 
-class HogFunctionMinimalSerializer(serializers.ModelSerializer):
+class HogFunctionMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
     template = HogFunctionTemplateSerializer(read_only=True)
+    user_access_level = serializers.SerializerMethodField()
 
     class Meta:
         model = HogFunction
@@ -78,6 +81,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "template",
             "status",
             "execution_order",
+            "user_access_level",
         ]
         read_only_fields = fields
 
@@ -132,6 +136,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "status",
             "execution_order",
             "_create_in_folder",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -387,7 +392,12 @@ class HogFunctionFilterSet(FilterSet):
 
 
 class HogFunctionViewSet(
-    TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    LogEntryMixin,
+    AppMetricsMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
     queryset = HogFunction.objects.all()
