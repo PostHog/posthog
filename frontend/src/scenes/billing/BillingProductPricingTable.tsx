@@ -233,7 +233,7 @@ export const BillingProductPricingTable = ({
                         Tier breakdowns are updated once daily and may differ from the gauge above.
                     </LemonBanner>
                 </>
-            ) : (
+            ) : parseFloat(product.unit_amount_usd || '0') > 0 ? (
                 <LemonTable
                     stealth
                     embedded
@@ -250,7 +250,7 @@ export const BillingProductPricingTable = ({
                         },
                     ]}
                 />
-            )}
+            ) : null}
         </div>
     )
 }
