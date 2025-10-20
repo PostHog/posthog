@@ -29,17 +29,17 @@ hogli start
 `hogli start` delegates to [`bin/start`](../bin/start), which orchestrates all services through `mprocs`. When you need a one-shot way to verify your code before pushing:
 
 ```bash
-hogli qa:check
+hogli lint
 ```
 
-`hogli qa:check` (equivalent to the older `hogli check`) runs **fast quality checks** only: linting and building (both complete in ~5 minutes). Tests are intentionally excluded because they're slow (15+ minutes) and shouldn't be bundled with other workflows.
+`hogli lint` runs **fast quality checks** only: linting for both Python and JavaScript (completes in ~5 minutes). Tests are intentionally excluded because they're slow (15+ minutes) and shouldn't be bundled with other workflows.
 
 Run tests separately in another terminal:
 
 ```bash
 # Pick one—tests are slow and shouldn't run together
-hogli test:python posthog/api/test/test_foo.py
-hogli test:js frontend/src/scenes/Foo/
+hogli tests:python posthog/api/test/test_foo.py
+hogli tests:js frontend/src/scenes/Foo/
 ```
 
 To see all available commands run:
@@ -48,33 +48,16 @@ To see all available commands run:
 hogli --help
 ```
 
-Every subcommand is self-documented. You can append `--help` to any command for detailed options, for example `hogli test:python --help`.
+Every subcommand is self-documented. You can append `--help` to any command for detailed options, for example `hogli tests:python --help`.
 
 ## Design philosophy
 
 hogli follows these principles:
 
 - **Never bundle slow operations** - Tests run separately from lint/build because they take 15+ minutes. Developers should pick **one** test suite per run.
-- **Fast feedback loops** - `hogli check` completes in ~5 minutes so you can verify code locally before CI.
+- **Fast feedback loops** - `hogli lint` completes in ~5 minutes so you can verify code locally before CI.
 - **Thin wrapper layer** - hogli doesn't duplicate tool logic; it delegates to existing scripts (`bin/migrate`, `bin/start`, etc.). If you need advanced options, use the underlying tools directly.
-- **Explicit over implicit** - Commands require explicit choices (e.g., `hogli test python` not `hogli test all`) to prevent accidental long-running operations.
-
-## Command mapping
-
-| `hogli` command       | Underlying tools                                                                                     |
-| --------------------- | ---------------------------------------------------------------------------------------------------- |
-| `hogli up`            | [`bin/start`](../bin/start) → `mprocs` (backend, frontends, infra)                                   |
-| `hogli services`      | `docker compose -f docker-compose.dev.yml up -d db clickhouse redis redis7 zookeeper kafka`          |
-| `hogli test python …` | `pytest` with all trailing arguments forwarded (run individually, not bundled)                       |
-| `hogli test js …`     | `pnpm --filter @posthog/frontend run test …` (run individually, not bundled)                         |
-| `hogli lint`          | `bin/ruff.sh check` / `pnpm --filter @posthog/frontend run lint` (fast, can run both)                |
-| `hogli fmt`           | `bin/ruff.sh format` / `pnpm --filter @posthog/frontend run format` (fast, can run both)             |
-| `hogli migrate`       | [`bin/migrate`](../bin/migrate) (Django + ClickHouse migrations)                                     |
-| `hogli build`         | `pnpm --filter @posthog/frontend run build` + `pnpm --filter @posthog/frontend run typescript:check` |
-| `hogli shell`         | `flox activate`                                                                                      |
-| `hogli check`         | Runs `hogli lint` + `hogli build` (skips tests; run them separately)                                 |
-| `hogli worktree …`    | [`bin/phw`](../bin/phw) wrapper (delegates to `phw` + `bin/posthog-worktree`)                        |
-| `hogli products list` | Reads packages from `products/*/package.json` and Python modules from `products/*`                   |
+- **Explicit over implicit** - Commands require explicit choices (e.g., `hogli tests:python` not `hogli test all`) to prevent accidental long-running operations.
 
 ## Architecture
 
@@ -190,17 +173,3 @@ Two special commands manage hogli itself:
 
 - `hogli meta:check` - Validates manifest, exits with code 1 if scripts are missing. Use in CI.
 - `hogli meta:concepts` - Shows all services and which commands use them
-
-## Product utilities
-
-`hogli products list` collates product metadata by reading Turborepo package manifests from the `products/` directory and checking for corresponding Python packages. The output is available as a table or JSON via `--json` for automation.
-
-## Branch switching & worktrees
-
-`hogli worktree` shells out to [`bin/phw`](../bin/phw), which in turn calls [`bin/posthog-worktree`](../bin/posthog-worktree). That means every command supported by the shell helper (`create`, `checkout`, `pr`, `remove`, `list`, and `switch`) works exactly the same way, including future enhancements.
-
-To auto-`cd` into worktrees after creation you can still source [`bin/phw`](../bin/phw) in your shell profile. `hogli worktree` focuses on discoverability and logging, while the sourced function (`phw`) keeps the history-injecting niceties documented in [the Flox multi-instance workflow guide](./FLOX_MULTI_INSTANCE_WORKFLOW.md).
-
-### Shell completions
-
-Typer ships with completion installers for popular shells. Run `hogli --install-completion zsh` (or `bash`, `fish`, etc.) to add completions for the CLI itself. For worktree shortcuts you still get the advanced zsh completion bundled inside [`bin/phw`](../bin/phw) once it is sourced in your profile.
