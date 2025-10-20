@@ -61,7 +61,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         breakdown = self.breakdown
-        events_query = self._get_events_subquery(breakdown=breakdown)
+        events_query = self._get_events_subquery()
 
         if self._trends_display.is_total_value():
             wrapper_query = self._get_wrapper_query(events_query, breakdown=breakdown)
@@ -142,11 +142,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _get_events_subquery(
         self,
-        breakdown: Breakdown,
     ) -> ast.SelectQuery:
         events_filter = self._events_filter(
             ignore_breakdowns=False,
-            breakdown=breakdown,
+            breakdown=self.breakdown,
         )
 
         default_query = ast.SelectQuery(
@@ -173,7 +172,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
         if self._trends_display.is_total_value():
-            if not breakdown.enabled:
+            if not self.breakdown.enabled:
                 default_query.order_by = [ast.OrderExpr(expr=parse_expr("1"), order="DESC")]
         else:
             # For cumulative unique users or groups, we want to count each user or group once per query, not per day
@@ -190,14 +189,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         # No breakdowns and no complex series aggregation
         if (
-            not breakdown.enabled
+            not self.breakdown.enabled
             and not self._aggregation_operation.requires_query_orchestration()
             and not self._aggregation_operation.aggregating_on_session_duration()
         ):
             return default_query
         # Both breakdowns and complex series aggregation
         elif (
-            breakdown.enabled
+            self.breakdown.enabled
             and self._aggregation_operation.requires_query_orchestration()
             and not self._aggregation_operation.is_first_time_ever_math()
         ):
@@ -206,32 +205,32 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 sample_value=self._sample_value(),
             )
 
-            orchestrator.events_query_builder.extend_select(breakdown.column_exprs)
-            orchestrator.events_query_builder.extend_group_by(breakdown.field_exprs)
+            orchestrator.events_query_builder.extend_select(self.breakdown.column_exprs)
+            orchestrator.events_query_builder.extend_group_by(self.breakdown.field_exprs)
 
-            orchestrator.inner_select_query_builder.extend_select(breakdown.alias_exprs)
-            orchestrator.inner_select_query_builder.extend_group_by(breakdown.field_exprs)
+            orchestrator.inner_select_query_builder.extend_select(self.breakdown.alias_exprs)
+            orchestrator.inner_select_query_builder.extend_group_by(self.breakdown.field_exprs)
 
-            orchestrator.parent_select_query_builder.extend_select(breakdown.alias_exprs)
+            orchestrator.parent_select_query_builder.extend_select(self.breakdown.alias_exprs)
             if (
                 self._aggregation_operation.is_total_value
                 and not self._aggregation_operation.is_count_per_actor_variant()
             ):
-                orchestrator.parent_select_query_builder.extend_group_by(breakdown.field_exprs)
+                orchestrator.parent_select_query_builder.extend_group_by(self.breakdown.field_exprs)
 
             return orchestrator.build()
-        elif breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
+        elif self.breakdown.enabled and self._aggregation_operation.requires_query_orchestration():
             orchestrator = self._aggregation_operation.get_first_time_math_query_orchestrator(
                 events_where_clause=events_filter,
                 sample_value=self._sample_value(),
                 event_name_filter=self._event_or_action_where_expr(),
             )
-            orchestrator.events_query_builder.extend_select(breakdown.column_exprs, aggregate=True)
-            orchestrator.parent_query_builder.extend_select(breakdown.alias_exprs)
-            orchestrator.parent_query_builder.extend_group_by(breakdown.field_exprs)
+            orchestrator.events_query_builder.extend_select(self.breakdown.column_exprs, aggregate=True)
+            orchestrator.parent_query_builder.extend_select(self.breakdown.alias_exprs)
+            orchestrator.parent_query_builder.extend_group_by(self.breakdown.field_exprs)
             return orchestrator.build()
         # Breakdowns and session duration math property
-        elif breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
+        elif self.breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
             default_query.select = [
                 ast.Alias(
                     alias="session_duration",
@@ -241,10 +240,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
-            default_query.select.extend(breakdown.column_exprs)
-            default_query.group_by.extend(breakdown.field_exprs)
+            default_query.select.extend(self.breakdown.column_exprs)
+            default_query.group_by.extend(self.breakdown.field_exprs)
 
-            wrapper = self.session_duration_math_property_wrapper(default_query, breakdown)
+            wrapper = self.session_duration_math_property_wrapper(default_query, self.breakdown)
             assert wrapper.group_by is not None
 
             if not self._trends_display.is_total_value():
@@ -263,9 +262,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return wrapper
 
         # Just breakdowns
-        elif breakdown.enabled:
-            default_query.select.extend(breakdown.column_exprs)
-            default_query.group_by.extend(breakdown.field_exprs)
+        elif self.breakdown.enabled:
+            default_query.select.extend(self.breakdown.column_exprs)
+            default_query.group_by.extend(self.breakdown.field_exprs)
 
         # Just session duration math property
         elif self._aggregation_operation.aggregating_on_session_duration():
@@ -277,7 +276,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             ]
             default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
-            wrapper = self.session_duration_math_property_wrapper(default_query, breakdown)
+            wrapper = self.session_duration_math_property_wrapper(default_query, self.breakdown)
 
             if not self._trends_display.is_total_value():
                 assert wrapper.group_by is not None
@@ -498,7 +497,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.ctes = {
                 "min_max": ast.CTE(
                     name="min_max",
-                    expr=self._get_events_subquery(breakdown=breakdown),
+                    expr=self._get_events_subquery(),
                     cte_type="subquery",
                 )
             }
