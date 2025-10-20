@@ -146,14 +146,13 @@ jobs:
               uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.7.8
+                  version: 0.8.19
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
@@ -207,12 +206,15 @@ jobs:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+
               run: pnpm --filter=@posthog/plugin-server setup:test
 
             - name: Test with Jest
               env:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
                   PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
                   PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
                   PERSONS_READONLY_MIGRATION_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_migration'

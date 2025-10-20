@@ -55,6 +55,7 @@ export function NotebookPanel(): JSX.Element | null {
                             to={urls.notebook(selectedNotebook)}
                             onClick={() => closeSidePanel()}
                             icon={<IconExternal />}
+                            targetBlank
                             tooltip="Open as main focus"
                             tooltipPlacement="bottom-end"
                         />

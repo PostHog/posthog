@@ -53,6 +53,8 @@ impl From<&RawJavaFrame> for Frame {
             release: None,
             synthetic: raw.meta.synthetic,
             context: None,
+            suspicious: false,
+            module: Some(raw.module.clone()),
         };
 
         // Java frames will have a decent amount of processing, we're gonna want this

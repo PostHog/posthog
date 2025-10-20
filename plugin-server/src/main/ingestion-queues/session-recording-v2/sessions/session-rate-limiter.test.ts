@@ -1,3 +1,4 @@
+import { ParsedMessageData } from '../kafka/types'
 import { SessionRateLimiter } from './session-rate-limiter'
 
 jest.mock('./metrics', () => ({
@@ -7,30 +8,37 @@ jest.mock('./metrics', () => ({
     },
 }))
 
+const createMessage = (eventCount: number): ParsedMessageData => {
+    const events = Array.from({ length: eventCount }, (_, i) => ({ timestamp: i }))
+    return {
+        eventsByWindowId: { window1: events },
+    } as any
+}
+
 describe('SessionRateLimiter', () => {
     beforeEach(() => {
         jest.clearAllMocks()
     })
 
-    describe('handleEvent', () => {
+    describe('handleMessage', () => {
         it('should allow events up to the limit', () => {
             const limiter = new SessionRateLimiter(3)
             const sessionKey = 'team123$session456'
 
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(true)
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(true)
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(true)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(true)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(true)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(true)
             expect(limiter.getEventCount(sessionKey)).toBe(3)
         })
 
-        it('should block events after limit is exceeded', () => {
+        it('should block messages after limit is exceeded', () => {
             const limiter = new SessionRateLimiter(2)
             const sessionKey = 'team123$session456'
 
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(true)
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(true)
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(false)
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(false)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(true)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(true)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(false)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(false)
         })
 
         it('should track multiple sessions independently', () => {
@@ -38,31 +46,63 @@ describe('SessionRateLimiter', () => {
             const session1 = 'team123$session1'
             const session2 = 'team123$session2'
 
-            expect(limiter.handleEvent(session1, 1)).toBe(true)
-            expect(limiter.handleEvent(session2, 1)).toBe(true)
-            expect(limiter.handleEvent(session1, 1)).toBe(true)
-            expect(limiter.handleEvent(session2, 1)).toBe(true)
+            expect(limiter.handleMessage(session1, 1, createMessage(1))).toBe(true)
+            expect(limiter.handleMessage(session2, 1, createMessage(1))).toBe(true)
+            expect(limiter.handleMessage(session1, 1, createMessage(1))).toBe(true)
+            expect(limiter.handleMessage(session2, 1, createMessage(1))).toBe(true)
 
-            expect(limiter.handleEvent(session1, 1)).toBe(false)
-            expect(limiter.handleEvent(session2, 1)).toBe(false)
+            expect(limiter.handleMessage(session1, 1, createMessage(1))).toBe(false)
+            expect(limiter.handleMessage(session2, 1, createMessage(1))).toBe(false)
         })
 
         it('should continue blocking after limit is hit', () => {
             const limiter = new SessionRateLimiter(1)
             const sessionKey = 'team123$session456'
 
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(true)
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(false)
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(false)
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(false)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(true)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(false)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(false)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(false)
+        })
+
+        it('should count events across multiple windows', () => {
+            const limiter = new SessionRateLimiter(5)
+            const sessionKey = 'team123$session456'
+
+            const messageWithMultipleWindows = {
+                eventsByWindowId: {
+                    window1: [{ timestamp: 1 }, { timestamp: 2 }],
+                    window2: [{ timestamp: 3 }, { timestamp: 4 }],
+                },
+            } as any
+
+            expect(limiter.handleMessage(sessionKey, 1, messageWithMultipleWindows)).toBe(true)
+            expect(limiter.getEventCount(sessionKey)).toBe(4)
+        })
+
+        it('should handle messages with varying event counts', () => {
+            const limiter = new SessionRateLimiter(10)
+            const sessionKey = 'team123$session456'
+
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(3))).toBe(true)
+            expect(limiter.getEventCount(sessionKey)).toBe(3)
+
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(5))).toBe(true)
+            expect(limiter.getEventCount(sessionKey)).toBe(8)
+
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(2))).toBe(true)
+            expect(limiter.getEventCount(sessionKey)).toBe(10)
+
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(false)
+            expect(limiter.getEventCount(sessionKey)).toBe(11)
         })
 
         it('should allow unlimited events with MAX_SAFE_INTEGER', () => {
             const limiter = new SessionRateLimiter(Number.MAX_SAFE_INTEGER)
             const sessionKey = 'team123$session456'
 
-            for (let i = 0; i < 1000000; i++) {
-                expect(limiter.handleEvent(sessionKey, 1)).toBe(true)
+            for (let i = 0; i < 1000; i++) {
+                expect(limiter.handleMessage(sessionKey, 1, createMessage(1000))).toBe(true)
             }
             expect(limiter.getEventCount(sessionKey)).toBe(1000000)
         })
@@ -78,11 +118,10 @@ describe('SessionRateLimiter', () => {
             const limiter = new SessionRateLimiter(10)
             const sessionKey = 'team123$session456'
 
-            limiter.handleEvent(sessionKey, 1)
+            limiter.handleMessage(sessionKey, 1, createMessage(1))
             expect(limiter.getEventCount(sessionKey)).toBe(1)
 
-            limiter.handleEvent(sessionKey, 1)
-            limiter.handleEvent(sessionKey, 1)
+            limiter.handleMessage(sessionKey, 1, createMessage(2))
             expect(limiter.getEventCount(sessionKey)).toBe(3)
         })
 
@@ -90,12 +129,12 @@ describe('SessionRateLimiter', () => {
             const limiter = new SessionRateLimiter(2)
             const sessionKey = 'team123$session456'
 
-            limiter.handleEvent(sessionKey, 1)
-            limiter.handleEvent(sessionKey, 1)
+            limiter.handleMessage(sessionKey, 1, createMessage(1))
+            limiter.handleMessage(sessionKey, 1, createMessage(1))
             expect(limiter.getEventCount(sessionKey)).toBe(2)
 
-            limiter.handleEvent(sessionKey, 1)
-            limiter.handleEvent(sessionKey, 1)
+            limiter.handleMessage(sessionKey, 1, createMessage(1))
+            limiter.handleMessage(sessionKey, 1, createMessage(1))
             expect(limiter.getEventCount(sessionKey)).toBe(4)
         })
     })
@@ -105,14 +144,13 @@ describe('SessionRateLimiter', () => {
             const limiter = new SessionRateLimiter(10)
             const sessionKey = 'team123$session456'
 
-            limiter.handleEvent(sessionKey, 1)
-            limiter.handleEvent(sessionKey, 1)
+            limiter.handleMessage(sessionKey, 1, createMessage(2))
             expect(limiter.getEventCount(sessionKey)).toBe(2)
 
             limiter.removeSession(sessionKey)
             expect(limiter.getEventCount(sessionKey)).toBe(0)
 
-            limiter.handleEvent(sessionKey, 1)
+            limiter.handleMessage(sessionKey, 1, createMessage(1))
             expect(limiter.getEventCount(sessionKey)).toBe(1)
         })
 
@@ -120,11 +158,11 @@ describe('SessionRateLimiter', () => {
             const limiter = new SessionRateLimiter(1)
             const sessionKey = 'team123$session456'
 
-            limiter.handleEvent(sessionKey, 1)
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(false)
+            limiter.handleMessage(sessionKey, 1, createMessage(1))
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(false)
 
             limiter.removeSession(sessionKey)
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(true)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(true)
         })
 
         it('should handle removing non-existent session', () => {
@@ -139,9 +177,8 @@ describe('SessionRateLimiter', () => {
             const session1 = 'team123$session1'
             const session2 = 'team123$session2'
 
-            limiter.handleEvent(session1, 1)
-            limiter.handleEvent(session1, 1)
-            limiter.handleEvent(session2, 1)
+            limiter.handleMessage(session1, 1, createMessage(2))
+            limiter.handleMessage(session2, 1, createMessage(1))
 
             expect(limiter.getEventCount(session1)).toBe(2)
             expect(limiter.getEventCount(session2)).toBe(1)
@@ -156,11 +193,11 @@ describe('SessionRateLimiter', () => {
             const limiter = new SessionRateLimiter(1)
             const sessionKey = 'team123$session456'
 
-            limiter.handleEvent(sessionKey, 1)
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(false)
+            limiter.handleMessage(sessionKey, 1, createMessage(1))
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(false)
 
             limiter.clear()
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(true)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(true)
         })
     })
 
@@ -169,7 +206,7 @@ describe('SessionRateLimiter', () => {
             const limiter = new SessionRateLimiter(0)
             const sessionKey = 'team123$session456'
 
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(false)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(false)
             expect(limiter.getEventCount(sessionKey)).toBe(1)
         })
 
@@ -177,8 +214,8 @@ describe('SessionRateLimiter', () => {
             const limiter = new SessionRateLimiter(1)
             const sessionKey = 'team123$session456'
 
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(true)
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(false)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(true)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(false)
         })
 
         it('should handle many concurrent sessions', () => {
@@ -187,9 +224,9 @@ describe('SessionRateLimiter', () => {
 
             for (const session of sessions) {
                 for (let i = 0; i < 5; i++) {
-                    expect(limiter.handleEvent(session, 1)).toBe(true)
+                    expect(limiter.handleMessage(session, 1, createMessage(1))).toBe(true)
                 }
-                expect(limiter.handleEvent(session, 1)).toBe(false)
+                expect(limiter.handleMessage(session, 1, createMessage(1))).toBe(false)
             }
         })
     })
@@ -201,10 +238,9 @@ describe('SessionRateLimiter', () => {
             const session2 = 'team123$session2'
             const session3 = 'team123$session3'
 
-            limiter.handleEvent(session1, 1)
-            limiter.handleEvent(session1, 1)
-            limiter.handleEvent(session2, 1)
-            limiter.handleEvent(session3, 2)
+            limiter.handleMessage(session1, 1, createMessage(2))
+            limiter.handleMessage(session2, 1, createMessage(1))
+            limiter.handleMessage(session3, 2, createMessage(1))
 
             expect(limiter.getEventCount(session1)).toBe(2)
             expect(limiter.getEventCount(session2)).toBe(1)
@@ -222,18 +258,18 @@ describe('SessionRateLimiter', () => {
             const session1 = 'team123$session1'
             const session2 = 'team123$session2'
 
-            limiter.handleEvent(session1, 1)
-            limiter.handleEvent(session1, 1)
-            limiter.handleEvent(session2, 2)
-            limiter.handleEvent(session2, 2)
+            limiter.handleMessage(session1, 1, createMessage(1))
+            limiter.handleMessage(session1, 1, createMessage(1))
+            limiter.handleMessage(session2, 2, createMessage(1))
+            limiter.handleMessage(session2, 2, createMessage(1))
 
-            expect(limiter.handleEvent(session1, 1)).toBe(false)
-            expect(limiter.handleEvent(session2, 2)).toBe(false)
+            expect(limiter.handleMessage(session1, 1, createMessage(1))).toBe(false)
+            expect(limiter.handleMessage(session2, 2, createMessage(1))).toBe(false)
 
             limiter.discardPartition(1)
 
-            expect(limiter.handleEvent(session1, 1)).toBe(true)
-            expect(limiter.handleEvent(session2, 2)).toBe(false)
+            expect(limiter.handleMessage(session1, 1, createMessage(1))).toBe(true)
+            expect(limiter.handleMessage(session2, 2, createMessage(1))).toBe(false)
         })
 
         it('should handle discarding non-existent partition', () => {
@@ -245,18 +281,18 @@ describe('SessionRateLimiter', () => {
             const limiter = new SessionRateLimiter(2)
             const sessionKey = 'team123$session456'
 
-            limiter.handleEvent(sessionKey, 1)
-            limiter.handleEvent(sessionKey, 1)
-            limiter.handleEvent(sessionKey, 1)
+            limiter.handleMessage(sessionKey, 1, createMessage(1))
+            limiter.handleMessage(sessionKey, 1, createMessage(1))
+            limiter.handleMessage(sessionKey, 1, createMessage(1))
 
-            expect(limiter.handleEvent(sessionKey, 1)).toBe(false)
+            expect(limiter.handleMessage(sessionKey, 1, createMessage(1))).toBe(false)
 
             limiter.discardPartition(1)
 
-            limiter.handleEvent(sessionKey, 2)
-            limiter.handleEvent(sessionKey, 2)
+            limiter.handleMessage(sessionKey, 2, createMessage(1))
+            limiter.handleMessage(sessionKey, 2, createMessage(1))
             expect(limiter.getEventCount(sessionKey)).toBe(2)
-            expect(limiter.handleEvent(sessionKey, 2)).toBe(false)
+            expect(limiter.handleMessage(sessionKey, 2, createMessage(1))).toBe(false)
         })
     })
 })

@@ -343,9 +343,7 @@ pub async fn resolve_issue(
         .await?;
 
         let output_props = event_properties.clone().to_output(issue.id);
-        if context.config.embedding_enabled_team_id == Some(issue.team_id) {
-            send_new_fingerprint_event(&context, &issue, &output_props).await?;
-        }
+        send_new_fingerprint_event(&context, &issue, &output_props).await?;
         send_issue_created_alert(&context, &issue, assignment, output_props, &event_timestamp)
             .await?;
         txn.commit().await?;

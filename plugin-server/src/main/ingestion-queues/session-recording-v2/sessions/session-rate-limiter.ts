@@ -1,3 +1,4 @@
+import { ParsedMessageData } from '../kafka/types'
 import { SessionBatchMetrics } from './metrics'
 
 /**
@@ -12,14 +13,21 @@ export class SessionRateLimiter {
     constructor(private readonly maxEventsPerSession: number = Number.MAX_SAFE_INTEGER) {}
 
     /**
-     * Handle an event for a session
+     * Handle a message for a session
      * @param sessionKey - Unique session identifier (e.g., "teamId$sessionId")
-     * @param partition - Partition number for this event
-     * @returns true if event should be processed, false if rate limited
+     * @param partition - Partition number for this message
+     * @param message - The message containing events
+     * @returns true if message should be processed, false if rate limited
      */
-    public handleEvent(sessionKey: string, partition: number): boolean {
+    public handleMessage(sessionKey: string, partition: number, message: ParsedMessageData): boolean {
+        // Count total events in the message across all windows
+        let eventCount = 0
+        for (const events of Object.values(message.eventsByWindowId)) {
+            eventCount += events.length
+        }
+
         const currentCount = this.eventCounts.get(sessionKey) ?? 0
-        const newCount = currentCount + 1
+        const newCount = currentCount + eventCount
 
         // Always increment the count and track partition
         this.eventCounts.set(sessionKey, newCount)

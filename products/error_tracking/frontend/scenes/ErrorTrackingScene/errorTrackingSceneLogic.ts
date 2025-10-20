@@ -13,6 +13,8 @@ import { errorTrackingQuery } from '../../queries'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from '../../utils'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 
+export const ERROR_TRACKING_SCENE_LOGIC_KEY = 'ErrorTrackingScene'
+
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'errorTrackingSceneLogic']),
 
@@ -22,9 +24,9 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     connect(() => ({
         values: [
-            issueFiltersLogic,
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
-            issueQueryOptionsLogic,
+            issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['assignee', 'orderBy', 'orderDirection', 'status'],
         ],
         actions: [issueActionsLogic, ['mutationSuccess', 'mutationFailure'], bulkSelectLogic, ['setSelectedIssueIds']],

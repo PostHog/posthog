@@ -24,6 +24,7 @@ export interface AuthorizedUrlListProps {
     displaySuggestions?: boolean
     showLaunch?: boolean
     allowAdd?: boolean
+    allowDelete?: boolean
 }
 
 export function AuthorizedUrlList({
@@ -35,6 +36,7 @@ export function AuthorizedUrlList({
     allowWildCards,
     displaySuggestions = true,
     allowAdd = true,
+    allowDelete = true,
     showLaunch = true,
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
@@ -194,27 +196,29 @@ export function AuthorizedUrlList({
                                         />
                                     )}
 
-                                    <LemonButton
-                                        icon={<IconTrash />}
-                                        tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
-                                        center
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: <>Remove {keyedURL.url} ?</>,
-                                                description: `Are you sure you want to remove this authorized ${
-                                                    onlyAllowDomains ? 'domain' : 'URL'
-                                                }?`,
-                                                primaryButton: {
-                                                    status: 'danger',
-                                                    children: 'Remove',
-                                                    onClick: () => removeUrl(index),
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                },
-                                            })
-                                        }}
-                                    />
+                                    {allowDelete && (
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
+                                            center
+                                            onClick={() => {
+                                                LemonDialog.open({
+                                                    title: <>Remove {keyedURL.url} ?</>,
+                                                    description: `Are you sure you want to remove this authorized ${
+                                                        onlyAllowDomains ? 'domain' : 'URL'
+                                                    }?`,
+                                                    primaryButton: {
+                                                        status: 'danger',
+                                                        children: 'Remove',
+                                                        onClick: () => removeUrl(index),
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                    },
+                                                })
+                                            }}
+                                        />
+                                    )}
                                 </>
                             )}
                         </div>
