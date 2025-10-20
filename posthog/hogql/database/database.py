@@ -595,6 +595,7 @@ def create_hogql_database(
         with timings.measure("select"):
             saved_queries = list(
                 DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                .filter(managed_viewset__isnull=True)  # Ignore managed views for now
                 .exclude(deleted=True)
                 .select_related("table", "table__credential")
             )

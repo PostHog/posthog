@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -56,9 +57,10 @@ export function TaskTracker(): JSX.Element {
         <div className="TaskTracker">
             <div className="space-y-4">
                 <SceneTitleSection
-                    name="Tasks"
+                    name={sceneConfigurations[Scene.TaskTracker].name}
+                    description={sceneConfigurations[Scene.TaskTracker].description}
                     resourceType={{
-                        type: 'task',
+                        type: sceneConfigurations[Scene.TaskTracker].iconType || 'default_icon_type',
                     }}
                 />
                 <SceneDivider />

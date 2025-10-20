@@ -92,6 +92,10 @@ class AssistantContextualTool(StrEnum):
     SESSION_SUMMARIZATION = "session_summarization"
     CREATE_DASHBOARD = "create_dashboard"
     EDIT_CURRENT_DASHBOARD = "edit_current_dashboard"
+    READ_TAXONOMY = "read_taxonomy"
+    SEARCH = "search"
+    READ_DATA = "read_data"
+    TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
 
 
@@ -857,6 +861,10 @@ class DataWarehouseEventsModifier(BaseModel):
     timestamp_field: str
 
 
+class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
+    root: Literal["revenue_analytics"] = "revenue_analytics"
+
+
 class DataWarehouseViewLinkConfiguration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1207,6 +1215,8 @@ class EventType(BaseModel):
     event: str
     id: str
     person: Optional[Person] = None
+    person_id: Optional[str] = None
+    person_mode: Optional[str] = None
     properties: dict[str, Any]
     timestamp: str
     uuid: Optional[str] = None
@@ -1410,6 +1420,7 @@ class FileSystemIconType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
+    MANAGED_VIEWSETS = "managed_viewsets"
     ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
     WEB_ANALYTICS = "web_analytics"
@@ -1432,6 +1443,7 @@ class FileSystemIconType(StrEnum):
     ACTION = "action"
     COMMENT = "comment"
     ANNOTATION = "annotation"
+    EVENT = "event"
     EVENT_DEFINITION = "event_definition"
     PROPERTY_DEFINITION = "property_definition"
     INGESTION_WARNING = "ingestion_warning"
@@ -1450,6 +1462,7 @@ class FileSystemIconType(StrEnum):
     HOME = "home"
     APPS = "apps"
     LIVE = "live"
+    CHAT = "chat"
 
 
 class FileSystemImport(BaseModel):
@@ -1472,6 +1485,7 @@ class FileSystemImport(BaseModel):
     path: str = Field(..., description="Object's name and folder")
     protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    sceneKey: Optional[str] = Field(default=None, description="Match this with the a base scene key or a specific one")
     shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
     type: Optional[str] = Field(
@@ -1732,6 +1746,15 @@ class InsightsThresholdBounds(BaseModel):
     )
     lower: Optional[float] = None
     upper: Optional[float] = None
+
+
+class IntegrationFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    integrationSourceIds: Optional[list[str]] = Field(
+        default=None, description="Selected integration source IDs to filter by (e.g., table IDs or source map IDs)"
+    )
 
 
 class IntegrationKind(StrEnum):
@@ -2166,6 +2189,7 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
+    INTERNAL_EVENT = "internal_event"
     EVENT_METADATA = "event_metadata"
     PERSON = "person"
     ELEMENT = "element"
@@ -2798,6 +2822,7 @@ class TaxonomicFilterGroupType(StrEnum):
     DATA_WAREHOUSE_PERSON_PROPERTIES = "data_warehouse_person_properties"
     ELEMENTS = "elements"
     EVENTS = "events"
+    INTERNAL_EVENTS = "internal_events"
     EVENT_PROPERTIES = "event_properties"
     EVENT_FEATURE_FLAGS = "event_feature_flags"
     EVENT_METADATA = "event_metadata"
@@ -3968,9 +3993,11 @@ class ExperimentMetricBaseProperties(BaseModel):
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
+    isSharedMetric: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
+    sharedMetricId: Optional[float] = None
     uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -12354,11 +12381,13 @@ class ExperimentRatioMetric(BaseModel):
     denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
+    isSharedMetric: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["ratio"] = "ratio"
     name: Optional[str] = None
     numerator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     response: Optional[dict[str, Any]] = None
+    sharedMetricId: Optional[float] = None
     uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -12516,6 +12545,7 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     )
     filterTestAccounts: Optional[bool] = None
     includeRevenue: Optional[bool] = None
+    integrationFilter: Optional[IntegrationFilter] = Field(default=None, description="Filter by integration IDs")
     kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -12547,6 +12577,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
         default=None, description="Include conversion goal rows even when they don't match campaign costs table"
     )
     includeRevenue: Optional[bool] = None
+    integrationFilter: Optional[IntegrationFilter] = Field(default=None, description="Filter by integration type")
     kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
     limit: Optional[int] = Field(default=None, description="Number of rows to return")
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -13273,11 +13304,13 @@ class ExperimentFunnelMetric(BaseModel):
     fingerprint: Optional[str] = None
     funnel_order_type: Optional[StepOrderValue] = None
     goal: Optional[ExperimentMetricGoal] = None
+    isSharedMetric: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_type: Literal["funnel"] = "funnel"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
     series: list[Union[EventsNode, ActionsNode]]
+    sharedMetricId: Optional[float] = None
     uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -13291,11 +13324,13 @@ class ExperimentMeanMetric(BaseModel):
     fingerprint: Optional[str] = None
     goal: Optional[ExperimentMetricGoal] = None
     ignore_zeros: Optional[bool] = None
+    isSharedMetric: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
+    sharedMetricId: Optional[float] = None
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     upper_bound_percentile: Optional[float] = None
     uuid: Optional[str] = None

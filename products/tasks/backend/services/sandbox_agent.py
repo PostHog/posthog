@@ -100,7 +100,7 @@ class SandboxAgent:
         return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --workflowId {workflow_id} --repositoryPath {repo_path}"
 
     def _get_setup_command(self, repo_path: str) -> str:
-        return f"IS_SANDBOX=True claude --dangerously-skip-permissions -p '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 10"
+        return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
 
     async def destroy(self) -> None:
         await self.sandbox.destroy()
