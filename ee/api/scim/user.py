@@ -9,6 +9,8 @@ from scim2_filter_parser.attr_paths import AttrPath
 from posthog.models import OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
+from ee.models.rbac.role import RoleMembership
+
 
 class PostHogSCIMUser(SCIMUser):
     """
@@ -104,6 +106,18 @@ class PostHogSCIMUser(SCIMUser):
         if self.display_name:
             base_dict["displayName"] = self.display_name
 
+        role_memberships = RoleMembership.objects.filter(
+            user=self.obj, role__organization=self._organization_domain.organization
+        ).select_related("role")
+        base_dict["groups"] = [
+            {
+                "value": str(rm.role.id),
+                "$ref": f"/scim/v2/{self._organization_domain.id}/Groups/{rm.role.id}",
+                "display": rm.role.name,
+            }
+            for rm in role_memberships
+        ]
+
         return base_dict
 
     @classmethod
@@ -159,9 +173,14 @@ class PostHogSCIMUser(SCIMUser):
         email = self._extract_email_from_value(data.get("emails", []))
 
         if not email:
-            raise ValueError("email is required for PUT")
+            raise ValueError("Email is required")
 
         with transaction.atomic():
+            # Do not allow changing email to another user's email
+            existing_user_with_email = User.objects.filter(email__iexact=email).exclude(id=self.obj.id).first()
+            if existing_user_with_email:
+                raise ValueError("Email belongs to another user")
+
             self.obj.first_name = name_data.get("givenName", "")
             self.obj.last_name = name_data.get("familyName", "")
             self.obj.email = email

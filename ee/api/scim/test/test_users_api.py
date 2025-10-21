@@ -6,6 +6,7 @@ from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
 from ee.api.test.base import APILicensedTest
+from ee.models.rbac.role import RoleMembership
 
 
 class TestSCIMUsersAPI(APILicensedTest):
@@ -152,6 +153,13 @@ class TestSCIMUsersAPI(APILicensedTest):
         OrganizationMembership.objects.create(
             user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
         )
+        role = self.organization.roles.create(name="Engineers")
+
+        RoleMembership.objects.create(
+            role=role,
+            user=user,
+            organization_member=OrganizationMembership.objects.get(user=user, organization=self.organization),
+        )
 
         response = self.client.get(f"/scim/v2/{self.domain.id}/Users/{user.id}", **self.scim_headers)
 
@@ -160,6 +168,8 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert data["userName"] == "test@example.com"
         assert data["name"]["givenName"] == "Test"
         assert data["active"] is True
+        assert "groups" in data
+        assert any(g.get("display") == "Engineers" for g in data["groups"])
 
     def test_deactivate_user(self):
         user = User.objects.create_user(
@@ -246,6 +256,39 @@ class TestSCIMUsersAPI(APILicensedTest):
             response.status_code == status.HTTP_404_NOT_FOUND
         ), f"Expected 404, got {response.status_code}: {response.content}"
         assert not User.objects.filter(email="nonexistent@example.com").exists()
+
+    def test_put_user_email_belongs_to_another_user(self):
+        # Existing user A in org
+        user_a = User.objects.create_user(
+            email="alpha@example.com", password=None, first_name="Alpha", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user_a, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        # Existing user B in org
+        user_b = User.objects.create_user(
+            email="beta@example.com", password=None, first_name="Beta", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user_b, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+
+        # IdP mismatches B and tries to PUT with A email
+        put_data_conflict = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "alpha@example.com",
+            "name": {"givenName": "Should", "familyName": "Fail"},
+            "emails": [{"value": "alpha@example.com", "primary": True}],
+            "active": True,
+        }
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Users/{user_b.id}", data=put_data_conflict, format="json", **self.scim_headers
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert b"Invalid user data" in response.content
 
     def test_patch_user_not_found(self):
         patch_data = {
