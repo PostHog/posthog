@@ -20,7 +20,6 @@ class TestEntitySearchToolkit:
 
     @parameterized.expand(
         [
-            ("insight", "test_insight_id", "/project/{team_id}/insights/test_insight_id"),
             ("dashboard", "test_dashboard_id", "/project/{team_id}/dashboard/test_dashboard_id"),
             ("experiment", "test_experiment_id", "/project/{team_id}/experiments/test_experiment_id"),
             ("feature_flag", "test_flag_id", "/project/{team_id}/feature_flags/test_flag_id"),
@@ -39,11 +38,11 @@ class TestEntitySearchToolkit:
         [
             (
                 {
-                    "type": "insight",
+                    "type": "cohort",
                     "result_id": "123",
-                    "extra_fields": {"name": "Test Insight", "key": "test_key", "description": "Test description"},
+                    "extra_fields": {"name": "Test cohort", "key": "test_key", "description": "Test description"},
                 },
-                ["name: Test Insight", "key: test_key", "description: Test description"],
+                ["name: Test cohort", "key: test_key", "description: Test description"],
             ),
             (
                 {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}},
@@ -71,34 +70,34 @@ class TestEntitySearchToolkit:
 
     def test_format_results_for_display_no_results(self):
         content = self.toolkit._format_results_for_display(
-            query="test query", entity_types={"insight", "dashboard"}, results=[], counts={}
+            query="test query", entity_types={"cohort", "dashboard"}, results=[], counts={}
         )
 
         assert "No entities found" in content
         assert "test query" in content
-        assert "['dashboard', 'insight']" in content
+        assert "['dashboard', 'cohort']" in content
 
     def test_format_results_for_display_with_results(self):
         results = [
-            {"type": "insight", "result_id": "123", "extra_fields": {"name": "Test Insight"}},
+            {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}},
             {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}},
         ]
-        counts: dict[str, int | None] = {"insight": 1, "dashboard": 1}
+        counts: dict[str, int | None] = {"cohort": 1, "dashboard": 1}
 
         content = self.toolkit._format_results_for_display(
-            query="test query", entity_types={"insight", "dashboard"}, results=results, counts=counts
+            query="test query", entity_types={"cohort", "dashboard"}, results=results, counts=counts
         )
 
         assert "Successfully found 2 entities" in content
-        assert "Test Insight" in content
+        assert "Test cohort" in content
         assert "Test Dashboard" in content
-        assert "Insight: 1" in content
+        assert "Cohort: 1" in content
         assert "Dashboard: 1" in content
         assert "VERY IMPORTANT INSTRUCTIONS" in content
 
     @pytest.mark.asyncio
     async def test_arun_no_query(self):
-        result = await self.toolkit.search(query=None, entity_types=["insight", "dashboard", "action"])  # type: ignore
+        result = await self.toolkit.search(query=None, entity_types=["cohort", "dashboard", "action"])  # type: ignore
 
         assert "No search query was provided" in result
 
@@ -107,7 +106,7 @@ class TestEntitySearchToolkit:
     @patch("ee.hogai.graph.entity_search.toolkit.database_sync_to_async")
     async def test_search_no_entity_types(self, mock_db_sync, mock_search_entities):
         all_results = [
-            {"type": "insight", "result_id": "123", "extra_fields": {"name": "Test Insight"}, "rank": 0.95},
+            {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
             {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}, "rank": 0.90},
             {"type": "action", "result_id": "101", "extra_fields": {"name": "Test Action"}, "rank": 0.80},
         ]
@@ -135,7 +134,7 @@ class TestEntitySearchToolkit:
     @patch("ee.hogai.graph.entity_search.toolkit.database_sync_to_async")
     async def test_arun_with_results(self, mock_db_sync, mock_search_entities):
         all_results = [
-            {"type": "insight", "result_id": "123", "extra_fields": {"name": "Test Insight"}, "rank": 0.95},
+            {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
             {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}, "rank": 0.90},
             {"type": "action", "result_id": "101", "extra_fields": {"name": "Test Action"}, "rank": 0.80},
         ]
@@ -152,9 +151,9 @@ class TestEntitySearchToolkit:
         mock_db_sync.side_effect = async_wrapper
         mock_search_entities.side_effect = side_effect_func
 
-        result = await self.toolkit.search(query="test query", entity_types=["insight", "dashboard", "action"])
+        result = await self.toolkit.search(query="test query", entity_types=["cohort", "dashboard", "action"])
 
-        assert "Test Insight" in result
+        assert "Test cohort" in result
         assert "Test Dashboard" in result
         assert "Test Action" in result
 
@@ -169,7 +168,7 @@ class TestEntitySearchToolkit:
     async def test_arun_exception_handling(self, mock_capture, mock_db_sync):
         mock_db_sync.side_effect = Exception("Database error")
 
-        result = await self.toolkit.search(query="test query", entity_types=["insight", "dashboard", "action"])
+        result = await self.toolkit.search(query="test query", entity_types=["cohort", "dashboard", "action"])
 
         assert "Database error" in result
 
