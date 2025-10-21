@@ -10,6 +10,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorAccessDenied as ErrorAccessDeniedComponent } from '~/layout/ErrorAccessDenied'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
+import { scene as oauthAuthorizeScene } from '~/scenes/oauth/OAuthAuthorize'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
@@ -32,6 +33,7 @@ export const preloadedScenes: Record<string, SceneExport> = {
     [Scene.ErrorProjectUnavailable]: {
         component: ErrorProjectUnavailableComponent,
     },
+    [Scene.OAuthAuthorize]: oauthAuthorizeScene,
 }
 
 export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
