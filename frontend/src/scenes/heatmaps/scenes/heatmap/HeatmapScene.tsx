@@ -64,9 +64,14 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         key: 'heatmaps',
                     }}
                     actions={
-                        <LemonButton type="primary" onClick={updateHeatmap} size="small">
-                            Save
-                        </LemonButton>
+                        <>
+                            <LemonButton type="primary" onClick={updateHeatmap} size="small">
+                                Save
+                            </LemonButton>
+                            <LemonButton type="primary" onClick={updateHeatmap} size="small">
+                                Export
+                            </LemonButton>
+                        </>
                     }
                 />
                 <ScenePanelDivider />

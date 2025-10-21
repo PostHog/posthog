@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { heatmapsSceneLogic } from 'scenes/heatmaps/scenes/heatmaps/heatmapsSceneLogic'
 
 import { HeatmapStatus, HeatmapType } from '~/types'
 
@@ -14,7 +15,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
     key((props) => props.id),
     connect(() => ({
         values: [heatmapsBrowserLogic, ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized', 'widthOverride']],
-        actions: [heatmapsBrowserLogic, ['setDataUrl', 'setDisplayUrl', 'onIframeLoad', 'loadHeatmap']],
+        actions: [
+            heatmapsBrowserLogic,
+            ['setDataUrl', 'setDisplayUrl', 'onIframeLoad', 'loadHeatmap'],
+            heatmapsSceneLogic,
+            ['loadSavedHeatmaps'],
+        ],
     })),
     actions({
         load: true,
@@ -121,6 +127,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     type: values.type,
                 }
                 const created = await api.heatmapSaved.create(data)
+                actions.loadSavedHeatmaps()
                 // Navigate to the created heatmap detail page
                 router.actions.push(`/heatmaps/${created.short_id}`)
             } finally {

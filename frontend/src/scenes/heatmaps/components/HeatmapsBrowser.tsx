@@ -333,7 +333,7 @@ export function ForbiddenURL(): JSX.Element {
                 this page.
             </LemonBanner>
 
-            <h2>Authorized Toolbar URLs</h2>
+            <h4>Authorized Toolbar URLs</h4>
             <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
         </div>
     )
