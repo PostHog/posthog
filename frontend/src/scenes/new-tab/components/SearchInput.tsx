@@ -1,7 +1,7 @@
 import { DropdownMenuGroup } from '@radix-ui/react-dropdown-menu'
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
-import { IconCheck } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -18,28 +18,28 @@ import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { TextInputPrimitive, textInputVariants } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
-export interface Command<T = string> {
+export interface SearchInputCommand<T = string> {
     value: T
     displayName: string
 }
 
-interface CommandInputProps<T = string> {
-    commands: Command<T>[]
+interface SearchInputProps<T = string> {
+    commands: SearchInputCommand<T>[]
     placeholder?: string
     value?: string
     onChange?: (value: string) => void
-    onCommandSelect?: (command: Command<T>) => void
-    selectedCommands?: Command<T>[]
-    onSelectedCommandsChange?: (commands: Command<T>[]) => void
+    onCommandSelect?: (command: SearchInputCommand<T>) => void
+    selectedCommands?: SearchInputCommand<T>[]
+    onSelectedCommandsChange?: (commands: SearchInputCommand<T>[]) => void
     activeCommands?: T[]
 }
 
-export interface CommandInputHandle {
+export interface SearchInputHandle {
     focus: () => void
     getInputRef: () => React.RefObject<HTMLInputElement>
 }
 
-export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(function CommandInput<T = string>(
+export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(function SearchInput<T = string>(
     {
         commands,
         placeholder = 'Type / to see commands...',
@@ -49,12 +49,12 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(fu
         selectedCommands = [],
         onSelectedCommandsChange,
         activeCommands = [],
-    }: CommandInputProps<T>,
-    ref: React.Ref<CommandInputHandle>
+    }: SearchInputProps<T>,
+    ref: React.Ref<SearchInputHandle>
 ) {
     const [inputValue, setInputValue] = useState(value)
     const [showDropdown, setShowDropdown] = useState(false)
-    const [filteredCommands, setFilteredCommands] = useState<Command<T>[]>(commands)
+    const [filteredCommands, setFilteredCommands] = useState<SearchInputCommand<T>[]>(commands)
     const [focusedIndex, setFocusedIndex] = useState(0)
     const inputRef = useRef<HTMLInputElement>(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
@@ -104,7 +104,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(fu
         }
     }
 
-    const selectCommand = (command: Command<T>): void => {
+    const selectCommand = (command: SearchInputCommand<T>): void => {
         const newSelectedCommands = selectedCommands.some((cmd) => cmd.value === command.value)
             ? selectedCommands
             : [...selectedCommands, command]
@@ -185,7 +185,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(fu
                         }}
                     >
                         <DropdownMenuTrigger asChild>
-                            <ButtonPrimitive className="rounded-r-none text-primary data-[focused=true]:outline-2 data-[focused=true]:outline-accent">
+                            <ButtonPrimitive className="h-full rounded-r-none text-primary data-[focused=true]:outline-2 data-[focused=true]:outline-accent">
                                 Filters
                                 <DropdownMenuOpenIndicator />
                             </ButtonPrimitive>
@@ -267,6 +267,23 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(fu
                     autoComplete="off"
                     className="pl-2 w-full border-none flex-1 h-full min-h-full"
                     size="lg"
+                    suffix={
+                        inputValue !== '' && (
+                            <ListBox.Item asChild>
+                                <ButtonPrimitive
+                                    iconOnly
+                                    onClick={() => {
+                                        setInputValue('')
+                                        inputRef.current?.focus()
+                                    }}
+                                    className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                                    aria-label="Clear input"
+                                >
+                                    <IconX />
+                                </ButtonPrimitive>
+                            </ListBox.Item>
+                        )
+                    }
                 />
             </div>
         </div>

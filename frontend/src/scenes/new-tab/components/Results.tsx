@@ -34,12 +34,14 @@ function Category({
     category,
     columnIndex,
     isFirstCategoryWithResults,
+    askAI,
 }: {
     tabId: string
     items: NewTabTreeDataItem[]
     category: string
     columnIndex: number
     isFirstCategoryWithResults: boolean
+    askAI: (searchTerm: string) => void
 }): JSX.Element {
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
@@ -181,6 +183,15 @@ function Category({
                                                 <Link
                                                     to={item.href || '#'}
                                                     className="w-full"
+                                                    onClick={(e) => {
+                                                        if (
+                                                            item.category === 'askAI' &&
+                                                            item.record?.searchTerm !== undefined
+                                                        ) {
+                                                            e.preventDefault()
+                                                            askAI(item.record.searchTerm)
+                                                        }
+                                                    }}
                                                     buttonProps={{
                                                         size: 'base',
                                                         hasSideActionRight: true,
@@ -309,7 +320,7 @@ export function Results({
         isSearching,
         newTabSceneDataInclude,
     } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch } = useActions(newTabSceneLogic({ tabId }))
+    const { setSearch, askAI } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
     const isAIAvailable = useFeatureFlag('ARTIFICIAL_HOG')
@@ -371,7 +382,7 @@ export function Results({
                 // Hide empty categories for other sections
                 return items.length > 0
             })
-    }, [newTabSceneData, groupedFilteredItems, newTabSceneDataGroupedItems, newTabSceneDataInclude])
+    }, [newTabSceneData, groupedFilteredItems, newTabSceneDataGroupedItems, newTabSceneDataInclude, isAIAvailable])
 
     // Memoized helper to determine which category should get first focus
     const firstCategoryWithResults = useMemo((): string | null => {
@@ -428,6 +439,15 @@ export function Results({
                                                 <Link
                                                     to={item.href || '#'}
                                                     className="w-full"
+                                                    onClick={(e) => {
+                                                        if (
+                                                            item.category === 'askAI' &&
+                                                            item.record?.searchTerm !== undefined
+                                                        ) {
+                                                            e.preventDefault()
+                                                            askAI(item.record.searchTerm)
+                                                        }
+                                                    }}
                                                     buttonProps={{
                                                         size: 'base',
                                                         hasSideActionRight: true,
@@ -500,6 +520,7 @@ export function Results({
                     category={category}
                     columnIndex={columnIndex}
                     isFirstCategoryWithResults={category === firstCategoryWithResults}
+                    askAI={askAI}
                     key={category}
                 />
             ))}

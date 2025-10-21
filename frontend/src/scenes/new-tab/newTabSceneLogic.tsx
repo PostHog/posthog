@@ -5,14 +5,15 @@ import { router } from 'kea-router'
 import { IconApps, IconDatabase, IconHogQL, IconPerson, IconSparkles, IconToggle } from '@posthog/icons'
 
 import api from 'lib/api'
-import { Command } from 'lib/components/CommandInput'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     ProductIconWrapper,
     getDefaultTreeData,
@@ -25,8 +26,9 @@ import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogi
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { EventDefinition, PersonType, PropertyDefinition } from '~/types'
+import { EventDefinition, PersonType, PropertyDefinition, SidePanelTab } from '~/types'
 
+import { SearchInputCommand } from './components/SearchInput'
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
 
 export type NEW_TAB_CATEGORY_ITEMS =
@@ -51,9 +53,9 @@ export type NEW_TAB_COMMANDS =
     | 'propertyDefinitions'
     | 'askAI'
 
-export const NEW_TAB_COMMANDS_ITEMS: Command<NEW_TAB_COMMANDS>[] = [
-    { value: 'all', displayName: 'Toggle all' },
-    { value: 'create-new', displayName: 'New' },
+export const NEW_TAB_COMMANDS_ITEMS: SearchInputCommand<NEW_TAB_COMMANDS>[] = [
+    { value: 'all', displayName: 'All' },
+    { value: 'create-new', displayName: 'Create new' },
     { value: 'apps', displayName: 'Apps' },
     { value: 'data-management', displayName: 'Data management' },
     { value: 'recents', displayName: 'Recents files' },
@@ -94,10 +96,10 @@ function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
     props({} as { tabId?: string }),
+    key((props) => props.tabId || 'default'),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),
-    key((props) => props.tabId || 'default'),
     actions({
         setSearch: (search: string) => ({ search }),
         selectNext: true,
@@ -309,7 +311,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ actions }) => ({
         newTabSceneDataIncludePersons: [
             (s) => [s.newTabSceneDataInclude],
             (include): boolean => include.includes('persons'),
@@ -492,6 +494,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         path: searchTerm ? `Ask Posthog AI: ${searchTerm}` : 'Ask Posthog AI',
                         href: '#',
                         searchTerm: searchTerm || '',
+                        onClick: () => actions.askAI(searchTerm),
                     },
                 }
                 return [item]
@@ -752,7 +755,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     ? filteredItemsGrid[selectedIndex]
                     : null,
         ],
-    }),
+    })),
     listeners(({ actions, values }) => ({
         triggerSearchForIncludedItems: () => {
             const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
@@ -923,7 +926,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
         askAI: ({ searchTerm }) => {
-            alert(`ask ai: ${searchTerm}`)
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
+            maxLogic.actions.setQuestion(searchTerm)
+            maxLogic.actions.focusInput()
         },
     })),
     tabAwareActionToUrl(({ values }) => ({

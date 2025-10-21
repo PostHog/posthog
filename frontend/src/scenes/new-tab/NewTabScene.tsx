@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import {
     IconApps,
@@ -14,7 +14,6 @@ import {
 } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { Command, CommandInput, CommandInputHandle } from 'lib/components/CommandInput'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -36,10 +35,10 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { SidePanelTab } from '~/types'
 
 import { Results } from './components/Results'
 import { SearchHints } from './components/SearchHints'
+import { SearchInput, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
 
 export const scene: SceneExport = {
     component: NewTabScene,
@@ -73,13 +72,12 @@ export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
 }
 
 export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
-    const commandInputRef = useRef<CommandInputHandle>(null)
+    const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
     const inputRef = useRef<HTMLInputElement>(null)
     const {
         filteredItemsGrid,
         search,
-        selectedItem,
         categories,
         selectedCategory,
         newTabSceneDataIncludePersons,
@@ -90,7 +88,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     } = useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
     const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic)
-    const { setSearch, setSelectedCategory, toggleNewTabSceneDataInclude } = useActions(newTabSceneLogic({ tabId }))
+    const { setSearch, setSelectedCategory, toggleNewTabSceneDataInclude, askAI } = useActions(
+        newTabSceneLogic({ tabId })
+    )
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
@@ -100,15 +100,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     const showAiFeature = newTabSceneData && isAIAvailable
 
     // State for selected commands (tags)
-    const [selectedCommands, setSelectedCommands] = useState<Command<NEW_TAB_COMMANDS>[]>([])
-
-    // scroll it to view
-    useEffect(() => {
-        if (selectedItem) {
-            const element = document.querySelector('.selected-new-tab-item')
-            element?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
-        }
-    }, [selectedItem])
+    const [selectedCommands, setSelectedCommands] = useState<SearchInputCommand<NEW_TAB_COMMANDS>[]>([])
 
     const focusSearchInput = (): void => {
         commandInputRef.current?.focus()
@@ -137,6 +129,12 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                 virtualFocus
                 autoSelectFirst
             >
+                <div className="sr-only">
+                    <p>
+                        Welcome to the new tab, type / to see commands... or type a search term, you can navigate all
+                        interactive elements with the keyboard
+                    </p>
+                </div>
                 <div className="flex flex-col gap-2">
                     <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
                         {!newTabSceneData ? (
@@ -149,9 +147,11 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 placeholder="Search..."
                                 autoFocus
                                 allowClear
+                                aria-controls="combobox-listbox"
+                                aria-label="Search for a person, event, property, or app, you can navigate all interactive elements with the keyboard"
                             />
                         ) : (
-                            <CommandInput
+                            <SearchInput
                                 ref={commandInputRef}
                                 commands={NEW_TAB_COMMANDS_ITEMS}
                                 value={search}
@@ -164,7 +164,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 activeCommands={activeCommands}
                                 selectedCommands={selectedCommands}
                                 onSelectedCommandsChange={(commands) =>
-                                    setSelectedCommands(commands as Command<NEW_TAB_COMMANDS>[])
+                                    setSelectedCommands(commands as SearchInputCommand<NEW_TAB_COMMANDS>[])
                                 }
                                 onCommandSelect={(command) => {
                                     if (command.value === 'all') {
@@ -351,11 +351,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         </ListBox.Item>
                                         or{' '}
                                         <ListBox.Item asChild>
-                                            <ButtonPrimitive
-                                                size="sm"
-                                                onClick={() => openSidePanel(SidePanelTab.Max)}
-                                                variant="panel"
-                                            >
+                                            <ButtonPrimitive size="sm" onClick={() => askAI(search)} variant="panel">
                                                 Ask Posthog AI
                                             </ButtonPrimitive>
                                         </ListBox.Item>
