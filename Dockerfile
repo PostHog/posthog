@@ -41,9 +41,6 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 
 COPY frontend/ frontend/
 RUN bin/turbo --filter=@posthog/frontend build
-# KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
-# KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails 🤷
-RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ || true
 
 #
 # ---------------------------------------------------------
@@ -142,7 +139,7 @@ RUN apt-get update && \
     "pkg-config" \
     && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install uv~=0.7.0 --no-cache-dir && \
+    pip install uv==0.8.19 --no-cache-dir && \
     UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \

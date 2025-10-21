@@ -20,27 +20,11 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
 
 export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
-    const { updateUser } = useActions(userLogic)
+    const { updateWeeklyDigestForTeam, updateWeeklyDigestForAllTeams } = useActions(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const [weeklyDigestProjectsExpanded, setWeeklyDigestProjectsExpanded] = useState(weeklyDigestEnabled)
-
-    const updateWeeklyDigestForProject = (teamId: number, enabled: boolean): void => {
-        if (!user?.notification_settings) {
-            return
-        }
-
-        updateUser({
-            notification_settings: {
-                ...user.notification_settings,
-                project_weekly_digest_disabled: {
-                    ...user.notification_settings.project_weekly_digest_disabled,
-                    [teamId]: !enabled,
-                },
-            },
-        })
-    }
 
     return (
         <div className="deprecated-space-y-4">
@@ -58,6 +42,8 @@ export function UpdateEmailPreferences(): JSX.Element {
                             label="Weekly digest"
                             description="The weekly digest keeps you up to date with everything that's happening in your PostHog organizations"
                             dataAttr="weekly_digest_enabled"
+                            // because the setting is disabled, but the control is expressed as enabled
+                            inverse={true}
                         />
 
                         {weeklyDigestEnabled && (
@@ -75,14 +61,39 @@ export function UpdateEmailPreferences(): JSX.Element {
                                 {weeklyDigestProjectsExpanded && (
                                     <div className="mt-3 ml-6 deprecated-space-y-2">
                                         <div className="flex flex-col gap-2">
+                                            <div className="flex flex-row items-center gap-4">
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        updateWeeklyDigestForAllTeams(
+                                                            (currentOrganization?.teams || []).map((t) => t.id),
+                                                            true
+                                                        )
+                                                    }}
+                                                >
+                                                    Enable for all teams
+                                                </LemonButton>
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        updateWeeklyDigestForAllTeams(
+                                                            (currentOrganization?.teams || []).map((t) => t.id),
+                                                            false
+                                                        )
+                                                    }}
+                                                >
+                                                    Disable for all teams
+                                                </LemonButton>
+                                            </div>
+
                                             {currentOrganization?.teams?.map((team) => (
                                                 <LemonCheckbox
                                                     key={`weekly-digest-${team.id}`}
                                                     id={`weekly-digest-${team.id}`}
                                                     data-attr={`weekly_digest_${team.id}`}
-                                                    onChange={(checked) =>
-                                                        updateWeeklyDigestForProject(team.id, checked)
-                                                    }
+                                                    onChange={(checked) => updateWeeklyDigestForTeam(team.id, checked)}
                                                     checked={
                                                         !user?.notification_settings.project_weekly_digest_disabled?.[
                                                             team.id
@@ -141,17 +152,25 @@ const SimpleSwitch = ({
     label,
     description,
     setting,
+    inverse = false,
 }: {
     dataAttr: string
     label: string
     description: string
     setting: keyof BooleanNotificationSettings
+    /**
+     * Some settings are expressed as "disabled" but the control is expressed as "enabled" (e.g. "All weekly digests" setting). 🫠
+     */
+    inverse?: boolean
 }): JSX.Element => {
     const { user, userLoading } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
 
     const value = user?.notification_settings?.[setting]
-    const checked = value ?? NOTIFICATION_DEFAULTS[setting]
+    let checked = value ?? NOTIFICATION_DEFAULTS[setting]
+    if (inverse) {
+        checked = !checked
+    }
 
     return (
         <div className="space-y-2">
@@ -162,7 +181,7 @@ const SimpleSwitch = ({
                         updateUser({
                             notification_settings: {
                                 ...user?.notification_settings,
-                                [setting]: newChecked,
+                                [setting]: inverse ? !newChecked : newChecked,
                             },
                         })
                 }}
