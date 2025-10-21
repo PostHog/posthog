@@ -2863,6 +2863,8 @@ export interface ExperimentMetricTimeseries {
     computed_at: string | null
     created_at: string
     updated_at: string
+    recalculation_status?: string | null
+    recalculation_created_at?: string | null
 }
 
 /**
