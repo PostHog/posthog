@@ -94,14 +94,12 @@ export const currentPageLogic = kea<currentPageLogicType>([
     afterMount(({ actions, values, cache }) => {
         actions.setHref(withoutPostHogInit(values.href))
 
-        const checkAndUpdateHref = (): void => {
-            if (window.location.href !== values.href) {
-                actions.setHref(withoutPostHogInit(window.location.href))
-            }
-        }
-
         cache.disposables.add(
-            makeNavigateWrapper(checkAndUpdateHref, '__ph_current_page_logic_wrapped__'),
+            makeNavigateWrapper((): void => {
+                if (window.location.href !== values.href) {
+                    actions.setHref(withoutPostHogInit(window.location.href))
+                }
+            }, '__ph_current_page_logic_wrapped__'),
             'historyProxy'
         )
     }),
