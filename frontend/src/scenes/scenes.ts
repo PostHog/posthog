@@ -683,6 +683,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.heatmapNew()]: [Scene.HeatmapNew, 'heatmapNew'],
+    [urls.heatmapRecording()]: [Scene.HeatmapRecording, 'heatmapRecording'],
     [urls.heatmap(':id')]: [Scene.Heatmap, 'heatmap'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],

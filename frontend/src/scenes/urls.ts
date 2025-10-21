@@ -148,6 +148,8 @@ export const urls = {
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmapNew: (): string => `/heatmaps/new`,
+    heatmapRecording: (params?: string): string =>
+        `/heatmaps/recording${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmap: (id: string | number): string => `/heatmaps/${id}`,
     links: (params?: string): string =>
         `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,

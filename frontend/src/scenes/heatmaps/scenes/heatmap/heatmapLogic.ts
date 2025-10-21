@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { heatmapsSceneLogic } from 'scenes/heatmaps/scenes/heatmaps/heatmapsSceneLogic'
 
@@ -11,15 +12,17 @@ import type { heatmapLogicType } from './heatmapLogicType'
 
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['scenes', 'heatmaps', 'scenes', 'heatmap', 'heatmapLogic']),
-    props({ id: null as string | number | null }),
+    props({ id: 'new' as string | number }),
     key((props) => props.id),
     connect(() => ({
         values: [heatmapsBrowserLogic, ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized', 'widthOverride']],
         actions: [
             heatmapsBrowserLogic,
-            ['setDataUrl', 'setDisplayUrl', 'onIframeLoad', 'loadHeatmap'],
+            ['setDataUrl', 'setDisplayUrl', 'onIframeLoad'],
             heatmapsSceneLogic,
             ['loadSavedHeatmaps'],
+            heatmapDataLogic,
+            ['loadHeatmap'],
         ],
     })),
     actions({

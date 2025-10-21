@@ -1703,7 +1703,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 url: values.currentURL,
             }
             localStorage.setItem(key, JSON.stringify(data))
-            router.actions.push(urls.heatmaps(`iframeStorage=${key}`))
+            router.actions.push(urls.heatmapRecording(`iframeStorage=${key}`))
         },
 
         setIsFullScreen: async ({ isFullScreen }) => {

@@ -579,6 +579,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (searchParams.commonFilters && !objectsEqual(searchParams.commonFilters, values.commonFilters)) {
                 actions.setCommonFilters(searchParams.commonFilters as CommonFilters)
             }
+        },
+        '/heatmaps/recording': (_, searchParams) => {
             if (searchParams.iframeStorage) {
                 const replayFrameData = JSON.parse(
                     localStorage.getItem(searchParams.iframeStorage) || '{}'
