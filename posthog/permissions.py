@@ -416,15 +416,18 @@ class APIScopePermission(ScopeBasePermission):
 
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             key_scopes = request.successful_authenticator.personal_api_key.scopes
+            # TRICKY: Legacy Personal API keys have no scopes and are allowed to do anything
+            if not key_scopes:
+                return True
         elif isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
             # OAuth tokens store scopes as space-separated string
             token_scope_string = request.successful_authenticator.access_token.scope
             key_scopes = token_scope_string.split() if token_scope_string else []
+            # OAuth tokens with no scopes should not have access
+            if not key_scopes:
+                self.message = "OAuth token has no scopes and cannot access this resource"
+                return False
         else:
-            return True
-
-        # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
-        if not key_scopes:
             return True
 
         required_scopes = self._get_required_scopes(request, view)
