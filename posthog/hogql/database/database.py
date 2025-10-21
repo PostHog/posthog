@@ -132,7 +132,6 @@ class Database(BaseModel):
 
     # Users can query from the tables below
     tables: TableNode = TableNode(
-        name="root",
         children={
             "events": TableNode(name="events", table=EventsTable()),
             "groups": TableNode(name="groups", table=GroupsTable()),
@@ -558,9 +557,9 @@ def create_hogql_database(
                 events_table.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
     warehouse_tables_dot_notation_mapping: dict[str, str] = {}
-    warehouse_tables: TableNode = TableNode(name="root", children={})
-    self_managed_warehouse_tables: TableNode = TableNode(name="root", children={})
-    views: TableNode = TableNode(name="root", children={})
+    warehouse_tables: TableNode = TableNode()
+    self_managed_warehouse_tables: TableNode = TableNode()
+    views: TableNode = TableNode()
 
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):

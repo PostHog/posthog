@@ -208,7 +208,7 @@ class TableNode(
 ):
     model_config = ConfigDict(extra="forbid")
 
-    name: Literal["root"] | str
+    name: Literal["root"] | str = "root"  # Default to root for ease of use
     table: FieldOrTable | None = None
     children: dict[str, "TableNode"] = {}
 
