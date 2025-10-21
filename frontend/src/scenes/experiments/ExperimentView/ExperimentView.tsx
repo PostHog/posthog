@@ -32,6 +32,7 @@ import {
     ResultsInsightInfoBanner,
     ResultsQuery,
 } from '../components/ResultsBreakdown'
+import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
 import { CreateExperiment } from '../create/CreateExperiment'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
@@ -93,6 +94,10 @@ const MetricsTab = (): JSX.Element => {
 
     return (
         <>
+            {/* Add the summarize button after all metrics */}
+            <div className="mt-2 mb-4 flex justify-start">
+                <SummarizeExperimentButton />
+            </div>
             {usesNewQueryRunner && (
                 <div className="w-full mb-4">
                     <Exposures />
