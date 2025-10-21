@@ -45,10 +45,10 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
             team=self.team, project=self.project, name="Test Group", description="Test"
         )
         prop1 = SchemaPropertyGroupProperty.objects.create(
-            property_group=property_group, name="prop1", property_type="String", order=0
+            property_group=property_group, name="prop1", property_type="String"
         )
         prop2 = SchemaPropertyGroupProperty.objects.create(
-            property_group=property_group, name="prop2", property_type="Numeric", order=1
+            property_group=property_group, name="prop2", property_type="Numeric"
         )
 
         # Update: keep prop1, modify prop2, add prop3, delete nothing
@@ -56,9 +56,9 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
             f"/api/projects/{self.project.id}/schema_property_groups/{property_group.id}/",
             {
                 "properties": [
-                    {"id": str(prop1.id), "name": "prop1", "property_type": "String", "order": 0},
-                    {"id": str(prop2.id), "name": "prop2_updated", "property_type": "Numeric", "order": 1},
-                    {"name": "prop3", "property_type": "Boolean", "order": 2},
+                    {"id": str(prop1.id), "name": "prop1", "property_type": "String"},
+                    {"id": str(prop2.id), "name": "prop2_updated", "property_type": "Numeric"},
+                    {"name": "prop3", "property_type": "Boolean"},
                 ]
             },
         )
