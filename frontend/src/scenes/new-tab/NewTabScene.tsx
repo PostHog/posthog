@@ -249,9 +249,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                         <div className="border-b">
                             <div className="max-w-[1200px] mx-auto w-full px-2 @lg/main-content:px-10 pb-2">
                                 <div className="flex items-center gap-x-2 gap-y-2 flex-wrap">
-                                    {newTabSceneDataInclude.length === 0 || newTabSceneDataInclude.includes('all') ? (
-                                        <></>
-                                    ) : (
+                                    {newTabSceneDataInclude.length === 0 ||
+                                    newTabSceneDataInclude.includes('all') ? null : (
                                         <>
                                             <span className="text-xs text-tertiary">Showing only:</span>
                                             {newTabSceneDataInclude
