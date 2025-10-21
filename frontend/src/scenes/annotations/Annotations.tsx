@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconNotification, IconPencil } from '@posthog/icons'
+import { IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
@@ -15,6 +15,8 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -147,11 +149,10 @@ export function Annotations(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Annotations"
-                description="Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics."
+                name={sceneConfigurations[Scene.Annotations].name}
+                description={sceneConfigurations[Scene.Annotations].description}
                 resourceType={{
-                    type: 'annotation',
-                    forceIcon: <IconNotification />,
+                    type: sceneConfigurations[Scene.Annotations].iconType || 'default_icon_type',
                 }}
                 actions={
                     <LemonButton type="primary" onClick={() => openModalToCreateAnnotation()} size="small">

@@ -17,7 +17,6 @@ from posthog.schema import (
     RecordingsQuery,
 )
 
-from posthog.models.notebook.notebook import Notebook
 from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.sync import database_sync_to_async
@@ -26,6 +25,8 @@ from posthog.temporal.ai.session_summary.summarize_session_group import (
     SessionSummaryStreamUpdate,
     execute_summarize_session_group,
 )
+
+from products.notebooks.backend.models import Notebook
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.session_summaries.prompts import GENERATE_FILTER_QUERY_PROMPT
@@ -167,7 +168,7 @@ class _SessionSearch:
         self._node = node
 
     async def _generate_replay_filters(
-        self, filter_query: str, conversation_id: str, start_time: float
+        self, state: AssistantState, config: RunnableConfig, filter_query: str, conversation_id: str, start_time: float
     ) -> MaxRecordingUniversalFilters | str | None:
         """
         Generates replay filters to get session ids by directly using SearchSessionRecordingsTool.
@@ -180,8 +181,7 @@ class _SessionSearch:
         from products.replay.backend.max_tools import SearchSessionRecordingsTool  # Avoid circular import
 
         # Create the tool instance with minimal context (no current_filters for fresh generation)
-        tool = SearchSessionRecordingsTool(team=self._node._team, user=self._node._user)
-        tool._context = {"current_filters": {}}
+        tool = SearchSessionRecordingsTool(team=self._node._team, user=self._node._user, state=state, config=config)
         try:
             # Call the tool's graph directly to use the same implementation as in the tool (avoid duplication)
             result = await tool._invoke_graph(change=filter_query)
@@ -327,7 +327,9 @@ class _SessionSearch:
             return self._node._create_error_response(self._node._base_error_instructions, state)
         # If the current filters were marked as relevant, but not present in the context
         current_filters = (
-            self._node._get_contextual_tools(config).get("search_session_recordings", {}).get("current_filters")
+            self._node.context_manager.get_contextual_tools()
+            .get("search_session_recordings", {})
+            .get("current_filters")
         )
         try:
             # Use current filters, if provided
@@ -345,6 +347,8 @@ class _SessionSearch:
             else:
                 filter_query = await self._generate_filter_query(state.session_summarization_query, config)
                 filter_generation_result = await self._generate_replay_filters(
+                    state=state,
+                    config=config,
                     filter_query=filter_query,
                     conversation_id=conversation_id,
                     start_time=start_time,
