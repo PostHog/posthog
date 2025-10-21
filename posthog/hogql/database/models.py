@@ -222,25 +222,27 @@ class TableNode(
 
         return self.table
 
-    def has_child(self, name: list[str]) -> bool:
-        if len(name) == 0:
+    # NOTE: This only returns True if the path we pass in
+    # is a valid path to a child table - not just any path.
+    def has_child(self, path: list[str]) -> bool:
+        if len(path) == 0:
             return self.table is not None
 
-        first, *rest = name
+        first, *rest_of_path = path
         if first not in self.children:
             return False
 
-        return self.children[first].has_child(rest)
+        return self.children[first].has_child(rest_of_path)
 
-    def get_child(self, name: list[str]) -> "TableNode":
-        if len(name) == 0:
+    def get_child(self, path: list[str]) -> "TableNode":
+        if len(path) == 0:
             return self
 
-        first, *rest = name
+        first, *rest_of_path = path
         if first not in self.children:
             raise ResolutionError(f"Unknown children `{first}` at `{self.name}`.")
 
-        return self.children[first].get_child(rest)
+        return self.children[first].get_child(rest_of_path)
 
     def add_child(
         self,
@@ -250,11 +252,11 @@ class TableNode(
         children_conflict_mode: Literal["override", "merge", "ignore"] = "merge",
     ):
         # If there's a conflict, we act according to the conflict modes
-        if self.has_child(child.name):
+        if child.name in self.children:
             if children_conflict_mode == "override":
                 self.children[child.name] = child
             elif children_conflict_mode == "merge":
-                self.get_child(child.name).merge_with(
+                self.children[child.name].merge_with(
                     child, table_conflict_mode=table_conflict_mode, children_conflict_mode=children_conflict_mode
                 )
             elif children_conflict_mode == "ignore":
