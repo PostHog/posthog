@@ -345,7 +345,6 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             )
         )
 
-        # Should have called twice (1 timeout + 1 success)
         assert mock_async_client.chat_postMessage.call_count == 3
         assert result.is_complete_success
         assert result.main_message_sent
