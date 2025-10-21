@@ -117,7 +117,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
     def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
-        if self.breakdown.enabled and False:  # not self._team_use_legacy_breakdown_query():
+        if self.breakdown.enabled and self._team_flag_fewer_array_ops():
             total_count_for_breakdown = parse_expr(
                 "sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown"
             )
@@ -959,9 +959,10 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             """
         )
 
-    def _team_use_legacy_breakdown_query(self) -> bool:
+    def _team_flag_fewer_array_ops(self) -> bool:
+        return True  # :TODO: Remove before release. Temporary override CI tests.
         return posthoganalytics.feature_enabled(
-            "legacy-trends-breakdown-query",
+            "trends-breakdown-fewer-array-ops",
             str(self.team.uuid),
             groups={
                 "organization": str(self.team.organization_id),
