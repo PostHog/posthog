@@ -372,10 +372,10 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
         .any(|k| k.ends_with("CURRENT")));
     assert!(remote_checkpoint_files
         .keys()
-        .any(|k| k.contains("MANIFEST")));
+        .any(|k| k.contains("MANIFEST-")));
     assert!(remote_checkpoint_files
         .keys()
-        .any(|k| k.contains("OPTIONS")));
+        .any(|k| k.contains("OPTIONS-")));
     assert!(remote_checkpoint_files.keys().any(|k| k.ends_with(".sst")));
     assert!(remote_checkpoint_files.keys().any(|k| k.ends_with(".log")));
 }
@@ -462,10 +462,10 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         .any(|k| k.ends_with("CURRENT")));
     assert!(orig_remote_checkpoint_files
         .keys()
-        .any(|k| k.contains("MANIFEST")));
+        .any(|k| k.contains("MANIFEST-")));
     assert!(orig_remote_checkpoint_files
         .keys()
-        .any(|k| k.contains("OPTIONS")));
+        .any(|k| k.contains("OPTIONS-")));
     assert!(orig_remote_checkpoint_files
         .keys()
         .any(|k| k.ends_with(".log")));
@@ -526,11 +526,11 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         .any(|k| k.ends_with("CURRENT")));
     assert!(next_remote_checkpoint_files
         .keys()
-        .any(|k| !k.contains("MANIFEST")));
+        .all(|k| !k.contains("MANIFEST-")));
     assert!(next_remote_checkpoint_files
         .keys()
-        .any(|k| !k.contains("OPTIONS")));
+        .all(|k| !k.contains("OPTIONS-")));
     assert!(next_remote_checkpoint_files
         .keys()
-        .any(|k| !k.ends_with(".log")));
+        .all(|k| !k.ends_with(".log")));
 }
