@@ -80,7 +80,6 @@ RouteName = Literal[
     "root",
     "end",
     "memory_onboarding",
-    "insights_search",
     "session_summarization",
     "create_dashboard",
 ]
@@ -516,8 +515,6 @@ class RootNodeTools(AssistantNode):
                 tool_call_name = tool_call.name
                 if tool_call_name == "create_dashboard":
                     return "create_dashboard"
-            if state.search_insights_query:
-                return "insights_search"
             elif state.session_summarization_query:
                 return "session_summarization"
         return "end"

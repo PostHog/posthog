@@ -1,5 +1,5 @@
-from collections.abc import Hashable, Sequence
-from typing import Any, Literal, Optional, cast
+from collections.abc import Sequence
+from typing import Any
 from uuid import uuid4
 
 from django.conf import settings
@@ -14,10 +14,6 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage
 
-from posthog.models import Team, User
-
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.base.graph import BaseAssistantGraph
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.openai import convert_to_openai_messages
 from ee.hogai.utils.state import PartialAssistantState
@@ -41,14 +37,25 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         messages = self._construct_messages(
             state.messages, state.root_conversation_start_id, state.root_tool_calls_count
         )
+
         message: LangchainAIMessage = await self._get_model().ainvoke(messages, config)
+        should_continue = INKEEP_DATA_CONTINUATION_PHRASE in message.content
+
+        tool_prompt = "Checking PostHog documentation..."
+        if should_continue:
+            tool_prompt = "The documentation search results are provided in the next Assistant message.\n<system_reminder>Continue with the user's data request.</system_reminder>"
+
+        new_messages = [
+            AssistantToolCallMessage(content=tool_prompt, tool_call_id=state.root_tool_call_id, id=str(uuid4())),
+            AssistantMessage(content=message.content, id=str(uuid4())),
+        ]
+        # TRICKY: If the node generates a continuation phrase, we swap the order.
+        # This way the root node will continue the generation.
+        if should_continue:
+            new_messages.reverse()
+
         return PartialAssistantState(
-            messages=[
-                AssistantToolCallMessage(
-                    content="Checking PostHog documentation...", tool_call_id=state.root_tool_call_id, id=str(uuid4())
-                ),
-                AssistantMessage(content=message.content, id=str(uuid4())),
-            ],
+            messages=new_messages,
             root_tool_call_id=None,
         )
 
@@ -116,39 +123,3 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
     ) -> list[BaseMessage]:
         # Original node has Anthropic messages, but Inkeep expects OpenAI messages
         return convert_to_openai_messages(conversation_window, tool_result_messages)
-
-    def router(self, state: AssistantState) -> Literal["end", "root"]:
-        last_message = state.messages[-1]
-        if isinstance(last_message, AssistantMessage) and INKEEP_DATA_CONTINUATION_PHRASE in last_message.content:
-            # The continuation phrase solution is a little weird, but seems it's the best one for agentic capabilities
-            # I've found here. The alternatives that definitively don't work are:
-            # 1. Using tool calls in this node - the Inkeep API only supports providing their own pre-defined tools
-            #    (for including extra search metadata), nothing else
-            # 2. Always going back to root, for root to judge whether to continue or not - GPT-4o is terrible at this,
-            #    and I was unable to stop it from repeating the context from the last assistant message, i.e. the Inkeep
-            #    output message (doesn't quite work to tell it to output an empty message, or to call an "end" tool)
-            return "root"
-        return "end"
-
-
-class InkeepDocsGraph(BaseAssistantGraph[AssistantState]):
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState)
-
-    def add_inkeep_docs(self, path_map: Optional[dict[Hashable, AssistantNodeName]] = None):
-        """Add the Inkeep docs search node to the graph."""
-        path_map = path_map or {
-            "end": AssistantNodeName.END,
-            "root": AssistantNodeName.ROOT,
-        }
-        inkeep_docs_node = InkeepDocsNode(self._team, self._user)
-        self.add_node(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node)
-        self._graph.add_conditional_edges(
-            AssistantNodeName.INKEEP_DOCS,
-            inkeep_docs_node.router,
-            path_map=cast(dict[Hashable, str], path_map),
-        )
-        return self
-
-    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
-        return self.add_inkeep_docs().compile(checkpointer=checkpointer)
