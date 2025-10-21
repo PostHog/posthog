@@ -117,7 +117,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
     def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
-        if self.breakdown.enabled and not self._team_use_legacy_breakdown_query():
+        if self.breakdown.enabled and False:  # not self._team_use_legacy_breakdown_query():
             total_count_for_breakdown = parse_expr(
                 "sum(count) OVER (PARTITION BY breakdown_value) AS total_count_for_breakdown"
             )
@@ -139,38 +139,44 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         *,
                         denseRank() OVER (ORDER BY total_count_for_breakdown DESC) AS breakdown_rank
                     FROM {inner_query}
-                ) AS ranked,
+                ) AS ranked_breakdown_values,
                 (
                     -- Top N breakdown values
                     SELECT
                         day_start,
                         count AS value,
                         breakdown_value
-                    FROM ranked
+                    FROM ranked_breakdown_values
                     WHERE breakdown_rank <= {breakdown_limit}
-
-                    UNION ALL
-
+                ) AS top_n_breakdown_values,
+                (
                     -- "Other" breakdown value
                     SELECT
                         day_start,
                         sum(count) as value,
                         {breakdown_other_array} as breakdown_value
-                    FROM ranked
+                    FROM ranked_breakdown_values
                     WHERE breakdown_rank > {breakdown_limit}
                     GROUP BY breakdown_value, day_start
-                ) AS top_n_and_other,
+                ) AS other_breakdown_values,
+                (
+                    -- Combine and order top N and "other" breakdown values
+                    SELECT * FROM (
+                        SELECT * FROM top_n_breakdown_values
+                        UNION ALL
+                        SELECT * FROM other_breakdown_values
+                    ) ORDER BY day_start, value
+                ) AS top_n_and_other_breakdown_values,
 
+                -- Transpose the results into arrays for each breakdown value
                 SELECT
                     groupArray(day_start) as date,
                     groupArray(value) as total,
                     sum(value) as grand_total,
                     breakdown_value
-                FROM (
-                    SELECT * FROM top_n_and_other ORDER BY day_start, value
-                )
+                FROM top_n_and_other_breakdown_values
                 GROUP BY breakdown_value
-                ORDER BY (breakdown_value = {breakdown_other_array}) ASC, total DESC
+                ORDER BY (breakdown_value = {breakdown_other_array}) ASC, grand_total DESC
                 """,
                 {
                     "inner_query": inner_query,
