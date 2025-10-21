@@ -4,7 +4,6 @@ import datetime
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from django.core.signing import BadSignature
 from django.http import HttpRequest
 from django.utils.crypto import constant_time_compare
 from django.utils.http import base36_to_int
@@ -12,8 +11,6 @@ from django.utils.http import base36_to_int
 from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
-from two_factor.views.core import REMEMBER_COOKIE_PREFIX
-from two_factor.views.utils import validate_remember_device_cookie
 
 from posthog.settings.web import AUTHENTICATION_BACKENDS
 
@@ -113,18 +110,7 @@ def enforce_two_factor(request, user):
 
         device = default_device(user)
         if not device:
-            # No TOTP device - check for email MFA remember cookie
-
-            for key, value in request._request.COOKIES.items():
-                if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
-                    try:
-                        if validate_remember_device_cookie(value, user=user, otp_device_id="email_mfa"):
-                            set_two_factor_verified_in_session(request._request)
-                            return
-                    except BadSignature:
-                        pass
-
-            raise PermissionDenied(detail="Email MFA verification required", code="email_mfa_verification_required")
+            raise PermissionDenied(detail="2FA setup required", code="two_factor_setup_required")
 
         if not is_two_factor_verified_in_session(request._request):
             raise PermissionDenied(detail="2FA verification required", code="two_factor_verification_required")

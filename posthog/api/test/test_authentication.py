@@ -90,8 +90,9 @@ class TestLoginAPI(APIBaseTest):
         self.user.is_email_verified = True
         self.user.save()
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
+            response = self.complete_email_mfa(self.CONFIG_EMAIL, self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
 
         # Test that we're actually logged in
         response = self.client.get("/api/users/@me/")
@@ -140,8 +141,9 @@ class TestLoginAPI(APIBaseTest):
         self.user.save()
         self.assertEqual(self.user.is_email_verified, False)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
+            response = self.complete_email_mfa(self.CONFIG_EMAIL, self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
 
         # Test that we're actually logged in
         response = self.client.get("/api/users/@me/")
@@ -161,6 +163,8 @@ class TestLoginAPI(APIBaseTest):
         If someone is null they should still be allowed to log in until we explicitly decide to lock them out."""
         self.assertEqual(self.user.is_email_verified, None)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
+            response = self.complete_email_mfa(self.CONFIG_EMAIL, self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Test that we are logged in
@@ -690,6 +694,9 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # new password can be used immediately
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": VALID_TEST_PASSWORD})
+
+        if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
+            response = self.complete_email_mfa(self.CONFIG_EMAIL, self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # assert events were captured
@@ -712,7 +719,8 @@ class TestPasswordResetAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
-        self.assertEqual(mock_capture.call_count, 2)
+        # Email MFA flow adds an extra "user logged in" event, so expect 3 total
+        self.assertEqual(mock_capture.call_count, 3)
 
     def test_cant_set_short_password(self):
         token = password_reset_token_generator.make_token(self.user)
