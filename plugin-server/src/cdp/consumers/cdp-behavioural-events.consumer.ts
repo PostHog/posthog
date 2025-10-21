@@ -114,9 +114,12 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                     const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
                     if (!clickHouseEvent.person_id) {
-                        throw new Error(
-                            `Event missing person_id: team_id=${clickHouseEvent.team_id}, event=${clickHouseEvent.event}, uuid=${clickHouseEvent.uuid}`
-                        )
+                        logger.error('Event missing person_id', {
+                            teamId: clickHouseEvent.team_id,
+                            event: clickHouseEvent.event,
+                            uuid: clickHouseEvent.uuid,
+                        })
+                        continue // Skip events without person_id
                     }
 
                     if (!eventsByTeam.has(clickHouseEvent.team_id)) {
