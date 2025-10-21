@@ -1,30 +1,24 @@
+import { useActions, useValues } from 'kea'
+
 import { IconSidePanel, IconSparkles } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 
-import { SidePanelTab } from '~/types'
+import { newTabSceneLogic } from '../newTabSceneLogic'
 
 interface SearchHintsProps {
-    search: string
     filteredItemsGridLength: number
-    setSearch: (search: string) => void
-    setQuestion: (question: string) => void
-    focusMaxInput: () => void
     focusSearchInput: () => void
-    openSidePanel: (tab: SidePanelTab) => void
+    tabId: string
+    handleAskAi: (question?: string) => void
 }
 
-export function SearchHints({
-    search,
-    setSearch,
-    setQuestion,
-    focusMaxInput,
-    focusSearchInput,
-    openSidePanel,
-}: SearchHintsProps): JSX.Element {
+export function SearchHints({ focusSearchInput, tabId, handleAskAi }: SearchHintsProps): JSX.Element {
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
+    const { setSearch } = useActions(newTabSceneLogic({ tabId }))
+    const { search } = useValues(newTabSceneLogic({ tabId }))
     return (
         <div className="flex justify-between items-center relative text-xs font-medium overflow-hidden py-1 px-1.5 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]">
             <span>
@@ -61,12 +55,7 @@ export function SearchHints({
                     <ListBox.Item asChild>
                         <ButtonPrimitive
                             size="xxs"
-                            onClick={() => {
-                                openSidePanel(SidePanelTab.Max)
-                                setSearch('')
-                                setQuestion(search)
-                                focusMaxInput()
-                            }}
+                            onClick={() => handleAskAi(search)}
                             className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                             tooltip="Hit enter to open Posthog AI"
                         >

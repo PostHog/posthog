@@ -35,8 +35,10 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { SidePanelTab } from '~/types'
 
 import { Results } from './components/Results'
+// import { SearchHints } from './components/SearchHints'
 import { SearchHints } from './components/SearchHints'
 import { SearchInput, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
 
@@ -87,11 +89,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         isSearching,
     } = useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
-    const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic)
-    const { setSearch, setSelectedCategory, toggleNewTabSceneDataInclude, askAI } = useActions(
-        newTabSceneLogic({ tabId })
-    )
-    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { setSearch, setSelectedCategory, toggleNewTabSceneDataInclude } = useActions(newTabSceneLogic({ tabId }))
+    const { openSidePanel } = useActions(sidePanelStateLogic({ tabId }))
+    const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic({ tabId: 'sidepanel' }))
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
@@ -104,6 +104,13 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
 
     const focusSearchInput = (): void => {
         commandInputRef.current?.focus()
+    }
+
+    const handleAskAi = (question?: string): void => {
+        const nextQuestion = (question ?? search).trim()
+        openSidePanel(SidePanelTab.Max)
+        setQuestion(nextQuestion)
+        focusMaxInput()
     }
 
     // Determine active commands based on current state
@@ -183,7 +190,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     } else {
                                         toggleNewTabSceneDataInclude(command.value as NEW_TAB_COMMANDS)
                                     }
-                                    // Don't clear search when selecting filters
                                 }}
                             />
                         )}
@@ -194,13 +200,10 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                             })}
                         >
                             <SearchHints
-                                search={search}
                                 filteredItemsGridLength={filteredItemsGrid.length}
-                                setSearch={setSearch}
-                                setQuestion={setQuestion}
-                                focusMaxInput={focusMaxInput}
                                 focusSearchInput={focusSearchInput}
-                                openSidePanel={openSidePanel}
+                                tabId={tabId || ''}
+                                handleAskAi={handleAskAi}
                             />
                         </div>
                     </div>
@@ -360,7 +363,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         </ListBox.Item>
                                         or{' '}
                                         <ListBox.Item asChild>
-                                            <ButtonPrimitive size="sm" onClick={() => askAI(search)} variant="panel">
+                                            <ButtonPrimitive size="sm" onClick={() => handleAskAi()} variant="panel">
                                                 Ask Posthog AI
                                             </ButtonPrimitive>
                                         </ListBox.Item>
@@ -391,6 +394,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     tabId={tabId || ''}
                                     searchInputRef={commandInputRef.current?.getInputRef() || { current: null }}
                                     listboxRef={listboxRef}
+                                    handleAskAi={handleAskAi}
                                 />
                             </div>
                         )}

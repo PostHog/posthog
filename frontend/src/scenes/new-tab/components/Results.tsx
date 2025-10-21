@@ -34,14 +34,14 @@ function Category({
     category,
     columnIndex,
     isFirstCategoryWithResults,
-    askAI,
+    handleAskAi,
 }: {
     tabId: string
     items: NewTabTreeDataItem[]
     category: string
     columnIndex: number
     isFirstCategoryWithResults: boolean
-    askAI: (searchTerm: string) => void
+    handleAskAi: (searchTerm?: string) => void
 }): JSX.Element {
     const typedItems = items as NewTabTreeDataItem[]
     const isFirstCategory = columnIndex === 0
@@ -189,7 +189,7 @@ function Category({
                                                             item.record?.searchTerm !== undefined
                                                         ) {
                                                             e.preventDefault()
-                                                            askAI(item.record.searchTerm)
+                                                            handleAskAi()
                                                         }
                                                     }}
                                                     buttonProps={{
@@ -306,10 +306,12 @@ export function Results({
     tabId,
     searchInputRef,
     listboxRef,
+    handleAskAi,
 }: {
     tabId: string
     searchInputRef: React.RefObject<HTMLInputElement>
     listboxRef: React.RefObject<ListBoxHandle>
+    handleAskAi: (searchTerm?: string) => void
 }): JSX.Element {
     const {
         filteredItemsGrid,
@@ -320,7 +322,7 @@ export function Results({
         isSearching,
         newTabSceneDataInclude,
     } = useValues(newTabSceneLogic({ tabId }))
-    const { setSearch, askAI } = useActions(newTabSceneLogic({ tabId }))
+    const { setSearch } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
     const isAIAvailable = useFeatureFlag('ARTIFICIAL_HOG')
@@ -445,7 +447,7 @@ export function Results({
                                                             item.record?.searchTerm !== undefined
                                                         ) {
                                                             e.preventDefault()
-                                                            askAI(item.record.searchTerm)
+                                                            handleAskAi()
                                                         }
                                                     }}
                                                     buttonProps={{
@@ -520,7 +522,7 @@ export function Results({
                     category={category}
                     columnIndex={columnIndex}
                     isFirstCategoryWithResults={category === firstCategoryWithResults}
-                    askAI={askAI}
+                    handleAskAi={handleAskAi}
                     key={category}
                 />
             ))}

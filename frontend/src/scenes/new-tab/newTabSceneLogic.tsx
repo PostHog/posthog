@@ -10,10 +10,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     ProductIconWrapper,
     getDefaultTreeData,
@@ -26,7 +24,7 @@ import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogi
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
-import { EventDefinition, PersonType, PropertyDefinition, SidePanelTab } from '~/types'
+import { EventDefinition, PersonType, PropertyDefinition } from '~/types'
 
 import { SearchInputCommand } from './components/SearchInput'
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
@@ -96,10 +94,10 @@ function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
     props({} as { tabId?: string }),
-    key((props) => props.tabId || 'default'),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),
+    key((props) => props.tabId || 'default'),
     actions({
         setSearch: (search: string) => ({ search }),
         selectNext: true,
@@ -924,11 +922,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 console.error('Property definition search failed:', error)
                 actions.loadPropertyDefinitionSearchResultsFailure(error as string)
             }
-        },
-        askAI: ({ searchTerm }) => {
-            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
-            maxLogic.actions.setQuestion(searchTerm)
-            maxLogic.actions.focusInput()
         },
     })),
     tabAwareActionToUrl(({ values }) => ({
