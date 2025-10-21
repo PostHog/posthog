@@ -89,7 +89,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
             <LemonButton
                 icon={<IconPlus />}
                 type="secondary"
-                size="medium"
+                size="small"
                 onClick={() => {
                     const newVariableName = `VARIABLE_${(workflow?.variables?.length || 0) + 1}`
                     const updatedVariables = [

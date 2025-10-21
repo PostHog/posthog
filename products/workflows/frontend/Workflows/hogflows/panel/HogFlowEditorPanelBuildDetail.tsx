@@ -97,13 +97,11 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                     },
                                     content: (
                                         <div className="flex flex-col items-start gap-2">
-                                            <p className="mb-0">
-                                                Select a workflow variable to store the output of this step.
-                                            </p>
+                                            <span>Select a workflow variable to store the output of this step.</span>
                                             <LemonSelect
                                                 options={[
-                                                    { value: null, label: 'None selected' },
-                                                    ...Object.keys(workflow.variables || {}).map((key) => ({
+                                                    { value: null, label: 'Do not store' },
+                                                    ...(workflow.variables || []).map(({ key }) => ({
                                                         value: key,
                                                         label: key,
                                                     })),
@@ -122,7 +120,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 type="secondary"
                                                 onClick={() => setMode('variables')}
                                             >
-                                                New variable
+                                                Add variable
                                             </LemonButton>
                                         </div>
                                     ),
