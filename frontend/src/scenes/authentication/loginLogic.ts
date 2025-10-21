@@ -107,7 +107,7 @@ export const loginLogic = kea<loginLogicType>([
                     } catch (e) {
                         const { code, detail } = e as Record<string, any>
                         if (code === 'too_soon') {
-                            lemonToast.error('Please wait before requesting another email')
+                            lemonToast.error(detail || 'Please wait before requesting another email')
                         } else {
                             lemonToast.error(detail || 'Failed to resend email')
                         }
@@ -144,7 +144,6 @@ export const loginLogic = kea<loginLogicType>([
                         throw e
                     }
                     if (code === 'email_mfa_required') {
-                        // Show inline success message with email address
                         const emailAddress = detail?.email || email
                         actions.setGeneralError(
                             'email_verification_sent',

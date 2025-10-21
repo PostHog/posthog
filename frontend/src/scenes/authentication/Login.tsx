@@ -98,7 +98,7 @@ export function Login(): JSX.Element {
             <div className="deprecated-space-y-4">
                 <h2>Log in</h2>
                 {generalError && (
-                    <LemonBanner type={generalError.code === 'email_verification_sent' ? 'info' : 'error'}>
+                    <LemonBanner type={generalError.code === 'email_verification_sent' ? 'warning' : 'error'}>
                         {generalError.detail || ERROR_MESSAGES[generalError.code] || (
                             <>
                                 Could not complete your login.
