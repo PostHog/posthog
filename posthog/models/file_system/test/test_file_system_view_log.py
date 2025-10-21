@@ -3,7 +3,7 @@ from datetime import datetime
 from freezegun import freeze_time
 
 from django.test import TestCase
-from django.utils.timezone import UTC
+from django.utils.timezone import utc
 
 from posthog.models import Dashboard, FileSystem, FileSystemViewLog, Insight, Organization, Team, User
 from posthog.models.file_system.file_system_view_log import (
@@ -42,7 +42,7 @@ class TestFileSystemViewLog(TestCase):
         self.assertEqual([item.view_count for item in view_order[:2]], [2, 1])
         self.assertEqual(
             view_order[0].last_viewed_at,
-            datetime(2024, 1, 3, 10, 0, 0, tzinfo=UTC),
+            datetime(2024, 1, 3, 10, 0, 0, tzinfo=utc),
         )
 
         dashboard_logs = FileSystemViewLog.objects.filter(
@@ -56,7 +56,7 @@ class TestFileSystemViewLog(TestCase):
         self.assertEqual(insight_logs.count(), 1)
         self.assertEqual(
             insight_logs.first().viewed_at,
-            datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC),
+            datetime(2024, 1, 1, 10, 0, 0, tzinfo=utc),
         )
 
         file_system_refs = FileSystem.objects.filter(team=self.team).values_list("type", "ref")
@@ -82,8 +82,8 @@ class TestFileSystemViewLog(TestCase):
         self.assertEqual(
             viewers,
             [
-                RecentViewer(user_id=self.user.id, last_viewed_at=datetime(2024, 1, 1, 11, 0, 0, tzinfo=UTC)),
-                RecentViewer(user_id=other_user.id, last_viewed_at=datetime(2024, 1, 1, 10, 0, 0, tzinfo=UTC)),
+                RecentViewer(user_id=self.user.id, last_viewed_at=datetime(2024, 1, 1, 11, 0, 0, tzinfo=utc)),
+                RecentViewer(user_id=other_user.id, last_viewed_at=datetime(2024, 1, 1, 10, 0, 0, tzinfo=utc)),
             ],
         )
 
@@ -91,11 +91,11 @@ class TestFileSystemViewLog(TestCase):
             team_id=self.team.id,
             file_type="insight",
             ref=insight.short_id,
-            since=datetime(2024, 1, 1, 10, 30, 0, tzinfo=UTC),
+            since=datetime(2024, 1, 1, 10, 30, 0, tzinfo=utc),
         )
         self.assertEqual(
             recent_only,
-            [RecentViewer(user_id=self.user.id, last_viewed_at=datetime(2024, 1, 1, 11, 0, 0, tzinfo=UTC))],
+            [RecentViewer(user_id=self.user.id, last_viewed_at=datetime(2024, 1, 1, 11, 0, 0, tzinfo=utc))],
         )
 
         limited = get_recent_viewers_for_resource(
@@ -103,5 +103,5 @@ class TestFileSystemViewLog(TestCase):
         )
         self.assertEqual(
             limited,
-            [RecentViewer(user_id=self.user.id, last_viewed_at=datetime(2024, 1, 1, 11, 0, 0, tzinfo=UTC))],
+            [RecentViewer(user_id=self.user.id, last_viewed_at=datetime(2024, 1, 1, 11, 0, 0, tzinfo=utc))],
         )
