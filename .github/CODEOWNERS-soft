@@ -86,9 +86,8 @@ posthog/hogql/** @PostHog/team-data-warehouse
 
 # Team error tracking
 
-products/error_tracking/** @PostHog/team-error-tracking
-posthog/models/error_tracking/ @PostHog/team-error-tracking
-posthog/api/error_tracking.py @PostHog/team-error-tracking
+products/error_tracking/backend/** @PostHog/team-error-tracking
+products/error_tracking/frontend/** @PostHog/team-error-tracking
 posthog/hogql_queries/error_tracking/error_tracking_query_runner.py @PostHog/team-error-tracking
 posthog/hogql_queries/error_tracking/error_tracking_issue_correlation_query_runner.py @PostHog/team-error-tracking
 
