@@ -1,5 +1,8 @@
 import re
-from typing import Any, Literal, Union, cast
+from typing import TYPE_CHECKING, Any, Literal, Union, cast
+
+if TYPE_CHECKING:
+    from social_core.backends.base import BaseAuth
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.response import HttpResponse
@@ -75,11 +78,11 @@ class MultitenantSAMLAuth(SAMLAuth):
                 else OrganizationDomain.objects.verified_domains().get(id=organization_domain_or_id)
             )
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
-            raise AuthFailed("saml", "Authentication request is invalid. Invalid RelayState.")
+            raise AuthFailed(cast("BaseAuth", "saml"), "Authentication request is invalid. Invalid RelayState.")
 
         if not organization_domain.organization.is_feature_available(AvailableFeature.SAML):
             raise AuthFailed(
-                "saml",
+                cast("BaseAuth", "saml"),
                 "Your organization does not have the required license to use SAML.",
             )
 
@@ -99,12 +102,12 @@ class MultitenantSAMLAuth(SAMLAuth):
         email = self.strategy.request_data().get("email")
 
         if not email:
-            raise AuthMissingParameter("saml", "email")
+            raise AuthMissingParameter(cast("BaseAuth", "saml"), "email")
 
         instance = OrganizationDomain.objects.get_verified_for_email_address(email=email)
 
         if not instance or not instance.has_saml:
-            raise AuthFailed("saml", "SAML not configured for this user.")
+            raise AuthFailed(cast("BaseAuth", "saml"), "SAML not configured for this user.")
 
         auth = self._create_saml_auth(idp=self.get_idp(instance))
         # Below, return_to sets the RelayState, which contains the ID of
@@ -129,7 +132,7 @@ class MultitenantSAMLAuth(SAMLAuth):
                 break
 
         if not output and not optional:
-            raise AuthMissingParameter("saml", attribute_names[0])
+            raise AuthMissingParameter(cast("BaseAuth", "saml"), attribute_names[0])
 
         if isinstance(output, list):
             output = output[0]
@@ -392,7 +395,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
 
         return jwt.decode(
             token,
-            key,
+            key,  # type: ignore[arg-type]
             algorithms=["RS256"],
             issuer=self.VERCEL_ISSUER,
             audience=settings.VERCEL_CLIENT_INTEGRATION_ID,
