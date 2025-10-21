@@ -1249,6 +1249,11 @@ export interface CompareFilter {
     compare_to?: string
 }
 
+export interface IntegrationFilter {
+    /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
+    integrationSourceIds?: string[]
+}
+
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
 export type FunnelsFilterLegacy = Omit<
     FunnelsFilterType,
@@ -2488,6 +2493,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
+    | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
     | 'web_analytics'
@@ -2510,6 +2516,7 @@ export type FileSystemIconType =
     | 'action'
     | 'comment'
     | 'annotation'
+    | 'event'
     | 'event_definition'
     | 'property_definition'
     | 'ingestion_warning'
@@ -2544,6 +2551,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     category?: string
     /** Color of the icon */
     iconColor?: FileSystemIconColor
+    /** Match this with the a base scene key or a specific one */
+    sceneKey?: string
 }
 
 export interface PersistedFolder {
@@ -2554,6 +2563,8 @@ export interface PersistedFolder {
     created_at: string
     updated_at: string
 }
+
+export type DataWarehouseManagedViewsetKind = 'revenue_analytics'
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -3831,6 +3842,8 @@ export interface MarketingAnalyticsTableQuery
     compareFilter?: CompareFilter
     /** Include conversion goal rows even when they don't match campaign costs table */
     includeAllConversions?: boolean
+    /** Filter by integration type */
+    integrationFilter?: IntegrationFilter
 }
 
 export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {
@@ -3866,6 +3879,8 @@ export interface MarketingAnalyticsAggregatedQuery
     select?: HogQLExpression[]
     /** Draft conversion goal that can be set in the UI without saving */
     draftConversionGoal?: ConversionGoalFilter
+    /** Filter by integration IDs */
+    integrationFilter?: IntegrationFilter
 }
 
 export interface WebAnalyticsExternalSummaryRequest {

@@ -82,10 +82,10 @@ def handler500(request):
     500 error handler.
 
     Templates: :template:`500.html`
-    Context: None
+    Context: request
     """
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render())
+    return HttpResponseServerError(template.render({"request": request}, request))
 
 
 @ensure_csrf_cookie

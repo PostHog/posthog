@@ -28,6 +28,7 @@ export const manifest: ProductManifest = {
             href: urls.revenueAnalytics(),
             type: 'revenue',
             tags: ['beta'],
+            sceneKey: 'RevenueAnalytics',
         },
     ],
     fileSystemTypes: {
@@ -45,6 +46,7 @@ export const manifest: ProductManifest = {
             category: 'Definitions',
             iconType: 'revenue_analytics_metadata' as FileSystemIconType,
             href: urls.revenueSettings(),
+            sceneKey: 'RevenueAnalytics',
         },
     ],
 }
