@@ -44,6 +44,12 @@
 # name: TestProjectionPushdown.test_subquery_in_join_with_demands
   "SELECT e1.event, e2.timestamp FROM (SELECT event, properties, distinct_id FROM (SELECT event, properties, distinct_id FROM events) AS inner_e1) AS e1 LEFT JOIN (SELECT timestamp, distinct_id FROM (SELECT timestamp, distinct_id FROM events) AS inner_e2) AS e2 ON equals(e2.distinct_id, e1.distinct_id) WHERE notEquals(e1.properties, '{}')"
 # ---
-# name: TestProjectionPushdown.test_union_subqueries_with_asterisk
-  "SELECT event, distinct_id FROM (SELECT event, distinct_id FROM events WHERE equals(event, 'click')) AS sub"
+# name: TestProjectionPushdown.test_union_all_multiple_branches
+  "SELECT event FROM (SELECT event FROM events WHERE equals(event, 'click') UNION ALL SELECT event FROM events WHERE equals(event, 'pageview') UNION ALL SELECT event FROM events WHERE equals(event, 'submit')) AS sub"
+# ---
+# name: TestProjectionPushdown.test_union_all_with_asterisk
+  "SELECT event, distinct_id FROM (SELECT event, distinct_id FROM events WHERE equals(event, 'click') UNION ALL SELECT event, distinct_id FROM events WHERE equals(event, 'pageview')) AS sub"
+# ---
+# name: TestProjectionPushdown.test_union_all_without_alias
+  'SELECT event FROM (SELECT event FROM events UNION ALL SELECT event FROM events)'
 # ---

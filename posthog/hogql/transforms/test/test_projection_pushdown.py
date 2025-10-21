@@ -320,20 +320,79 @@ class TestProjectionPushdown(BaseTest):
         assert optimized.to_hogql() == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_union_subqueries_with_asterisk(self):
-        """Subqueries that will be used in UNION ALL should preserve structure"""
-        # Note: This tests that explicit columns aren't pruned even if from asterisk
+    def test_union_all_without_alias(self):
+        """UNION ALL without subquery alias should still be pruned"""
+        optimized = self._optimize("""
+            SELECT event FROM (
+                SELECT * FROM events UNION ALL SELECT * FROM events
+            )
+        """)
+
+        # The UNION subquery should be a SelectSetQuery
+        union_query = optimized.select_from.table
+        assert isinstance(union_query, ast.SelectSetQuery)
+
+        # Both branches should only have 'event' column
+        first_branch = union_query.initial_select_query
+        first_cols = {self._col_name(col) for col in first_branch.select}
+        assert first_cols == {"event"}, f"Expected only 'event' but got {first_cols}"
+
+        second_branch = union_query.subsequent_select_queries[0].select_query
+        second_cols = {self._col_name(col) for col in second_branch.select}
+        assert second_cols == {"event"}, f"Expected only 'event' but got {second_cols}"
+
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_union_all_with_asterisk(self):
+        """UNION ALL branches with asterisk should be pruned uniformly"""
         optimized = self._optimize("""
             SELECT event, distinct_id FROM (
                 SELECT * FROM events WHERE event = 'click'
+                UNION ALL
+                SELECT * FROM events WHERE event = 'pageview'
             ) AS sub
         """)
 
-        inner_query = optimized.select_from.table
-        column_names = {self._col_name(col) for col in inner_query.select}
-        # Should only have event and distinct_id from asterisk
-        assert "event" in column_names
-        assert "distinct_id" in column_names
+        # The UNION subquery should be a SelectSetQuery
+        union_query = optimized.select_from.table
+        assert isinstance(union_query, ast.SelectSetQuery)
+
+        # Both branches should have the same columns (event, distinct_id)
+        first_branch = union_query.initial_select_query
+        first_cols = {self._col_name(col) for col in first_branch.select}
+        assert first_cols == {"event", "distinct_id"}
+
+        second_branch = union_query.subsequent_select_queries[0].select_query
+        second_cols = {self._col_name(col) for col in second_branch.select}
+        assert second_cols == {"event", "distinct_id"}
+
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_union_all_multiple_branches(self):
+        """UNION ALL with 3+ branches should all be pruned uniformly"""
+        optimized = self._optimize("""
+            SELECT event FROM (
+                SELECT * FROM events WHERE event = 'click'
+                UNION ALL
+                SELECT * FROM events WHERE event = 'pageview'
+                UNION ALL
+                SELECT * FROM events WHERE event = 'submit'
+            ) AS sub
+        """)
+
+        union_query = optimized.select_from.table
+        assert isinstance(union_query, ast.SelectSetQuery)
+
+        # All three branches should only have 'event' column
+        all_branches = [union_query.initial_select_query] + [
+            sn.select_query for sn in union_query.subsequent_select_queries
+        ]
+
+        for branch in all_branches:
+            cols = {self._col_name(col) for col in branch.select}
+            assert cols == {"event"}, f"Expected only 'event' but got {cols}"
 
         assert optimized.to_hogql() == self.snapshot
 

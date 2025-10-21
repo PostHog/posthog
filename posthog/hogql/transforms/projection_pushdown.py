@@ -25,7 +25,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
     def __init__(self):
         super().__init__()
         self.demands: dict[int, set[str]] = defaultdict(set)
-        self.subquery_map: dict[int, ast.SelectQuery] = {}
+        self.subquery_map: dict[int, ast.SelectQuery | ast.SelectSetQuery] = {}
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         # Phase 1: Register subqueries for demand tracking
@@ -70,6 +70,24 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
         return node
 
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
+        """
+        Handle UNION/INTERSECT/EXCEPT queries.
+
+        All branches must have identical column structure, so we:
+        1. Propagate parent demands to all branches uniformly
+        2. Visit each branch to apply pruning
+        """
+        # Propagate parent demands to all branches uniformly
+        self._propagate_demands_to_union_branches(node)
+
+        # Visit each branch
+        self.visit(node.initial_select_query)
+        for set_node in node.subsequent_select_queries:
+            self.visit(set_node.select_query)
+
+        return node
+
     def _is_from_asterisk(self, expr: ast.Expr) -> bool:
         """Check if an expression was expanded from asterisk"""
         if isinstance(expr, ast.Alias):
@@ -95,10 +113,29 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
                     self.visit(expr)
                     break
 
+    def _propagate_demands_to_union_branches(self, node: ast.SelectSetQuery) -> None:
+        """
+        Propagate demands from parent to all UNION/INTERSECT/EXCEPT branches.
+
+        Since all branches must have identical column structure, we propagate
+        the same demands to all of them.
+        """
+        demanded_from_this = self.demands.get(id(node))
+        if not demanded_from_this:
+            return
+
+        all_queries = [node.initial_select_query] + [sn.select_query for sn in node.subsequent_select_queries]
+
+        for query in all_queries:
+            if isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
+                self.demands[id(query)].update(demanded_from_this)
+
     def _register_subqueries(self, from_clause: ast.JoinExpr) -> None:
         """Register all subqueries in FROM clause before collecting demands"""
         if isinstance(from_clause.table, ast.SelectQuery):
             self._register_subquery(from_clause.table, from_clause.type)
+        elif isinstance(from_clause.table, ast.SelectSetQuery):
+            self._register_union_subquery(from_clause.table, from_clause.type)
 
         if from_clause.next_join:
             self._register_subqueries(from_clause.next_join)
@@ -110,7 +147,22 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         if isinstance(type_annotation, ast.SelectQueryAliasType) and type_annotation.select_query_type:
             self.subquery_map[id(type_annotation.select_query_type)] = subquery
 
-    def _get_subquery(self, table_type: ast.Type) -> ast.SelectQuery | None:
+    def _register_union_subquery(self, union_query: ast.SelectSetQuery, type_annotation: ast.Type) -> None:
+        """Map type to union subquery node for demand tracking"""
+        self.subquery_map[id(type_annotation)] = union_query  # type: ignore
+
+        # Also register with the inner SelectSetQueryType for both aliased and non-aliased cases
+        if isinstance(type_annotation, ast.SelectQueryAliasType):
+            # Aliased: register with the inner select_query_type
+            if type_annotation.select_query_type:
+                self.subquery_map[id(type_annotation.select_query_type)] = union_query  # type: ignore
+        elif isinstance(type_annotation, ast.SelectSetQueryType):
+            # Non-aliased: the type_annotation IS the SelectSetQueryType, but we also need to
+            # register with the first branch's type for field resolution
+            if type_annotation.types:
+                self.subquery_map[id(type_annotation.types[0])] = union_query  # type: ignore
+
+    def _get_subquery(self, table_type: ast.Type) -> ast.SelectQuery | ast.SelectSetQuery | None:
         """Retrieve subquery by type"""
         return self.subquery_map.get(id(table_type))
 
@@ -121,7 +173,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
         table_type = node.type.table_type
 
-        if isinstance(table_type, ast.SelectQueryType | ast.SelectQueryAliasType):
+        if isinstance(table_type, ast.SelectQueryType | ast.SelectQueryAliasType | ast.SelectSetQueryType):
             subquery = self._get_subquery(table_type)
             if subquery:
                 self.demands[id(subquery)].add(node.type.name)
