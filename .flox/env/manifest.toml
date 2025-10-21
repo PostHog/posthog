@@ -175,6 +175,7 @@ if [[ -t 0 ]]; then
 • Most processes include hot-reloading on file changes (except migrations)
 • You can run follow-up migrations with \033[32mbin/migrate\033[0m
 • Press 'q' in mprocs to quit, 'r' to restart a process
+• Want a clean environment? Simply run \033[32mdocker-compose down -v && bin/start\033[0m
 "
 fi
 '''
