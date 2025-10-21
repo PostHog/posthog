@@ -202,20 +202,30 @@ fn build_candidate_file(file_path: &Path) -> Result<LocalCheckpointFile> {
         .to_string_lossy()
         .to_string();
 
-    let mut file =
-        File::open(file_path).with_context(|| format!("Failed to open file: {file_path:?}"))?;
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher)
-        .with_context(|| format!("Failed to read and hash file: {file_path:?}"))?;
-
-    let hash = hasher.finalize();
-    let checksum = format!("{hash:x}");
+    let checksum = if filename.ends_with(".sst") {
+        String::default()
+    } else {
+        load_and_hash_file(file_path).context("In load_and_hash_file")?
+    };
 
     Ok(LocalCheckpointFile::new(
         filename,
         checksum,
         local_file_path,
     ))
+}
+
+fn load_and_hash_file(file_path: &Path) -> Result<String> {
+    let mut file = File::open(file_path)
+        .with_context(|| format!("Failed to open file for hashing: {file_path:?}"))?;
+
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)
+        .with_context(|| format!("Failed to read and hash file: {file_path:?}"))?;
+    let hash = hasher.finalize();
+    let checksum = format!("{hash:x}");
+
+    Ok(checksum.to_string())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
