@@ -12,7 +12,6 @@ import {
     MultiVisualizationMessage,
     NotebookUpdateMessage,
     RootAssistantMessage,
-    UpdateMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import {
@@ -63,10 +62,6 @@ export function isNotebookUpdateMessage(
     message: RootAssistantMessage | undefined | null
 ): message is NotebookUpdateMessage {
     return message?.type === AssistantMessageType.Notebook
-}
-
-export function isUpdateMessage(message: RootAssistantMessage | undefined | null): message is UpdateMessage {
-    return message?.type === AssistantMessageType.Update
 }
 
 export function castAssistantQuery(

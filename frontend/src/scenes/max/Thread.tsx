@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import {
-    IconAI,
+    IconBrain,
     IconCheck,
     IconChevronRight,
     IconCollapse,
@@ -111,15 +111,20 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     <MessageGroupSkeleton groupType="human" className="opacity-5" />
                 </>
             ) : threadGrouped.length > 0 ? (
-                threadGrouped.map((group: ThreadMessage[], index: number) => (
-                    <MessageGroup
-                        // Reset the components when the thread changes
-                        key={`${conversationId}-${index}`}
-                        messages={group}
-                        isFinal={index === threadGrouped.length - 1}
-                        streamingActive={streamingActive}
-                    />
-                ))
+                threadGrouped.map((message, index) => {
+                    const nextMessage = threadGrouped[index + 1]
+                    const isLastInGroup = !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
+
+                    return (
+                        <Message
+                            key={`${conversationId}-${index}`}
+                            message={message}
+                            isLastInGroup={isLastInGroup}
+                            isFinal={index === threadGrouped.length - 1}
+                            streamingActive={streamingActive}
+                        />
+                    )
+                })
             ) : (
                 conversationId && (
                     <div className="flex flex-1 items-center justify-center">
@@ -160,30 +165,24 @@ export interface EnhancedToolCall extends AssistantToolCall {
     updates?: string[]
 }
 
-interface MessageGroupProps {
-    messages: ThreadMessage[]
+interface MessageProps {
+    message: ThreadMessage
+    isLastInGroup: boolean
     isFinal: boolean
     streamingActive: boolean
 }
 
-function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
+function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element {
     const { editInsightToolRegistered } = useValues(maxGlobalLogic)
     const { threadLoading } = useValues(maxThreadLogic)
 
-    const groupType = messages[0].type === 'human' ? 'human' : 'ai'
+    const groupType = message.type === 'human' ? 'human' : 'ai'
+    const key = message.id || 'no-id'
 
     return (
         <MessageGroupContainer groupType={groupType}>
-            <div
-                className={clsx(
-                    'flex flex-col min-w-0 w-full [&>*+*]:mt-2',
-                    groupType === 'human' ? 'items-end' : 'items-start'
-                )}
-            >
-                {messages.map((message, messageIndex) => {
-                    const key = message.id || messageIndex
-                    const isLastMessage = messageIndex === messages.length - 1
-
+            <div className={clsx('flex flex-col min-w-0 w-full', groupType === 'human' ? 'items-end' : 'items-start')}>
+                {() => {
                     if (isHumanMessage(message)) {
                         const maybeCommand = MAX_SLASH_COMMANDS.find(
                             (cmd) => cmd.name === message.content.split(' ', 1)[0]
@@ -231,14 +230,14 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         // Render thinking/reasoning if present
                         const isMessageComplete =
                             !!(message.content.length > 0 || (message.tool_calls && message.tool_calls.length > 0)) ||
-                            messageIndex < messages.length - 1
+                            !isLastInGroup
                         let thinkingElement = null
                         if (message.meta?.thinking && message.meta.thinking.length > 0) {
                             thinkingElement = (
                                 <ReasoningAnswer
                                     key={`${key}-thinking`}
                                     thinking={message.meta.thinking}
-                                    id={message.id || messageIndex.toString()}
+                                    id={message.id || key}
                                     completed={isMessageComplete}
                                     showCompletionIcon={false}
                                 />
@@ -260,7 +259,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         ) : null
 
                         // Compute actions separately to render after tool calls
-                        const retriable = !!(isLastMessage && isFinalGroup)
+                        const retriable = !!(isLastInGroup && isFinal)
                         const actionsElement = (() => {
                             if (threadLoading) {
                                 return null
@@ -272,9 +271,9 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 return null
                             }
 
-                            if (isLastMessage) {
+                            if (isLastInGroup) {
                                 // Message has been interrupted with a form
-                                if (message.meta?.form?.options && isFinalGroup) {
+                                if (message.meta?.form?.options && isFinal) {
                                     return <AssistantMessageForm key={`${key}-form`} form={message.meta.form} />
                                 }
 
@@ -298,14 +297,14 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                             <TextAnswer
                                 key={key}
                                 message={message}
-                                interactable={isLastMessage}
-                                isFinalGroup={isFinalGroup}
+                                interactable={isLastInGroup}
+                                isFinalGroup={isFinal}
                             />
                         )
                     } else if (isVisualizationMessage(message)) {
                         return (
                             <VisualizationAnswer
-                                key={messageIndex}
+                                key={key}
                                 message={message}
                                 status={message.status}
                                 isEditingInsight={editInsightToolRegistered}
@@ -317,8 +316,8 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         return <NotebookUpdateAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
-                })}
-                {messages.at(-1)?.status === 'error' && (
+                }}
+                {isLastInGroup && message.status === 'error' && (
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
                             <IconWarning className="text-xl text-warning" />
@@ -709,10 +708,11 @@ function AssistantActionComponent({
     const isInProgress = state === 'in_progress'
     const isFailed = state === 'failed'
     const showChevron = substeps.length > 0 ? (showCompletionIcon ? isPending || isInProgress : true) : false
-    const [isExpanded, setIsExpanded] = useState(showChevron)
+    // Initialize with the same logic as the effect to prevent flickering
+    const [isExpanded, setIsExpanded] = useState(showChevron && !(isCompleted || isFailed))
 
     useEffect(() => {
-        setIsExpanded(showChevron ? !(isCompleted || isFailed) : false)
+        setIsExpanded(showChevron && !(isCompleted || isFailed))
     }, [showChevron, isCompleted, isFailed])
 
     let markdownContent = <MarkdownMessage id={id} content={content} />
@@ -817,7 +817,7 @@ function ReasoningAnswer({ thinking, completed, id, showCompletionIcon = true }:
             content={completed ? 'Thought' : content}
             substeps={completed ? [content] : []}
             state={completed ? ExecutionStatus.Completed : ExecutionStatus.InProgress}
-            icon={<IconAI />}
+            icon={<IconBrain />}
             animate={true}
             showCompletionIcon={showCompletionIcon}
         />

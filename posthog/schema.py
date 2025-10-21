@@ -114,6 +114,7 @@ class AssistantEventType(StrEnum):
     MESSAGE = "message"
     CONVERSATION = "conversation"
     NOTEBOOK = "notebook"
+    UPDATE = "update"
 
 
 class AssistantFormOption(BaseModel):
@@ -311,7 +312,6 @@ class AssistantToolCallMessage(BaseModel):
             " without a ui_payload are not passed through to the frontend."
         ),
     )
-    visible: Optional[bool] = None
 
 
 class AssistantTrendsDisplayType(RootModel[Union[str, Any]]):
@@ -417,6 +417,17 @@ class AssistantTrendsFilter(BaseModel):
     )
 
 
+class AssistantUpdateEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: Literal["update"] = "update"
+
+
+class AssistantUpdateEventType(RootModel[Literal["update"]]):
+    root: Literal["update"] = "update"
+
+
 class AttributionMode(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -459,7 +470,6 @@ class BaseAssistantMessage(BaseModel):
     )
     id: Optional[str] = None
     parent_tool_call_id: Optional[str] = None
-    visible: Optional[bool] = None
 
 
 class BaseMathType(StrEnum):
@@ -634,7 +644,6 @@ class ContextMessage(BaseModel):
     id: Optional[str] = None
     parent_tool_call_id: Optional[str] = None
     type: Literal["context"] = "context"
-    visible: Optional[bool] = None
 
 
 class CountPerActorMathType(StrEnum):
@@ -1378,7 +1387,6 @@ class FailureMessage(BaseModel):
     id: Optional[str] = None
     parent_tool_call_id: Optional[str] = None
     type: Literal["ai/failure"] = "ai/failure"
-    visible: Optional[bool] = None
 
 
 class FileSystemCount(BaseModel):
@@ -2340,7 +2348,6 @@ class ReasoningMessage(BaseModel):
     parent_tool_call_id: Optional[str] = None
     substeps: Optional[list[str]] = None
     type: Literal["ai/reasoning"] = "ai/reasoning"
-    visible: Optional[bool] = None
 
 
 class RecordingDurationFilter(BaseModel):
@@ -2913,13 +2920,13 @@ class TrendsFormulaNode(BaseModel):
     formula: str
 
 
-class UpdateMessage(BaseModel):
+class UpdateEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     content: str
     id: str
-    parent_tool_call_id: str
+    tool_call_id: str
     type: Literal["ai/update"] = "ai/update"
 
 
@@ -4377,7 +4384,6 @@ class NotebookUpdateMessage(BaseModel):
     parent_tool_call_id: Optional[str] = None
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai/notebook"] = "ai/notebook"
-    visible: Optional[bool] = None
 
 
 class PathsFilter(BaseModel):
@@ -5170,7 +5176,6 @@ class TaskExecutionMessage(BaseModel):
     parent_tool_call_id: Optional[str] = None
     tasks: list[TaskExecutionItem]
     type: Literal["ai/task_execution"] = "ai/task_execution"
-    visible: Optional[bool] = None
 
 
 class TeamTaxonomyItem(BaseModel):
@@ -5910,7 +5915,6 @@ class AssistantMessage(BaseModel):
     parent_tool_call_id: Optional[str] = None
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai"] = "ai"
-    visible: Optional[bool] = None
 
 
 class AssistantRetentionFilter(BaseModel):
@@ -9643,7 +9647,6 @@ class PlanningMessage(BaseModel):
     parent_tool_call_id: Optional[str] = None
     steps: list[PlanningStep]
     type: Literal["ai/planning"] = "ai/planning"
-    visible: Optional[bool] = None
 
 
 class PropertyGroupFilterValue(BaseModel):
@@ -14504,7 +14507,6 @@ class VisualizationMessage(BaseModel):
     query: Optional[str] = ""
     short_id: Optional[str] = None
     type: Literal["ai/viz"] = "ai/viz"
-    visible: Optional[bool] = None
 
 
 class DatabaseSchemaQueryResponse(BaseModel):
@@ -14594,7 +14596,6 @@ class MultiVisualizationMessage(BaseModel):
     id: Optional[str] = None
     parent_tool_call_id: Optional[str] = None
     type: Literal["ai/multi_viz"] = "ai/multi_viz"
-    visible: Optional[bool] = None
     visualizations: list[VisualizationItem]
 
 
@@ -15205,7 +15206,6 @@ class HumanMessage(BaseModel):
     parent_tool_call_id: Optional[str] = None
     type: Literal["human"] = "human"
     ui_context: Optional[MaxUIContext] = None
-    visible: Optional[bool] = None
 
 
 class MaxDashboardContext(BaseModel):
@@ -15692,7 +15692,6 @@ class RootAssistantMessage(
             PlanningMessage,
             TaskExecutionMessage,
             AssistantToolCallMessage,
-            UpdateMessage,
         ]
     ]
 ):
@@ -15707,7 +15706,6 @@ class RootAssistantMessage(
         PlanningMessage,
         TaskExecutionMessage,
         AssistantToolCallMessage,
-        UpdateMessage,
     ]
 
 

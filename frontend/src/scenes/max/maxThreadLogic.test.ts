@@ -80,14 +80,12 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'mock-assistant-msg-1',
-                    },
-                ],
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'mock-assistant-msg-1',
+                },
             ],
         })
     })
@@ -113,25 +111,21 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'response',
+                    status: 'completed',
+                    id: 'assistant-1',
+                    meta: {
+                        thinking: [{ thinking: 'Processing request' }],
                     },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'response',
-                        status: 'completed',
-                        id: 'assistant-1',
-                        meta: {
-                            thinking: [{ thinking: 'Processing request' }],
-                        },
-                    },
-                ],
+                },
             ],
         })
     })
@@ -160,30 +154,24 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'assistant-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-2',
-                    },
-                ],
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'assistant-1',
+                },
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-2',
+                },
             ],
         })
     })
@@ -205,21 +193,17 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                    },
-                ],
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                },
             ],
         })
     })
@@ -241,22 +225,18 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    partial({
-                        type: AssistantMessageType.Assistant,
-                        meta: partial({ thinking: expect.any(Array) }),
-                        status: 'completed',
-                        id: 'loader',
-                    }),
-                ],
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                partial({
+                    type: AssistantMessageType.Assistant,
+                    meta: partial({ thinking: expect.any(Array) }),
+                    status: 'completed',
+                    id: 'loader',
+                }),
             ],
         })
     })
@@ -265,7 +245,7 @@ describe('maxThreadLogic', () => {
         logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
         logic.mount()
 
-        // Human and assistant messages with IDs–should append to the last group
+        // Human and assistant messages with IDs–should append thinking message
         await expectLogic(logic, () => {
             logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
             logic.actions.setThread([
@@ -284,28 +264,24 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'assistant-1',
-                    },
-                    partial({
-                        type: AssistantMessageType.Assistant,
-                        meta: partial({ thinking: expect.any(Array) }),
-                        status: 'completed',
-                        id: 'loader',
-                    }),
-                ],
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'assistant-1',
+                },
+                partial({
+                    type: AssistantMessageType.Assistant,
+                    meta: partial({ thinking: expect.any(Array) }),
+                    status: 'completed',
+                    id: 'loader',
+                }),
             ],
         })
     })
@@ -331,21 +307,17 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                    },
-                ],
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                },
             ],
         })
     })
@@ -361,21 +333,17 @@ describe('maxThreadLogic', () => {
             logic.actions.askMax('hello')
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                    },
-                ],
-                [
-                    partial({
-                        type: AssistantMessageType.Assistant,
-                        meta: partial({ thinking: expect.any(Array) }),
-                        status: 'completed',
-                        id: 'loader',
-                    }),
-                ],
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                },
+                partial({
+                    type: AssistantMessageType.Assistant,
+                    meta: partial({ thinking: expect.any(Array) }),
+                    status: 'completed',
+                    id: 'loader',
+                }),
             ],
         })
         expect(streamSpy).toHaveBeenCalledTimes(1)
@@ -526,20 +494,18 @@ describe('maxThreadLogic', () => {
                 ])
             }).toMatchValues({
                 threadGrouped: [
-                    [
-                        {
-                            type: AssistantMessageType.Human,
-                            content: 'hello',
-                            status: 'completed',
-                            id: 'human-1',
-                        },
-                        {
-                            type: AssistantMessageType.Assistant,
-                            content: 'response',
-                            status: 'completed',
-                            id: 'assistant-1',
-                        },
-                    ],
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'response',
+                        status: 'completed',
+                        id: 'assistant-1',
+                    },
                 ],
             })
         })
@@ -565,22 +531,18 @@ describe('maxThreadLogic', () => {
                 })
             }).toMatchValues({
                 threadGrouped: [
-                    [
-                        {
-                            type: AssistantMessageType.Human,
-                            content: 'test question',
-                            status: 'completed',
-                            id: 'human-1',
-                        },
-                    ],
-                    [
-                        {
-                            type: AssistantMessageType.Failure,
-                            content: 'Something went wrong',
-                            status: 'completed',
-                            id: 'failure-1',
-                        },
-                    ],
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'test question',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Failure,
+                        content: 'Something went wrong',
+                        status: 'completed',
+                        id: 'failure-1',
+                    },
                 ],
             })
         })
@@ -916,7 +878,7 @@ describe('maxThreadLogic', () => {
 
     describe('UpdateMessage handling', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
         })
 
@@ -924,7 +886,7 @@ describe('maxThreadLogic', () => {
             const updateMessage = {
                 type: AssistantMessageType.Update,
                 id: 'update-1',
-                parent_tool_call_id: 'tool-call-123',
+                tool_call_id: 'tool-call-123',
                 content: 'Processing data...',
             }
 
@@ -942,19 +904,19 @@ describe('maxThreadLogic', () => {
                 logic.actions.setToolCallUpdate({
                     type: AssistantMessageType.Update,
                     id: 'update-1',
-                    parent_tool_call_id: toolCallId,
+                    tool_call_id: toolCallId,
                     content: 'Step 1 complete',
                 })
                 logic.actions.setToolCallUpdate({
                     type: AssistantMessageType.Update,
                     id: 'update-2',
-                    parent_tool_call_id: toolCallId,
+                    tool_call_id: toolCallId,
                     content: 'Step 2 complete',
                 })
                 logic.actions.setToolCallUpdate({
                     type: AssistantMessageType.Update,
                     id: 'update-3',
-                    parent_tool_call_id: toolCallId,
+                    tool_call_id: toolCallId,
                     content: 'Step 3 complete',
                 })
             })
@@ -974,13 +936,13 @@ describe('maxThreadLogic', () => {
                 logic.actions.setToolCallUpdate({
                     type: AssistantMessageType.Update,
                     id: 'update-1',
-                    parent_tool_call_id: toolCallId,
+                    tool_call_id: toolCallId,
                     content: sameContent,
                 })
                 logic.actions.setToolCallUpdate({
                     type: AssistantMessageType.Update,
                     id: 'update-2',
-                    parent_tool_call_id: toolCallId,
+                    tool_call_id: toolCallId,
                     content: sameContent,
                 })
             })
@@ -994,13 +956,13 @@ describe('maxThreadLogic', () => {
                 logic.actions.setToolCallUpdate({
                     type: AssistantMessageType.Update,
                     id: 'update-1',
-                    parent_tool_call_id: 'tool-1',
+                    tool_call_id: 'tool-1',
                     content: 'Tool 1 update',
                 })
                 logic.actions.setToolCallUpdate({
                     type: AssistantMessageType.Update,
                     id: 'update-2',
-                    parent_tool_call_id: 'tool-2',
+                    tool_call_id: 'tool-2',
                     content: 'Tool 2 update',
                 })
             })
@@ -1029,27 +991,23 @@ describe('maxThreadLogic', () => {
                 logic.actions.setToolCallUpdate({
                     type: AssistantMessageType.Update,
                     id: 'update-1',
-                    parent_tool_call_id: 'tool-call-123',
+                    tool_call_id: 'tool-call-123',
                     content: 'This should not appear',
                 })
             }).toMatchValues({
                 threadGrouped: [
-                    [
-                        {
-                            type: AssistantMessageType.Human,
-                            content: 'hello',
-                            status: 'completed',
-                            id: 'human-1',
-                        },
-                    ],
-                    [
-                        {
-                            type: AssistantMessageType.Assistant,
-                            content: 'response',
-                            status: 'completed',
-                            id: 'assistant-1',
-                        },
-                    ],
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'response',
+                        status: 'completed',
+                        id: 'assistant-1',
+                    },
                 ],
             })
         })
@@ -1057,7 +1015,7 @@ describe('maxThreadLogic', () => {
 
     describe('enhanceThreadToolCalls', () => {
         beforeEach(() => {
-            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID })
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
         })
 
@@ -1091,13 +1049,13 @@ describe('maxThreadLogic', () => {
                 ])
             })
 
-            const enhancedToolCalls = logic.values.threadGrouped[0][0].tool_calls
+            const enhancedToolCalls = logic.values.threadGrouped[0].tool_calls
             expect(enhancedToolCalls).toBeTruthy()
             expect(enhancedToolCalls?.[0].status).toBe('completed')
         })
 
         it('marks tool call as in_progress when no completion message and still loading', async () => {
-            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID })
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -1120,7 +1078,7 @@ describe('maxThreadLogic', () => {
                 ])
             })
 
-            const enhancedToolCalls = logic.values.threadGrouped[0][0].tool_calls
+            const enhancedToolCalls = logic.values.threadGrouped[0].tool_calls
             expect(enhancedToolCalls?.[0].status).toBe('in_progress')
         })
 
@@ -1144,7 +1102,7 @@ describe('maxThreadLogic', () => {
                 ])
             })
 
-            const enhancedToolCalls = logic.values.threadGrouped[0][0].tool_calls
+            const enhancedToolCalls = logic.values.threadGrouped[0].tool_calls
             expect(enhancedToolCalls?.[0].status).toBe('failed')
         })
 
@@ -1155,13 +1113,13 @@ describe('maxThreadLogic', () => {
                 logic.actions.setToolCallUpdate({
                     type: AssistantMessageType.Update,
                     id: 'update-1',
-                    parent_tool_call_id: toolCallId,
+                    tool_call_id: toolCallId,
                     content: 'Progress update 1',
                 })
                 logic.actions.setToolCallUpdate({
                     type: AssistantMessageType.Update,
                     id: 'update-2',
-                    parent_tool_call_id: toolCallId,
+                    tool_call_id: toolCallId,
                     content: 'Progress update 2',
                 })
                 logic.actions.setThread([
@@ -1182,7 +1140,7 @@ describe('maxThreadLogic', () => {
                 ])
             })
 
-            const enhancedToolCalls = logic.values.threadGrouped[0][0].tool_calls
+            const enhancedToolCalls = logic.values.threadGrouped[0].tool_calls
             expect(enhancedToolCalls?.[0].updates).toEqual(['Progress update 1', 'Progress update 2'])
         })
 
@@ -1220,8 +1178,8 @@ describe('maxThreadLogic', () => {
                 ])
             })
 
-            const firstToolCall = logic.values.threadGrouped[0][0].tool_calls?.[0]
-            const secondToolCall = logic.values.threadGrouped[0][1].tool_calls?.[0]
+            const firstToolCall = logic.values.threadGrouped[0].tool_calls?.[0]
+            const secondToolCall = logic.values.threadGrouped[1].tool_calls?.[0]
 
             expect(firstToolCall?.isLastPlanningMessage).toBeFalsy()
             expect(secondToolCall?.isLastPlanningMessage).toBeTruthy()
@@ -1261,7 +1219,7 @@ describe('maxThreadLogic', () => {
                 ])
             })
 
-            const enhancedToolCalls = logic.values.threadGrouped[0][0].tool_calls
+            const enhancedToolCalls = logic.values.threadGrouped[0].tool_calls
             expect(enhancedToolCalls?.[0].status).toBe('completed')
             expect(enhancedToolCalls?.[1].status).toBe('failed') // No completion message
         })
@@ -1288,7 +1246,7 @@ describe('maxThreadLogic', () => {
                 ])
             })
 
-            const enhancedToolCalls = logic.values.threadGrouped[0][0].tool_calls
+            const enhancedToolCalls = logic.values.threadGrouped[0].tool_calls
             expect(enhancedToolCalls?.[0].updates).toEqual([])
         })
     })

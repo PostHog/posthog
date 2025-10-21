@@ -61,16 +61,17 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
                 >
                     <TruncatedHorizontalCollection>
                         <span className="shrink-0">Tools:</span>
-                        {toolsInReverse.map((tool) => (
-                            // We're using --color-posthog-3000-300 instead of border-primary (--color-posthog-3000-200)
-                            // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
-                            <em className="relative inline-flex items-center gap-1" key={tool.identifier}>
-                                <span className="flex text-sm">
-                                    {getToolDefinition(tool.identifier)?.icon || <IconWrench />}
-                                </span>
-                                {tool.name}
-                            </em>
-                        ))}
+                        {toolsInReverse.map((tool) => {
+                            const toolDef = getToolDefinition(tool.identifier)
+                            return (
+                                // We're using --color-posthog-3000-300 instead of border-primary (--color-posthog-3000-200)
+                                // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
+                                <em className="relative inline-flex items-center gap-1" key={tool.identifier}>
+                                    <span className="flex text-sm">{toolDef?.icon || <IconWrench />}</span>
+                                    {toolDef?.name}
+                                </em>
+                            )
+                        })}
                     </TruncatedHorizontalCollection>
                     <IconInfo className="text-sm shrink-0 box-content z-10" />
                 </div>
@@ -179,8 +180,8 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                     [] as { name?: string; description?: string; icon?: JSX.Element }[]
                 )
                 .concat(MAX_GENERALLY_CAN)
-                .map((tool, index) => (
-                    <React.Fragment key={index}>
+                .map((tool) => (
+                    <React.Fragment key={tool.name}>
                         <span className="flex text-base text-success shrink-0 ml-1 mr-2 h-[1.25em]">
                             {tool.icon || <IconWrench />}
                         </span>
@@ -225,7 +226,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                     <span>
                         <em>In {sceneConfigurations[product]?.name || identifierToHuman(product)}: </em>
                         {tools.map((tool, index) => (
-                            <React.Fragment key={index}>
+                            <React.Fragment key={tool.name}>
                                 <strong className="italic">{tool.name}</strong>
                                 {tool.description?.replace(tool.name, '')}
                                 {index < tools.length - 1 && <>; </>}
