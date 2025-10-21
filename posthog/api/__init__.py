@@ -13,6 +13,7 @@ from posthog.warehouse.api import (
     data_warehouse,
     external_data_schema,
     external_data_source,
+    managed_viewset,
     modeling,
     query_tab_state,
     saved_query,
@@ -420,6 +421,12 @@ environments_router.register(
     r"warehouse_saved_query_drafts",
     saved_query_draft.DataWarehouseSavedQueryDraftViewSet,
     "environment_warehouse_saved_query_drafts",
+    ["team_id"],
+)
+environments_router.register(
+    r"managed_viewsets",
+    managed_viewset.DataWarehouseManagedViewSetViewSet,
+    "environment_managed_viewsets",
     ["team_id"],
 )
 

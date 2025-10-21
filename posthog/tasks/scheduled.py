@@ -50,6 +50,7 @@ from posthog.tasks.tasks import (
     start_poll_query_performance,
     stop_surveys_reached_target,
     sync_all_organization_available_product_features,
+    sync_feature_flag_last_called,
     update_event_partitions,
     update_survey_adaptive_sampling,
     update_survey_iteration,
@@ -158,6 +159,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/30"),
         calculate_decide_usage.s(),
         name="calculate decide usage",
+    )
+
+    # Sync feature flag last_called_at timestamps from ClickHouse every 30 minutes
+    sender.add_periodic_task(
+        crontab(minute="*/30"),
+        sync_feature_flag_last_called.s(),
+        name="sync feature flag last_called_at timestamps",
+        expires=1800,  # 30 minutes - prevents stale tasks from running
     )
 
     # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day

@@ -1,1 +1,1 @@
-0887_drop_named_query
+0888_datawarehousemanagedviewset_and_more
