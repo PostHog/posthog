@@ -17,7 +17,7 @@ class TestTitleGenerator:
         result = generate_task_title("Users are experiencing login issues on the authentication page")
 
         assert result == "Fix login bug"
-        mock_anthropic_provider.assert_called_once_with(model_id="claude-3-5-haiku-20241022")
+        mock_anthropic_provider.assert_called_once_with(model_id="claude-haiku-4-5-20251001")
 
     @patch("products.tasks.backend.services.title_generator.AnthropicProvider")
     def test_generate_task_title_multipart_response(self, mock_anthropic_provider):

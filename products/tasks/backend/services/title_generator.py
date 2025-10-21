@@ -18,7 +18,7 @@ def generate_task_title(description: str) -> str:
         return "Untitled Task"
 
     try:
-        provider = AnthropicProvider(model_id="claude-3-5-haiku-20241022")
+        provider = AnthropicProvider(model_id="claude-haiku-4-5-20251001")
 
         system_prompt = """You are a title generator. You output ONLY a task title. Nothing else.
 
