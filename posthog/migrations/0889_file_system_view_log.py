@@ -17,7 +17,12 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="FileSystemViewLog",
             fields=[
-                ("id", models.UUIDField(default=posthog.models.utils.uuid7, primary_key=True, serialize=False)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
                 ("type", models.CharField(max_length=150)),
                 ("ref", models.CharField(max_length=200)),
                 ("viewed_at", models.DateTimeField(default=django.utils.timezone.now)),
