@@ -172,7 +172,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization_membership.save()
 
         # Check effective membership level
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level is None
 
     def test_team_effective_membership_level_new_access_control_private_team_with_member_access(self):
@@ -206,7 +206,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         )
 
         # Check effective membership level
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(2):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def test_team_effective_membership_level_new_access_control_private_team_with_role_access(self):
@@ -251,7 +251,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         )
 
         # Check effective membership level
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
 
