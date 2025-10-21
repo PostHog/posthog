@@ -329,6 +329,15 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Consumer specific settings (deprecated but cant be removed until legacy onevent consumer is removed)
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
+    KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number
+    KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: number
+    KAFKA_PRODUCER_BATCH_SIZE: number
+    KAFKA_PRODUCER_LINGER_MS: number
+    KAFKA_PRODUCER_COMPRESSION_CODEC: 'none' | 'gzip' | 'snappy' | 'lz4' | 'zstd'
+    KAFKA_PRODUCER_METADATA_MAX_AGE_MS: number
+    KAFKA_PRODUCER_RETRY_BACKOFF_MS: number
+    KAFKA_PRODUCER_SOCKET_TIMEOUT_MS: number
+    KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins

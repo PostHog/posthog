@@ -52,16 +52,17 @@ export class KafkaProducerWrapper {
             'client.id': hostname(),
             'client.rack': config.KAFKA_CLIENT_RACK,
             'metadata.broker.list': 'kafka:9092',
-            'linger.ms': 20,
+            'linger.ms': config.KAFKA_PRODUCER_LINGER_MS,
             log_level: 4, // WARN as the default
-            'batch.size': 8 * 1024 * 1024,
-            'queue.buffering.max.messages': 100_000,
-            'compression.codec': 'snappy',
+            'batch.size': config.KAFKA_PRODUCER_BATCH_SIZE,
+            'queue.buffering.max.messages': config.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES,
+            'queue.buffering.max.kbytes': config.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES,
+            'compression.codec': config.KAFKA_PRODUCER_COMPRESSION_CODEC,
             'enable.idempotence': true,
-            'metadata.max.age.ms': 30000, // Refresh metadata every 30s
-            'retry.backoff.ms': 500, // Backoff between retry attempts
-            'socket.timeout.ms': 30000, // Timeout for socket operations
-            'max.in.flight.requests.per.connection': 5, // Required for idempotence ordering
+            'metadata.max.age.ms': config.KAFKA_PRODUCER_METADATA_MAX_AGE_MS,
+            'retry.backoff.ms': config.KAFKA_PRODUCER_RETRY_BACKOFF_MS,
+            'socket.timeout.ms': config.KAFKA_PRODUCER_SOCKET_TIMEOUT_MS,
+            'max.in.flight.requests.per.connection': config.KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
             ...getKafkaConfigFromEnv(mode),
             dr_cb: true,
         }
