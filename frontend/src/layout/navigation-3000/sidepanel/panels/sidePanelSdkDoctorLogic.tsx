@@ -194,14 +194,44 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             },
         ],
 
+        needsAttention: [
+            (s) => [s.sdkVersionsMap, s.outdatedSdkCount, s.snoozedUntil],
+            (
+                sdkVersionsMap: AugmentedTeamSdkVersionsInfo,
+                outdatedSdkCount: number,
+                snoozedUntil: string | null
+            ): boolean => {
+                // If snoozed, we don't need attention to this
+                if (snoozedUntil !== null) {
+                    return false
+                }
+
+                // Let's call their attention if at least half of their SDKs are outdated
+                // It's unlikely for people to have more than 3 SDKs, but let's be safe
+                // and handle it very generically.
+                //
+                // | Outdated SDKs \ Total SDKs |  1  |  2  |  3  |  4  |  5  |
+                // |----------------------------|-----|-----|-----|-----|-----|
+                // |                0           |  NO |  NO |  NO |  NO |  NO |
+                // |                1           | YES | YES |  NO |  NO |  NO |
+                // |                2           |     | YES | YES | YES |  NO |
+                // |                3           |     |     | YES | YES | YES |
+                // |                4           |     |     |     | YES | YES |
+                // |                5           |     |     |     |     | YES |
+                const teamSdkCount = Object.values(sdkVersionsMap).length
+                return outdatedSdkCount >= Math.ceil(teamSdkCount / 2)
+            },
+        ],
+
         sdkHealth: [
-            (s) => [s.outdatedSdkCount],
-            (outdatedSdkCount: number): SdkHealthStatus => {
-                // If there are any outdated SDKs, mark as warning
-                // If there are 2 or more, mark as critical
-                if (outdatedSdkCount >= 2) {
+            (s) => [s.needsAttention, s.outdatedSdkCount],
+            (needsAttention: boolean, outdatedSdkCount: number): SdkHealthStatus => {
+                // If there's need for attention, then it's automatically marked as danger
+                if (needsAttention) {
                     return 'danger'
                 }
+
+                // If there's no need for attention, but there are outdated SDKs, then it's marked as warning
                 if (outdatedSdkCount >= 1) {
                     return 'warning'
                 }
@@ -211,11 +241,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             },
         ],
 
-        needsAttention: [
-            (s) => [s.outdatedSdkCount, s.snoozedUntil],
-            (outdatedSdkCount: number, snoozedUntil: string | null): boolean =>
-                outdatedSdkCount > 1 && snoozedUntil === null,
-        ],
         hasErrors: [
             (s) => [s.sdkVersions, s.sdkVersionsLoading, s.teamSdkVersions, s.teamSdkVersionsLoading],
             (
