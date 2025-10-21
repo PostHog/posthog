@@ -113,7 +113,7 @@ class EntitySearchToolkit:
     ) -> str:
         content = ""
         if not results:
-            content += f"No entities found matching the query '{query}' for entity types {entity_types}"
+            content += f"No entities found matching the query '{query}' for entity types {list(entity_types)}"
         else:
             result_summary = []
             for result in results:

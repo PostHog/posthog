@@ -76,7 +76,7 @@ class TestEntitySearchToolkit:
 
         assert "No entities found" in content
         assert "test query" in content
-        assert "['insight', 'dashboard']" in content
+        assert "['dashboard', 'insight']" in content
 
     def test_format_results_for_display_with_results(self):
         results = [
@@ -127,7 +127,7 @@ class TestEntitySearchToolkit:
         _ = await self.toolkit.search(query="test query", entity_types=[])
 
         mock_search_entities.assert_called_once_with(
-            list(ENTITY_MAP.keys()), "test query", self.team.project_id, self.toolkit, ENTITY_MAP
+            set(ENTITY_MAP.keys()), "test query", self.team.project_id, self.toolkit, ENTITY_MAP
         )
 
     @pytest.mark.asyncio
