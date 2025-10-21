@@ -1,5 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 
+import { makeNavigateWrapper } from '~/toolbar/utils'
+
 import type { currentPageLogicType } from './currentPageLogicType'
 
 const replaceWithWildcard = (part: string): string => {
@@ -98,30 +100,9 @@ export const currentPageLogic = kea<currentPageLogicType>([
             }
         }
 
-        cache.disposables.add(() => {
-            const popstateHandler = (): void => checkAndUpdateHref()
-            window.addEventListener('popstate', popstateHandler)
-            return () => window.removeEventListener('popstate', popstateHandler)
-        }, 'popstateListener')
-
-        cache.disposables.add(() => {
-            const originalPushState = history.pushState
-            const originalReplaceState = history.replaceState
-
-            history.pushState = function (...args) {
-                originalPushState.apply(this, args)
-                checkAndUpdateHref()
-            }
-
-            history.replaceState = function (...args) {
-                originalReplaceState.apply(this, args)
-                checkAndUpdateHref()
-            }
-
-            return () => {
-                history.pushState = originalPushState
-                history.replaceState = originalReplaceState
-            }
-        }, 'historyProxy')
+        cache.disposables.add(
+            makeNavigateWrapper(checkAndUpdateHref, '__ph_current_page_logic_wrapped__'),
+            'historyProxy'
+        )
     }),
 ])
