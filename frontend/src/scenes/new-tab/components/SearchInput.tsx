@@ -57,7 +57,6 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const [filteredCommands, setFilteredCommands] = useState<SearchInputCommand<T>[]>(commands)
     const [focusedIndex, setFocusedIndex] = useState(0)
     const inputRef = useRef<HTMLInputElement>(null)
-    const dropdownRef = useRef<HTMLDivElement>(null)
     const [focusedTagIndex, setFocusedTagIndex] = useState<number | null>(null)
 
     useImperativeHandle(
@@ -130,18 +129,6 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
         }, 150)
     }
 
-    const scrollFocusedCommandToView = (): void => {
-        if (focusedIndex >= 0 && dropdownRef.current) {
-            // Use a small timeout to ensure DOM has updated
-            setTimeout(() => {
-                const element = dropdownRef.current?.querySelector('.command-input-focused')
-                if (element) {
-                    element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
-                }
-            }, 0)
-        }
-    }
-
     const handleKeyDown = (e: React.KeyboardEvent): void => {
         switch (e.key) {
             case '/':
@@ -159,13 +146,6 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                 break
         }
     }
-
-    // scroll focused command to view
-    useEffect(() => {
-        if (focusedIndex >= 0) {
-            scrollFocusedCommandToView()
-        }
-    }, [focusedIndex, scrollFocusedCommandToView])
 
     return (
         <div className="relative w-full">
