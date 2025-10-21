@@ -33,6 +33,12 @@ export enum ResourceUri {
     EXAMPLE_PROJECT_FRAMEWORK = 'posthog://integration/example-projects/{framework}',
 }
 
+/**
+ * Message appended to workflow resources to indicate the next step
+ */
+export const WORKFLOW_NEXT_STEP_MESSAGE =
+    'Upon completion, access the following resource to continue:'
+
 // Cache for the examples monorepo ZIP contents
 let cachedExamplesRepo: Unzipped | null = null
 
@@ -96,7 +102,7 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
 
         // Append next step URI if there is a next workflow
         const content = nextWorkflow
-            ? `${workflow.content}\n\n---\n\n**Upon completion, access the following resource to continue:** ${nextWorkflow.uri}`
+            ? `${workflow.content}\n\n---\n\n**${WORKFLOW_NEXT_STEP_MESSAGE}** ${nextWorkflow.uri}`
             : workflow.content
 
         server.registerResource(
@@ -128,7 +134,7 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
                 return {
                     resources: frameworks.map((framework) => ({
                         uri: ResourceUri.DOCS_FRAMEWORK.replace('{framework}', framework),
-                        name: `PostHog ${framework} Integration Docs`,
+                        name: `PostHog ${framework} integration documentation`,
                         description: `PostHog integration documentation for ${framework}`,
                         mimeType: 'text/markdown',
                     })),
@@ -206,7 +212,7 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
                             '{framework}',
                             framework
                         ),
-                        name: `PostHog ${framework} Example Project`,
+                        name: `PostHog ${framework} example project`,
                         description: `Example project code for ${framework}`,
                         mimeType: 'text/markdown',
                     })),
