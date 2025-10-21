@@ -144,7 +144,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             expect(events).toHaveLength(1)
 
             const preCalculatedEvent = events[0]
-            expect(preCalculatedEvent.key).toBe('2025-03-03 18:15:46.319') // Partitioned by timestamp
+            expect(preCalculatedEvent.key).toBe(distinctId) // Partitioned by distinct_id
 
             expect(preCalculatedEvent.payload).toMatchObject({
                 uuid: eventUuid,
@@ -165,7 +165,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             expect(kafkaMessages).toHaveLength(1)
 
             const publishedMessage = kafkaMessages[0]
-            expect(publishedMessage.key).toBe('2025-03-03 18:15:46.319')
+            expect(publishedMessage.key).toBe(distinctId)
             expect(publishedMessage.value).toEqual(preCalculatedEvent.payload)
         })
 

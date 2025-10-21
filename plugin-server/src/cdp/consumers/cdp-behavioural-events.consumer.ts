@@ -161,7 +161,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                                 // This ensures consistent condition hashes for the same action
 
                                 const preCalculatedEvent: ProducedEvent = {
-                                    key: evaluationTimestamp,
+                                    key: filterGlobals.distinct_id,
                                     payload: {
                                         uuid: filterGlobals.uuid,
                                         team_id: clickHouseEvent.team_id,
