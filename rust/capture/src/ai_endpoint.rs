@@ -356,6 +356,13 @@ fn process_blob_part(
     // Get length before moving data
     let field_data_len = field_data.len();
 
+    // Reject empty blobs
+    if field_data_len == 0 {
+        return Err(CaptureError::RequestDecodingError(format!(
+            "Blob part '{field_name}' cannot be empty (0 bytes)"
+        )));
+    }
+
     // Create part info (clones needed for response)
     let part_info = PartInfo {
         name: field_name.clone(),
@@ -636,24 +643,15 @@ fn parse_multipart_data(
                 // Extract property name from "event.properties.PROPERTY_NAME"
                 if let Some(property_name) = blob_part.name.strip_prefix("event.properties.") {
                     let blob_size = blob_part.data.len();
+                    let range_start = current_offset;
+                    let range_end = current_offset + blob_size - 1;
 
                     // Calculate byte range for this blob
                     // HTTP byte ranges are inclusive on both ends: range=0-149 means bytes 0-149 (150 bytes total)
-                    let placeholder_url = if blob_size > 0 {
-                        let range_start = current_offset;
-                        let range_end = current_offset + blob_size - 1;
-                        format!(
-                            "s3://PLACEHOLDER/TEAM_ID/{event_uuid}?range={range_start}-{range_end}"
-                        )
-                    } else {
-                        // Empty blob - use current offset with zero-length range
-                        format!(
-                            "s3://PLACEHOLDER/TEAM_ID/{}?range={}-{}",
-                            event_uuid,
-                            current_offset,
-                            current_offset.saturating_sub(1)
-                        )
-                    };
+                    // Note: blob_size is guaranteed to be > 0 due to validation in process_blob_part
+                    let placeholder_url = format!(
+                        "s3://PLACEHOLDER/TEAM_ID/{event_uuid}?range={range_start}-{range_end}"
+                    );
 
                     properties.insert(property_name.to_string(), Value::String(placeholder_url));
 

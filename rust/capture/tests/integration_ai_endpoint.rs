@@ -543,11 +543,9 @@ async fn test_multipart_parsing_with_empty_blob() {
         Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
     )
     .await;
-    assert_eq!(response.status(), StatusCode::OK);
 
-    let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
-    let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
-    assert_eq!(accepted_parts[2]["length"], 0);
+    // Empty blobs should be rejected with 400 Bad Request
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 // ----------------------------------------------------------------------------
