@@ -79,7 +79,7 @@ describe('VariantsPanel', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/@current/feature_flags/': (req) => {
+                '/api/projects/@current/experiments/eligible_feature_flags/': (req) => {
                     const url = new URL(req.url)
                     const search = url.searchParams.get('search')
 
@@ -382,7 +382,10 @@ describe('VariantsPanel', () => {
         it('handles empty feature flags list', async () => {
             useMocks({
                 get: {
-                    '/api/projects/@current/feature_flags/': () => [200, { results: [], count: 0 }],
+                    '/api/projects/@current/experiments/eligible_feature_flags/': () => [
+                        200,
+                        { results: [], count: 0 },
+                    ],
                     '/api/projects/@current/experiments': () => [200, { results: [], count: 0 }],
                 },
             })

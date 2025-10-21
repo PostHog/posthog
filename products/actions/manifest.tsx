@@ -22,6 +22,9 @@ export const manifest: ProductManifest = {
             projectBased: true,
             defaultDocsPath: '/docs/data/actions',
             activityScope: 'Action',
+            description:
+                'Combine several related events into one, which you can then analyze in insights and dashboards as if it were a single event.',
+            iconType: 'action',
         },
         Action: {
             name: 'Action',
@@ -29,20 +32,22 @@ export const manifest: ProductManifest = {
             projectBased: true,
             defaultDocsPath: '/docs/data/actions',
             activityScope: 'Action',
+            iconType: 'action',
         },
-        ActionNew: {
-            name: 'ActionNew',
+        NewAction: {
+            name: 'New Action',
             import: () => import('./frontend/pages/Action'),
             projectBased: true,
             defaultDocsPath: '/docs/data/actions',
             activityScope: 'Action',
+            iconType: 'action',
         },
     },
     routes: {
         '/data-management/actions': ['Actions', 'actions'],
-        '/data-management/actions/new': ['ActionNew', 'actionNew'],
+        '/data-management/actions/new': ['NewAction', 'actionNew'],
         '/data-management/actions/:id': ['Action', 'action'],
-        '/data-management/actions/new/': ['ActionNew', 'actionNew'],
+        '/data-management/actions/new/': ['NewAction', 'actionNew'],
     },
     fileSystemTypes: {
         action: {
@@ -68,6 +73,7 @@ export const manifest: ProductManifest = {
             category: 'Schema',
             href: urls.actions(),
             iconType: 'action' as FileSystemIconType,
+            sceneKey: 'Actions',
         },
     ],
 }

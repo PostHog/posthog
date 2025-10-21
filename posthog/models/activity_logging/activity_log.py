@@ -36,6 +36,7 @@ ActivityScope = Literal[
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "Endpoint",
     "Dashboard",
     "Replay",
     "Experiment",

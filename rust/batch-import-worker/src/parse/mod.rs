@@ -1,5 +1,6 @@
 pub mod content;
 pub mod format;
+pub mod serialization;
 
 pub struct Parsed<T> {
     pub data: T,

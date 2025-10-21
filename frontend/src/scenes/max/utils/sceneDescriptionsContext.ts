@@ -34,7 +34,7 @@ export function buildSceneDescriptionsContext(): string {
         const availableTools = Object.entries(TOOL_DEFINITIONS)
             .filter(([_, toolDef]) => toolDef.product === sceneKey)
             .map(([_, toolDef]) => toolDef.name)
-        if (!sceneConfig.description && !availableTools.length) {
+        if (!sceneConfig?.description && !availableTools.length) {
             continue // No extra details, and the key itself is already included in the navigate tool's definition
         }
         let entry = `- **${urlKey}**`

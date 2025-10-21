@@ -166,7 +166,9 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 },
             )
             self.assertEqual(response.status_code, 200, response.content)
-            self.assertDictContainsSubset({"name": "whatever2", "description": "A great cohort!"}, response.json())
+            self.assertLessEqual(
+                {"name": "whatever2", "description": "A great cohort!"}.items(), response.json().items()
+            )
             self.assertEqual(patch_calculate_cohort.call_count, 2)
 
             self.assertIn(f" user_id:{self.user.id} ", insert_statements[0])
@@ -395,6 +397,71 @@ User ID
         for person in cohort_people:
             distinct_ids.update(person.distinct_ids)
         self.assertIn("456", distinct_ids)  # Should still contain 456
+
+    def test_static_cohort_create_and_patch_with_query(self):
+        _create_person(
+            distinct_ids=["123"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "not it"},
+        )
+        _create_person(
+            distinct_ids=["p2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        flush_persons_and_events()
+
+        csv = SimpleUploadedFile(
+            "example.csv",
+            str.encode(
+                """
+User ID
+email@example.org
+123
+0
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={
+                "query": {
+                    "kind": "ActorsQuery",
+                    "properties": [
+                        {
+                            "key": "$some_prop",
+                            "value": "something",
+                            "type": "person",
+                            "operator": PropertyOperator.EXACT,
+                        }
+                    ],
+                }
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        cohort.refresh_from_db()
+
+        # Verify the persons were actually added to the cohort
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        self.assertEqual(people_in_cohort.count(), 2)
 
     @parameterized.expand([("distinct-id",), ("distinct_id",)])
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
@@ -1638,12 +1705,12 @@ email@example.org,
             },
         )
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "detail": "Cohorts cannot reference other cohorts in a loop.",
                 "type": "validation_error",
-            },
-            response.json(),
+            }.items(),
+            response.json().items(),
         )
         self.assertEqual(get_total_calculation_calls(), 3)
 
@@ -1666,12 +1733,12 @@ email@example.org,
             },
         )
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "detail": "Cohorts cannot reference other cohorts in a loop.",
                 "type": "validation_error",
-            },
-            response.json(),
+            }.items(),
+            response.json().items(),
         )
         self.assertEqual(get_total_calculation_calls(), 3)
 
@@ -1775,9 +1842,9 @@ email@example.org,
             },
         )
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertDictContainsSubset(
-            {"detail": "Invalid Cohort ID in filter", "type": "validation_error"},
-            response.json(),
+        self.assertLessEqual(
+            {"detail": "Invalid Cohort ID in filter", "type": "validation_error"}.items(),
+            response.json().items(),
         )
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
@@ -2182,12 +2249,12 @@ email@example.org,
         )
 
         self.assertEqual(update_response.status_code, 400, response.content)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "detail": "Must contain a 'properties' key with type and values",
                 "type": "validation_error",
-            },
-            update_response.json(),
+            }.items(),
+            update_response.json().items(),
         )
 
     @patch("posthog.api.cohort.report_user_action")
@@ -2288,14 +2355,14 @@ email@example.org,
             },
         )
         self.assertEqual(response.status_code, 400)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
                 "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
                 "attr": "filters",
-            },
-            response.json(),
+            }.items(),
+            response.json().items(),
         )
 
         response = self.client.patch(
@@ -2323,14 +2390,14 @@ email@example.org,
             },
         )
         self.assertEqual(response.status_code, 400)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
                 "detail": "A cohort dependency (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
                 "attr": "filters",
-            },
-            response.json(),
+            }.items(),
+            response.json().items(),
         )
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())

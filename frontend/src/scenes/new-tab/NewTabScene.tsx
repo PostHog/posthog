@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconEllipsis, IconSearch, IconSidePanel } from '@posthog/icons'
+import { IconEllipsis, IconFeatures, IconSearch } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
@@ -21,9 +22,9 @@ import {
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
-import { maxLogic } from 'scenes/max/maxLogic'
 import { NEW_TAB_CATEGORY_ITEMS, NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -64,7 +65,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
     const { filteredItemsGrid, groupedFilteredItems, search, selectedItem, categories, selectedCategory, isSearching } =
         useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
-    const { setQuestion, focusInput } = useActions(maxLogic)
     const { setSearch, setSelectedCategory } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { showSceneDashboardChoiceModal } = useActions(
@@ -78,7 +78,6 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             element?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
         }
     }, [selectedItem])
-
     return (
         <ListBox
             ref={listboxRef}
@@ -125,21 +124,16 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 </ListBox.Item>
                             </span>
                             <span className="text-primary flex gap-1 items-center">
-                                {/* if filtered results lenght is 0, this will be the first to focus */}
+                                {/* if the filtered results length is 0, this will be the first to focus */}
                                 <ListBox.Item asChild focusFirst={filteredItemsGrid.length === 0}>
                                     <ButtonPrimitive
                                         size="xxs"
-                                        onClick={() => {
-                                            openSidePanel(SidePanelTab.Max)
-                                            setSearch('')
-                                            setQuestion(search)
-                                            focusInput()
-                                        }}
+                                        onClick={() => router.actions.push(urls.max(undefined, search))}
                                         className="text-xs"
                                         tooltip="Hit enter to open Max!"
                                     >
                                         Ask Max!
-                                        <IconSidePanel />
+                                        <IconFeatures />
                                     </ButtonPrimitive>
                                 </ListBox.Item>
                             </span>

@@ -550,7 +550,7 @@ def get_query_runner(
         )
 
     if kind == "ErrorTrackingQuery":
-        from .error_tracking_query_runner import ErrorTrackingQueryRunner
+        from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
         return ErrorTrackingQueryRunner(
             query=query,
@@ -560,8 +560,21 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "DocumentSimilarityQuery":
+        from .document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
+
+        return DocumentEmbeddingsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "ErrorTrackingIssueCorrelationQuery":
-        from .error_tracking_issue_correlation_query_runner import ErrorTrackingIssueCorrelationQueryRunner
+        from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
+            ErrorTrackingIssueCorrelationQueryRunner,
+        )
 
         return ErrorTrackingIssueCorrelationQueryRunner(
             query=query,
@@ -656,28 +669,15 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "TracesQuery":
-        from .legacy_compatibility.feature_flag import llm_analytics_traces_query_v2
+        from .ai.traces_query_runner import TracesQueryRunner
 
-        if llm_analytics_traces_query_v2(team):
-            from .ai.traces_query_runner_v2 import TracesQueryRunnerV2
-
-            return TracesQueryRunnerV2(
-                query=cast(TracesQuery | dict[str, Any], query),
-                team=team,
-                timings=timings,
-                limit_context=limit_context,
-                modifiers=modifiers,
-            )
-        else:
-            from .ai.traces_query_runner import TracesQueryRunner
-
-            return TracesQueryRunner(
-                query=cast(TracesQuery | dict[str, Any], query),
-                team=team,
-                timings=timings,
-                limit_context=limit_context,
-                modifiers=modifiers,
-            )
+        return TracesQueryRunner(
+            query=cast(TracesQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
     if kind == "TraceQuery":
         from .ai.trace_query_runner import TraceQueryRunner
 
@@ -828,7 +828,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.__annotations__["cached_response"]
 
     def is_query_node(self, data) -> TypeGuard[Q]:
-        return isinstance(data, self.query_type)
+        query_type = self.query_type
+        # Resolve type alias if present
+        if hasattr(query_type, "__value__"):
+            query_type = query_type.__value__
+        # Handle both UnionType and typing._UnionGenericAlias
+        if isinstance(query_type, UnionType) or (type(query_type).__name__ == "_UnionGenericAlias"):
+            return any(isinstance(data, t) for t in get_args(query_type))
+        if not isinstance(query_type, type):
+            raise TypeError(f"query_type must be a type, got {type(query_type)}: {query_type}")
+        return isinstance(data, query_type)
 
     def is_cached_response(self, data) -> TypeGuard[dict]:
         return hasattr(data, "is_cached") or (  # Duck typing for backwards compatibility with `CachedQueryResponse`
@@ -918,9 +927,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 {"cache_key": cache_manager.cache_key},
             )
 
-        if self.is_cached_response(cached_response_candidate):
-            assert isinstance(cached_response, CachedResponse)
-
+        if isinstance(cached_response, CachedResponse):
             if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
                 count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
