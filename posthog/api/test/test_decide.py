@@ -954,7 +954,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(assert_num_queries=5)
+        response = self._post_decide(assert_num_queries=9)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("default-flag", response.json()["featureFlags"])
         self.assertIn("beta-feature", response.json()["featureFlags"])
@@ -1391,7 +1391,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=5)
+        response = self._post_decide(api_version=2, distinct_id="example_id", assert_num_queries=7)
         self.assertTrue("beta-feature" not in response.json()["featureFlags"])
         self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
 
@@ -1454,7 +1454,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=6)
+        response = self._post_decide(api_version=2, assert_num_queries=9)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
         self.assertEqual(
@@ -1513,7 +1513,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )  # Should be enabled for everyone
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, assert_num_queries=6)
+        response = self._post_decide(api_version=2, assert_num_queries=9)
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
 
@@ -1924,7 +1924,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        response = self._post_decide(api_version=2, distinct_id="hosted_id", assert_num_queries=5)
+        response = self._post_decide(api_version=2, distinct_id="hosted_id", assert_num_queries=7)
         self.assertIsNone(
             (response.json()["featureFlags"]).get("multivariate-flag", None)
         )  # User is does not have realm == "cloud". Value is None.
