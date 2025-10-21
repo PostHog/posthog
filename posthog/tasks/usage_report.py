@@ -35,7 +35,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import BatchExport, GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
-from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.organization import Organization
@@ -49,6 +48,8 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -79,8 +80,12 @@ QUERY_RETRY_BACKOFF = 2
 USAGE_REPORT_TASK_KWARGS = {
     "queue": CeleryQueue.USAGE_REPORTS.value,
     "ignore_result": True,
+    "acks_late": True,
+    "reject_on_worker_lost": True,
     "autoretry_for": (Exception,),
-    "retry_backoff": True,
+    "retry_backoff": 300,  # 5min
+    "retry_backoff_max": 1800,  # 30min
+    "expires": 14400,  # 4h
 }
 
 

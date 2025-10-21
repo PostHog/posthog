@@ -172,6 +172,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 readOnly={readOnly}
                 editMode={!!editMode}
                 uniqueKey={uniqueKey}
+                cachedResults={props.cachedResults}
                 embedded={embedded}
                 inSharedMode={inSharedMode}
                 filtersOverride={filtersOverride}

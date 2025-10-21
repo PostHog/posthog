@@ -32,7 +32,7 @@ export const LOG_VIEWER_LIMIT = 100
 
 export type LogsViewerLogicProps = {
     logicKey?: string
-    sourceType: 'hog_function' | 'hog_flow' | 'batch_export' | 'external_data_jobs'
+    sourceType: 'hog_function' | 'hog_flow' | 'batch_exports' | 'external_data_jobs'
     sourceId: string
     groupByInstanceId?: boolean
     searchGroups?: string[]

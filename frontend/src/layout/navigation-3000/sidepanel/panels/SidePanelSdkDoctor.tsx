@@ -1,14 +1,18 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { IconStethoscope } from '@posthog/icons'
+import { IconInfo, IconStethoscope } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { AugmentedTeamSdkVersionsInfoRelease, type SdkType, sidePanelSdkDoctorLogic } from './sidePanelSdkDoctorLogic'
@@ -80,16 +84,29 @@ const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }> = {
     },
 }
 
+const queryForSdkVersion = (sdkType: SdkType, version: string): string => {
+    return `SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 7 DAY AND properties.$lib = '${sdkType}' AND properties.$lib_version = '${version}' ORDER BY timestamp DESC LIMIT 50`
+}
+
 const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
     {
         title: 'Version',
         dataIndex: 'version',
         render: function RenderVersion(_, record) {
             return (
-                <div className="flex items-center gap-2 justify-end">
-                    <code className="text-xs font-mono bg-muted-highlight rounded-sm px-1 py-0.5">
-                        {record.version}
-                    </code>
+                <div className="flex items-center gap-2 justify-start">
+                    <Tooltip title="View events" delayMs={0}>
+                        <Link
+                            onClick={() => {
+                                posthog.capture('sdk doctor view events', {
+                                    sdkType: record.type,
+                                })
+                                newInternalTab(urls.sqlEditor(queryForSdkVersion(record.type, record.version)))
+                            }}
+                        >
+                            <code className="text-xs font-mono bg-muted-highlight rounded-sm">{record.version}</code>
+                        </Link>
+                    </Tooltip>
                     {record.isOutdated ? (
                         <Tooltip
                             placement="right"
@@ -99,13 +116,9 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                                 Outdated
                             </LemonTag>
                         </Tooltip>
-                    ) : record.latestVersion && record.version === record.latestVersion ? (
-                        <LemonTag type="success" className="shrink-0">
-                            Current
-                        </LemonTag>
                     ) : (
                         <LemonTag type="success" className="shrink-0">
-                            Recent
+                            {record.latestVersion && record.version === record.latestVersion ? 'Current' : 'Recent'}
                         </LemonTag>
                     )}
                 </div>
@@ -113,7 +126,14 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
         },
     },
     {
-        title: 'Last event at',
+        title: (
+            <span>
+                LAST EVENT AT{' '}
+                <Tooltip title="This gets refreshed every night, click 'Scan Events' to refresh manually">
+                    <IconInfo />
+                </Tooltip>
+            </span>
+        ),
         dataIndex: 'maxTimestamp',
         render: function RenderMaxTimestamp(_, record) {
             return <TZLabel time={record.maxTimestamp} />
@@ -129,14 +149,29 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
 ]
 
 export function SidePanelSdkDoctor(): JSX.Element | null {
-    const { sdkVersionsMap, sdkVersionsLoading, teamSdkVersionsLoading, outdatedSdkCount, hasErrors } =
+    const { sdkVersionsMap, sdkVersionsLoading, teamSdkVersionsLoading, outdatedSdkCount, hasErrors, snoozedUntil } =
         useValues(sidePanelSdkDoctorLogic)
     const { isDev } = useValues(preflightLogic)
+
     const { loadTeamSdkVersions, snoozeSdkDoctor } = useActions(sidePanelSdkDoctorLogic)
 
     const loading = sdkVersionsLoading || teamSdkVersionsLoading
 
     const { featureFlags } = useValues(featureFlagLogic)
+
+    useOnMountEffect(() => {
+        posthog.capture('sdk doctor loaded', { outdatedSdkCount })
+    })
+
+    const scanEvents = (): void => {
+        posthog.capture('sdk doctor scan events')
+        loadTeamSdkVersions({ forceRefresh: true })
+    }
+
+    const snoozeWarning = (): void => {
+        posthog.capture('sdk doctor snooze warning')
+        snoozeSdkDoctor()
+    }
 
     if (!featureFlags[FEATURE_FLAGS.SDK_DOCTOR_BETA]) {
         return (
@@ -178,7 +213,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                     size="xsmall"
                     type="primary"
                     disabledReason={loading ? 'Scan in progress' : undefined}
-                    onClick={() => loadTeamSdkVersions({ forceRefresh: true })}
+                    onClick={scanEvents}
                 >
                     {loading ? 'Scanning events...' : 'Scan events'}
                 </LemonButton>
@@ -229,7 +264,8 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                             hideIcon={false}
                             action={{
                                 children: 'Snooze warning for 30 days',
-                                onClick: () => snoozeSdkDoctor(),
+                                disabledReason: snoozedUntil ? 'Already snoozed' : undefined,
+                                onClick: snoozeWarning,
                             }}
                         >
                             <p className="font-semibold">
@@ -251,20 +287,12 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
 export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
     const { sdkHealth, outdatedSdkCount } = useValues(sidePanelSdkDoctorLogic)
 
-    const title =
-        outdatedSdkCount > 0
-            ? 'Outdated SDKs found'
-            : sdkHealth === 'warning'
-              ? 'Some SDKs have newer versions available'
-              : 'SDK health is good'
+    const title = outdatedSdkCount > 0 ? 'Outdated SDKs found' : 'SDK health is good'
 
     return (
         <Tooltip title={title} placement="left">
             <span {...props}>
-                <IconWithBadge
-                    content={sdkHealth !== 'success' && outdatedSdkCount > 0 ? '!' : '✓'}
-                    status={outdatedSdkCount > 0 ? 'danger' : sdkHealth}
-                >
+                <IconWithBadge content={outdatedSdkCount > 0 ? '!' : '✓'} status={sdkHealth}>
                     <IconStethoscope />
                 </IconWithBadge>
             </span>
@@ -273,7 +301,7 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
 }
 
 function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
-    const { sdkVersionsMap, teamSdkVersionsLoading, sdkHealth } = useValues(sidePanelSdkDoctorLogic)
+    const { sdkVersionsMap, teamSdkVersionsLoading } = useValues(sidePanelSdkDoctorLogic)
 
     const sdk = sdkVersionsMap[sdkType]!
     const links = SDK_DOCS_LINKS[sdkType]
@@ -286,12 +314,8 @@ function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                     <div className="flex flex-row gap-2">
                         <h3 className="mb-0">{sdkName}</h3>
                         <span>
-                            <LemonTag type={sdk.isOutdated ? 'danger' : sdkHealth}>
-                                {sdkHealth === 'danger'
-                                    ? 'Critical'
-                                    : sdk.isOutdated || sdkHealth === 'warning'
-                                      ? 'Outdated'
-                                      : 'Up to date'}
+                            <LemonTag type={sdk.isOutdated ? 'warning' : 'success'}>
+                                {sdk.isOutdated ? 'Outdated' : 'Up to date'}
                             </LemonTag>
                         </span>
 

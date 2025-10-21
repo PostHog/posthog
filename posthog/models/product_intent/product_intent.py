@@ -7,7 +7,6 @@ from celery import shared_task
 from rest_framework import serializers
 
 from posthog.models.dashboard import Dashboard
-from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.insight import Insight
@@ -17,6 +16,8 @@ from posthog.models.user import User
 from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm
+
+from products.error_tracking.backend.models import ErrorTrackingIssue
 
 """
 How to use this model:
