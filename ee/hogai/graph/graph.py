@@ -6,7 +6,6 @@ from posthog.models.user import User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.base import BaseAssistantGraph
-from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 
@@ -44,7 +43,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         path_map = path_map or {
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
-            "session_summarization": AssistantNodeName.SESSION_SUMMARIZATION,
             "create_dashboard": AssistantNodeName.DASHBOARD_CREATION,
         }
         root_node = RootNode(self._team, self._user)
@@ -134,12 +132,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self._graph.add_edge(AssistantNodeName.MEMORY_COLLECTOR_TOOLS, AssistantNodeName.MEMORY_COLLECTOR)
         return self
 
-    def add_session_summarization(self, end_node: AssistantNodeName = AssistantNodeName.END):
-        session_summarization_node = SessionSummarizationNode(self._team, self._user)
-        self.add_node(AssistantNodeName.SESSION_SUMMARIZATION, session_summarization_node)
-        self._graph.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, AssistantNodeName.ROOT)
-        return self
-
     def add_dashboard_creation(self, end_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
         dashboard_creation_node = DashboardCreationNode(self._team, self._user)
@@ -154,7 +146,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_memory_collector()
             .add_memory_collector_tools()
             .add_root()
-            .add_session_summarization()
             .add_dashboard_creation()
             .compile(checkpointer=checkpointer)
         )

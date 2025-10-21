@@ -65,9 +65,9 @@ from .tools import (
     ReadDataTool,
     ReadTaxonomyTool,
     SearchTool,
+    SessionSumarizationTool,
     TodoWriteTool,
     create_dashboard,
-    session_summarization,
 )
 
 if TYPE_CHECKING:
@@ -252,6 +252,10 @@ class RootNode(AssistantNode):
         if not CreateAndQueryInsightTool.is_editing_mode(self.context_manager):
             default_tools.append(CreateAndQueryInsightTool)
 
+        # Add session summarization tool if enabled
+        if self._has_session_summarization_feature_flag():
+            default_tools.append(SessionSumarizationTool)
+
         # Processed tools
         available_tools: list[RootTool] = []
 
@@ -261,10 +265,6 @@ class RootNode(AssistantNode):
             for tool_class in default_tools
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))
-
-        # Check if session summarization is enabled for the user
-        if self._has_session_summarization_feature_flag():
-            available_tools.append(session_summarization)
 
         # Dashboard creation tool
         available_tools.append(create_dashboard)
@@ -405,15 +405,6 @@ class RootNodeTools(AssistantNode):
 
         from ee.hogai.tool import get_contextual_tool_class
 
-        if tool_call.name == "session_summarization":
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                session_summarization_query=tool_call.args["session_summarization_query"],
-                # Safety net in case the argument is missing to avoid raising exceptions internally
-                should_use_current_filters=tool_call.args.get("should_use_current_filters", False),
-                summary_title=tool_call.args.get("summary_title"),
-                root_tool_calls_count=tool_call_count + 1,
-            )
         if tool_call.name == "create_dashboard":
             raw_queries = tool_call.args["search_insights_queries"]
             search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
@@ -515,6 +506,4 @@ class RootNodeTools(AssistantNode):
                 tool_call_name = tool_call.name
                 if tool_call_name == "create_dashboard":
                     return "create_dashboard"
-            if state.session_summarization_query:
-                return "session_summarization"
         return "end"
