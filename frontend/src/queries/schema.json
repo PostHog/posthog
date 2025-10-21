@@ -9513,6 +9513,10 @@
             "required": ["table_name", "timestamp_field", "distinct_id_field", "id_field"],
             "type": "object"
         },
+        "DataWarehouseManagedViewsetKind": {
+            "const": "revenue_analytics",
+            "type": "string"
+        },
         "DataWarehouseNode": {
             "additionalProperties": false,
             "properties": {
@@ -13291,6 +13295,7 @@
                 "revenue_analytics",
                 "revenue_analytics_metadata",
                 "marketing_settings",
+                "managed_viewsets",
                 "endpoints",
                 "sql_editor",
                 "web_analytics",
@@ -15905,6 +15910,19 @@
             },
             "type": "object"
         },
+        "IntegrationFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "integrationSourceIds": {
+                    "description": "Selected integration source IDs to filter by (e.g., table IDs or source map IDs)",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "IntegrationKind": {
             "enum": [
                 "slack",
@@ -16517,6 +16535,10 @@
                 "includeRevenue": {
                     "type": "boolean"
                 },
+                "integrationFilter": {
+                    "$ref": "#/definitions/IntegrationFilter",
+                    "description": "Filter by integration IDs"
+                },
                 "kind": {
                     "const": "MarketingAnalyticsAggregatedQuery",
                     "type": "string"
@@ -16744,6 +16766,10 @@
                 },
                 "includeRevenue": {
                     "type": "boolean"
+                },
+                "integrationFilter": {
+                    "$ref": "#/definitions/IntegrationFilter",
+                    "description": "Filter by integration type"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsTableQuery",

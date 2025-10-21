@@ -235,6 +235,13 @@ export const ExperimentUpdateApiPayloadSchema = ExperimentSchema.omit({
 export type ExperimentUpdateApiPayload = z.infer<typeof ExperimentUpdateApiPayloadSchema>
 
 /**
+ * Helper to conditionally add properties only if they exist and are not empty
+ */
+const getPropertiesIfNotEmpty = (props: any) => {
+    return props && Object.keys(props).length > 0 ? { properties: props } : {}
+}
+
+/**
  * Transform tool input metrics to ExperimentMetric format for API
  */
 const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchema> => {
@@ -253,7 +260,7 @@ const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchem
                 source: {
                     kind: 'EventsNode',
                     event: metric.event_name,
-                    properties: metric.properties || {},
+                    ...getPropertiesIfNotEmpty(metric.properties),
                 },
             }
 
@@ -264,25 +271,29 @@ const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchem
                 series: (metric.funnel_steps || [metric.event_name]).map((event: string) => ({
                     kind: 'EventsNode',
                     event,
-                    properties: metric.properties || {},
+                    ...getPropertiesIfNotEmpty(metric.properties),
                 })),
             }
 
-        case 'ratio':
+        case 'ratio': {
+            const numeratorProps = metric.properties?.numerator || metric.properties
+            const denominatorProps = metric.properties?.denominator || metric.properties
+
             return {
                 ...base,
                 metric_type: 'ratio',
                 numerator: {
                     kind: 'EventsNode',
                     event: metric.event_name,
-                    properties: metric.properties?.numerator || metric.properties || {},
+                    ...getPropertiesIfNotEmpty(numeratorProps),
                 },
                 denominator: {
                     kind: 'EventsNode',
                     event: metric.properties?.denominator_event || metric.event_name,
-                    properties: metric.properties?.denominator || metric.properties || {},
+                    ...getPropertiesIfNotEmpty(denominatorProps),
                 },
             }
+        }
 
         default:
             throw new Error(`Unknown metric type: ${metric.metric_type}`)

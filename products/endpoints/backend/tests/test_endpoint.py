@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog.schema import EndpointLastExecutionTimesRequest
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -61,6 +62,14 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(endpoint.query, self.sample_query)
         self.assertEqual(endpoint.created_by, self.user)
 
+        # Activity log created
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Endpoint", activity="created")
+        self.assertEqual(logs.count(), 1, list(logs.values("activity", "scope", "item_id")))
+        log = logs.latest("created_at")
+        self.assertEqual(log.item_id, str(endpoint.id))
+        assert log.detail is not None
+        self.assertEqual(log.detail.get("name"), "test_query")
+
     def test_update_endpoint(self):
         """Test updating an existing endpoint."""
         endpoint = Endpoint.objects.create(
@@ -106,6 +115,18 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         endpoint.refresh_from_db()
         self.assertEqual(endpoint.description, "Updated description")
         self.assertFalse(endpoint.is_active)
+
+        # Activity log updated with changes
+        logs = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="Endpoint", activity="updated", item_id=str(endpoint.id)
+        )
+        self.assertEqual(logs.count(), 1, list(logs.values("activity", "detail")))
+        log = logs.latest("created_at")
+        assert log.detail is not None
+        changes = log.detail.get("changes", [])
+        changed_fields = {c.get("field") for c in changes}
+        self.assertIn("description", changed_fields)
+        self.assertIn("is_active", changed_fields)
 
     def test_delete_endpoint(self):
         """Test deleting a endpoint."""

@@ -26,14 +26,29 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'endpoints',
         },
+        EndpointScene: {
+            import: () => import('./frontend/EndpointScene'),
+            projectBased: true,
+            name: 'Endpoint',
+            activityScope: 'Endpoint',
+        },
+        EndpointNew: {
+            import: () => import('./frontend/EndpointScene'),
+            projectBased: true,
+            name: 'EndpointNew',
+            activityScope: 'Endpoint',
+        },
     },
     routes: {
         '/endpoints': ['EndpointsScene', 'endpoints'],
         // EndpointsScene stays first as scene for Usage!
         '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
+        '/endpoints/:name': ['EndpointScene', 'endpoint'],
+        '/endpoints/new': ['EndpointNew', 'endpointNew'],
     },
     urls: {
         endpoints: (): string => '/endpoints',
+        endpoint: (name: string): string => `/endpoints/${name}`,
         endpointsUsage: (params?: {
             dateFrom?: string
             dateTo?: string

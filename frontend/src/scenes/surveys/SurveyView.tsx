@@ -149,9 +149,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             AccessControlLevel.Editor,
                             survey.user_access_level
                         )}
+                        saveOnBlur
                         onNameChange={(name) => updateSurvey({ id, name })}
                         onDescriptionChange={(description) => updateSurvey({ id, description })}
-                        renameDebounceMs={1000}
+                        renameDebounceMs={0}
                         isLoading={surveyLoading}
                         actions={
                             <>

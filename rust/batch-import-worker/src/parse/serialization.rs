@@ -1,6 +1,49 @@
 use serde::{de, Deserializer};
 use std::fmt;
 
+fn parse_bool_from_str<E: de::Error>(value: &str, empty_as_false: bool) -> Result<bool, E> {
+    if value.is_empty() {
+        return if empty_as_false {
+            Ok(false)
+        } else {
+            Err(de::Error::invalid_value(
+                de::Unexpected::Str(value),
+                &"non-empty boolean string",
+            ))
+        };
+    }
+    match value.to_lowercase().as_str() {
+        "true" | "1" | "yes" => Ok(true),
+        "false" | "0" | "no" => Ok(false),
+        _ => Err(de::Error::invalid_value(
+            de::Unexpected::Str(value),
+            &"'true', 'false', '1', '0', 'yes', or 'no'",
+        )),
+    }
+}
+
+fn parse_bool_from_i64<E: de::Error>(value: i64) -> Result<bool, E> {
+    match value {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(de::Error::invalid_value(
+            de::Unexpected::Signed(value),
+            &"0 or 1",
+        )),
+    }
+}
+
+fn parse_bool_from_u64<E: de::Error>(value: u64) -> Result<bool, E> {
+    match value {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(de::Error::invalid_value(
+            de::Unexpected::Unsigned(value),
+            &"0 or 1",
+        )),
+    }
+}
+
 /// Custom deserializer for boolean values that can also accept string booleans.
 /// This is useful when dealing with external data sources that may serialize
 /// booleans as strings.
@@ -33,42 +76,21 @@ where
         where
             E: de::Error,
         {
-            match value.to_lowercase().as_str() {
-                "true" | "1" | "yes" => Ok(true),
-                "false" | "0" | "no" | "" => Ok(false),
-                _ => Err(de::Error::invalid_value(
-                    de::Unexpected::Str(value),
-                    &"'true', 'false', '1', '0', 'yes', 'no', or empty string",
-                )),
-            }
+            parse_bool_from_str(value, true)
         }
 
         fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
         where
             E: de::Error,
         {
-            match value {
-                0 => Ok(false),
-                1 => Ok(true),
-                _ => Err(de::Error::invalid_value(
-                    de::Unexpected::Signed(value),
-                    &"0 or 1",
-                )),
-            }
+            parse_bool_from_i64(value)
         }
 
         fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
         where
             E: de::Error,
         {
-            match value {
-                0 => Ok(false),
-                1 => Ok(true),
-                _ => Err(de::Error::invalid_value(
-                    de::Unexpected::Unsigned(value),
-                    &"0 or 1",
-                )),
-            }
+            parse_bool_from_u64(value)
         }
     }
 
@@ -76,17 +98,67 @@ where
 }
 
 /// Custom deserializer for optional boolean values that can also accept string booleans.
-/// Handles null and missing values as None, otherwise delegates to `deserialize_flexible_bool`.
+/// Handles null, missing values, and empty strings as None.
 pub fn deserialize_flexible_option_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    use serde::Deserialize;
+    struct FlexibleOptionBoolVisitor;
 
-    #[derive(Deserialize)]
-    struct Wrapper(#[serde(deserialize_with = "deserialize_flexible_bool")] bool);
+    impl<'de> de::Visitor<'de> for FlexibleOptionBoolVisitor {
+        type Value = Option<bool>;
 
-    Option::<Wrapper>::deserialize(deserializer).map(|opt| opt.map(|w| w.0))
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a boolean, 0, 1, string representing a boolean, or null")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if value.is_empty() {
+                return Ok(None);
+            }
+            parse_bool_from_str(value, false).map(Some)
+        }
+
+        fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(value))
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            parse_bool_from_i64(value).map(Some)
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            parse_bool_from_u64(value).map(Some)
+        }
+    }
+
+    deserializer.deserialize_any(FlexibleOptionBoolVisitor)
 }
 
 #[cfg(test)]
@@ -250,7 +322,7 @@ mod tests {
     fn test_deserialize_option_bool_empty_string() {
         let json = r#"{"flag": ""}"#;
         let result: TestOptionalStruct = serde_json::from_str(json).unwrap();
-        assert_eq!(result.flag, Some(false));
+        assert_eq!(result.flag, None);
     }
 
     #[test]

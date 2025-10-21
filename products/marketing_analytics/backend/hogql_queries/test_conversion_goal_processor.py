@@ -515,7 +515,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Validation: SUM should add all revenue values (100 + 0 + missing=0 + 250 + 50 = 400)
         assert campaign_name == "summer_sale"
-        assert source_name == "facebook"
+        assert source_name == "meta"
         assert (
             total_revenue == 400
         ), f"Expected total revenue of 400 (100+0+missing=0+250+50), got {total_revenue}. Missing revenue should be treated as 0."
@@ -1869,9 +1869,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert (
             campaign_name == "spring_promo"
         ), f"Last-touch attribution should choose Facebook campaign over Email, got {campaign_name}"
-        assert (
-            source_name == "facebook"
-        ), f"Last-touch attribution should choose Facebook source over Email, got {source_name}"
+        assert source_name == "meta", f"Last-touch attribution should choose Meta source over Email, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
     def test_direct_utm_attribution_priority_over_temporal(self):
@@ -2444,7 +2442,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         mothers_day_result = None
         for result in response_may.results:
-            if result[0] == "mothers_day" and result[1] == "facebook":
+            if result[0] == "mothers_day" and result[1] == "meta":
                 mothers_day_result = result
                 break
 
@@ -2453,7 +2451,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         ), f"Expected mothers_day attribution for May conversion, got results: {response_may.results}"
         may_campaign, may_source, may_count = mothers_day_result[0], mothers_day_result[1], mothers_day_result[2]
         assert may_campaign == "mothers_day", f"Expected mothers_day for May purchase, got {may_campaign}"
-        assert may_source == "facebook", f"Expected facebook source for May, got {may_source}"
+        assert may_source == "meta", f"Expected meta source for May, got {may_source}"
         assert may_count == 2, f"Expected 2 conversions attributed to mothers_day, got {may_count}"
 
         # Test June conversion attribution (should still use mothers_day - no new ads)
@@ -2477,7 +2475,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         june_mothers_day_result = None
         for result in response_june.results:
-            if result[0] == "mothers_day" and result[1] == "facebook":
+            if result[0] == "mothers_day" and result[1] == "meta":
                 june_mothers_day_result = result
                 break
 
@@ -2490,7 +2488,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             june_mothers_day_result[2],
         )
         assert june_campaign == "mothers_day", f"Expected mothers_day for June purchase, got {june_campaign}"
-        assert june_source == "facebook", f"Expected facebook source for June, got {june_source}"
+        assert june_source == "meta", f"Expected meta source for June, got {june_source}"
         assert june_count == 1, f"Expected 1 conversion attributed to mothers_day in June, got {june_count}"
 
     # ================================================================
@@ -2977,7 +2975,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         first_result = response.results[0]
         campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
         assert campaign_name == "retarget", f"Expected retarget (last-touch), got {campaign_name}"
-        assert source_name == "facebook", f"Expected facebook source, got {source_name}"
+        assert source_name == "meta", f"Expected meta source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert campaign_name != "upsell", f"Should ignore post-purchase campaigns"
 
@@ -4280,7 +4278,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
 
         assert campaign_name == "retarget_feb", f"Expected retarget_feb for first purchase, got {campaign_name}"
-        assert source_name == "facebook", f"Expected facebook source, got {source_name}"
+        assert source_name == "meta", f"Expected meta source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion for first purchase, got {conversion_count}"
 
         # Test both purchases together (full timeline attribution)
@@ -4307,7 +4305,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         upsell_result = None
 
         for result in response_full.results:
-            if result[0] == "retarget_feb" and result[1] == "facebook":
+            if result[0] == "retarget_feb" and result[1] == "meta":
                 retarget_result = result
             elif result[0] == "upsell_campaign" and result[1] == "email":
                 upsell_result = result
@@ -4318,7 +4316,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         ), f"Expected retarget_feb attribution for first purchase, got results: {response_full.results}"
         retarget_campaign, retarget_source, retarget_count = retarget_result[0], retarget_result[1], retarget_result[2]
         assert retarget_campaign == "retarget_feb", f"Expected retarget_feb for first purchase, got {retarget_campaign}"
-        assert retarget_source == "facebook", f"Expected facebook source, got {retarget_source}"
+        assert retarget_source == "meta", f"Expected meta source, got {retarget_source}"
         assert retarget_count == 1, f"Expected 1 conversion attributed to retarget_feb, got {retarget_count}"
 
         # Second purchase should be attributed to upsell_campaign (Feb 22 ad before Mar 8 purchase)
@@ -4582,7 +4580,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         result = response.results[0]
         campaign_name, source_name, conversion_count = result[0], result[1], result[2]
         assert campaign_name == "spring_campaign", f"Expected spring_campaign, got {campaign_name}"
-        assert source_name == "facebook", f"Expected facebook, got {source_name}"
+        assert source_name == "meta", f"Expected meta, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
@@ -4661,7 +4659,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         result = response.results[0]
         campaign_name, source_name, conversion_count = result[0], result[1], result[2]
         assert campaign_name == "spring_campaign", f"Expected spring_campaign, got {campaign_name}"
-        assert source_name == "facebook", f"Expected facebook, got {source_name}"
+        assert source_name == "meta", f"Expected meta, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
@@ -4760,11 +4758,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # User2: Within 30-day window - should be attributed to UTM
         assert (
-            "social_campaign/facebook" in results_dict
-        ), f"Missing social_campaign/facebook attribution. Results: {results_dict}"
+            "social_campaign/meta" in results_dict
+        ), f"Missing social_campaign/meta attribution. Results: {results_dict}"
         assert (
-            results_dict["social_campaign/facebook"] == 1
-        ), f"Expected 1 conversion for social_campaign/facebook, got {results_dict['social_campaign/facebook']}"
+            results_dict["social_campaign/meta"] == 1
+        ), f"Expected 1 conversion for social_campaign/meta, got {results_dict['social_campaign/meta']}"
 
         # User1: Outside 30-day window - should be organic
         assert "organic/organic" in results_dict, f"Missing organic attribution. Results: {results_dict}"
@@ -5361,7 +5359,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         campaign_name, source_name, conversion_count = response.results[0]
 
         assert campaign_name == "spring_campaign"
-        assert source_name == "facebook"
+        assert source_name == "meta"
         assert conversion_count == 1
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
