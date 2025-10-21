@@ -225,13 +225,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             const savedResult = values.savedInsight.result
             actions.setQuery(savedQuery || null)
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
-
-            // Clear URL fragments when canceling changes
-            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
-                const { pathname, searchParams, hashParams } = router.values.currentLocation
-                const { q: _, ...hash } = hashParams // remove existing insight query hash param
-                router.actions.replace(pathname, searchParams, hash)
-            }
         },
         setQuery: ({ query }) => {
             // If we have a tabId, then this is an insight scene on a tab. Sync the query to the URL
@@ -283,4 +276,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setQuery(props.cachedInsight.query)
         }
     }),
+    actionToUrl(({ props }) => ({
+        cancelChanges: () => {
+            if (props.tabId && sceneLogic.values.activeTabId === props.tabId) {
+                const { pathname, searchParams, hashParams } = router.values.currentLocation
+                const { q: _, ...hash } = hashParams
+                return [pathname, searchParams, hash]
+            }
+        },
+    })),
 ])
+
