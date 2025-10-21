@@ -129,6 +129,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         setPinnedProperties: (properties: string[]) => ({ properties }),
         togglePropertyPin: (propertyKey: string) => ({ propertyKey }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
+        setPropertySearchQuery: (query: string) => ({ query }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
@@ -175,6 +176,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 setIsPropertyPopoverOpen: (_, { isOpen }) => isOpen,
             },
         ],
+        propertySearchQuery: [
+            '',
+            {
+                setPropertySearchQuery: (_, { query }) => query,
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         togglePropertyPin: ({ propertyKey }) => {
@@ -183,6 +190,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 actions.setPinnedProperties(currentPinned.filter((k) => k !== propertyKey))
             } else {
                 actions.setPinnedProperties([...currentPinned, propertyKey])
+            }
+        },
+        setIsPropertyPopoverOpen: ({ isOpen }) => {
+            // Clear search query when popover is closed
+            if (!isOpen) {
+                actions.setPropertySearchQuery('')
             }
         },
     })),
