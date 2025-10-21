@@ -312,7 +312,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         ]
 
         stats_query = ast.SelectQuery(
-            select=stats_select_columns,
+            select=cast(list[ast.Expr], stats_select_columns),
             select_from=ast.JoinExpr(table=ast.Field(chain=[self.stats_table])),
             where=self._get_filters(table_name=self.stats_table),
             group_by=[breakdown_expr],
@@ -414,7 +414,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         ]
 
         outer_query = ast.SelectQuery(
-            select=conversion_select_columns,
+            select=cast(list[ast.Expr], conversion_select_columns),
             select_from=ast.JoinExpr(table=inner_query),
             where=self.runner._periods_expression("start_timestamp"),
             group_by=[ast.Field(chain=["breakdown_value"])],
