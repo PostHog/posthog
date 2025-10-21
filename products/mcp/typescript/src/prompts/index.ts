@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { z } from 'zod'
 
 import type { Context } from '@/tools/types'
+import { setupEventsPrompt } from './setup-events'
 
 export interface Prompt {
     name: string
@@ -23,8 +24,6 @@ export interface Prompt {
 }
 
 export async function getPromptsFromContext(context: Context): Promise<Prompt[]> {
-    const { setupEventsPrompt } = await import('./setup-events')
-
     return [await setupEventsPrompt(context)]
 }
 
