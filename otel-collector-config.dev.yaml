@@ -33,6 +33,8 @@ exporters:
         tls:
             insecure: true
         headers:
+            # hardcoded JWT signed by the dev secret key ('<randomly generated secret key>') to ship logs to team 1
+            # (TODO: use normal capture tokens instead of these jwts)
             authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoiMSIsImV4cCI6OTIyMzM3MjAzNjg1NDc3Nn0.M2CClSDIm9T6aDUjffL1BjI2lHEsXYLkt_pShIgItrU
 
 extensions: # Declaring the extensions
