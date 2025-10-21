@@ -18,6 +18,7 @@ from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, Experim
 
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models.experiment import Experiment, ExperimentMetricResult
 
 from dags.common import JobOwners
@@ -225,7 +226,7 @@ def _get_experiment_saved_metrics_timeseries(context: dagster.SensorEvaluationCo
             fingerprint = compute_metric_fingerprint(
                 saved_metric.query,
                 experiment.start_date,
-                experiment.stats_config,
+                get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
             )
 
