@@ -98,6 +98,10 @@ class BaseFileHandler(ABC):
         # Compute target path using subclass logic
         target_file_path = self.compute_target_path(source_file, backend_dir)
 
+        # Debug logging to show path transformation
+        logger.info("   📂 Source: %s", source_path.relative_to(self.context.root_dir))
+        logger.info("   📂 Target: %s", target_file_path.relative_to(self.context.root_dir))
+
         # Create parent directories if needed
         target_file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -114,9 +118,10 @@ class BaseFileHandler(ABC):
 
         # Ensure db_table for Django model files if applicable
         if self.should_apply_db_table(source_file):
+            logger.info("   ✅ Applying db_table to %s", source_file)
             db_table_ensurer(target_file_path)
 
-        logger.info("📄 Moved %s → %s", source_file, target_file_path.relative_to(self.context.root_dir))
+        logger.info("   ✅ Completed: %s → %s", source_file, target_file_path.relative_to(self.context.root_dir))
         return target_file_path
 
 
@@ -188,12 +193,18 @@ class HandlerFactory:
 
         # Check if file is in models/ directory
         if source_path.parts[0] == "models":
-            return ModelsDirectoryHandler(context)
+            handler = ModelsDirectoryHandler(context)
+            logger.info("🔧 Handler: ModelsDirectoryHandler for %s (strips models/ prefix)", source_file)
+            return handler
 
         # Check if file is in a known backend subdirectory (api/, data_load/, etc.)
         # These should be at backend level, not under models/
         if len(source_path.parts) > 1 and source_path.parts[0] in ["api", "data_load", "test"]:
-            return BackendSubdirectoryHandler(context)
+            handler = BackendSubdirectoryHandler(context)
+            logger.info("🔧 Handler: BackendSubdirectoryHandler for %s (preserves at backend/)", source_file)
+            return handler
 
         # Root-level files
-        return BackendRootHandler(context)
+        handler = BackendRootHandler(context)
+        logger.info("🔧 Handler: BackendRootHandler for %s (writes to backend/ root)", source_file)
+        return handler
