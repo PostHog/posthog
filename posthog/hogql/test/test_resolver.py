@@ -325,7 +325,7 @@ class TestResolver(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_hidden_field(self):
-        self.database.events.fields["hidden_field"] = ExpressionField(
+        self.database.get_table("events").fields["hidden_field"] = ExpressionField(
             name="hidden_field", hidden=True, expr=ast.Field(chain=["event"])
         )
         node = self._select("select * from events")
@@ -334,10 +334,10 @@ class TestResolver(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_expression_field_type_scope(self):
-        self.database.events.fields["some_expr"] = ExpressionField(
+        self.database.get_table("events").fields["some_expr"] = ExpressionField(
             name="some_expr", expr=ast.Field(chain=["properties"]), isolate_scope=True
         )
-        self.database.persons.fields["some_expr"] = ExpressionField(
+        self.database.get_table("persons").fields["some_expr"] = ExpressionField(
             name="some_expr", expr=ast.Field(chain=["properties"]), isolate_scope=True
         )
 
@@ -407,13 +407,13 @@ class TestResolver(BaseTest):
 
     def test_field_traverser_double_dot(self):
         # Create a condition where we want to ".." out of "events.poe." to get to a higher level prop
-        self.database.events.fields["person"] = FieldTraverser(chain=["poe"])
-        assert isinstance(self.database.events.fields["poe"], Table)
-        self.database.events.fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
-        self.database.events.fields["poe"].fields["created_at"] = FieldTraverser(
+        self.database.get_table("events").fields["person"] = FieldTraverser(chain=["poe"])
+        assert isinstance(self.database.get_table("events").fields["poe"], Table)
+        self.database.get_table("events").fields["poe"].fields["id"] = FieldTraverser(chain=["..", "pdi", "person_id"])
+        self.database.get_table("events").fields["poe"].fields["created_at"] = FieldTraverser(
             chain=["..", "pdi", "person", "created_at"]
         )
-        self.database.events.fields["poe"].fields["properties"] = StringJSONDatabaseField(
+        self.database.get_table("events").fields["poe"].fields["properties"] = StringJSONDatabaseField(
             name="person_properties", nullable=False
         )
 
@@ -763,7 +763,6 @@ class TestResolver(BaseTest):
 
     def test_nested_table_name(self):
         table_group = TableNode(
-            name="root",
             children={
                 "nested": TableNode(
                     name="nested",
@@ -778,7 +777,6 @@ class TestResolver(BaseTest):
 
     def test_deeply_nested_table_name(self):
         table_group = TableNode(
-            name="root",
             children={
                 "very": TableNode(
                     name="very",
@@ -803,7 +801,6 @@ class TestResolver(BaseTest):
 
     def test_nested_table_on_existing_table(self):
         table_group = TableNode(
-            name="root",
             children={
                 "events": TableNode(
                     name="events",

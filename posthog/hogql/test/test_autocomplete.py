@@ -301,7 +301,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
     def test_autocomplete_events_hidden_field(self):
         database = create_hogql_database(team=self.team)
-        database.events.fields["event"] = StringDatabaseField(name="event", hidden=True)
+        database.get_table("events").fields["event"] = StringDatabaseField(name="event", hidden=True)
 
         query = "select  from events"
         results = self._select(query=query, start=7, end=7, database=database)
@@ -311,7 +311,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
     def test_autocomplete_special_characters(self):
         database = create_hogql_database(team=self.team)
-        database.events.fields["event-name"] = StringDatabaseField(name="event-name")
+        database.get_table("events").fields["event-name"] = StringDatabaseField(name="event-name")
 
         query = "select  from events"
         results = self._select(query=query, start=7, end=7, database=database)
@@ -341,7 +341,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
     def test_autocomplete_resolve_expression_type(self):
         database = create_hogql_database(team=self.team)
 
-        database.events.fields["expr_field"] = ast.ExpressionField(
+        database.get_table("events").fields["expr_field"] = ast.ExpressionField(
             name="expr_field",
             isolate_scope=True,
             expr=ast.Call(name="toDateTime", args=[ast.Constant(value="2025-01-01")]),
