@@ -133,6 +133,53 @@ class FileSpecificImport:
             return cst.Module(body=[cst.SimpleStatementLine(body=[cst.Expr(value=module)])]).code.strip()
 
 
+class AnyFileSpecificImport:
+    """Matches ANY file-specific import from the import_base_path.
+
+    For example: from posthog.warehouse.models.external_data_job import X
+
+    This is needed when moving files that import OTHER files from the same base path.
+    """
+
+    def matches(self, node: cst.ImportFrom, context: MigrationContext) -> bool:
+        if not node.module:
+            return False
+
+        module_str = self._get_module_string(node.module)
+
+        # Match if it starts with import_base_path followed by a dot and filename
+        # e.g., "posthog.warehouse.models.external_data_job"
+        return module_str.startswith(context.import_base_path + ".")
+
+    def extract_parts(self, node: cst.ImportFrom, context: MigrationContext) -> ImportParts:
+        if not node.names or isinstance(node.names, cst.ImportStar):
+            return ImportParts(imported_names=[], source_file=None, module_path="")
+
+        imported_names = []
+        for name in node.names:
+            if isinstance(name, cst.ImportAlias):
+                imported_names.append(name.name.value)
+
+        module_str = self._get_module_string(node.module)
+
+        # Extract the file-specific part after import_base_path
+        # e.g., "posthog.warehouse.models.external_data_job" -> "external_data_job"
+        if module_str.startswith(context.import_base_path + "."):
+            file_part = module_str[len(context.import_base_path) + 1 :]  # +1 to skip the dot
+            return ImportParts(imported_names=imported_names, source_file=file_part, module_path=module_str)
+
+        return ImportParts(imported_names=imported_names, source_file=None, module_path=module_str)
+
+    @staticmethod
+    def _get_module_string(module: cst.CSTNode) -> str:
+        if isinstance(module, cst.Name):
+            return module.value
+        elif isinstance(module, cst.Attribute):
+            return f"{AnyFileSpecificImport._get_module_string(module.value)}.{module.attr.value}"
+        else:
+            return cst.Module(body=[cst.SimpleStatementLine(body=[cst.Expr(value=module)])]).code.strip()
+
+
 class ImportTargetResolver:
     """Resolves target paths for imports based on merge_models setting"""
 

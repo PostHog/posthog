@@ -17,7 +17,13 @@ import libcst as cst
 # Import from same directory
 sys.path.insert(0, str(Path(__file__).parent))
 from file_handlers import FileTransformContext, HandlerFactory
-from import_patterns import FileSpecificImport, ImportTargetResolver, MigrationContext, PackageLevelImport
+from import_patterns import (
+    AnyFileSpecificImport,
+    FileSpecificImport,
+    ImportTargetResolver,
+    MigrationContext,
+    PackageLevelImport,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +59,8 @@ class ImportTransformer(cst.CSTTransformer):
             filename_to_model_mapping=filename_to_model_mapping,
         )
         self.patterns = [
-            FileSpecificImport(),  # Try file-specific first (more specific)
+            FileSpecificImport(),  # Try file-specific first (most specific - matches current module)
+            AnyFileSpecificImport(),  # Then any file-specific import from base path
             PackageLevelImport(),  # Then package-level
         ]
         self.resolver = ImportTargetResolver(self.context)
@@ -125,28 +132,69 @@ class ImportTransformer(cst.CSTTransformer):
             return cst.RemovalSentinel.REMOVE
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
-        """Add collected imports at the end of import section"""
+        """Add collected imports at the end of import section and remove duplicates"""
         if not self.imports_to_add:
             return updated_node
 
-        # Find the last import statement
+        # Extract names being added to detect duplicates
+        names_being_added = set()
+        for import_stmt in self.imports_to_add:
+            if isinstance(import_stmt.names, list):
+                for alias in import_stmt.names:
+                    if isinstance(alias, cst.ImportAlias):
+                        names_being_added.add(alias.name.value)
+
+        # Process body to remove duplicate imports
         body = list(updated_node.body)
+        cleaned_body = []
         last_import_idx = -1
 
-        for i, stmt in enumerate(body):
+        for stmt in body:
             if isinstance(stmt, cst.SimpleStatementLine):
-                for substmt in stmt.body:
-                    if isinstance(substmt, cst.ImportFrom | cst.Import):
-                        last_import_idx = i
-                        break
+                substmt = stmt.body[0] if stmt.body else None
+
+                if isinstance(substmt, cst.ImportFrom):
+                    # Check if this import contains any names we're adding
+                    if isinstance(substmt.names, list):
+                        remaining_names = []
+                        for alias in substmt.names:
+                            if isinstance(alias, cst.ImportAlias):
+                                if alias.name.value not in names_being_added:
+                                    remaining_names.append(alias)
+
+                        # If we removed some but not all, update the import
+                        if remaining_names and len(remaining_names) < len(substmt.names):
+                            new_import = substmt.with_changes(names=remaining_names)
+                            cleaned_body.append(stmt.with_changes(body=[new_import]))
+                            last_import_idx = len(cleaned_body) - 1
+                        # If we removed all, skip this import entirely
+                        elif not remaining_names:
+                            continue  # Skip adding this statement
+                        # If we didn't remove any, keep as-is
+                        else:
+                            cleaned_body.append(stmt)
+                            last_import_idx = len(cleaned_body) - 1
+                    else:
+                        # Star import or something else - keep as-is
+                        cleaned_body.append(stmt)
+                        last_import_idx = len(cleaned_body) - 1
+                elif isinstance(substmt, cst.Import):
+                    # Regular import - keep track of position
+                    cleaned_body.append(stmt)
+                    last_import_idx = len(cleaned_body) - 1
+                else:
+                    # Not an import - just add it
+                    cleaned_body.append(stmt)
+            else:
+                cleaned_body.append(stmt)
 
         # Insert new imports after the last import
         if last_import_idx >= 0:
             for import_stmt in self.imports_to_add:
                 last_import_idx += 1
-                body.insert(last_import_idx, cst.SimpleStatementLine(body=[import_stmt]))
+                cleaned_body.insert(last_import_idx, cst.SimpleStatementLine(body=[import_stmt]))
 
-        return updated_node.with_changes(body=body)
+        return updated_node.with_changes(body=cleaned_body)
 
 
 class LLMLimitReachedError(Exception):
@@ -839,7 +887,13 @@ class {app_name.title()}Config(AppConfig):
 
             # Remove admin.site.register calls for moved models
             for model_name in model_names:
-                content = re.sub(f"\\s*admin\\.site\\.register\\({model_name}.*?\\)\\n", "", content)
+                # Use MULTILINE mode to properly match entire lines and avoid merging lines
+                content = re.sub(
+                    rf"^[ \t]*admin\.site\.register\({re.escape(model_name)}.*?\)\n",
+                    "",
+                    content,
+                    flags=re.MULTILINE,
+                )
 
             with open(admin_init, "w") as f:
                 f.write(content)
