@@ -28,7 +28,9 @@ export async function getPromptsFromContext(context: Context): Promise<Prompt[]>
     return [await setupEventsPrompt(context)]
 }
 
-export function registerPrompts(server: McpServer, context: Context, prompts: Prompt[]) {
+export async function registerPrompts(server: McpServer, context: Context) {
+    const prompts = await getPromptsFromContext(context)
+
     for (const prompt of prompts) {
         if (prompt.argsSchema) {
             server.registerPrompt(

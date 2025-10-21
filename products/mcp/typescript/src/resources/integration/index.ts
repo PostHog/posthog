@@ -5,6 +5,7 @@ import {
     EXAMPLES_MONOREPO_URL,
     FRAMEWORK_EXAMPLE_PATHS,
     isSupportedFramework,
+    getSupportedFrameworks,
     getSupportedFrameworksList,
 } from './framework-mappings'
 import { convertSubfolderToMarkdown } from './repo-to-md'
@@ -121,7 +122,22 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
     // Register the PostHog docs resource - fetch from URL with framework template
     server.registerResource(
         'Integration docs',
-        new ResourceTemplate(ResourceUri.DOCS_FRAMEWORK, { list: undefined }),
+        new ResourceTemplate(ResourceUri.DOCS_FRAMEWORK, {
+            list: async () => {
+                const frameworks = getSupportedFrameworks()
+                return {
+                    resources: frameworks.map((framework) => ({
+                        uri: ResourceUri.DOCS_FRAMEWORK.replace('{framework}', framework),
+                        name: `PostHog ${framework} Integration Docs`,
+                        description: `PostHog integration documentation for ${framework}`,
+                        mimeType: 'text/markdown',
+                    })),
+                }
+            },
+            complete: {
+                framework: async () => getSupportedFrameworks(),
+            },
+        }),
         {
             mimeType: 'text/markdown',
             description: `PostHog integration documentation for a specific framework. Supported frameworks: ${getSupportedFrameworksList()}`,
@@ -181,7 +197,25 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
     // Register example project resource with framework template
     server.registerResource(
         'Example project',
-        new ResourceTemplate(ResourceUri.EXAMPLE_PROJECT_FRAMEWORK, { list: undefined }),
+        new ResourceTemplate(ResourceUri.EXAMPLE_PROJECT_FRAMEWORK, {
+            list: async () => {
+                const frameworks = getSupportedFrameworks()
+                return {
+                    resources: frameworks.map((framework) => ({
+                        uri: ResourceUri.EXAMPLE_PROJECT_FRAMEWORK.replace(
+                            '{framework}',
+                            framework
+                        ),
+                        name: `PostHog ${framework} Example Project`,
+                        description: `Example project code for ${framework}`,
+                        mimeType: 'text/markdown',
+                    })),
+                }
+            },
+            complete: {
+                framework: async () => getSupportedFrameworks(),
+            },
+        }),
         {
             mimeType: 'text/markdown',
             description: `PostHog example project files for a specific framework. Supported frameworks: ${getSupportedFrameworksList()}`,
