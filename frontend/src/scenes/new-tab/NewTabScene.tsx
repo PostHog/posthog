@@ -9,6 +9,7 @@ import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/S
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
+import type { Dayjs } from 'lib/dayjs'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconRefresh } from 'lib/lemon-ui/icons'
@@ -46,6 +47,49 @@ const getCategoryDisplayName = (category: string): string => {
         recents: 'Recently viewed',
     }
     return displayNames[category] || category
+}
+
+const formatRelativeTimeShort = (date: string | number | Date | Dayjs): string => {
+    const parsedDate = dayjs(date)
+
+    if (!parsedDate.isValid()) {
+        return ''
+    }
+
+    const now = dayjs()
+    const seconds = Math.max(0, now.diff(parsedDate, 'second'))
+
+    if (seconds < 60) {
+        return 'just now'
+    }
+
+    const minutes = now.diff(parsedDate, 'minute')
+
+    if (minutes < 60) {
+        return `${minutes} min ago`
+    }
+
+    const hours = now.diff(parsedDate, 'hour')
+
+    if (hours < 24) {
+        return `${hours} hr${hours === 1 ? '' : 's'} ago`
+    }
+
+    const days = now.diff(parsedDate, 'day')
+
+    if (days < 30) {
+        return `${days} day${days === 1 ? '' : 's'} ago`
+    }
+
+    const months = now.diff(parsedDate, 'month') || 1
+
+    if (months < 12) {
+        return `${months} mo${months === 1 ? '' : 's'} ago`
+    }
+
+    const years = now.diff(parsedDate, 'year') || 1
+
+    return `${years} yr${years === 1 ? '' : 's'} ago`
 }
 
 // Helper function to convert NewTabTreeDataItem to TreeDataItem for menu usage
@@ -290,7 +334,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                                             <span className="text-sm">
                                                                                 {item.icon ?? item.name[0]}
                                                                             </span>
-                                                                            <span className="flex min-w-0 flex-1 items-center gap-2">
+                                                                            <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
                                                                                 <span className="text-sm truncate text-primary">
                                                                                     {search ? (
                                                                                         <SearchHighlightMultiple
@@ -303,7 +347,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                                                 </span>
                                                                                 {lastViewedAt ? (
                                                                                     <span className="text-xs text-muted whitespace-nowrap">
-                                                                                        {`viewed ${dayjs(lastViewedAt).fromNow()}`}
+                                                                                        {formatRelativeTimeShort(
+                                                                                            lastViewedAt
+                                                                                        )}
                                                                                     </span>
                                                                                 ) : null}
                                                                             </span>
