@@ -166,13 +166,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         return []
                     }
 
-                    const response = await api.persons.list({ search: searchTerm.trim() })
+                    const response = await api.persons.list({ search: searchTerm.trim(), limit: 5 })
                     breakpoint()
 
                     return response.results
                 },
                 loadInitialPersons: async (_, breakpoint) => {
-                    const response = await api.persons.list()
+                    const response = await api.persons.list({ limit: 5 })
                     breakpoint()
 
                     return response.results
@@ -188,7 +188,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     const response = await api.eventDefinitions.list({
                         search: trimmed || undefined,
-                        limit: PAGINATION_LIMIT,
+                        limit: 5,
                     })
                     breakpoint()
 
@@ -196,7 +196,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 },
                 loadInitialEventDefinitions: async (_, breakpoint) => {
                     const response = await api.eventDefinitions.list({
-                        limit: PAGINATION_LIMIT,
+                        limit: 5,
                     })
                     breakpoint()
 
@@ -213,7 +213,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     const response = await api.propertyDefinitions.list({
                         search: trimmed || undefined,
-                        limit: PAGINATION_LIMIT,
+                        limit: 5,
                     })
                     breakpoint()
 
@@ -221,7 +221,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 },
                 loadInitialPropertyDefinitions: async (_, breakpoint) => {
                     const response = await api.propertyDefinitions.list({
-                        limit: PAGINATION_LIMIT,
+                        limit: 5,
                     })
                     breakpoint()
 
@@ -404,7 +404,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         personSearchItems: [
             (s) => [s.personSearchResults],
             (personSearchResults): NewTabTreeDataItem[] => {
-                const items = personSearchResults.slice(0, 5).map((person) => {
+                const items = personSearchResults.map((person) => {
                     const personId = person.distinct_ids?.[0] || person.uuid || 'unknown'
                     const displayName = person.properties?.email || personId
                     const item = {
@@ -429,7 +429,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         eventDefinitionSearchItems: [
             (s) => [s.eventDefinitionSearchResults],
             (eventDefinitionSearchResults): NewTabTreeDataItem[] => {
-                const items = eventDefinitionSearchResults.slice(0, 5).map((eventDef) => {
+                const items = eventDefinitionSearchResults.map((eventDef) => {
                     const item = {
                         id: `event-definition-${eventDef.id}`,
                         name: eventDef.name,
@@ -450,7 +450,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         propertyDefinitionSearchItems: [
             (s) => [s.propertyDefinitionSearchResults],
             (propertyDefinitionSearchResults): NewTabTreeDataItem[] => {
-                const items = propertyDefinitionSearchResults.slice(0, 5).map((propDef) => {
+                const items = propertyDefinitionSearchResults.map((propDef) => {
                     const item = {
                         id: `property-definition-${propDef.id}`,
                         name: propDef.name,
@@ -716,7 +716,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             if (newTabSceneData) {
                 const searchTerm = values.search.trim()
 
-                values.newTabSceneDataInclude.forEach((item) => {
+                // Expand 'all' to include all data types
+                const itemsToProcess = values.newTabSceneDataInclude.includes('all')
+                    ? ['persons', 'eventDefinitions', 'propertyDefinitions']
+                    : values.newTabSceneDataInclude
+
+                itemsToProcess.forEach((item) => {
                     if (searchTerm !== '') {
                         if (item === 'persons') {
                             actions.debouncedPersonSearch(searchTerm)
@@ -752,7 +757,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             if (newTabSceneData) {
                 const searchTerm = values.search.trim()
 
-                values.newTabSceneDataInclude.forEach((item) => {
+                // Expand 'all' to include all data types
+                const itemsToProcess = values.newTabSceneDataInclude.includes('all')
+                    ? ['persons', 'eventDefinitions', 'propertyDefinitions']
+                    : values.newTabSceneDataInclude
+
+                itemsToProcess.forEach((item) => {
                     if (searchTerm !== '') {
                         if (item === 'persons') {
                             actions.debouncedPersonSearch(searchTerm)
@@ -824,7 +834,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
             try {
                 // Manually trigger the search and handle the result
-                const response = await api.persons.list({ search: searchTerm.trim() })
+                const response = await api.persons.list({ search: searchTerm.trim(), limit: 5 })
                 breakpoint()
 
                 // Manually set the results instead of relying on the loader
@@ -840,7 +850,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             try {
                 const response = await api.eventDefinitions.list({
                     search: searchTerm.trim(),
-                    limit: PAGINATION_LIMIT,
+                    limit: 5,
                 })
 
                 actions.loadEventDefinitionSearchResultsSuccess(response.results ?? [])
@@ -855,7 +865,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             try {
                 const response = await api.propertyDefinitions.list({
                     search: searchTerm.trim(),
-                    limit: PAGINATION_LIMIT,
+                    limit: 5,
                 })
 
                 actions.loadPropertyDefinitionSearchResultsSuccess(response.results ?? [])
@@ -910,7 +920,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (newTabSceneData && values.newTabSceneDataInclude.length > 0) {
                     const searchTerm = String(searchParams.search).trim()
                     if (searchTerm !== '') {
-                        values.newTabSceneDataInclude.forEach((item) => {
+                        // Expand 'all' to include all data types
+                        const itemsToProcess = values.newTabSceneDataInclude.includes('all')
+                            ? ['persons', 'eventDefinitions', 'propertyDefinitions']
+                            : values.newTabSceneDataInclude
+
+                        itemsToProcess.forEach((item) => {
                             if (item === 'persons') {
                                 actions.debouncedPersonSearch(searchTerm)
                             } else if (item === 'eventDefinitions') {
@@ -957,7 +972,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (newTabSceneData) {
                     const searchTerm = searchParams.search ? String(searchParams.search).trim() : ''
 
-                    includeFromUrl.forEach((item) => {
+                    // Expand 'all' to include all data types
+                    const itemsToProcess = includeFromUrl.includes('all')
+                        ? ['persons', 'eventDefinitions', 'propertyDefinitions']
+                        : includeFromUrl
+
+                    itemsToProcess.forEach((item) => {
                         if (searchTerm !== '') {
                             // If there's a search term, trigger search for data items only
                             if (item === 'persons') {
