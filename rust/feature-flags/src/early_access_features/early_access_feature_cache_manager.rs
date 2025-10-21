@@ -2,7 +2,7 @@ use crate::api::errors::FlagError;
 use crate::early_access_features::early_access_feature_models::EarlyAccessFeature;
 use crate::metrics::consts::{
     DB_EARLY_ACCESS_FEATURE_ERRORS_COUNTER, DB_EARLY_ACCESS_FEATURE_READS_COUNTER,
-    EARLY_ACCESS_FEATURE_CACHE_HIT_COUNTER,
+    EARLY_ACCESS_FEATURE_CACHE_HIT_COUNTER, EARLY_ACCESS_FEATURE_CACHE_MISS_COUNTER,
 };
 use common_database::PostgresReader;
 use common_types::ProjectId;
@@ -45,7 +45,16 @@ impl EarlyAccessFeatureCacheManager {
         }
 
         let _lock = self.fetch_lock.lock().await;
-    
+
+        // Double-check the cache after acquiring lock
+        if let Some(cached_early_access_features) = self.cache.get(&project_id).await {
+            common_metrics::inc(EARLY_ACCESS_FEATURE_CACHE_HIT_COUNTER, &[], 1);
+            return Ok(cached_early_access_features.clone());
+        }
+
+        // If we get here, we have a cache miss
+        common_metrics::inc(EARLY_ACCESS_FEATURE_CACHE_MISS_COUNTER, &[], 1);
+
         // Attempt to fetch from DB
         match EarlyAccessFeature::list_from_pg(self.reader.clone(), project_id).await {
             Ok(fetched_early_access_features) => {
@@ -102,7 +111,7 @@ mod tests {
         let cached_early_access_features =
             early_access_feature_cache.cache.get(&team.project_id).await;
 
-        assert!(cached_early_access_features.is_none());
+        assert!(cached_early_access_features.is_none(), "Cache entry should have expired");
 
         Ok(())
     }
