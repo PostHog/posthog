@@ -174,6 +174,10 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 # See https://github.com/SeleniumHQ/selenium/issues/14660.
 HEIGHT_OFFSET = 85
 
+# Maximum height for screenshots to prevent Chrome from hanging on extremely tall insights
+# This prevents timeouts when rendering very large tables or visualizations
+MAX_SCREENSHOT_HEIGHT = 20000
+
 
 def _screenshot_asset(
     image_path: str,
@@ -238,6 +242,9 @@ def _screenshot_asset(
         """
         )
 
+        # Cap height to prevent Chrome from hanging on extremely tall insights
+        height = min(height, MAX_SCREENSHOT_HEIGHT)
+
         # For example funnels use a table that can get very wide, so try to get its width
         # For replay players, check for player width
         width = driver.execute_script(
@@ -279,6 +286,9 @@ def _screenshot_asset(
             return document.body.scrollHeight;
         """
         )
+
+        # Cap final height to prevent Chrome from hanging on extremely tall insights
+        final_height = min(final_height, MAX_SCREENSHOT_HEIGHT)
 
         # Set final window size
         driver.set_window_size(width, final_height + HEIGHT_OFFSET)
