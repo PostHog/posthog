@@ -4,7 +4,9 @@ from django.conf import settings
 
 from pydantic import BaseModel, Field
 
-from ee.hogai.tool import MaxTool
+from ee.hogai.graph.inkeep_docs.nodes import InkeepDocsGraph
+from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.utils.types.base import AssistantState
 
 SEARCH_TOOL_PROMPT = """
 Use this tool to search docs or insights by using natural language.
@@ -68,8 +70,20 @@ class SearchTool(MaxTool):
     args_schema: type[BaseModel] = SearchToolArgs
     show_tool_call_message: bool = False
 
-    async def _arun_impl(self, kind: SearchKind, query: str) -> tuple[str, dict[str, Any] | None]:
-        if kind == "docs" and not settings.INKEEP_API_KEY:
-            return "This tool is not available in this environment.", None
+    async def _arun_impl(
+        self, kind: SearchKind, query: str
+    ) -> tuple[str, dict[str, Any] | ToolMessagesArtifact | None]:
+        if kind == "docs":
+            if not settings.INKEEP_API_KEY:
+                return "This tool is not available in this environment.", None
+            # Init the graph
+            docs_graph = InkeepDocsGraph(self._team, self._user).compile_full_graph()
+            copied_state = self._state.model_copy(deep=True)
+            dict_state = await docs_graph.ainvoke(copied_state)
+            updated_state = AssistantState.model_validate(dict_state)
+            # Copy new messages
+            new_messages = updated_state.messages[len(self._state.messages) :]
+            return "", ToolMessagesArtifact(messages=new_messages)
+
         # Used for routing
         return "Search tool executed", SearchToolArgs(kind=kind, query=query).model_dump()

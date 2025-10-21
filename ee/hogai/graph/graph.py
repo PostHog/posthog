@@ -44,7 +44,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
     ):
         path_map = path_map or {
-            "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
             "insights_search": AssistantNodeName.INSIGHTS_SEARCH,

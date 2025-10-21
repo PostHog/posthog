@@ -1,5 +1,5 @@
-from collections.abc import Sequence
-from typing import Any, Literal
+from collections.abc import Hashable, Sequence
+from typing import Any, Literal, Optional, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -14,6 +14,10 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMessage
 
+from posthog.models import Team, User
+
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.base.graph import BaseAssistantGraph
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.openai import convert_to_openai_messages
 from ee.hogai.utils.state import PartialAssistantState
@@ -125,3 +129,26 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
             #    output message (doesn't quite work to tell it to output an empty message, or to call an "end" tool)
             return "root"
         return "end"
+
+
+class InkeepDocsGraph(BaseAssistantGraph[AssistantState]):
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user, AssistantState)
+
+    def add_inkeep_docs(self, path_map: Optional[dict[Hashable, AssistantNodeName]] = None):
+        """Add the Inkeep docs search node to the graph."""
+        path_map = path_map or {
+            "end": AssistantNodeName.END,
+            "root": AssistantNodeName.ROOT,
+        }
+        inkeep_docs_node = InkeepDocsNode(self._team, self._user)
+        self.add_node(AssistantNodeName.INKEEP_DOCS, inkeep_docs_node)
+        self._graph.add_conditional_edges(
+            AssistantNodeName.INKEEP_DOCS,
+            inkeep_docs_node.router,
+            path_map=cast(dict[Hashable, str], path_map),
+        )
+        return self
+
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
+        return self.add_inkeep_docs().compile(checkpointer=checkpointer)
