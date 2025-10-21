@@ -50,7 +50,7 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
     const { experiment, experimentErrors, sharedMetrics } = useValues(
         createExperimentLogic({ experiment: draftExperiment })
     )
-    const { setExperimentValue, setExperiment, setSharedMetrics } = useActions(
+    const { setExperimentValue, setExperiment, setSharedMetrics, setExposureCriteria } = useActions(
         createExperimentLogic({ experiment: draftExperiment })
     )
 
