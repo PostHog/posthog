@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { useMocks } from '~/mocks/jest'
@@ -73,10 +73,10 @@ describe('SelectExistingFeatureFlagModal', () => {
         },
     ]
 
-    beforeEach(() => {
+    beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/@current/feature_flags/': () => [
+                '/api/projects/@current/experiments/eligible_feature_flags/': () => [
                     200,
                     {
                         results: mockFeatureFlags,
@@ -89,6 +89,11 @@ describe('SelectExistingFeatureFlagModal', () => {
         logic = selectExistingFeatureFlagModalLogic()
         logic.mount()
         logic.actions.openSelectExistingFeatureFlagModal()
+
+        await waitFor(() => {
+            expect(logic.values.featureFlagsLoading).toBe(false)
+        })
+
         jest.clearAllMocks()
     })
 

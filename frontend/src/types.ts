@@ -46,6 +46,7 @@ import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages
 import type {
     CurrencyCode,
     DashboardFilter,
+    DataWarehouseManagedViewsetKind,
     DatabaseSchemaField,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
@@ -72,8 +73,8 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { CyclotronInputType } from 'products/messaging/frontend/Campaigns/hogflows/steps/types'
-import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
+import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
+import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -682,8 +683,10 @@ export interface TeamType extends TeamBasicType {
     flags_persistence_default: boolean
     feature_flag_confirmation_enabled: boolean
     feature_flag_confirmation_message: string
+    default_evaluation_environments_enabled: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
+    managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
 }
 
@@ -862,6 +865,7 @@ export enum PropertyFilterType {
     Meta = 'meta',
     /** Event properties */
     Event = 'event',
+    InternalEvent = 'internal_event',
     EventMetadata = 'event_metadata',
     /** Person properties */
     Person = 'person',
@@ -1093,7 +1097,7 @@ export interface SessionRecordingSnapshotSource {
     blob_key?: string
 }
 
-export type SessionRecordingSnapshotParams =
+export type SessionRecordingSnapshotParams = (
     | {
           source: 'blob'
           blob_key?: string
@@ -1110,6 +1114,9 @@ export type SessionRecordingSnapshotParams =
     | {
           source: 'realtime'
       }
+) & {
+    decompress?: boolean
+}
 
 export interface SessionRecordingSnapshotSourceResponse {
     // v1 loaded each source separately
@@ -1546,6 +1553,8 @@ export interface EventType {
     elements: ElementType[]
     elements_chain?: string | null
     uuid?: string
+    person_id?: string
+    person_mode?: string
 }
 
 export interface LiveEvent {
@@ -1677,6 +1686,10 @@ export interface SessionRecordingType {
     activity_score?: number
     /** retention period for this recording */
     retention_period_days?: number
+    /** When the recording expires, in ISO format. */
+    expiry_time?: string
+    /** Number of whole days left until the recording expires. */
+    recording_ttl?: number
 }
 
 export interface SessionRecordingUpdateType {
@@ -3449,6 +3462,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
+    _should_create_usage_dashboard?: boolean
 }
 
 export interface OrganizationFeatureFlag {
@@ -3891,6 +3905,7 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
+        timeseries?: boolean
     }
     _create_in_folder?: string | null
     conclusion?: ExperimentConclusion | null
@@ -3952,7 +3967,7 @@ export interface SelectOptionWithChildren extends SelectOption {
 export interface CoreFilterDefinition {
     label: string
     description?: string | ReactNode
-    examples?: (string | number)[]
+    examples?: (string | number | boolean)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
     type?: PropertyType
@@ -4319,6 +4334,7 @@ export type Duration = {
 
 export enum EventDefinitionType {
     Event = 'event',
+    EventInternal = 'event_internal',
     EventCustom = 'event_custom',
     EventPostHog = 'event_posthog',
 }
@@ -4519,6 +4535,7 @@ export type APIScopeObject =
     | 'dashboard_template'
     | 'dataset'
     | 'early_access_feature'
+    | 'endpoint'
     | 'error_tracking'
     | 'evaluation'
     | 'event_definition'
@@ -4674,6 +4691,7 @@ export enum ActivityScope {
     TAGGED_ITEM = 'TaggedItem',
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
+    ENDPOINT = 'Endpoint',
 }
 
 export type CommentType = {
@@ -4978,9 +4996,25 @@ export type BatchExportServiceRedshift = {
         schema: string
         table_name: string
         properties_data_type: boolean
+        mode: 'COPY' | 'INSERT'
+        authorization_mode: 'IAMRole' | 'Credentials'
+        copy_inputs: BatchExportServiceRedshiftCopyInputs | null
         exclude_events: string[]
         include_events: string[]
     }
+}
+
+export type BatchExportServiceRedshiftCopyInputs = {
+    s3_bucket: string
+    s3_key_prefix: string
+    region_name: string
+    bucket_credentials: AWSCredentials
+    authorization: string | AWSCredentials
+}
+
+export type AWSCredentials = {
+    aws_access_key_id: string
+    aws_secret_access_key: string
 }
 
 export type BatchExportServiceDatabricks = {
@@ -5247,6 +5281,7 @@ export enum SidePanelTab {
     Status = 'status',
     Exports = 'exports',
     AccessControl = 'access-control',
+    SdkDoctor = 'sdk-doctor',
 }
 
 export interface ProductPricingTierSubrows {
@@ -5863,6 +5898,14 @@ export interface DatasetItem {
     updated_at: string
     created_at: string
     deleted: boolean
+}
+
+// Managed viewset
+export interface DataWarehouseManagedViewsetSavedQuery {
+    id: string
+    created_at: string
+    created_by_id: string | null
+    name: string
 }
 
 // Session Summaries

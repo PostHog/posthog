@@ -331,6 +331,7 @@ class FeatureFlagSerializer(
             "has_encrypted_payloads",
             "status",
             "evaluation_runtime",
+            "last_called_at",
             "_create_in_folder",
             "_should_create_usage_dashboard",
         ]
@@ -400,12 +401,6 @@ class FeatureFlagSerializer(
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
             return self.instance.filters
-
-        groups = filters.get("groups", [])
-        if isinstance(groups, list) and len(groups) == 0:
-            raise serializers.ValidationError(
-                "Feature flag filters must contain at least one condition set. Empty 'groups' array is not allowed."
-            )
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
@@ -1029,6 +1024,7 @@ class FeatureFlagViewSet(
                     # Get flags that are at least 30 days old and active
                     # This is an approximation - the serializer will compute the exact status
                     queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
+                        # This needs to be in sync with the implementation in `FeatureFlagStatusChecker`, flag_status.py
                         where=[
                             """
                             (
@@ -1052,6 +1048,18 @@ class FeatureFlagViewSet(
                                         AND (elem->'properties')::text = '[]'::text
                                     )
                                 )
+                                OR
+                                -- Multivariate that has a condition that overrides with a specific variant and the rollout_percentage is 100
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                        AND elem->'variant' IS NOT NULL
+                                    )
+                                    AND (filters->'multivariate' IS NOT NULL AND jsonb_array_length(filters->'multivariate'->'variants') > 0)
+                                )
+                                OR (filters IS NULL OR filters = '{}'::jsonb)
                             )
                             """
                         ]

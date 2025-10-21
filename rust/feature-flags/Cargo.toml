@@ -34,11 +34,15 @@ serde_json = { workspace = true }
 json5 = "0.4"
 thiserror = { workspace = true }
 sha1 = "0.10.6"
+sha2 = "0.10.8"
+pbkdf2 = { version = "0.12.2", features = ["simple"] }
+hex = "0.4.3"
 regex.workspace = true
 base64.workspace = true
 sqlx = { workspace = true, features = ["rust_decimal"] }
 uuid = { workspace = true }
 common-compression = { path = "../common/compression" }
+common-hypercache = { path = "../common/hypercache" }
 common-alloc = { path = "../common/alloc" }
 strum = { version = "0.26", features = ["derive"] }
 health = { path = "../common/health" }
