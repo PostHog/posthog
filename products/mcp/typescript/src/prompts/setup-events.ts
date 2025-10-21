@@ -4,9 +4,10 @@ import { ResourceUri } from '@/resources'
 
 export async function setupEventsPrompt(_context: Context): Promise<Prompt> {
     return {
-        name: 'event-setup',
-        title: 'Setup PostHog Event Tracking',
-        description: 'Automatically instrument your Next.js project with PostHog event tracking',
+        name: 'posthog-setup',
+        title: 'Setup a deep PostHog integration',
+        description:
+            'Automatically instrument your Next.js project with PostHog event tracking, user identification, and error tracking',
         handler: async (_context, _args) => {
             return {
                 messages: [
