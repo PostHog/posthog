@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
@@ -63,6 +64,7 @@ const MetricsTab = (): JSX.Element => {
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
         usesNewQueryRunner,
+        featureFlags,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -94,10 +96,11 @@ const MetricsTab = (): JSX.Element => {
 
     return (
         <>
-            {/* Add the summarize button after all metrics */}
-            <div className="mt-2 mb-4 flex justify-start">
-                <SummarizeExperimentButton />
-            </div>
+            {featureFlags[FEATURE_FLAGS.EXPERIMENT_AI_SUMMARY] && (
+                <div className="mt-1 mb-4 flex justify-start">
+                    <SummarizeExperimentButton />
+                </div>
+            )}
             {usesNewQueryRunner && (
                 <div className="w-full mb-4">
                     <Exposures />

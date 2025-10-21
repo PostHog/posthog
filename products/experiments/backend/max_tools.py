@@ -2,7 +2,7 @@
 MaxTool for AI-powered experiment summary.
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -11,7 +11,7 @@ from posthog.exceptions_capture import capture_exception
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
-from .prompts import EXPERIMENT_SUMMARY_SYSTEM_PROMPT
+from .prompts import EXPERIMENT_SUMMARY_BAYESIAN_PROMPT
 
 
 class ExperimentSummaryArgs(BaseModel):
@@ -21,10 +21,30 @@ class ExperimentSummaryArgs(BaseModel):
     """
 
 
+class BayesianVariantResult(BaseModel):
+    """Bayesian variant result structure"""
+
+    key: str = Field(description="Variant key (e.g., 'control', 'test')")
+    chance_to_win: float = Field(description="Probability of this variant being the best")
+    credible_interval: tuple[float, float] = Field(description="95% credible interval")
+    significant: bool = Field(description="Whether the result is statistically significant")
+
+
+class FrequentistVariantResult(BaseModel):
+    """Frequentist variant result structure (for future use)"""
+
+    key: str = Field(description="Variant key (e.g., 'control', 'test')")
+    p_value: float = Field(description="P-value from statistical test")
+    confidence_interval: tuple[float, float] = Field(description="95% confidence interval")
+    significant: bool = Field(description="Whether the result is statistically significant")
+
+
 class ExperimentSummaryOutput(BaseModel):
     """Structured output for experiment summary"""
 
-    key_metrics: list[str] = Field(description="Summary of key metric performance", max_length=3)
+    key_metrics: list[str] = Field(
+        description="Summary of key metric performance using Bayesian terminology", max_length=3
+    )
 
 
 class ExperimentSummaryTool(MaxTool):
@@ -39,13 +59,43 @@ class ExperimentSummaryTool(MaxTool):
 
     args_schema: type[BaseModel] = ExperimentSummaryArgs
 
+    def _detect_statistical_method(self, experiment_data: dict[str, Any]) -> Literal["bayesian", "frequentist"]:
+        """
+        Detect whether the experiment results use Bayesian or Frequentist methods.
+        For now, assume Bayesian. In the future, check result structure.
+        """
+        # Check if any result has Bayesian-specific fields
+        results = experiment_data.get("results", [])
+        for result in results:
+            if result.get("variants"):
+                for variant in result["variants"]:
+                    if "chance_to_win" in variant or "credible_interval" in variant:
+                        return "bayesian"
+                    elif "p_value" in variant or "confidence_interval" in variant:
+                        return "frequentist"
+
+        # Default to Bayesian for now
+        return "bayesian"
+
+    def _get_prompt_for_method(self, method: Literal["bayesian", "frequentist"]) -> str:
+        """Get the appropriate prompt based on statistical method."""
+        if method == "bayesian":
+            return EXPERIMENT_SUMMARY_BAYESIAN_PROMPT
+        else:
+            # Future: return EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
+            return EXPERIMENT_SUMMARY_BAYESIAN_PROMPT  # Fallback to Bayesian for now
+
     async def _analyze_experiment(self, experiment_data: dict[str, Any]) -> ExperimentSummaryOutput:
         """
         Analyze experiment data using LLM to generate summary and insights.
         """
         try:
-            # Format the data for LLM analysis
-            formatted_data = self._format_experiment_for_llm(experiment_data)
+            # Detect statistical method and get appropriate prompt
+            method = self._detect_statistical_method(experiment_data)
+            prompt_template = self._get_prompt_for_method(method)
+
+            # Format the data for LLM analysis with method context
+            formatted_data = self._format_experiment_for_llm(experiment_data, method)
 
             # Initialize LLM with structured output
             llm = MaxChatOpenAI(
@@ -56,7 +106,7 @@ class ExperimentSummaryTool(MaxTool):
             ).with_structured_output(ExperimentSummaryOutput)
 
             # Create the analysis prompt
-            formatted_prompt = EXPERIMENT_SUMMARY_SYSTEM_PROMPT.replace("{{{experiment_data}}}", formatted_data)
+            formatted_prompt = prompt_template.replace("{{{experiment_data}}}", formatted_data)
 
             # Generate analysis with structured output
             analysis_result = await llm.ainvoke([{"role": "system", "content": formatted_prompt}])
@@ -71,11 +121,15 @@ class ExperimentSummaryTool(MaxTool):
             # Return error state
             return ExperimentSummaryOutput(key_metrics=[f"Analysis failed: {str(e)}"])
 
-    def _format_experiment_for_llm(self, experiment_data: dict[str, Any]) -> str:
+    def _format_experiment_for_llm(
+        self, experiment_data: dict[str, Any], method: Literal["bayesian", "frequentist"]
+    ) -> str:
         """
         Format experiment data into a structured string for LLM analysis.
         """
         lines = []
+
+        lines.append(f"Statistical Method: {method.title()}")
 
         # Basic experiment info
         lines.append(f"Experiment: {experiment_data.get('name', 'Unknown')}")
@@ -91,7 +145,7 @@ class ExperimentSummaryTool(MaxTool):
         if variants:
             lines.append(f"\nVariants: {', '.join(v.get('key', '') for v in variants)}")
 
-        # Results data
+        # Results data formatted for the specific method
         results = experiment_data.get("results", [])
         if results:
             lines.append("\nResults:")
@@ -102,24 +156,37 @@ class ExperimentSummaryTool(MaxTool):
                 if result.get("variants"):
                     for variant in result["variants"]:
                         key = variant.get("key", "unknown")
-                        count = variant.get("count", 0)
-                        exposure = variant.get("exposure", 0)
-                        conversion_rate = variant.get("conversion_rate")
-
                         lines.append(f"  {key}:")
-                        if conversion_rate is not None:
-                            lines.append(f"    Conversion: {conversion_rate:.2%}")
+
+                        if method == "bayesian":
+                            # Format Bayesian results
+                            chance_to_win = variant.get("chance_to_win")
+                            credible_interval = variant.get("credible_interval", [])
+                            significant = variant.get("significant", False)
+
+                            if chance_to_win is not None:
+                                lines.append(f"    Chance to win: {chance_to_win:.1%}")
+
+                            if credible_interval:
+                                ci_low, ci_high = credible_interval[:2]
+                                lines.append(f"    95% credible interval: [{ci_low:.3f}, {ci_high:.3f}]")
+
+                            lines.append(f"    Significant: {'Yes' if significant else 'No'}")
+
                         else:
-                            lines.append(f"    Count: {count}, Exposure: {exposure}")
+                            # Format Frequentist results (for future use)
+                            p_value = variant.get("p_value")
+                            confidence_interval = variant.get("confidence_interval", [])
+                            significant = variant.get("significant", False)
 
-                # Statistical significance
-                if result.get("significant"):
-                    lines.append(f"  Significant: Yes (p={result.get('p_value', 'N/A')})")
-                else:
-                    lines.append(f"  Significant: No")
+                            if p_value is not None:
+                                lines.append(f"    P-value: {p_value:.4f}")
 
-                if result.get("winner"):
-                    lines.append(f"  Winner: {result['winner']}")
+                            if confidence_interval:
+                                ci_low, ci_high = confidence_interval[:2]
+                                lines.append(f"    95% confidence interval: [{ci_low:.3f}, {ci_high:.3f}]")
+
+                            lines.append(f"    Significant: {'Yes' if significant else 'No'}")
 
         # Conclusion if set
         if experiment_data.get("conclusion"):

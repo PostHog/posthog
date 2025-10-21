@@ -2,6 +2,8 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
+import { IconAI } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -11,11 +13,11 @@ import { ProductKey } from '~/types'
 import { experimentLogic } from '../experimentLogic'
 
 function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
-    const { experiment, legacyPrimaryMetricsResults, primaryMetricsResults } = useValues(experimentLogic)
+    const { experiment, primaryMetricsResults } = useValues(experimentLogic)
 
     const maxToolContext = useMemo(() => {
-        // Format results for the Max tool - use primary results if available, otherwise legacy
-        const resultsToUse = primaryMetricsResults.length > 0 ? primaryMetricsResults : legacyPrimaryMetricsResults
+        const resultsToUse = primaryMetricsResults
+
         const formattedResults = resultsToUse
             .map((result, index) => {
                 if (!result) {
@@ -25,54 +27,47 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
                 const metric = experiment.metrics[index]
                 const metricName = metric?.name || `Metric ${index + 1}`
 
-                // Extract variant data based on result type
                 let variants: any[] = []
-                let significant = false
-                let p_value = null
-                let winner = null
 
-                if ('variants' in result) {
-                    variants = result.variants
-                    significant = result.significant || false
-                    p_value = result.p_value || null
+                if (result.variant_results) {
+                    const allVariants = result.baseline
+                        ? [result.baseline, ...result.variant_results]
+                        : result.variant_results
 
-                    // Determine winner if significant
-                    if (significant && variants.length > 0) {
-                        // For trends experiments
-                        if ('count' in variants[0]) {
-                            const control = variants.find((v) => v.key === 'control')
-                            const test = variants.find((v) => v.key !== 'control')
-                            if (control && test) {
-                                const controlRate = control.count / (control.exposure || 1)
-                                const testRate = test.count / (test.exposure || 1)
-                                winner = testRate > controlRate ? test.key : 'control'
-                            }
+                    variants = allVariants.map((variant: any) => {
+                        const variantKey = variant.key
+
+                        // Calculate conversion rate if we have the data
+                        const numerator = variant.numerator_sum || 0
+                        const denominator = variant.number_of_samples || variant.denominator_sum || 0
+                        const conversion_rate = denominator > 0 ? numerator / denominator : 0
+
+                        return {
+                            key: variantKey,
+                            // Extract Bayesian fields from top-level result
+                            chance_to_win: result.probability?.[variantKey] || 0,
+                            credible_interval: result.credible_intervals?.[variantKey] || [],
+                            significant: result.significant || false,
+                            // Include variant-specific data
+                            count: numerator,
+                            exposure: denominator,
+                            conversion_rate: conversion_rate,
+                            // Include raw data for debugging
+                            numerator_sum: variant.numerator_sum,
+                            denominator_sum: variant.denominator_sum,
+                            number_of_samples: variant.number_of_samples,
                         }
-                        // For funnel experiments
-                        else if ('success_count' in variants[0]) {
-                            const control = variants.find((v) => v.key === 'control')
-                            const test = variants.find((v) => v.key !== 'control')
-                            if (control && test) {
-                                const controlRate =
-                                    control.success_count / (control.success_count + control.failure_count)
-                                const testRate = test.success_count / (test.success_count + test.failure_count)
-                                winner = testRate > controlRate ? test.key : 'control'
-                            }
-                        }
-                    }
+                    })
                 }
 
                 return {
                     metric_name: metricName,
                     variants,
-                    significant,
-                    p_value,
-                    winner,
                 }
             })
             .filter(Boolean)
 
-        return {
+        const contextData = {
             experiment_id: experiment.id,
             experiment_name: experiment.name,
             hypothesis: experiment.description, // Using description as hypothesis
@@ -82,16 +77,16 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
             conclusion: experiment.conclusion,
             conclusion_comment: experiment.conclusion_comment,
         }
-    }, [experiment, legacyPrimaryMetricsResults, primaryMetricsResults])
+
+        return contextData
+    }, [experiment, primaryMetricsResults])
 
     const shouldShowMaxSummaryTool = useMemo(() => {
-        // Show button only if there are results and experiment has started
-        const hasLegacyResults = legacyPrimaryMetricsResults.length > 0
-        const hasPrimaryResults = primaryMetricsResults.length > 0
-        const hasResults = hasLegacyResults || hasPrimaryResults
+        // Show button only if there are primary results and experiment has started
+        const hasResults = primaryMetricsResults.length > 0
         const hasStarted = !!experiment.start_date
         return hasResults && hasStarted
-    }, [legacyPrimaryMetricsResults, primaryMetricsResults, experiment.start_date])
+    }, [primaryMetricsResults, experiment.start_date])
 
     const maxToolResult = useMaxTool({
         identifier: 'experiment_results_summary',
@@ -128,8 +123,8 @@ export function SummarizeExperimentButton(): JSX.Element | null {
     }
 
     return (
-        <LemonButton onClick={openMax} type="secondary" icon={null}>
-            Summarize with Max
+        <LemonButton size="small" onClick={openMax} type="secondary" icon={<IconAI />}>
+            Summarize with AI
         </LemonButton>
     )
 }
