@@ -147,7 +147,7 @@ class TaxonomyAgentNode(
             tool_progress_messages=[*progress_messages, ai_message],
             intermediate_steps=intermediate_steps,
             output=state.output,
-            iteration_count=state.iteration_count + 1,
+            iteration_count=state.iteration_count + 1 if state.iteration_count is not None else 1,
         )
 
 
@@ -205,7 +205,7 @@ class TaxonomyAgentToolsNode(
                 tools_metadata[tool_input.name].append((tool_input, action.log))
 
         # If we're still here, check if we've hit the iteration limit within this cycle
-        if state.iteration_count >= self.MAX_ITERATIONS:
+        if state.iteration_count is not None and state.iteration_count >= self.MAX_ITERATIONS:
             return self._get_reset_state(ITERATION_LIMIT_PROMPT, "max_iterations", state)
 
         # Taxonomy is a separate graph, so it dispatches its own messages

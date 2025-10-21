@@ -36,7 +36,7 @@ class TaxonomyAgentState(BaseStateWithIntermediateSteps, BaseStateWithMessages, 
     The messages with tool calls to collect tool progress.
     """
 
-    iteration_count: int = Field(default=0)
+    iteration_count: int | None = Field(default=None)
     """
     The number of iterations the taxonomy agent has gone through.
     """
