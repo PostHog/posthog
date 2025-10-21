@@ -267,7 +267,7 @@ class Database(BaseModel):
         ]
 
     def get_system_table_names(self) -> list[str]:
-        return [*cast(SystemTables, self.tables.children["system"]).resolve_all_table_names(), "query_log"]
+        return ["query_log", *cast(SystemTables, self.tables.children["system"]).resolve_all_table_names()]
 
     def get_warehouse_table_names(self) -> list[str]:
         return self._warehouse_table_names + self._warehouse_self_managed_table_names
@@ -669,10 +669,13 @@ def create_hogql_database(
 
         if "." in warehouse_modifier.table_name:
             table_chain = warehouse_modifier.table_name.split(".")
-            if not root_node.has_child(table_chain[0]):
+            if table_chain[0] not in root_node.children:
                 return root_node
 
-            table = root_node.get_child(table_chain).get()
+            _table = root_node.get_child(table_chain).get()
+            assert isinstance(_table, Table)
+
+            table = _table
 
         if table is None:
             return root_node
