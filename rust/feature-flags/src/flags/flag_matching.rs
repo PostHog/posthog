@@ -1169,6 +1169,49 @@ impl FeatureFlagMatcher {
                 });
 
             if has_relevant_super_condition_properties {
+                let feature_enrollment_key =
+                    super_condition.properties.as_ref().and_then(|props| {
+                        props.iter().find_map(|prop| {
+                            if prop.key.starts_with("$feature_enrollment")
+                                && merged_properties.contains_key(&prop.key)
+                            {
+                                Some(prop.key.clone())
+                            } else {
+                                None
+                            }
+                        })
+                    });
+
+                let feature_flag_id = feature_flag.id.clone();
+                
+                let early_access_feature = feature_enrollment_key
+                    .and_then(|key_string| {
+                        key_string
+                            .strip_prefix("$feature_enrollment/")
+                            .map(String::from)
+                    })
+                    .and_then(|_key| {
+                        // The derived key isn't strictly used for the lookup below, but we must pass this stage
+                        self.flag_evaluation_state
+                            .early_access_features
+                            .as_ref() // Get an Option<&Vec<T>>
+                            .and_then(|features| {
+                                features
+                                    .iter()
+                                    .find(|f| f.feature_flag_id == Some(feature_flag_id))
+                            })
+                    });
+                
+                if let Some(feature) = early_access_feature {
+                    if feature.stage == "concept".to_string() {
+                        return Ok(SuperConditionEvaluation {
+                            should_evaluate: true,
+                            is_match: false,
+                            reason: FeatureFlagMatchReason::SuperConditionValue,
+                        });
+                    }
+                }
+
                 let (is_match, _) = self.is_condition_match(
                     feature_flag,
                     super_condition,

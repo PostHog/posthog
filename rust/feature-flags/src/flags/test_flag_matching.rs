@@ -18,7 +18,7 @@ mod tests {
                 get_fetch_calls_count, reset_fetch_calls_count, set_feature_flag_hash_key_overrides,
             },
             flag_models::{
-                FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
+                FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagFilters, FlagPropertyGroup,
                 MultivariateFlagOptions, MultivariateFlagVariant,
             },
         },
@@ -2273,7 +2273,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_super_condition_matches_boolean() {
-        let context = TestContext::new(None).await;
+        let context: TestContext = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
             context.non_persons_reader.clone(),
             None,
@@ -2284,7 +2284,7 @@ mod tests {
             None,
             None,
         ));
-        let team = context.insert_new_team(None).await.unwrap();
+        let team: crate::team::team_models::Team = context.insert_new_team(None).await.unwrap();
 
         let flag = create_test_flag(
             Some(1),
@@ -5918,5 +5918,477 @@ mod tests {
                 "Normal flag should not have hash override error"
             );
         }
+    }
+    #[tokio::test]
+    async fn test_early_access_feature_concept_stage() {
+        let context: TestContext = TestContext::new(None).await;
+
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team: crate::team::team_models::Team = context.insert_new_team(None).await.unwrap();
+
+        let flag_filters = FlagFilters {
+            groups: vec![
+                FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!("@storytell.ai")),
+                        operator: Some(OperatorType::Icontains),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                },
+                FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!([
+                            "simone.demarchi@outlook.com",
+                            "djokovic.dav@gmail.com",
+                            "dario.passarello@gmail.com",
+                            "matt.amick@purplewave.com"
+                        ])),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                },
+                FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!("@posthog.com")),
+                        operator: Some(OperatorType::Icontains),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                },
+            ],
+            multivariate: None,
+            aggregation_group_type_index: None,
+            payloads: None,
+            super_groups: Some(vec![FlagPropertyGroup {
+                properties: Some(vec![PropertyFilter {
+                    key: "$feature_enrollment/artificial-hog".to_string(),
+                    value: Some(json!(["true"])),
+                    operator: Some(OperatorType::Exact),
+                    prop_type: PropertyType::Person,
+                    group_type_index: None,
+                    negation: None,
+                }]),
+                rollout_percentage: Some(100.0),
+                variant: None,
+            }]),
+            holdout_groups: None,
+        };
+
+        let flag_key = "artificial-hog".to_string();
+        let flag_name = "Early access feature concept".to_string();
+
+        let flag_row = FeatureFlagRow {
+            id: 1,
+            team_id: team.id,
+            name: Some(flag_name.clone()),
+            key: flag_key.clone(),
+            filters: json!(flag_filters),
+            deleted: false,
+            active: false,
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: None,
+            evaluation_tags: None,
+        };
+
+        let flag_row = context.insert_flag(team.id, Some(flag_row)).await.unwrap();
+
+        let early_access_feature = context
+            .insert_early_access_feature(team.id, Some("concept".to_string()), Some(flag_row.id))
+            .await
+            .unwrap();
+
+        assert!(early_access_feature.team_id == Some(team.id));
+
+        let flag = create_test_flag(
+            Some(flag_row.id),
+            Some(team.id),
+            Some(flag_name.clone()),
+            Some(flag_key.clone()),
+            Some(flag_filters),
+            None,
+            None,
+            None,
+        );
+
+        // Test case 1: User with super condition property set to true
+        context
+            .insert_person(
+                team.id,
+                "super_user".to_string(),
+                Some(json!({
+                    "email": "random@example.com",
+                    "$feature_enrollment/artificial-hog": true
+                })),
+            )
+            .await
+            .unwrap();
+
+        // Test case 2: User with matching email but no super condition
+        context
+            .insert_person(
+                team.id,
+                "posthog_user".to_string(),
+                Some(json!({
+                    "email": "test@posthog.com",
+                    "$feature_enrollment/artificial-hog": false
+                })),
+            )
+            .await
+            .unwrap();
+
+        // Test case 3: User with neither super condition nor matching email
+        context
+            .insert_person(
+                team.id,
+                "regular_user".to_string(),
+                Some(json!({
+                    "email": "regular@example.com"
+                })),
+            )
+            .await
+            .unwrap();
+
+        // Test super condition user
+        let router = context.create_postgres_router();
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "super_user".to_string(),
+            team.id,
+            team.project_id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+            early_access_feature_cache.clone(),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(
+            !result.matches,
+            "Super condition user should not match because early access feature's stage is concept"
+        );
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::SuperConditionValue,
+            "Match reason should be SuperConditionValue"
+        );
+
+        // Test PostHog user
+        let router2 = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "posthog_user".to_string(),
+            team.id,
+            team.project_id,
+            router2,
+            cohort_cache.clone(),
+            None,
+            None,
+            early_access_feature_cache.clone(),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(!result.matches, "PostHog user should not match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::SuperConditionValue,
+            "Match reason should be SuperConditionValue"
+        );
+
+        // Test regular user
+        let router3 = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "regular_user".to_string(),
+            team.id,
+            team.project_id,
+            router3,
+            cohort_cache.clone(),
+            None,
+            None,
+            early_access_feature_cache.clone(),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(!result.matches, "Regular user should not match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::NoConditionMatch,
+            "Match reason should be NoConditionMatch"
+        );
+    }
+    #[tokio::test]
+    async fn test_early_access_feature_other_stage() {
+        let context: TestContext = TestContext::new(None).await;
+
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let early_access_feature_cache = Arc::new(EarlyAccessFeatureCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team: crate::team::team_models::Team = context.insert_new_team(None).await.unwrap();
+
+        let flag_filters = FlagFilters {
+            groups: vec![
+                FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!("@storytell.ai")),
+                        operator: Some(OperatorType::Icontains),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                },
+                FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!([
+                            "simone.demarchi@outlook.com",
+                            "djokovic.dav@gmail.com",
+                            "dario.passarello@gmail.com",
+                            "matt.amick@purplewave.com"
+                        ])),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                },
+                FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!("@posthog.com")),
+                        operator: Some(OperatorType::Icontains),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                },
+            ],
+            multivariate: None,
+            aggregation_group_type_index: None,
+            payloads: None,
+            super_groups: Some(vec![FlagPropertyGroup {
+                properties: Some(vec![PropertyFilter {
+                    key: "$feature_enrollment/artificial-hog".to_string(),
+                    value: Some(json!(["true"])),
+                    operator: Some(OperatorType::Exact),
+                    prop_type: PropertyType::Person,
+                    group_type_index: None,
+                    negation: None,
+                }]),
+                rollout_percentage: Some(100.0),
+                variant: None,
+            }]),
+            holdout_groups: None,
+        };
+
+        let flag_key = "artificial-hog".to_string();
+        let flag_name = "Early access feature concept".to_string();
+
+        let flag_row = FeatureFlagRow {
+            id: 1,
+            team_id: team.id,
+            name: Some(flag_name.clone()),
+            key: flag_key.clone(),
+            filters: json!(flag_filters),
+            deleted: false,
+            active: false,
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: None,
+            evaluation_tags: None,
+        };
+
+        let flag_row = context.insert_flag(team.id, Some(flag_row)).await.unwrap();
+
+        let early_access_feature = context
+            .insert_early_access_feature(team.id, Some("beta".to_string()), Some(flag_row.id))
+            .await
+            .unwrap();
+
+        assert!(early_access_feature.team_id == Some(team.id));
+
+        let flag = create_test_flag(
+            Some(flag_row.id),
+            Some(team.id),
+            Some(flag_name.clone()),
+            Some(flag_key.clone()),
+            Some(flag_filters),
+            None,
+            None,
+            None,
+        );
+
+        // Test case 1: User with super condition property set to true
+        context
+            .insert_person(
+                team.id,
+                "super_user".to_string(),
+                Some(json!({
+                    "email": "random@example.com",
+                    "$feature_enrollment/artificial-hog": true
+                })),
+            )
+            .await
+            .unwrap();
+
+        // Test case 2: User with matching email but no super condition
+        context
+            .insert_person(
+                team.id,
+                "posthog_user".to_string(),
+                Some(json!({
+                    "email": "test@posthog.com",
+                    "$feature_enrollment/artificial-hog": false
+                })),
+            )
+            .await
+            .unwrap();
+
+        // Test case 3: User with neither super condition nor matching email
+        context
+            .insert_person(
+                team.id,
+                "regular_user".to_string(),
+                Some(json!({
+                    "email": "regular@example.com"
+                })),
+            )
+            .await
+            .unwrap();
+
+        // Test super condition user
+        let router = context.create_postgres_router();
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "super_user".to_string(),
+            team.id,
+            team.project_id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+            early_access_feature_cache.clone(),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(
+            result.matches,
+            "Super condition user should match"
+        );
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::SuperConditionValue,
+            "Match reason should be SuperConditionValue"
+        );
+
+        // Test PostHog user
+        let router2 = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "posthog_user".to_string(),
+            team.id,
+            team.project_id,
+            router2,
+            cohort_cache.clone(),
+            None,
+            None,
+            early_access_feature_cache.clone(),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(!result.matches, "PostHog user should not match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::SuperConditionValue,
+            "Match reason should be SuperConditionValue"
+        );
+
+        // Test regular user
+        let router3 = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "regular_user".to_string(),
+            team.id,
+            team.project_id,
+            router3,
+            cohort_cache.clone(),
+            None,
+            None,
+            early_access_feature_cache.clone(),
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(!result.matches, "Regular user should not match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::NoConditionMatch,
+            "Match reason should be NoConditionMatch"
+        );
     }
 }
