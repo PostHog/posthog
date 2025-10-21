@@ -88,7 +88,7 @@ class SearchTool(MaxTool):
 
         if kind == "entities":
             entity_search_toolkit = EntitySearchToolkit(self._team, self._user)
-            response = await entity_search_toolkit.search_entities(query, entity_types or [])
+            response = await entity_search_toolkit.search(query, entity_types or [])
             return response, None
 
         # Used for routing

@@ -93,7 +93,6 @@ class MainAssistant(BaseAssistant):
             TaxonomyNodeName.LOOP_NODE,
             AssistantNodeName.SESSION_SUMMARIZATION,
             AssistantNodeName.INSIGHTS_SEARCH,
-            AssistantNodeName.ENTITY_SEARCH,
             AssistantNodeName.DASHBOARD_CREATION,
         }
 
@@ -115,7 +114,6 @@ class MainAssistant(BaseAssistant):
             TaxonomyNodeName.LOOP_NODE,
             AssistantNodeName.SESSION_SUMMARIZATION,
             AssistantNodeName.DASHBOARD_CREATION,
-            AssistantNodeName.ENTITY_SEARCH,
         }
 
     def get_initial_state(self) -> AssistantState:

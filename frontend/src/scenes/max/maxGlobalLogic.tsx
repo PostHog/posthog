@@ -2,7 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { IconBook, IconCompass, IconDashboard, IconGraph, IconRewindPlay, IconSearch } from '@posthog/icons'
+import { IconBook, IconCompass, IconDashboard, IconGraph, IconRewindPlay } from '@posthog/icons'
 
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -88,12 +88,6 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         name: TOOL_DEFINITIONS['create_dashboard'].name,
         description: TOOL_DEFINITIONS['create_dashboard'].description,
         icon: <IconDashboard />,
-    },
-    {
-        identifier: 'search_entities' as const,
-        name: TOOL_DEFINITIONS['search_entities'].name,
-        description: TOOL_DEFINITIONS['search_entities'].description,
-        icon: <IconSearch />,
     },
 ]
 
