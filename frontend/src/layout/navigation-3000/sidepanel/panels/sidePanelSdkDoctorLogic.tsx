@@ -212,6 +212,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     return false
                 }
 
+                // If there are no SDKs - unlikely, but it happens just after onboarding - we don't need attention at all
+                const teamSdkCount = Object.values(sdkVersionsMap).length
+                if (teamSdkCount === 0) {
+                    return false
+                }
+
                 // Let's call their attention if at least half of their SDKs are outdated
                 // It's unlikely for people to have more than 3 SDKs, but let's be safe
                 // and handle it very generically.
@@ -224,7 +230,6 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 // |                3           |     |     | YES | YES | YES |
                 // |                4           |     |     |     | YES | YES |
                 // |                5           |     |     |     |     | YES |
-                const teamSdkCount = Object.values(sdkVersionsMap).length
                 return needsUpdatingCount >= Math.ceil(teamSdkCount / 2)
             },
         ],
