@@ -1,5 +1,5 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
-import { forms } from 'kea-forms'
+import { actions, connect, kea, path, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
@@ -9,11 +9,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { emailMFAVerifyLogicType } from './emailMFAVerifyLogicType'
 import { handleLoginRedirect } from './loginLogic'
 
-export interface EmailMFAVerifyForm {
-    email: string
-    token: string
-}
-
 export const emailMFAVerifyLogic = kea<emailMFAVerifyLogicType>([
     path(['scenes', 'authentication', 'emailMFAVerifyLogic']),
     connect(() => ({
@@ -22,7 +17,9 @@ export const emailMFAVerifyLogic = kea<emailMFAVerifyLogicType>([
     actions({
         setGeneralError: (code, detail) => ({ code, detail }),
         clearGeneralError: true,
-        setEmailAndToken: (email, token) => ({ email, token }),
+        setEmailAndToken: (email: string, token: string) => ({ email, token }),
+        setView: (view: 'ready' | 'invalid') => ({ view }),
+        verifyAndLogin: true,
     }),
     reducers({
         generalError: [
@@ -32,42 +29,61 @@ export const emailMFAVerifyLogic = kea<emailMFAVerifyLogicType>([
                 clearGeneralError: () => null,
             },
         ],
-    }),
-    forms(({ actions }) => ({
-        emailMFAVerify: {
-            defaults: { email: '', token: '' } as EmailMFAVerifyForm,
-            submit: async ({ email, token }, breakpoint) => {
-                breakpoint()
-                try {
-                    return await api.create<any>('api/login/email-mfa', {
-                        email,
-                        token,
-                    })
-                } catch (e) {
-                    const { code, detail } = e as Record<string, any>
-                    actions.setGeneralError(code, detail)
-                    throw e
-                }
+        view: [
+            'ready' as 'ready' | 'invalid',
+            {
+                setView: (_, { view }) => view,
             },
-        },
-    })),
-    listeners({
-        submitEmailMFAVerifySuccess: () => {
-            handleLoginRedirect()
-            window.location.reload()
-        },
-        setEmailAndToken: ({ email, token }) => {
-            emailMFAVerifyLogic.actions.setEmailMFAVerifyValue('email', email)
-            emailMFAVerifyLogic.actions.setEmailMFAVerifyValue('token', token)
-            emailMFAVerifyLogic.actions.submitEmailMFAVerify()
-        },
+        ],
+        email: [
+            '' as string,
+            {
+                setEmailAndToken: (_, { email }) => email,
+            },
+        ],
+        token: [
+            '' as string,
+            {
+                setEmailAndToken: (_, { token }) => token,
+            },
+        ],
     }),
+    loaders(({ actions, values }) => ({
+        verifyResponse: [
+            null as { success: boolean } | null,
+            {
+                verifyAndLogin: async () => {
+                    try {
+                        // Validate token AND log in (single endpoint)
+                        const response = await api.create<any>('api/login/email-mfa', {
+                            email: values.email,
+                            token: values.token,
+                        })
+
+                        // Login successful - redirect to app
+                        handleLoginRedirect()
+                        window.location.reload()
+
+                        return response
+                    } catch (e) {
+                        const { code, detail } = e as Record<string, any>
+                        actions.setGeneralError(code, detail)
+                        actions.setView('invalid')
+                        throw e
+                    }
+                },
+            },
+        ],
+    })),
     urlToAction(({ actions }) => ({
         '/login/verify': (_, { email, token }) => {
             if (email && token) {
+                // Store email and token, show ready view (no API call yet)
                 actions.setEmailAndToken(email, token)
+                actions.setView('ready')
             } else {
                 actions.setGeneralError('invalid_link', 'Invalid verification link. Please try logging in again.')
+                actions.setView('invalid')
             }
         },
     })),

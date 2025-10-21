@@ -1,51 +1,49 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { Link } from '@posthog/lemon-ui'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { HeartHog, SurprisedHog } from 'lib/components/hedgehogs'
 
 import { emailMFAVerifyLogic } from './emailMFAVerifyLogic'
 
 export function EmailMFAVerify(): JSX.Element {
-    const { generalError } = useValues(emailMFAVerifyLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { view, verifyResponseLoading } = useValues(emailMFAVerifyLogic)
+    const { verifyAndLogin } = useActions(emailMFAVerifyLogic)
 
     return (
-        <BridgePage
-            view="login"
-            hedgehog
-            message={
-                <>
-                    Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
-                </>
-            }
-        >
-            <div className="deprecated-space-y-2">
-                <h2>Verifying your login</h2>
-
-                {generalError ? (
+        <BridgePage view="login" hedgehog>
+            <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full">
+                {view === 'ready' ? (
                     <>
-                        <LemonBanner type="error">{generalError.detail}</LemonBanner>
-                        <div className="mt-4">
-                            <Link to="/login">
-                                <LemonButton type="primary" fullWidth center size="large">
-                                    Back to login
-                                </LemonButton>
-                            </Link>
+                        <h1 className="text-3xl font-bold">Email verified!</h1>
+                        <div className="max-w-60 mb-12">
+                            <HeartHog className="w-full h-full" />
                         </div>
+                        <p className="mb-6">Great! Your email has been verified. Click below to log in to PostHog.</p>
+                        <p className="text-muted text-sm mb-6">This device will be remembered for 30 days</p>
+                        <LemonButton
+                            type="primary"
+                            size="large"
+                            fullWidth
+                            center
+                            onClick={verifyAndLogin}
+                            loading={verifyResponseLoading}
+                        >
+                            Login to PostHog
+                        </LemonButton>
                     </>
-                ) : (
-                    <div className="text-center py-4">
-                        <Spinner className="text-4xl" />
-                        <p className="mt-4">Please wait while we verify your login...</p>
-                        <p className="text-muted text-sm mt-2">This device will be remembered for 30 days</p>
-                    </div>
-                )}
+                ) : view === 'invalid' ? (
+                    <>
+                        <h1 className="text-3xl font-bold">Whoops!</h1>
+                        <div className="max-w-60 mb-12">
+                            <SurprisedHog className="w-full h-full" />
+                        </div>
+                        <LemonButton type="primary" to="/login" fullWidth center>
+                            Back to login
+                        </LemonButton>
+                    </>
+                ) : null}
             </div>
         </BridgePage>
     )

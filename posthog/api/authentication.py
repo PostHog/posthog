@@ -375,7 +375,7 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     throttle_classes = [EmailMFAThrottle]
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Verify email MFA token from link"""
+        """Verify email MFA token from link and log user in"""
         email = request.data.get("email")
         token = request.data.get("token")
         validation_error = serializers.ValidationError(
@@ -397,7 +397,6 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
 
         # Always set remember device cookie (30 days), same as TOTP 2FA
         cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
-        # Use "email_mfa" as device ID for email MFA (TOTP uses device.persistent_id)
         cookie_value = get_remember_device_cookie(user=user, otp_device_id="email_mfa")
         response = Response({"success": True})
         response.set_cookie(
