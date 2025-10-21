@@ -50,12 +50,7 @@ export { Element } from '@posthog/plugin-scaffold' // Re-export Element from sca
 
 type Brand<K, T> = K & { __brand: T }
 
-export enum LogLevel {
-    Debug = 'debug',
-    Info = 'info',
-    Warn = 'warn',
-    Error = 'error',
-}
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 export enum KafkaSecurityProtocol {
     Plaintext = 'PLAINTEXT',
@@ -312,6 +307,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
     CONSUMER_LOOP_STALL_THRESHOLD_MS: number // Threshold in ms after which the consumer loop is considered stalled
+    CONSUMER_LOG_STATS_LEVEL: LogLevel // Log level for consumer statistics
     CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean // Use consumer loop monitoring for health checks instead of heartbeats
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean

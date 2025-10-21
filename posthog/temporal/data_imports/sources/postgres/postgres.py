@@ -16,7 +16,11 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
+from posthog.temporal.data_imports.pipelines.pipeline.consts import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
+    INCREASED_DEFAULT_CHUNK_SIZE,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
@@ -321,9 +325,7 @@ def _has_duplicate_primary_keys(
         return False
 
 
-def _get_table_chunk_size(
-    cursor: psycopg.Cursor, inner_query: sql.Composed, is_read_replica: bool, logger: FilteringBoundLogger
-) -> int:
+def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
         query = sql.SQL("""
             SELECT SUM(pg_column_size(t)) / COUNT(*) FROM ({}) as t
@@ -342,12 +344,8 @@ def _get_table_chunk_size(
 
         chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
 
-        min_chunk_size = min(chunk_size, DEFAULT_CHUNK_SIZE)
-
-        if is_read_replica:
-            sb_chunk = min(min_chunk_size, 5000)
-            logger.debug(f"_get_table_chunk_size: Using supabase read replica, capping chunk size to {sb_chunk}")
-            return sb_chunk
+        # If we get a result back from postgres, then increase the max chunk cap to the increased value
+        min_chunk_size = min(chunk_size, INCREASED_DEFAULT_CHUNK_SIZE)
 
         logger.debug(
             f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
@@ -685,10 +683,11 @@ def postgres_source(
                 try:
                     logger.debug("Checking if source is a read replica...")
                     using_read_replica = _is_read_replica(cursor)
+                    logger.debug(f"using_read_replica = {using_read_replica}")
                     logger.debug("Getting primary keys...")
                     primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                     logger.debug("Getting table chunk size...")
-                    chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, using_read_replica, logger)
+                    chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                     logger.debug("Getting rows to sync...")
                     rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
                     logger.debug("Getting partition settings...")
@@ -744,11 +743,14 @@ def postgres_source(
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
                 return connection
 
-            if using_read_replica:
-                # If the db is a read replica, we create a new query for each chunk.
-                # This is due to how the primary replicates over, we often run into
-                # errors when vacuums are happening
-                logger.debug("Using a read replica. Querying each chunk separately")
+            def offset_chunking(offset: int, chunk_size: int):
+                # If the db is a read replica and we're running into `conflict with recovery errors,
+                # we create a new query for each chunk. This is due to how the primary replicates
+                # over, we often run into errors when vacuums are happening
+                logger.debug(
+                    f"Using offset chunking to read from read replica. offset = {offset}, chunk_size = {chunk_size}"
+                )
+
                 query = _build_query(
                     schema,
                     table_name,
@@ -759,7 +761,6 @@ def postgres_source(
                     db_incremental_field_last_value,
                 )
 
-                offset = 0
                 successive_errors = 0
                 connection = get_connection()
                 while True:
@@ -804,6 +805,10 @@ def postgres_source(
                             raise Exception(
                                 f"Hit {successive_errors} successive SerializationFailure errors. Aborting."
                             ) from e
+                        elif successive_errors >= 5:
+                            chunk_size = max(int(chunk_size / 1.5), 100)
+                            logger.debug(f"Reducing chunk size to {chunk_size} to reduce load on read replica")
+                            time.sleep(2 * successive_errors)
                         else:
                             # Linear backoff on successive errors to make sure we give the read replica time to catch up
                             time.sleep(2 * successive_errors)
@@ -814,7 +819,9 @@ def postgres_source(
 
                 if connection.closed is False:
                     connection.__exit__(None, None, None)
-            else:
+
+            offset = 0
+            try:
                 with get_connection() as connection:
                     with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
                         query = _build_query(
@@ -838,6 +845,15 @@ def postgres_source(
                                 break
 
                             yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            offset += len(rows)
+            except psycopg.errors.SerializationFailure as e:
+                # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
+                if using_read_replica and "terminating connection due to conflict with recovery" in "".join(e.args):
+                    logger.debug(f"Falling back to offset chunking for table due to SerializationFailure error: {e}.")
+                    yield from offset_chunking(offset, chunk_size)
+                    return
+
+                raise
 
     name = NamingConvention().normalize_identifier(table_name)
 

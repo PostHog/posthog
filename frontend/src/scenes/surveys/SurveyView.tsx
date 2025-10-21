@@ -58,7 +58,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, duplicateSurvey, setIsDuplicateToProjectModalOpen } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
-    const { isOnNewEmptyStateExperiment } = useValues(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
@@ -149,9 +148,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             AccessControlLevel.Editor,
                             survey.user_access_level
                         )}
+                        saveOnBlur
                         onNameChange={(name) => updateSurvey({ id, name })}
                         onDescriptionChange={(description) => updateSurvey({ id, description })}
-                        renameDebounceMs={1000}
+                        renameDebounceMs={0}
                         isLoading={surveyLoading}
                         actions={
                             <>
@@ -265,13 +265,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                       key: 'results',
                                       label: 'Results',
                                   }
-                                : isOnNewEmptyStateExperiment
-                                  ? {
-                                        content: <SurveyResultDemo />,
-                                        key: 'results',
-                                        label: 'Results (Demo)',
-                                    }
-                                  : null,
+                                : {
+                                      content: <SurveyResultDemo />,
+                                      key: 'results',
+                                      label: 'Results (Demo)',
+                                  },
                             {
                                 content: <SurveyOverview onTabChange={setTabKey} />,
                                 key: 'overview',

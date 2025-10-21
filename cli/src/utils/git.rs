@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub repo_name: Option<String>,
     pub branch: String,
     pub commit_id: String,

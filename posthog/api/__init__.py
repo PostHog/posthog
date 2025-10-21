@@ -13,6 +13,7 @@ from posthog.warehouse.api import (
     data_warehouse,
     external_data_schema,
     external_data_source,
+    managed_viewset,
     modeling,
     query_tab_state,
     saved_query,
@@ -37,6 +38,7 @@ from products.llm_analytics.backend.api import (
     EvaluationViewSet,
     LLMProxyViewSet,
 )
+from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
@@ -57,6 +59,7 @@ from . import (
     dead_letter_queue,
     debug_ch_queries,
     event_definition,
+    event_schema,
     exports,
     feature_flag,
     flag_value,
@@ -68,7 +71,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    notebook,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -80,6 +82,7 @@ from . import (
     proxy_record,
     query,
     scheduled_change,
+    schema_property_group,
     search,
     sharing,
     survey,
@@ -215,24 +218,15 @@ project_features_router = projects_router.register(
     ["project_id"],
 )
 
-projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
+# Tasks endpoints
+project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
+project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
 
 # Agents endpoints
 projects_router.register(r"agents", tasks.AgentDefinitionViewSet, "project_agents", ["team_id"])
 
-# Task progress endpoints
-projects_router.register(r"task_progress", tasks.TaskProgressViewSet, "project_task_progress", ["team_id"])
-
 # Workflows endpoints
 projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
-
-project_workflows_router = projects_router.register(
-    r"workflows", tasks.TaskWorkflowViewSet, "project_workflows", ["team_id"]
-)
-
-project_workflows_router.register(
-    r"stages", tasks.WorkflowStageViewSet, "project_workflow_stages", ["team_id", "workflow_id"]
-)
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(
@@ -361,6 +355,18 @@ projects_router.register(
     "project_property_definitions",
     ["project_id"],
 )
+projects_router.register(
+    r"schema_property_groups",
+    schema_property_group.SchemaPropertyGroupViewSet,
+    "project_schema_property_groups",
+    ["project_id"],
+)
+projects_router.register(
+    r"event_schemas",
+    event_schema.EventSchemaViewSet,
+    "project_event_schemas",
+    ["project_id"],
+)
 
 projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["project_id"])
 
@@ -421,6 +427,12 @@ environments_router.register(
     r"warehouse_saved_query_drafts",
     saved_query_draft.DataWarehouseSavedQueryDraftViewSet,
     "environment_warehouse_saved_query_drafts",
+    ["team_id"],
+)
+environments_router.register(
+    r"managed_viewsets",
+    managed_viewset.DataWarehouseManagedViewSetViewSet,
+    "environment_managed_viewsets",
     ["team_id"],
 )
 
@@ -654,7 +666,7 @@ legacy_project_session_recordings_router.register(
 
 projects_router.register(
     r"notebooks",
-    notebook.NotebookViewSet,
+    NotebookViewSet,
     "project_notebooks",
     ["project_id"],
 )
