@@ -211,12 +211,22 @@ fn build_kafka_event(
         chrono::DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond()).unwrap_or_default()
     });
 
+    // Extract $ignore_sent_at from event properties
+    let ignore_sent_at = parsed
+        .event_with_placeholders
+        .as_object()
+        .and_then(|obj| obj.get("properties"))
+        .and_then(|props| props.as_object())
+        .and_then(|props| props.get("$ignore_sent_at"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     // Compute timestamp
     let computed_timestamp = timestamp::parse_event_timestamp(
         parsed.timestamp.as_deref(),
         None, // offset
         sent_at_utc,
-        false, // ignore_sent_at
+        ignore_sent_at,
         now,
     );
 
