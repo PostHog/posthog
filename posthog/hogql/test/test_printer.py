@@ -2742,9 +2742,9 @@ class TestPrinter(BaseTest):
 
             assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
-    @parameterized.expand([[True], [False]])
+    @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_projection_pushdown_simple_asterisk_subquery(self, optimize_projections):
+    def test_projection_pushdown_simple_asterisk_subquery(self, name, optimize_projections):
         """Test that SELECT event FROM (SELECT * FROM events) prunes unused columns when optimized"""
         modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
@@ -2752,9 +2752,9 @@ class TestPrinter(BaseTest):
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
 
-    @parameterized.expand([[True], [False]])
+    @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_projection_pushdown_nested_subqueries(self, optimize_projections):
+    def test_projection_pushdown_nested_subqueries(self, name, optimize_projections):
         """Test projection pushdown through multiple nested subquery levels"""
         modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
@@ -2771,9 +2771,9 @@ class TestPrinter(BaseTest):
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
 
-    @parameterized.expand([[True], [False]])
+    @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_projection_pushdown_preserves_where_columns(self, optimize_projections):
+    def test_projection_pushdown_preserves_where_columns(self, name, optimize_projections):
         """Test that columns used in WHERE clauses are preserved even with optimization"""
         modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
@@ -2788,9 +2788,9 @@ class TestPrinter(BaseTest):
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
 
-    @parameterized.expand([[True], [False]])
+    @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_projection_pushdown_preserves_join_columns(self, optimize_projections):
+    def test_projection_pushdown_preserves_join_columns(self, name, optimize_projections):
         """Test that columns used in JOIN conditions are preserved"""
         modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
@@ -2805,9 +2805,9 @@ class TestPrinter(BaseTest):
 
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
 
-    @parameterized.expand([[True], [False]])
+    @parameterized.expand([("with_optimize_projections", True), ("without_optimize_projections", False)])
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_projection_pushdown_no_asterisk_unchanged(self, optimize_projections):
+    def test_projection_pushdown_no_asterisk_unchanged(self, name, optimize_projections):
         """Test that queries without asterisks remain unchanged"""
         modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)

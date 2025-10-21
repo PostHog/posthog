@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from posthog.schema import HogQLQueryModifiers
@@ -11,6 +12,7 @@ from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 
 class TestProjectionPushdown(BaseTest):
     maxDiff = None
+    snapshot: object
 
     def _optimize(self, query_str: str):
         """Helper: parse, resolve, and optimize a query"""
@@ -22,6 +24,7 @@ class TestProjectionPushdown(BaseTest):
         optimized = pushdown_projections(prepared, context)
         return optimized
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_simple_pushdown(self):
         """SELECT event FROM (SELECT * FROM events)"""
         optimized = self._optimize("SELECT event FROM (SELECT * FROM events) AS sub")
@@ -38,6 +41,8 @@ class TestProjectionPushdown(BaseTest):
             assert first_col.chain == ["event"]
         assert first_col.from_asterisk if isinstance(first_col, ast.Field) else first_col.expr.from_asterisk
 
+        assert optimized.to_hogql() == self.snapshot
+
     def _col_name(self, col):
         """Helper to get column name for debugging"""
         if hasattr(col, "alias"):
@@ -46,6 +51,7 @@ class TestProjectionPushdown(BaseTest):
             return col.chain[-1]
         return "?"
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_preserves_used_columns(self):
         """Columns in WHERE/GROUP BY also needed"""
         optimized = self._optimize("""
@@ -59,6 +65,9 @@ class TestProjectionPushdown(BaseTest):
         column_names = {self._col_name(col) for col in inner_query.select}
         assert column_names >= {"event", "distinct_id", "timestamp"}
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_no_pushdown_without_asterisk(self):
         """Don't modify queries without asterisk"""
         optimized = self._optimize("SELECT event FROM (SELECT event, distinct_id FROM events) AS sub")
@@ -66,6 +75,9 @@ class TestProjectionPushdown(BaseTest):
         inner_query = optimized.select_from.table
         assert len(inner_query.select) == 2
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_nested_pushdown(self):
         """Pushdown through multiple levels"""
         optimized = self._optimize("""
@@ -87,6 +99,9 @@ class TestProjectionPushdown(BaseTest):
         assert len(inner_query.select) == 1
         assert self._col_name(inner_query.select[0]) == "event"
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_preserves_explicit_columns(self):
         """Don't prune columns user explicitly wrote"""
         optimized = self._optimize("""
@@ -99,6 +114,9 @@ class TestProjectionPushdown(BaseTest):
         inner_query = optimized.select_from.table
         assert len(inner_query.select) == 3
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_prewhere_clause(self):
         """PREWHERE clause columns should be preserved"""
         optimized = self._optimize("""
@@ -113,6 +131,9 @@ class TestProjectionPushdown(BaseTest):
         assert "event" in column_names
         assert "distinct_id" in column_names
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_order_by_clause(self):
         """ORDER BY clause columns should be preserved"""
         optimized = self._optimize("""
@@ -127,6 +148,9 @@ class TestProjectionPushdown(BaseTest):
         assert "event" in column_names
         assert "timestamp" in column_names
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_join_constraint_columns(self):
         """Columns in JOIN conditions should be preserved"""
         optimized = self._optimize("""
@@ -142,6 +166,9 @@ class TestProjectionPushdown(BaseTest):
         assert "distinct_id" in column_names
         assert "$session_id" in column_names
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_join_constraint_in_subquery(self):
         """Subquery JOIN constraints should preserve columns"""
         optimized = self._optimize("""
@@ -164,6 +191,9 @@ class TestProjectionPushdown(BaseTest):
         assert "distinct_id" in column_names
         assert "$session_id" in column_names, f"Got columns: {column_names}"
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_multiple_joins_with_mixed_columns(self):
         """Complex query with multiple JOINs and mixed SELECT/WHERE demands"""
         optimized = self._optimize("""
@@ -184,6 +214,9 @@ class TestProjectionPushdown(BaseTest):
         events2_cols = {self._col_name(col) for col in events2_query.select}
         assert events2_cols >= {"event", "distinct_id"}
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_deeply_nested_with_multiple_demands(self):
         """4 levels deep with demands at each level"""
         optimized = self._optimize("""
@@ -213,6 +246,9 @@ class TestProjectionPushdown(BaseTest):
         l3_cols = {self._col_name(col) for col in l3.select}
         assert l3_cols == {"event", "distinct_id", "timestamp"}
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_mixed_asterisk_and_explicit_columns(self):
         """Query with both SELECT *, col1, col2 pattern"""
         optimized = self._optimize("""
@@ -228,6 +264,9 @@ class TestProjectionPushdown(BaseTest):
         assert "distinct_id" in column_names
         assert "timestamp" in column_names
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_group_by_and_having_demands(self):
         """Ensure GROUP BY and HAVING columns are preserved"""
         optimized = self._optimize("""
@@ -242,6 +281,9 @@ class TestProjectionPushdown(BaseTest):
         column_names = {self._col_name(col) for col in inner_query.select}
         assert column_names >= {"event", "distinct_id", "timestamp"}
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_subquery_in_join_with_demands(self):
         """Nested subqueries in both sides of JOIN"""
         optimized = self._optimize("""
@@ -275,6 +317,9 @@ class TestProjectionPushdown(BaseTest):
         inner_e2_cols = {self._col_name(col) for col in inner_e2.select}
         assert inner_e2_cols >= {"timestamp", "distinct_id"}
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_union_subqueries_with_asterisk(self):
         """Subqueries that will be used in UNION ALL should preserve structure"""
         # Note: This tests that explicit columns aren't pruned even if from asterisk
@@ -290,6 +335,9 @@ class TestProjectionPushdown(BaseTest):
         assert "event" in column_names
         assert "distinct_id" in column_names
 
+        assert optimized.to_hogql() == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_cte_with_asterisk_pushdown(self):
         """CTEs with asterisk should have projection pushdown applied after CTE inlining"""
         optimized = self._optimize("""
@@ -310,3 +358,5 @@ class TestProjectionPushdown(BaseTest):
         assert any(
             col.from_asterisk if isinstance(col, ast.Field) else col.expr.from_asterisk for col in subquery.select
         )
+
+        assert optimized.to_hogql() == self.snapshot

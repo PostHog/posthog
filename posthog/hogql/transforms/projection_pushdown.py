@@ -103,11 +103,8 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         if from_clause.next_join:
             self._register_subqueries(from_clause.next_join)
 
-    def _register_subquery(self, subquery: ast.SelectQuery, type_annotation: ast.Type | None) -> None:
+    def _register_subquery(self, subquery: ast.SelectQuery, type_annotation: ast.Type) -> None:
         """Map type to subquery node for demand tracking"""
-        if not type_annotation:
-            return
-
         # Map both the type and the inner SelectQueryType if it's an alias
         self.subquery_map[id(type_annotation)] = subquery
         if isinstance(type_annotation, ast.SelectQueryAliasType) and type_annotation.select_query_type:
