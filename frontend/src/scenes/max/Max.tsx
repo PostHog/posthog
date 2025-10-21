@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
 import { IconArrowLeft, IconChevronLeft, IconClockRewind, IconExternal, IconPlus, IconSidePanel } from '@posthog/icons'
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -157,23 +157,20 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                                 disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
                             />
                         </AnimatedBackButton>
-                        {chatTitle ? (
-                            <h3
-                                className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
-                                title={chatTitle || undefined}
-                            >
-                                {chatTitle || (
-                                    <>
-                                        PostHog AI
-                                        <LemonTag size="small" type="warning" className="ml-2">
-                                            BETA
-                                        </LemonTag>
-                                    </>
-                                )}
-                            </h3>
-                        ) : (
-                            <LemonSkeleton className="h-5 w-48 ml-1" />
-                        )}
+
+                        <h3
+                            className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
+                            title={chatTitle || undefined}
+                        >
+                            {chatTitle || (
+                                <>
+                                    PostHog AI
+                                    <LemonTag size="small" type="warning" className="ml-2">
+                                        BETA
+                                    </LemonTag>
+                                </>
+                            )}
+                        </h3>
                     </div>
                     {!conversationHistoryVisible && !threadVisible && (
                         <LemonButton
@@ -203,7 +200,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     ) : (
         <SceneContent className="px-4 py-4">
             <SceneTitleSection
-                name={conversationHistoryVisible ? 'Chat history' : chatTitle}
+                name={conversationHistoryVisible ? 'Chat history' : chatTitle || 'PostHog AI'}
                 resourceType={{
                     type: 'chat',
                 }}

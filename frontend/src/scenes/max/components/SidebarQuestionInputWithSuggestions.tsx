@@ -47,7 +47,7 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
                             size="xsmall"
                             type="secondary"
                             icon={<IconGear />}
-                            tooltip="Edit AI memory"
+                            tooltip="Edit PostHog AI memory"
                         />,
                     ]}
                 />

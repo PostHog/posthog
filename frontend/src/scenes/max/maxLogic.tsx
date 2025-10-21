@@ -231,15 +231,15 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         chatTitle: [
-            (s) => [s.conversation, s.conversationHistoryVisible],
-            (conversation, conversationHistoryVisible) => {
+            (s) => [s.conversationId, s.conversation, s.conversationHistoryVisible],
+            (conversationId, conversation, conversationHistoryVisible) => {
                 if (conversationHistoryVisible) {
                     return 'Chat history'
                 }
 
                 // Existing conversation or the first generation is in progress
-                if (conversation) {
-                    return conversation.title ?? 'New chat'
+                if (conversationId || conversation) {
+                    return conversation?.title ?? 'New chat'
                 }
 
                 return null
