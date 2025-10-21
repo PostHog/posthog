@@ -4,8 +4,7 @@ from rest_framework import serializers
 
 from posthog.models.integration import Integration
 
-from .agents import get_agent_dict_by_id
-from .models import Task, TaskRun, TaskWorkflow, WorkflowStage
+from .models import Task, TaskRun
 from .services.title_generator import generate_task_title
 
 
