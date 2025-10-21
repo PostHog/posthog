@@ -96,6 +96,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
+    const isAIAvailable = useFeatureFlag('ARTIFICIAL_HOG')
+    const showAiFeature = newTabSceneData && isAIAvailable
 
     // State for selected commands (tags)
     const [selectedCommands, setSelectedCommands] = useState<Command<NEW_TAB_COMMANDS>[]>([])
@@ -291,7 +293,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                                 {command === 'recents' && (
                                                                     <IconDocument className="size-4" />
                                                                 )}
-                                                                {command === 'askAI' && (
+                                                                {command === 'askAI' && showAiFeature && (
                                                                     <IconSparkles className="size-4" />
                                                                 )}
                                                                 {commandInfo.displayName}

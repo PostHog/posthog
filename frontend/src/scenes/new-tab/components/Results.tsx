@@ -312,6 +312,7 @@ export function Results({
     const { setSearch } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const newTabSceneData = useFeatureFlag('DATA_IN_NEW_TAB_SCENE')
+    const isAIAvailable = useFeatureFlag('ARTIFICIAL_HOG')
     const items = groupedFilteredItems[selectedCategory] || []
     const typedItems = items as NewTabTreeDataItem[]
 
@@ -341,7 +342,7 @@ export function Results({
                 orderedSections.push(section)
             }
         })
-        if (showAll || newTabSceneDataInclude.includes('askAI')) {
+        if (isAIAvailable && (showAll || newTabSceneDataInclude.includes('askAI'))) {
             orderedSections.push('askAI')
         }
 

@@ -568,8 +568,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
+                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+                const isAIAvailable = featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]
+
                 const allItems: NewTabTreeDataItem[] = [
-                    ...aiSearchItems,
+                    ...(isAIAvailable && newTabSceneData ? aiSearchItems : []),
                     {
                         id: 'new-sql-query',
                         name: 'New SQL query',
