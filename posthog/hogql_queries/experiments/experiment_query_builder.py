@@ -1,8 +1,10 @@
 from posthog.schema import (
     ActionsNode,
+    EventsNode,
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentMetricMathType,
     MultipleVariantHandling,
 )
 
@@ -16,8 +18,10 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     event_or_action_to_filter,
     funnel_evaluation_expr,
     funnel_steps_to_filter,
+    get_source_value_expr,
 )
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Experiment
 from posthog.models.team.team import Team
@@ -78,8 +82,10 @@ class ExperimentQueryBuilder:
         match self.metric:
             case ExperimentFunnelMetric():
                 return self._build_funnel_query()
+            case ExperimentMeanMetric():
+                return self._build_mean_query()
             case _:
-                raise NotImplementedError(f"Only funnel metrics are supported. Got {type(self.metric)}")
+                raise NotImplementedError(f"Only funnel and mean metrics are supported. Got {type(self.metric)}")
 
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
@@ -181,6 +187,163 @@ class ExperimentQueryBuilder:
 
         return query
 
+    def _build_mean_query(self) -> ast.SelectQuery:
+        """
+        Builds query for mean metrics (count, sum, avg, etc.)
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
+        query = parse_select(
+            f"""
+            WITH exposures AS (
+                {{exposure_select_query}}
+            ),
+
+            metric_events AS (
+                SELECT
+                    {{entity_key}} AS entity_id,
+                    timestamp,
+                    {{value_expr}} AS value
+                FROM events
+                WHERE {{metric_predicate}}
+            ),
+
+            entity_metrics AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    {{value_agg}} AS value
+                FROM exposures
+                LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
+                    AND {{conversion_window_predicate}}
+                GROUP BY exposures.entity_id, exposures.variant
+            )
+
+            SELECT
+                entity_metrics.variant AS variant,
+                count(entity_metrics.entity_id) AS num_users,
+                sum(entity_metrics.value) AS total_sum,
+                sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+            FROM entity_metrics
+            GROUP BY entity_metrics.variant
+            """,
+            placeholders={
+                "exposure_select_query": self._build_exposure_select_query(),
+                "entity_key": parse_expr(self.entity_key),
+                "metric_predicate": self._build_metric_predicate(),
+                "value_expr": self._build_value_expr(),
+                "value_agg": self._build_value_aggregation_expr(),
+                "conversion_window_predicate": self._build_conversion_window_predicate(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _build_conversion_window_predicate(self) -> ast.Expr:
+        """
+        Build the predicate for limiting metric events to the conversion window for the user.
+        """
+        expr = "metric_events.timestamp >= exposures.first_exposure_time"
+
+        conversion_window_seconds = 0
+        if self.metric.conversion_window and self.metric.conversion_window_unit:
+            conversion_window_seconds = conversion_window_to_seconds(
+                self.metric.conversion_window,
+                self.metric.conversion_window_unit,
+            )
+
+            if conversion_window_seconds > 0:
+                expr += f""" AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})"""
+
+        return parse_expr(expr)
+
+    def _build_metric_predicate(self) -> ast.Expr:
+        """
+        Builds the metric predicate as an AST expression.
+        """
+
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # TODO: Implement support for DatawarehouseNode
+        assert isinstance(self.metric.source, EventsNode | ActionsNode)
+
+        metric_event_filter = event_or_action_to_filter(self.team, self.metric.source)
+
+        # Build conversion window constraint
+        if self.metric.conversion_window and self.metric.conversion_window_unit:
+            conversion_window_seconds = conversion_window_to_seconds(
+                self.metric.conversion_window,
+                self.metric.conversion_window_unit,
+            )
+        else:
+            conversion_window_seconds = 0
+
+        return parse_expr(
+            """
+            timestamp >= {date_from}
+            AND timestamp < {date_to} + toIntervalSecond({conversion_window_seconds})
+            AND {metric_event_filter}
+            """,
+            placeholders={
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                "metric_event_filter": metric_event_filter,
+            },
+        )
+
+    def _build_value_expr(self) -> ast.Expr:
+        """
+        Builds the value expression for metric events based on math type.
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+        # TODO: refactor this
+        return get_source_value_expr(self.metric.source)
+
+    def _build_value_aggregation_expr(self) -> ast.Expr:
+        """
+        Returns the value aggregation expression based on math type.
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # Get metric source details
+        math_type = getattr(self.metric.source, "math", ExperimentMetricMathType.TOTAL)
+
+        if math_type in [
+            ExperimentMetricMathType.UNIQUE_SESSION,
+            ExperimentMetricMathType.DAU,
+            ExperimentMetricMathType.UNIQUE_GROUP,
+        ]:
+            # Count distinct values, filtering out null UUIDs and empty strings
+            # This matches the old implementation's behavior
+            return parse_expr(
+                """toFloat(count(distinct
+                    multiIf(
+                        toTypeName(metric_events.value) = 'UUID' AND reinterpretAsUInt128(metric_events.value) = 0, NULL,
+                        toString(metric_events.value) = '', NULL,
+                        metric_events.value
+                    )
+                ))"""
+            )
+        elif math_type == ExperimentMetricMathType.MIN:
+            return parse_expr("coalesce(min(toFloat(metric_events.value)), 0.0)")
+        elif math_type == ExperimentMetricMathType.MAX:
+            return parse_expr("coalesce(max(toFloat(metric_events.value)), 0.0)")
+        elif math_type == ExperimentMetricMathType.AVG:
+            return parse_expr("coalesce(avg(toFloat(metric_events.value)), 0.0)")
+        elif math_type == ExperimentMetricMathType.HOGQL:
+            math_hogql = getattr(self.metric.source, "math_hogql", None)
+            if math_hogql is not None:
+                aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
+                if aggregation_function:
+                    return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
+            # Default to sum if no aggregation function is found
+            return parse_expr(f"sum(coalesce(toFloat(metric_events.value), 0))")
+        else:
+            # Default: SUM or TOTAL
+            return parse_expr("coalesce(sum(toFloat(metric_events.value)), 0.0)")
+
     def _build_test_accounts_filter(self) -> ast.Expr:
         if (
             self.filter_test_accounts
@@ -264,6 +427,51 @@ class ExperimentQueryBuilder:
                 },
             )
         )
+
+    def _build_exposure_select_query(self) -> ast.SelectQuery:
+        exposure_query = parse_select(
+            """
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_expr} AS variant,
+                    minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
+                    argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
+                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
+                FROM events
+                WHERE {exposure_predicate}
+                GROUP BY entity_id
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.entity_key),
+                "variant_expr": self._build_variant_expr(),
+                "exposure_predicate": self._build_exposure_predicate(),
+            },
+        )
+        assert isinstance(exposure_query, ast.SelectQuery)
+        return exposure_query
+
+    def _build_variant_expr(self) -> ast.Expr:
+        """
+        Builds the variant selection expression based on multiple variant handling.
+        """
+
+        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            return parse_expr(
+                "argMinIf({variant_property}, timestamp, {exposure_predicate})",
+                placeholders={
+                    "variant_property": ast.Field(chain=["properties", self.variant_property]),
+                    "exposure_predicate": self._build_exposure_predicate(),
+                },
+            )
+        else:
+            return parse_expr(
+                "if(uniqExactIf({variant_property}, {exposure_predicate}) > 1, {multiple_key}, anyIf({variant_property}, {exposure_predicate}))",
+                placeholders={
+                    "variant_property": ast.Field(chain=["properties", self.variant_property]),
+                    "exposure_predicate": self._build_exposure_predicate(),
+                    "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
+                },
+            )
 
     def _build_funnel_step_columns(self) -> list[ast.Alias]:
         """
