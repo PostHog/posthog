@@ -1,16 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconDatabricks } from 'lib/lemon-ui/icons'
 
-import { GitLabSetupModalLogicProps, gitlabSetupModalLogic } from './databricksSetupModalLogic'
+import { GitLabSetupModalLogicProps, gitlabSetupModalLogic } from './gitlabSetupModalLogic'
 
 export const GitLabSetupModal = (props: GitLabSetupModalLogicProps): JSX.Element => {
-    const { isGitLabIntegrationSubmitting } = useValues(gitlabSetupModalLogic(props))
-    const { submitGitLabIntegration } = useActions(gitlabSetupModalLogic(props))
+    const logic = gitlabSetupModalLogic(props)
+    const { isGitlabIntegrationSubmitting } = useValues(logic)
+    const { submitGitlabIntegration } = useActions(logic)
 
     return (
         <LemonModal
@@ -26,17 +27,48 @@ export const GitLabSetupModal = (props: GitLabSetupModalLogicProps): JSX.Element
             <Form logic={gitlabSetupModalLogic} formKey="gitlabIntegration">
                 <div className="gap-4 flex flex-col">
                     <LemonField name="serverHostname" label="Server Hostname">
-                        <LemonInput type="text" placeholder="https://gitlab.com" defaultValue="https://gitlab.com" />
+                        <LemonInput type="text" placeholder="https://gitlab.com" />
                     </LemonField>
-                    <LemonField name="clientId" label="Project access token">
-                        <LemonInput type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+                    <LemonField
+                        name="projectId"
+                        label="Project ID"
+                        help={
+                            <Link
+                                target="_blank"
+                                to="https://docs.gitlab.com/user/project/working_with_projects/#find-the-project-id"
+                            >
+                                Find your Project ID
+                            </Link>
+                        }
+                    >
+                        <LemonInput type="text" placeholder="1234567" />
+                    </LemonField>
+                    <LemonField
+                        name="projectAccessToken"
+                        label="Project access token"
+                        help={
+                            <>
+                                Learn how to{' '}
+                                <Link
+                                    target="_blank"
+                                    to="https://docs.gitlab.com/user/project/settings/project_access_tokens"
+                                >
+                                    create a project access token
+                                </Link>
+                            </>
+                        }
+                    >
+                        <LemonInput
+                            type="text"
+                            placeholder="xxxxx-x_xxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxx.xx.xxxxxxxxx"
+                        />
                     </LemonField>
                     <div className="flex justify-end">
                         <LemonButton
                             type="primary"
                             htmlType="submit"
-                            loading={isGitLabIntegrationSubmitting}
-                            onClick={submitGitLabIntegration}
+                            loading={isGitlabIntegrationSubmitting}
+                            onClick={submitGitlabIntegration}
                         >
                             Connect
                         </LemonButton>

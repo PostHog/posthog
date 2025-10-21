@@ -90,6 +90,17 @@ class IntegrationSerializer(serializers.ModelSerializer):
             instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
             return instance
 
+        elif validated_data["kind"] == "gitlab":
+            config = validated_data.get("config", {})
+            hostname = config.get("server_hostname")
+            project_id = config.get("project_id")
+            project_access_token = config.get("project_access_token")
+
+            instance = GitLabIntegration.create_integration(
+                hostname, project_id, project_access_token, team_id, request.user
+            )
+            return instance
+
         elif validated_data["kind"] == "twilio":
             config = validated_data.get("config", {})
             account_sid = config.get("account_sid")
@@ -420,11 +431,6 @@ class IntegrationViewSet(
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         github = GitHubIntegration(self.get_object())
         return Response({"repositories": github.list_repositories()})
-
-    @action(methods=["GET"], detail=True, url_path="github_repos")
-    def gitlab_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        gitlab = GitLabIntegration(self.get_object())
-        return Response({"repositories": gitlab.list_projects()})
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):

@@ -121,6 +121,8 @@ class Integration(models.Model):
             return dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "databricks":
             return self.integration_id or "unknown ID"
+        if self.kind == "gitlab":
+            return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
 
@@ -1749,82 +1751,77 @@ class GitHubIntegration:
 class GitLabIntegration:
     integration: Integration
 
-    # @classmethod
-    # def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
+    @staticmethod
+    def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
+        response = requests.get(
+            f"{hostname}/api/v4/{endpoint}",
+            headers={"PRIVATE-TOKEN": project_access_token},
+        )
 
-    # @classmethod
-    # def integration_from_installation_id(
-    #     cls, installation_id: str, team_id: int, created_by: User | None = None
-    # ) -> Integration:
+        return response.json()
+
+    @staticmethod
+    def post(hostname: str, endpoint: str, project_access_token: str, json: dict) -> dict:
+        response = requests.post(
+            f"{hostname}/api/v4/{endpoint}",
+            json=json,
+            headers={"PRIVATE-TOKEN": project_access_token},
+        )
+
+        return response.json()
+
+    @classmethod
+    def create_integration(self, hostname, project_id, project_access_token, team_id, user) -> Integration:
+        project = self.get(hostname, f"projects/{project_id}", project_access_token)
+
+        integration = Integration.objects.create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.GITLAB,
+            integration_id=project.get("name_with_namespace"),
+            config={
+                "hostname": hostname,
+                "path_with_namespace": project.get("path_with_namespace"),
+                "project_id": project.get("id"),
+            },
+            sensitive_config={"access_token": project_access_token},
+            created_by=user,
+        )
+
+        return integration
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "gitlab":
             raise Exception("GitLabIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
 
-    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
-        expires_in = self.integration.config.get("expires_in")
-        refreshed_at = self.integration.config.get("refreshed_at")
-        if not expires_in or not refreshed_at:
-            return False
+    @property
+    def project_path(self) -> str:
+        return dot_get(self.integration.config, "path_with_namespace")
 
-        # To be really safe we refresh if its half way through the expiry
-        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
-
-        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
-
-    def refresh_access_token(self):
-        """
-        Refresh the access token for the integration if necessary
-        """
-        response = self.client_request(f"installations/{self.integration.integration_id}/access_tokens", method="POST")
-        config = response.json()
-
-        if response.status_code != status.HTTP_201_CREATED or not config.get("token"):
-            logger.warning(f"Failed to refresh token for {self}", response=response.text)
-            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
-            self.integration.save()
-            raise Exception(f"Failed to refresh token for {self}: {response.text}")
-        else:
-            logger.info(f"Refreshed access token for {self}")
-            expires_in = datetime.fromisoformat(config["expires_at"]).timestamp() - int(time.time())
-            self.integration.config["expires_in"] = expires_in
-            self.integration.config["refreshed_at"] = int(time.time())
-            self.integration.sensitive_config["access_token"] = config["token"]
-            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
-            self.integration.save()
-
-    def organization(self) -> str:
-        return dot_get(self.integration.config, "account.name")
-
-    def list_projects(self, page: int = 1) -> list[str]:
-        # TODO: Implement GitLab project listing
-        return []
+    @property
+    def hostname(self) -> str:
+        return dot_get(self.integration.config, "hostname")
 
     def create_issue(self, config: dict[str, str]):
-        # TODO: implement this
         title: str = config.pop("title")
-        body: str = config.pop("body")
-        project: str = config.pop("project")
+        description: str = config.pop("body")
 
-        org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
+        hostname = self.integration.config.get("hostname")
+        project_id = self.integration.config.get("project_id")
+        access_token = self.integration.sensitive_config.get("project_access_token")
 
-        response = requests.post(
-            f"https://api.github.com/repos/{org}/{project}/issues",
-            json={"title": title, "body": body},
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+        issue = GitLabIntegration.post(
+            hostname,
+            f"projects/{project_id}/issues",
+            access_token,
+            {
+                "title": title,
+                "description": description,
+                "labels": "posthog",
             },
         )
 
-        issue = response.json()
-
-        return {"number": issue["number"], "project": project}
+        return {"issue_id": issue["iid"]}
 
 
 class MetaAdsIntegration:

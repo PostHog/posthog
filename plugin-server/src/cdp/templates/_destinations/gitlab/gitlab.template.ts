@@ -1,7 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
-    status: 'beta',
+    status: 'alpha',
     free: false,
     type: 'destination',
     id: 'template-gitlab',
@@ -10,47 +10,34 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/gitlab.png',
     category: ['Error tracking'],
     code_language: 'hog',
-    code: `let url := f'https://api.airtable.com/v0/{inputs.base_id}/{inputs.table_name}'
+    code: `let project := inputs.gitlab_project.account.name
 
+if (not project) {
+    throw Error('Project is required')
+}
+
+let posthog_issue_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}'
 let payload := {
-  'headers': {
-    'Content-Type': 'application/json',
-    'Authorization': f'Bearer {inputs.access_token}'
-  },
-  'body': {
-    'fields': inputs.fields,
-    'typecast': true
-  },
-  'method': 'POST'
+    'method': 'POST',
+    'headers': {
+        'PRIVATE-TOKEN': f'Bearer {inputs.gitlab_project.access_token}',
+    },
+    'body': {
+        'title': inputs.title,
+        'body': f'{inputs.description}\n\n[View in PostHog]({posthog_issue_url})'
+    }
 }
 
-if (inputs.debug) {
-  print('Request', url, payload)
-}
-
-let res := fetch(url, payload);
-
-if (inputs.debug) {
-  print('Response', res.status, res.body);
-}
-if (res.status >= 400) {
-    throw Error(f'Error from api.airtable.com (status {res.status}): {res.body}')
+let res := fetch(f'{inputs.gitlab_project.hostname}/projects/{project_id}/issues', payload)
+if (res.status < 200 or res.status >= 300) {
+    throw Error(f'Failed to create GitLab issue: {res.status}: {res.body}')
 }`,
     inputs_schema: [
         {
-            key: 'access_token',
-            type: 'string',
-            label: 'GitLab project access token',
-            secret: true,
-            required: true,
-            description: 'Create this at https://airtable.com/create/tokens',
-        },
-        {
-            key: 'team',
-            type: 'integration_field',
-            integration_key: 'linear_workspace',
-            integration_field: 'linear_team',
-            label: 'Team',
+            key: 'gitlab_project',
+            type: 'integration',
+            integration: 'gitlab',
+            label: 'GitLab project',
             secret: false,
             hidden: false,
             required: true,

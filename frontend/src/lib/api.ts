@@ -1175,10 +1175,6 @@ export class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('github_repos')
     }
 
-    public integrationGitLabProjects(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.integrations(teamId).addPathComponent(id).addPathComponent('gitlab_projects')
-    }
-
     public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('google_accessible_accounts')
     }
@@ -3855,9 +3851,6 @@ const api = {
         },
         async githubRepositories(id: IntegrationType['id']): Promise<{ repositories: string[] }> {
             return await new ApiRequest().integrationGitHubRepositories(id).get()
-        },
-        async gitlabProjects(id: IntegrationType['id']): Promise<{ projects: string[] }> {
-            return await new ApiRequest().integrationGitLabProjects(id).get()
         },
         async googleAdsAccounts(
             id: IntegrationType['id']

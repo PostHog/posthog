@@ -98,8 +98,8 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
             org = GitHubIntegration(reference.integration).organization()
             return f"https://github.com/{org}/{external_context['repository']}/issues/{external_context['number']}"
         elif reference.integration.kind == Integration.IntegrationKind.GITLAB:
-            # TODO: implement GitLab external URL generation
-            return "https://gitlab.com"
+            gitlab = GitLabIntegration(reference.integration)
+            return f"{gitlab.hostname}/{gitlab.project_path}/issues/{external_context['issue_id']}"
         raise ValidationError("Provider not supported")
 
     def validate(self, data):

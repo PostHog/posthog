@@ -5,13 +5,10 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { IntegrationType } from '~/types'
-
 import type { gitlabSetupModalLogicType } from './gitlabSetupModalLogicType'
 
-export interface gitlabSetupModalLogicProps {
+export interface GitLabSetupModalLogicProps {
     isOpen: boolean
-    integration?: IntegrationType | null
     onComplete: (integrationId?: number) => void
 }
 
@@ -23,7 +20,7 @@ export interface gitlabFormType {
 
 export const gitlabSetupModalLogic = kea<gitlabSetupModalLogicType>([
     path(['integrations', 'gitlab', 'gitlabSetupModalLogic']),
-    props({} as gitlabSetupModalLogicProps),
+    props({} as GitLabSetupModalLogicProps),
     connect(() => ({
         values: [integrationsLogic, ['integrations', 'integrationsLoading']],
         actions: [integrationsLogic, ['loadIntegrations']],
@@ -31,14 +28,14 @@ export const gitlabSetupModalLogic = kea<gitlabSetupModalLogicType>([
     forms(({ props, actions, values }) => ({
         gitlabIntegration: {
             defaults: {
-                serverHostname: '',
-                clientId: '',
-                clientSecret: '',
+                serverHostname: 'https://gitlab.com',
+                projectId: '',
+                projectAccessToken: '',
             },
-            errors: ({ serverHostname, clientId, clientSecret }) => ({
-                serverHostname: serverHostname.trim() ? undefined : 'Server Hostname is required',
-                clientId: clientId.trim() ? undefined : 'Client ID is required',
-                clientSecret: clientSecret.trim() ? undefined : 'Client Secret is required',
+            errors: ({ serverHostname, projectAccessToken }) => ({
+                serverHostname: serverHostname.trim() ? undefined : 'Server hostname is required',
+                projectId: serverHostname.trim() ? undefined : 'Project ID is required',
+                projectAccessToken: projectAccessToken.trim() ? undefined : 'Project access token is required',
             }),
             submit: async () => {
                 try {
@@ -46,8 +43,8 @@ export const gitlabSetupModalLogic = kea<gitlabSetupModalLogicType>([
                         kind: 'gitlab',
                         config: {
                             server_hostname: values.gitlabIntegration.serverHostname,
-                            client_id: values.gitlabIntegration.clientId,
-                            client_secret: values.gitlabIntegration.clientSecret,
+                            project_id: values.gitlabIntegration.projectId,
+                            project_access_token: values.gitlabIntegration.projectAccessToken,
                         },
                     })
                     actions.loadIntegrations()

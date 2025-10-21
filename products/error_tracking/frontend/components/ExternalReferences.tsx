@@ -4,7 +4,6 @@ import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
-import { GitLabProjectSelectField } from 'lib/integrations/GitLabIntegrationHelpers'
 import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { ICONS } from 'lib/integrations/utils'
@@ -25,7 +24,7 @@ import { IntegrationKind, IntegrationType } from '~/types'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
-const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github']
+const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github', 'gitlab']
 
 type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
 
@@ -172,11 +171,9 @@ const createGitLabIssueForm = (
             title: issue.name,
             body: body,
             integrationId: integration.id,
-            projects: [],
         },
         content: (
             <div className="flex flex-col gap-y-2">
-                <GitLabProjectSelectField integrationId={integration.id} />
                 <LemonField name="title" label="Title">
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
@@ -187,10 +184,9 @@ const createGitLabIssueForm = (
         ),
         errors: {
             title: (title) => (!title ? 'You must enter a title' : undefined),
-            projects: (projects) => (projects && projects.length === 0 ? 'You must choose a project' : undefined),
         },
-        onSubmit: ({ title, body, projects }) => {
-            onSubmit(integration.id, { project: projects[0], title, body })
+        onSubmit: ({ title, body }) => {
+            onSubmit(integration.id, { title, body })
         },
     })
 }
