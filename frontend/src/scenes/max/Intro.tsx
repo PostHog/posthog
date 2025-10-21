@@ -22,7 +22,7 @@ export function Intro(): JSX.Element {
                 <h2 className="text-xl @md/max-welcome:text-2xl font-bold my-2 text-balance">{headline}</h2>
                 <div className="text-sm italic text-tertiary text-pretty py-0.5">
                     {shouldShowMaxRebrandMessage
-                        ? 'Max AI is now PostHog AI – a core part of PostHog.'
+                        ? 'Max is now PostHog AI – a core part of PostHog.'
                         : 'Build something people want.'}
                 </div>
             </div>
