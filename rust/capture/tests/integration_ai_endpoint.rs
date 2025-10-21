@@ -50,6 +50,37 @@ impl Event for TestSink {
     }
 }
 
+// Capturing sink for Kafka tests - stores events in memory
+#[derive(Clone)]
+struct CapturingSink {
+    events: Arc<tokio::sync::Mutex<Vec<ProcessedEvent>>>,
+}
+
+impl CapturingSink {
+    fn new() -> Self {
+        Self {
+            events: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+        }
+    }
+
+    async fn get_events(&self) -> Vec<ProcessedEvent> {
+        self.events.lock().await.clone()
+    }
+}
+
+#[async_trait]
+impl Event for CapturingSink {
+    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+        self.events.lock().await.push(event);
+        Ok(())
+    }
+
+    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        self.events.lock().await.extend(events);
+        Ok(())
+    }
+}
+
 // Helper to build multipart form and send request
 async fn send_multipart_request(
     client: &TestClient,
@@ -82,7 +113,10 @@ async fn send_multipart_request(
 
 /// Helper to create a basic AI event with properties in separate parts
 fn create_ai_event_form(event_name: &str, distinct_id: &str, properties: Value) -> Form {
+    use uuid::Uuid;
+
     let event_data = json!({
+        "uuid": Uuid::new_v4().to_string(),
         "event": event_name,
         "distinct_id": distinct_id
     });
@@ -261,10 +295,13 @@ async fn test_ai_endpoint_empty_body_returns_400() {
 
 #[tokio::test]
 async fn test_multipart_parsing_with_multiple_blobs() {
+    use uuid::Uuid;
+
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
 
     let event_data = json!({
+        "uuid": Uuid::new_v4().to_string(),
         "event": "$ai_generation",
         "distinct_id": "test_user"
     });
@@ -321,7 +358,7 @@ async fn test_multipart_parsing_with_multiple_blobs() {
     let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
     assert_eq!(accepted_parts.len(), 5);
     assert_eq!(accepted_parts[0]["name"], "event");
-    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 52);
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 98); // UUID adds ~46 bytes
     assert_eq!(accepted_parts[1]["name"], "event.properties");
     assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 31);
     assert_eq!(accepted_parts[2]["name"], "event.properties.$ai_input");
@@ -334,10 +371,13 @@ async fn test_multipart_parsing_with_multiple_blobs() {
 
 #[tokio::test]
 async fn test_multipart_parsing_with_mixed_content_types() {
+    use uuid::Uuid;
+
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
 
     let event_data = json!({
+        "uuid": Uuid::new_v4().to_string(),
         "event": "$ai_generation",
         "distinct_id": "test_user"
     });
@@ -389,7 +429,7 @@ async fn test_multipart_parsing_with_mixed_content_types() {
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
     let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
     assert_eq!(accepted_parts.len(), 5);
-    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 52);
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 98); // UUID adds ~46 bytes
     assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 32);
     assert_eq!(accepted_parts[2]["content-type"], "application/json");
     assert_eq!(accepted_parts[2]["length"].as_u64().unwrap(), 15);
@@ -404,10 +444,13 @@ async fn test_multipart_parsing_with_mixed_content_types() {
 
 #[tokio::test]
 async fn test_multipart_parsing_with_large_blob() {
+    use uuid::Uuid;
+
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
 
     let event_data = json!({
+        "uuid": Uuid::new_v4().to_string(),
         "event": "$ai_generation",
         "distinct_id": "test_user"
     });
@@ -452,17 +495,20 @@ async fn test_multipart_parsing_with_large_blob() {
     let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
     let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
     assert_eq!(accepted_parts.len(), 3);
-    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 52);
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 98); // UUID adds ~46 bytes
     assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 26);
     assert_eq!(accepted_parts[2]["length"].as_u64().unwrap(), 102914);
 }
 
 #[tokio::test]
 async fn test_multipart_parsing_with_empty_blob() {
+    use uuid::Uuid;
+
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
 
     let event_data = json!({
+        "uuid": Uuid::new_v4().to_string(),
         "event": "$ai_generation",
         "distinct_id": "test_user"
     });
@@ -905,7 +951,7 @@ async fn test_ai_endpoint_returns_200_for_valid_request() {
     assert_eq!(accepted_parts.len(), 2);
     assert_eq!(accepted_parts[0]["name"], "event");
     assert_eq!(accepted_parts[0]["content-type"], "application/json");
-    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 52);
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 98); // UUID adds ~46 bytes
     assert_eq!(accepted_parts[1]["name"], "event.properties");
     assert_eq!(accepted_parts[1]["content-type"], "application/json");
     assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 20);
@@ -917,10 +963,13 @@ async fn test_ai_endpoint_returns_200_for_valid_request() {
 
 #[tokio::test]
 async fn test_properties_in_event_part_only() {
+    use uuid::Uuid;
+
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
 
     let event_data = json!({
+        "uuid": Uuid::new_v4().to_string(),
         "event": "$ai_generation",
         "distinct_id": "test_user",
         "properties": {
@@ -948,15 +997,18 @@ async fn test_properties_in_event_part_only() {
     let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
     assert_eq!(accepted_parts.len(), 1);
     assert_eq!(accepted_parts[0]["name"], "event");
-    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 128);
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 174); // UUID adds ~46 bytes (128 + 46)
 }
 
 #[tokio::test]
 async fn test_properties_in_separate_part_only() {
+    use uuid::Uuid;
+
     let router = setup_ai_test_router();
     let test_client = TestClient::new(router);
 
     let event_data = json!({
+        "uuid": Uuid::new_v4().to_string(),
         "event": "$ai_generation",
         "distinct_id": "test_user"
     });
@@ -992,7 +1044,7 @@ async fn test_properties_in_separate_part_only() {
     let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
     assert_eq!(accepted_parts.len(), 2);
     assert_eq!(accepted_parts[0]["name"], "event");
-    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 52);
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 98); // UUID adds ~46 bytes
     assert_eq!(accepted_parts[1]["name"], "event.properties");
     assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 62);
 }
@@ -1398,7 +1450,392 @@ async fn test_gzip_compressed_request() {
     let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
     assert_eq!(accepted_parts.len(), 2);
     assert_eq!(accepted_parts[0]["name"], "event");
-    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 52);
+    assert_eq!(accepted_parts[0]["length"].as_u64().unwrap(), 98); // UUID adds ~46 bytes
     assert_eq!(accepted_parts[1]["name"], "event.properties");
     assert_eq!(accepted_parts[1]["length"].as_u64().unwrap(), 25);
+}
+
+// ----------------------------------------------------------------------------
+// Kafka Publishing Tests
+// ----------------------------------------------------------------------------
+
+// Helper to setup test router with CapturingSink
+fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
+    let liveness = HealthRegistry::new("ai_endpoint_tests");
+    let sink = CapturingSink::new();
+    let sink_clone = sink.clone();
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+
+    let router = router(
+        timesource,
+        liveness,
+        sink,
+        redis,
+        quota_limiter,
+        TokenDropper::default(),
+        false,
+        CaptureMode::Events,
+        None,
+        25 * 1024 * 1024,
+        false,
+        1_i64,
+        None,
+        false,
+        0.0_f32,
+        26_214_400, // 25MB default for AI endpoint
+    );
+
+    (router, sink_clone)
+}
+
+#[tokio::test]
+async fn test_ai_event_published_to_kafka() {
+    let (router, sink) = setup_ai_test_router_with_capturing_sink();
+    let test_client = TestClient::new(router);
+
+    let event_uuid = "550e8400-e29b-41d4-a716-446655440000";
+    let event_data = json!({
+        "uuid": event_uuid,
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event was published to Kafka
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        1,
+        "Expected exactly one event to be published"
+    );
+
+    let event = &events[0];
+
+    // Verify event UUID
+    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
+    assert_eq!(event_json["uuid"], event_uuid);
+    assert_eq!(event_json["event"], "$ai_generation");
+    assert_eq!(event_json["distinct_id"], "test_user");
+
+    // Verify properties
+    let props = event_json["properties"].as_object().unwrap();
+    assert_eq!(props["$ai_model"], "gpt-4");
+}
+
+#[tokio::test]
+async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
+    let (router, sink) = setup_ai_test_router_with_capturing_sink();
+    let test_client = TestClient::new(router);
+
+    let event_uuid = "650e8400-e29b-41d4-a716-446655440001";
+    let event_data = json!({
+        "uuid": event_uuid,
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let input_blob = json!({"messages": [{"role": "user", "content": "Hello"}]});
+    let output_blob = json!({"choices": [{"message": {"content": "Hi there"}}]});
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_input",
+            Part::bytes(serde_json::to_vec(&input_blob).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_output",
+            Part::bytes(serde_json::to_vec(&output_blob).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event was published to Kafka
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        1,
+        "Expected exactly one event to be published"
+    );
+
+    let event = &events[0];
+    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
+
+    // Verify properties contain S3 placeholder URLs
+    let props = event_json["properties"].as_object().unwrap();
+
+    // Both blobs should have S3 placeholder URLs
+    let input_url = props["$ai_input"].as_str().unwrap();
+    let output_url = props["$ai_output"].as_str().unwrap();
+
+    // Verify S3 URLs point to same file with different ranges
+    assert!(input_url.starts_with("s3://PLACEHOLDER/TEAM_ID/"));
+    assert!(output_url.starts_with("s3://PLACEHOLDER/TEAM_ID/"));
+
+    // Extract UUIDs from both URLs (should be the same)
+    // URL format: s3://PLACEHOLDER/TEAM_ID/{uuid}?range=...
+    let input_uuid = input_url
+        .split('/')
+        .nth(4)
+        .unwrap()
+        .split('?')
+        .next()
+        .unwrap();
+    let output_uuid = output_url
+        .split('/')
+        .nth(4)
+        .unwrap()
+        .split('?')
+        .next()
+        .unwrap();
+    assert_eq!(
+        input_uuid, output_uuid,
+        "Both blobs should point to same file"
+    );
+    assert_eq!(input_uuid, event_uuid, "UUID should match event UUID");
+
+    // Verify ranges are sequential
+    assert!(
+        input_url.contains("range="),
+        "Input URL should have range parameter"
+    );
+    assert!(
+        output_url.contains("range="),
+        "Output URL should have range parameter"
+    );
+
+    // Extract range values
+    let input_range = input_url.split("range=").nth(1).unwrap();
+    let output_range = output_url.split("range=").nth(1).unwrap();
+
+    // Input blob JSON is 48 bytes, so should be range=0-47
+    assert_eq!(input_range, "0-47", "First blob should start at 0");
+
+    // Output blob JSON is 48 bytes, so should be range=48-95 (starts where input ends)
+    assert_eq!(
+        output_range, "48-95",
+        "Second blob should start where first ends"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_event_with_multiple_blobs_sequential_ranges() {
+    let (router, sink) = setup_ai_test_router_with_capturing_sink();
+    let test_client = TestClient::new(router);
+
+    let event_uuid = "750e8400-e29b-41d4-a716-446655440002";
+    let event_data = json!({
+        "uuid": event_uuid,
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "claude-3"
+    });
+
+    // Create blobs of different sizes
+    let blob1 = "A".repeat(100); // 100 bytes
+    let blob2 = "B".repeat(200); // 200 bytes
+    let blob3 = "C".repeat(150); // 150 bytes
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_blob1",
+            Part::bytes(blob1.into_bytes())
+                .mime_str("text/plain")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_blob2",
+            Part::bytes(blob2.into_bytes())
+                .mime_str("text/plain")
+                .unwrap(),
+        )
+        .part(
+            "event.properties.$ai_blob3",
+            Part::bytes(blob3.into_bytes())
+                .mime_str("text/plain")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event was published to Kafka
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+
+    let event = &events[0];
+    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
+    let props = event_json["properties"].as_object().unwrap();
+
+    // Extract all URLs
+    let url1 = props["$ai_blob1"].as_str().unwrap();
+    let url2 = props["$ai_blob2"].as_str().unwrap();
+    let url3 = props["$ai_blob3"].as_str().unwrap();
+
+    // Verify all point to same file
+    // URL format: s3://PLACEHOLDER/TEAM_ID/{uuid}?range=...
+    let uuid1 = url1.split('/').nth(4).unwrap().split('?').next().unwrap();
+    let uuid2 = url2.split('/').nth(4).unwrap().split('?').next().unwrap();
+    let uuid3 = url3.split('/').nth(4).unwrap().split('?').next().unwrap();
+    assert_eq!(uuid1, uuid2);
+    assert_eq!(uuid2, uuid3);
+    assert_eq!(uuid1, event_uuid);
+
+    // Extract ranges
+    let range1 = url1.split("range=").nth(1).unwrap();
+    let range2 = url2.split("range=").nth(1).unwrap();
+    let range3 = url3.split("range=").nth(1).unwrap();
+
+    // Verify sequential ranges (inclusive on both ends)
+    assert_eq!(range1, "0-99", "First blob: 100 bytes, range 0-99");
+    assert_eq!(
+        range2, "100-299",
+        "Second blob: 200 bytes, starts at 100, range 100-299"
+    );
+    assert_eq!(
+        range3, "300-449",
+        "Third blob: 150 bytes, starts at 300, range 300-449"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_event_metadata_preserved_in_kafka() {
+    let (router, sink) = setup_ai_test_router_with_capturing_sink();
+    let test_client = TestClient::new(router);
+
+    let event_uuid = "850e8400-e29b-41d4-a716-446655440003";
+    let distinct_id = "user_12345";
+    let event_data = json!({
+        "uuid": event_uuid,
+        "event": "$ai_trace",
+        "distinct_id": distinct_id,
+        "timestamp": "2024-01-15T10:30:00Z"
+    });
+
+    let properties = json!({
+        "$ai_model": "gpt-4-turbo",
+        "$ai_trace_id": "trace_abc123",
+        "custom_metadata": "test_value"
+    });
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event metadata
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+
+    let event = &events[0];
+    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
+
+    // Verify all metadata is preserved
+    assert_eq!(event_json["uuid"], event_uuid);
+    assert_eq!(event_json["event"], "$ai_trace");
+    assert_eq!(event_json["distinct_id"], distinct_id);
+    assert_eq!(event_json["timestamp"], "2024-01-15T10:30:00Z");
+
+    let props = event_json["properties"].as_object().unwrap();
+    assert_eq!(props["$ai_model"], "gpt-4-turbo");
+    assert_eq!(props["$ai_trace_id"], "trace_abc123");
+    assert_eq!(props["custom_metadata"], "test_value");
 }
