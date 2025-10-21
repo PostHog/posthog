@@ -145,41 +145,24 @@ class ModelsDirectoryHandler(BaseFileHandler):
         return True
 
 
-class BackendSubdirectoryHandler(BaseFileHandler):
-    """Handler for subdirectories at backend level (api/, data_load/, etc.).
+class DefaultFileHandler(BaseFileHandler):
+    """Handler for all non-models files.
 
-    Preserves the subdirectory name and writes to backend/{subdir}/.
+    Preserves the directory structure at backend level.
 
-    Example:
+    Examples:
         api/saved_query.py → backend/api/saved_query.py
         data_load/service.py → backend/data_load/service.py
-    """
-
-    def compute_target_path(self, source_file: str, backend_dir: Path) -> Path:
-        """Preserve subdirectory structure at backend level."""
-        return backend_dir / source_file
-
-    def should_apply_db_table(self, source_file: str) -> bool:
-        """Do not apply db_table to non-model files."""
-        return False
-
-
-class BackendRootHandler(BaseFileHandler):
-    """Handler for root-level files.
-
-    Writes files directly to backend/ root.
-
-    Example:
         hogql.py → backend/hogql.py
         s3.py → backend/s3.py
     """
 
     def compute_target_path(self, source_file: str, backend_dir: Path) -> Path:
-        """Write to backend root."""
+        """Preserve file structure at backend level."""
         return backend_dir / source_file
 
     def should_apply_db_table(self, source_file: str) -> bool:
-        """Do not apply db_table to root files."""
+        """Do not apply db_table to non-model files."""
         return False
 
 
@@ -193,18 +176,9 @@ class HandlerFactory:
 
         # Check if file is in models/ directory
         if source_path.parts[0] == "models":
-            handler = ModelsDirectoryHandler(context)
             logger.info("🔧 Handler: ModelsDirectoryHandler for %s (strips models/ prefix)", source_file)
-            return handler
+            return ModelsDirectoryHandler(context)
 
-        # Check if file is in a known backend subdirectory (api/, data_load/, etc.)
-        # These should be at backend level, not under models/
-        if len(source_path.parts) > 1 and source_path.parts[0] in ["api", "data_load", "test"]:
-            handler = BackendSubdirectoryHandler(context)
-            logger.info("🔧 Handler: BackendSubdirectoryHandler for %s (preserves at backend/)", source_file)
-            return handler
-
-        # Root-level files
-        handler = BackendRootHandler(context)
-        logger.info("🔧 Handler: BackendRootHandler for %s (writes to backend/ root)", source_file)
-        return handler
+        # All other files - preserve structure at backend level
+        logger.info("🔧 Handler: DefaultFileHandler for %s (preserves structure at backend/)", source_file)
+        return DefaultFileHandler(context)

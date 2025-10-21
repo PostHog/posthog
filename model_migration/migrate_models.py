@@ -997,6 +997,24 @@ class {app_name.title()}Config(AppConfig):
 
         return expanded_files, non_model_files
 
+    def _remove_source_files(self, source_files: list[str]) -> None:
+        """Remove original source files after successful migration."""
+        for source_file in source_files:
+            source_path = self.root_dir / Path(self.source_base_path) / source_file
+            if source_path.exists():
+                os.remove(source_path)
+                logger.info("🗑️  Removed original: %s", source_path)
+
+    def _create_init_files(self, backend_dir: Path) -> None:
+        """Create __init__.py files in all directories under backend/."""
+        # Create __init__.py in all subdirectories that don't have one
+        for dirpath in backend_dir.rglob("*"):
+            if dirpath.is_dir():
+                init_file = dirpath / "__init__.py"
+                if not init_file.exists():
+                    init_file.write_text("")
+                    logger.info("📄 Created %s", init_file.relative_to(self.root_dir))
+
     def move_model_files_and_update_imports(self, source_files: list[str], target_app: str) -> bool:
         """Move files manually first, then use LibCST to update imports"""
         if self.merge_models:
@@ -1012,23 +1030,6 @@ class {app_name.title()}Config(AppConfig):
         logger.info("🔄 Moving %d model files (no-merge mode, preserving structure)...", len(source_files))
 
         backend_dir = self.root_dir / "products" / target_app / "backend"
-        models_dir = backend_dir / "models"
-
-        # Create backend directory if it doesn't exist
-        if not backend_dir.exists():
-            backend_dir.mkdir(parents=True, exist_ok=True)
-            logger.info("📁 Created backend directory: %s", backend_dir)
-
-        # Create models directory if it doesn't exist
-        if not models_dir.exists():
-            models_dir.mkdir(parents=True, exist_ok=True)
-            logger.info("📁 Created models directory: %s", models_dir)
-
-        # Create minimal __init__.py in models directory (no re-exports)
-        models_init = models_dir / "__init__.py"
-        if not models_init.exists():
-            models_init.write_text("")
-            logger.info("📄 Created %s/__init__.py", models_dir.name)
 
         # Step 1: Get model class names from all source files
         model_names = self._extract_class_names_from_files(source_files)
@@ -1080,12 +1081,11 @@ class {app_name.title()}Config(AppConfig):
                 logger.warning("⚠️  Error updating imports for %s: %s", module_name, e)
                 # Continue anyway - we can check manually
 
-        # Step 6: Remove original files
-        for source_file in source_files:
-            source_path = self.root_dir / Path(self.source_base_path) / source_file
-            if source_path.exists():
-                os.remove(source_path)
-                logger.info("🗑️  Removed original: %s", source_path)
+        # Step 6: Create __init__.py files in all subdirectories
+        self._create_init_files(backend_dir)
+
+        # Step 7: Remove original files
+        self._remove_source_files(source_files)
 
         return True
 

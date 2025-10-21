@@ -5,13 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from file_handlers import (
-    BackendRootHandler,
-    BackendSubdirectoryHandler,
-    FileTransformContext,
-    HandlerFactory,
-    ModelsDirectoryHandler,
-)
+from file_handlers import DefaultFileHandler, FileTransformContext, HandlerFactory, ModelsDirectoryHandler
 
 
 class TestFileTransformContext:
@@ -73,20 +67,28 @@ class TestModelsDirectoryHandler:
         assert self.handler.should_apply_db_table("models/test/test_table.py") is True
 
 
-class TestBackendSubdirectoryHandler:
-    """Test BackendSubdirectoryHandler preserves subdirectory at backend level."""
+class TestDefaultFileHandler:
+    """Test DefaultFileHandler preserves file structure at backend level."""
 
     def setup_method(self):
         """Set up test context."""
         self.context = FileTransformContext(
-            model_names={"DataWarehouseTable"},
+            model_names=set(),
             target_app="data_warehouse",
             import_base_path="posthog.warehouse",
             source_base_path="posthog/warehouse",
             root_dir=Path("/fake/root"),
             model_to_filename_mapping={},
         )
-        self.handler = BackendSubdirectoryHandler(self.context)
+        self.handler = DefaultFileHandler(self.context)
+
+    def test_compute_target_path_root_file(self):
+        """Test hogql.py → backend/hogql.py."""
+        target = self.handler.compute_target_path(
+            source_file="hogql.py", backend_dir=Path("products/data_warehouse/backend")
+        )
+
+        assert target == Path("products/data_warehouse/backend/hogql.py")
 
     def test_compute_target_path_api_file(self):
         """Test api/saved_query.py → backend/api/saved_query.py."""
@@ -114,45 +116,9 @@ class TestBackendSubdirectoryHandler:
 
     def test_should_not_apply_db_table(self):
         """Test that db_table should NOT be applied to non-model files."""
+        assert self.handler.should_apply_db_table("hogql.py") is False
         assert self.handler.should_apply_db_table("api/saved_query.py") is False
         assert self.handler.should_apply_db_table("data_load/service.py") is False
-
-
-class TestBackendRootHandler:
-    """Test BackendRootHandler writes files to backend root."""
-
-    def setup_method(self):
-        """Set up test context."""
-        self.context = FileTransformContext(
-            model_names=set(),
-            target_app="data_warehouse",
-            import_base_path="posthog.warehouse",
-            source_base_path="posthog/warehouse",
-            root_dir=Path("/fake/root"),
-            model_to_filename_mapping={},
-        )
-        self.handler = BackendRootHandler(self.context)
-
-    def test_compute_target_path_root_file(self):
-        """Test hogql.py → backend/hogql.py."""
-        target = self.handler.compute_target_path(
-            source_file="hogql.py", backend_dir=Path("products/data_warehouse/backend")
-        )
-
-        assert target == Path("products/data_warehouse/backend/hogql.py")
-
-    def test_compute_target_path_another_root_file(self):
-        """Test s3.py → backend/s3.py."""
-        target = self.handler.compute_target_path(
-            source_file="s3.py", backend_dir=Path("products/data_warehouse/backend")
-        )
-
-        assert target == Path("products/data_warehouse/backend/s3.py")
-
-    def test_should_not_apply_db_table(self):
-        """Test that db_table should NOT be applied to root utility files."""
-        assert self.handler.should_apply_db_table("hogql.py") is False
-        assert self.handler.should_apply_db_table("s3.py") is False
 
 
 class TestHandlerFactory:
@@ -179,28 +145,28 @@ class TestHandlerFactory:
         handler = HandlerFactory.create_handler("models/test/test_table.py", self.context)
         assert isinstance(handler, ModelsDirectoryHandler)
 
-    def test_creates_backend_subdirectory_handler_for_api_files(self):
-        """Test factory creates BackendSubdirectoryHandler for api/ files."""
+    def test_creates_default_handler_for_api_files(self):
+        """Test factory creates DefaultFileHandler for api/ files."""
         handler = HandlerFactory.create_handler("api/saved_query.py", self.context)
-        assert isinstance(handler, BackendSubdirectoryHandler)
+        assert isinstance(handler, DefaultFileHandler)
 
-    def test_creates_backend_subdirectory_handler_for_data_load_files(self):
-        """Test factory creates BackendSubdirectoryHandler for data_load/ files."""
+    def test_creates_default_handler_for_data_load_files(self):
+        """Test factory creates DefaultFileHandler for data_load/ files."""
         handler = HandlerFactory.create_handler("data_load/service.py", self.context)
-        assert isinstance(handler, BackendSubdirectoryHandler)
+        assert isinstance(handler, DefaultFileHandler)
 
-    def test_creates_backend_subdirectory_handler_for_test_files(self):
-        """Test factory creates BackendSubdirectoryHandler for test/ files."""
+    def test_creates_default_handler_for_test_files(self):
+        """Test factory creates DefaultFileHandler for test/ files."""
         handler = HandlerFactory.create_handler("test/utils.py", self.context)
-        assert isinstance(handler, BackendSubdirectoryHandler)
+        assert isinstance(handler, DefaultFileHandler)
 
-    def test_creates_backend_root_handler_for_root_files(self):
-        """Test factory creates BackendRootHandler for root-level files."""
+    def test_creates_default_handler_for_root_files(self):
+        """Test factory creates DefaultFileHandler for root-level files."""
         handler = HandlerFactory.create_handler("hogql.py", self.context)
-        assert isinstance(handler, BackendRootHandler)
+        assert isinstance(handler, DefaultFileHandler)
 
         handler = HandlerFactory.create_handler("s3.py", self.context)
-        assert isinstance(handler, BackendRootHandler)
+        assert isinstance(handler, DefaultFileHandler)
 
 
 class TestHandlerIntegration:
@@ -234,8 +200,8 @@ class TestHandlerIntegration:
             )
             assert str(target) == expected_target, f"Failed for {source_file}"
 
-    def test_backend_subdirectory_handler_path_transformation(self):
-        """Test complete path transformation for backend subdirectory files."""
+    def test_default_handler_path_transformation(self):
+        """Test complete path transformation for non-models files."""
         context = FileTransformContext(
             model_names=set(),
             target_app="data_warehouse",
