@@ -199,6 +199,49 @@ class ExperimentQueryBuilder:
 
         return query
 
+    def _get_mean_query_common_ctes(self) -> str:
+        """
+        Returns the common CTEs used by both regular and winsorized mean queries.
+        """
+        return """
+            exposures AS (
+                {exposure_select_query}
+            ),
+
+            metric_events AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    timestamp,
+                    {value_expr} AS value
+                FROM events
+                WHERE {metric_predicate}
+            ),
+
+            entity_metrics AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    {value_agg} AS value
+                FROM exposures
+                LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
+                    AND {conversion_window_predicate}
+                GROUP BY exposures.entity_id, exposures.variant
+            )
+        """
+
+    def _get_mean_query_common_placeholders(self) -> dict:
+        """
+        Returns the common placeholders used by both regular and winsorized mean queries.
+        """
+        return {
+            "exposure_select_query": self._build_exposure_select_query(),
+            "entity_key": parse_expr(self.entity_key),
+            "metric_predicate": self._build_metric_predicate(),
+            "value_expr": self._build_value_expr(),
+            "value_agg": self._build_value_aggregation_expr(),
+            "conversion_window_predicate": self._build_conversion_window_predicate(),
+        }
+
     def _build_mean_query(self) -> ast.SelectQuery:
         """
         Builds query for mean metrics (count, sum, avg, etc.)
@@ -213,31 +256,11 @@ class ExperimentQueryBuilder:
         if needs_winsorization:
             return self._build_mean_query_with_winsorization()
 
+        common_ctes = self._get_mean_query_common_ctes()
+
         query = parse_select(
             f"""
-            WITH exposures AS (
-                {{exposure_select_query}}
-            ),
-
-            metric_events AS (
-                SELECT
-                    {{entity_key}} AS entity_id,
-                    timestamp,
-                    {{value_expr}} AS value
-                FROM events
-                WHERE {{metric_predicate}}
-            ),
-
-            entity_metrics AS (
-                SELECT
-                    exposures.entity_id AS entity_id,
-                    exposures.variant AS variant,
-                    {{value_agg}} AS value
-                FROM exposures
-                LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
-                    AND {{conversion_window_predicate}}
-                GROUP BY exposures.entity_id, exposures.variant
-            )
+            WITH {common_ctes}
 
             SELECT
                 entity_metrics.variant AS variant,
@@ -247,14 +270,7 @@ class ExperimentQueryBuilder:
             FROM entity_metrics
             GROUP BY entity_metrics.variant
             """,
-            placeholders={
-                "exposure_select_query": self._build_exposure_select_query(),
-                "entity_key": parse_expr(self.entity_key),
-                "metric_predicate": self._build_metric_predicate(),
-                "value_expr": self._build_value_expr(),
-                "value_agg": self._build_value_aggregation_expr(),
-                "conversion_window_predicate": self._build_conversion_window_predicate(),
-            },
+            placeholders=self._get_mean_query_common_placeholders(),
         )
 
         assert isinstance(query, ast.SelectQuery)
@@ -292,31 +308,16 @@ class ExperimentQueryBuilder:
         else:
             upper_bound_expr = parse_expr("max(entity_metrics.value)")
 
+        common_ctes = self._get_mean_query_common_ctes()
+        placeholders = self._get_mean_query_common_placeholders()
+
+        # Add winsorization-specific placeholders
+        placeholders["lower_bound"] = lower_bound_expr
+        placeholders["upper_bound"] = upper_bound_expr
+
         query = parse_select(
             f"""
-            WITH exposures AS (
-                {{exposure_select_query}}
-            ),
-
-            metric_events AS (
-                SELECT
-                    {{entity_key}} AS entity_id,
-                    timestamp,
-                    {{value_expr}} AS value
-                FROM events
-                WHERE {{metric_predicate}}
-            ),
-
-            entity_metrics AS (
-                SELECT
-                    exposures.entity_id AS entity_id,
-                    exposures.variant AS variant,
-                    {{value_agg}} AS value
-                FROM exposures
-                LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
-                    AND {{conversion_window_predicate}}
-                GROUP BY exposures.entity_id, exposures.variant
-            ),
+            WITH {common_ctes},
 
             percentiles AS (
                 SELECT
@@ -342,16 +343,7 @@ class ExperimentQueryBuilder:
             FROM winsorized_entity_metrics
             GROUP BY winsorized_entity_metrics.variant
             """,
-            placeholders={
-                "exposure_select_query": self._build_exposure_select_query(),
-                "entity_key": parse_expr(self.entity_key),
-                "metric_predicate": self._build_metric_predicate(),
-                "value_expr": self._build_value_expr(),
-                "value_agg": self._build_value_aggregation_expr(),
-                "conversion_window_predicate": self._build_conversion_window_predicate(),
-                "lower_bound": lower_bound_expr,
-                "upper_bound": upper_bound_expr,
-            },
+            placeholders=placeholders,
         )
 
         assert isinstance(query, ast.SelectQuery)
