@@ -316,60 +316,73 @@ export function normalizeRole(rawRole: unknown, fallback: string): string {
 /**
  * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Analytics schema.
  *
- * @param output - Original message from an LLM provider.
+ * @param rawMessage - Original message from an LLM provider.
  * @param defaultRole - The default role to use if the message doesn't have one.
  * @returns The normalized message.
  */
-export function normalizeMessage(output: unknown, defaultRole: string): CompatMessage[] {
+export function normalizeMessage(rawMessage: unknown, defaultRole: string): CompatMessage[] {
+    // Extract the role from the message if it exists, otherwise use defaultRole
+    // This ensures we preserve roles when recursing into nested content
+    const roleToUse =
+        rawMessage && typeof rawMessage === 'object' && 'role' in rawMessage && typeof rawMessage.role === 'string'
+            ? normalizeRole(rawMessage.role, defaultRole)
+            : defaultRole
+
     // Handle new array-based content format (unified format with structured objects)
     // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
+    // Supported types include: text, output_text, input_text, function, image, input_image
     if (
-        output &&
-        typeof output === 'object' &&
-        'role' in output &&
-        'content' in output &&
-        typeof output.role === 'string' &&
-        Array.isArray(output.content) &&
-        output.content.length > 0 &&
-        output.content.every(
+        rawMessage &&
+        typeof rawMessage === 'object' &&
+        'role' in rawMessage &&
+        'content' in rawMessage &&
+        typeof rawMessage.role === 'string' &&
+        Array.isArray(rawMessage.content) &&
+        rawMessage.content.length > 0 &&
+        rawMessage.content.every(
             (item) =>
                 item &&
                 typeof item === 'object' &&
                 'type' in item &&
-                (item.type === 'text' || item.type === 'function' || item.type === 'image')
+                (item.type === 'text' ||
+                    item.type === 'output_text' ||
+                    item.type === 'input_text' ||
+                    item.type === 'function' ||
+                    item.type === 'image' ||
+                    item.type === 'input_image')
         )
     ) {
         return [
             {
-                role: normalizeRole(output.role, defaultRole),
-                content: output.content,
+                role: roleToUse,
+                content: rawMessage.content,
             },
         ]
     }
 
-    if (isLiteLLMChoice(output)) {
-        return normalizeMessage(output.message, defaultRole)
+    if (isLiteLLMChoice(rawMessage)) {
+        return normalizeMessage(rawMessage.message, roleToUse)
     }
 
     // Vercel SDK
-    if (isVercelSDKTextMessage(output)) {
+    if (isVercelSDKTextMessage(rawMessage)) {
         return [
             {
-                role: defaultRole,
-                content: output.content,
+                role: roleToUse,
+                content: rawMessage.content,
             },
         ]
     }
 
     // Vercel SDK Input Image
-    if (isVercelSDKInputImageMessage(output)) {
+    if (isVercelSDKInputImageMessage(rawMessage)) {
         return [
             {
-                role: defaultRole,
+                role: roleToUse,
                 content: [
                     {
                         type: 'image',
-                        image: output.image_url,
+                        image: rawMessage.image_url,
                     },
                 ],
             },
@@ -377,53 +390,53 @@ export function normalizeMessage(output: unknown, defaultRole: string): CompatMe
     }
 
     // Vercel SDK Input Text
-    if (isVercelSDKInputTextMessage(output)) {
+    if (isVercelSDKInputTextMessage(rawMessage)) {
         return [
             {
-                role: defaultRole,
-                content: output.text,
+                role: roleToUse,
+                content: rawMessage.text,
             },
         ]
     }
 
     // OpenAI
-    if (isOpenAICompatMessage(output)) {
+    if (isOpenAICompatMessage(rawMessage)) {
         return [
             {
-                ...output,
-                role: normalizeRole(output.role, defaultRole),
-                content: output.content,
-                tool_calls: isOpenAICompatToolCallsArray(output.tool_calls)
-                    ? parseOpenAIToolCalls(output.tool_calls)
+                ...rawMessage,
+                role: roleToUse,
+                content: rawMessage.content,
+                tool_calls: isOpenAICompatToolCallsArray(rawMessage.tool_calls)
+                    ? parseOpenAIToolCalls(rawMessage.tool_calls)
                     : undefined,
-                tool_call_id: output.tool_call_id,
+                tool_call_id: rawMessage.tool_call_id,
             },
         ]
     }
 
     // Anthropic
     // Text object
-    if (isAnthropicTextMessage(output)) {
+    if (isAnthropicTextMessage(rawMessage)) {
         return [
             {
-                role: defaultRole,
-                content: output.text,
+                role: roleToUse,
+                content: rawMessage.text,
             },
         ]
     }
     // Tool call completion
-    if (isAnthropicToolCallMessage(output)) {
+    if (isAnthropicToolCallMessage(rawMessage)) {
         return [
             {
-                role: defaultRole,
+                role: roleToUse,
                 content: '',
                 tool_calls: [
                     {
                         type: 'function',
-                        id: output.id,
+                        id: rawMessage.id,
                         function: {
-                            name: output.name,
-                            arguments: output.input,
+                            name: rawMessage.name,
+                            arguments: rawMessage.input,
                         },
                     },
                 ],
@@ -431,64 +444,64 @@ export function normalizeMessage(output: unknown, defaultRole: string): CompatMe
         ]
     }
     // Thinking
-    if (isAnthropicThinkingMessage(output)) {
+    if (isAnthropicThinkingMessage(rawMessage)) {
         return [
             {
-                role: normalizeRole('assistant (thinking)', defaultRole),
-                content: output.thinking,
+                role: normalizeRole('assistant (thinking)', roleToUse),
+                content: rawMessage.thinking,
             },
         ]
     }
     // Tool result completion
-    if (isAnthropicToolResultMessage(output)) {
-        if (Array.isArray(output.content)) {
-            return output.content
-                .map((content) => normalizeMessage(content, defaultRole))
+    if (isAnthropicToolResultMessage(rawMessage)) {
+        if (Array.isArray(rawMessage.content)) {
+            return rawMessage.content
+                .map((content) => normalizeMessage(content, roleToUse))
                 .flat()
-                .map((message) => ({
-                    ...message,
-                    tool_call_id: output.tool_use_id,
+                .map((msg) => ({
+                    ...msg,
+                    tool_call_id: rawMessage.tool_use_id,
                 }))
         }
         return [
             {
-                role: defaultRole,
-                content: output.content,
-                tool_call_id: output.tool_use_id,
+                role: roleToUse,
+                content: rawMessage.content,
+                tool_call_id: rawMessage.tool_use_id,
             },
         ]
     }
 
     // Input message
-    if (isAnthropicRoleBasedMessage(output)) {
+    if (isAnthropicRoleBasedMessage(rawMessage)) {
         // Content is a nested array (tool responses, etc.)
-        if (Array.isArray(output.content)) {
-            return output.content.map((content) => normalizeMessage(content, defaultRole)).flat()
+        if (Array.isArray(rawMessage.content)) {
+            return rawMessage.content.map((content) => normalizeMessage(content, roleToUse)).flat()
         }
 
         return [
             {
-                role: normalizeRole(output.role, defaultRole),
-                content: output.content,
+                role: roleToUse,
+                content: rawMessage.content,
             },
         ]
     }
     // Unsupported message.
-    console.warn("AI message isn't in a shape of any known AI provider", output)
+    console.warn("AI message isn't in a shape of any known AI provider", rawMessage)
     let cajoledContent: string // Let's do what we can
-    if (typeof output === 'string') {
-        cajoledContent = output
+    if (typeof rawMessage === 'string') {
+        cajoledContent = rawMessage
     } else if (
-        typeof output === 'object' &&
-        output !== null &&
-        'content' in output &&
-        typeof output.content === 'string'
+        typeof rawMessage === 'object' &&
+        rawMessage !== null &&
+        'content' in rawMessage &&
+        typeof rawMessage.content === 'string'
     ) {
-        cajoledContent = output.content
+        cajoledContent = rawMessage.content
     } else {
-        cajoledContent = JSON.stringify(output)
+        cajoledContent = JSON.stringify(rawMessage)
     }
-    return [{ role: defaultRole, content: cajoledContent }]
+    return [{ role: roleToUse, content: cajoledContent }]
 }
 
 export function normalizeMessages(messages: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
