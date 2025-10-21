@@ -1456,7 +1456,7 @@ async fn test_gzip_compressed_request() {
 }
 
 // ----------------------------------------------------------------------------
-// Kafka Publishing Tests
+// Scenario 1.6: Kafka Publishing and S3 Placeholders
 // ----------------------------------------------------------------------------
 
 // Helper to setup test router with CapturingSink
