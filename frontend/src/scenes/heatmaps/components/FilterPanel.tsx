@@ -175,7 +175,6 @@ export function FilterPanel(): JSX.Element {
                     </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                    <ViewportChooser />
                     <div className="flex items-center gap-2">
                         <TestAccountFilter
                             size="small"

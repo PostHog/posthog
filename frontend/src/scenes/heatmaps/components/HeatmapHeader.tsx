@@ -29,7 +29,6 @@ export function HeatmapHeader(): JSX.Element {
                                         setDataUrl(value || null)
                                     }}
                                     fullWidth={true}
-                                    disabledReason={!dataUrl ? 'Enter a valid data URL' : undefined}
                                 />
                             </div>
                             <div className="text-xs text-muted mt-1">

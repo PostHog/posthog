@@ -51,7 +51,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         <BindLogic logic={heatmapLogic} props={logicProps}>
             <SceneContent>
                 <SceneTitleSection
-                    name={name}
+                    name={name || 'No name'}
                     resourceType={{
                         type: 'heatmap',
                     }}
@@ -77,64 +77,60 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                     <div className="p-2 border-b text-muted-foreground gap-x-2 flex items-center">
                         <IconBrowser /> {displayUrl}
                     </div>
-                    <div className="h-full min-h-screen">
-                        {type === 'screenshot' ? (
-                            <div className="relative flex w-full justify-center flex-1">
-                                <div
-                                    className="relative"
-                                    // Use actual image width if available, otherwise fall back to widthOverride
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width: actualImageDimensions?.width ?? widthOverride ?? '100%' }}
-                                >
-                                    {(screenshotLoading || generatingScreenshot) && (
-                                        <div className="absolute inset-0 flex items-center justify-center">
-                                            <Spinner />
-                                        </div>
-                                    )}
-                                    {screenshotUrl && (
-                                        <>
-                                            <HeatmapCanvas
-                                                positioning="absolute"
-                                                widthOverride={actualImageDimensions?.width ?? widthOverride}
-                                                context="in-app"
-                                            />
-                                            <img
-                                                ref={imageRef}
-                                                src={screenshotUrl}
-                                                style={{
-                                                    maxWidth: widthOverride ?? '100%',
-                                                    height: 'auto',
-                                                    display: 'block',
-                                                }}
-                                                onLoad={handleImageLoad}
-                                                onError={() => {
-                                                    console.error('Failed to load screenshot')
-                                                }}
-                                            />
-                                        </>
-                                    )}
+                    {type === 'screenshot' ? (
+                        <div
+                            className="relative flex w-full justify-center flex-1"
+                            style={{ width: actualImageDimensions?.width ?? widthOverride ?? '100%' }}
+                        >
+                            {(screenshotLoading || generatingScreenshot) && (
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                    <Spinner />
                                 </div>
-                            </div>
-                        ) : (
-                            <div className="relative min-h-screen">
-                                <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
-                                <iframe
-                                    id="heatmap-iframe"
-                                    className="min-h-screen bg-white rounded-b-lg"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width: widthOverride ?? '100%' }}
-                                    src={displayUrl || ''}
-                                    onLoad={onIframeLoad}
-                                    // these two sandbox values are necessary so that the site and toolbar can run
-                                    // this is a very loose sandbox,
-                                    // but we specify it so that at least other capabilities are denied
-                                    sandbox="allow-scripts allow-same-origin"
-                                    // we don't allow things such as camera access though
-                                    allow=""
-                                />
-                            </div>
-                        )}
-                    </div>
+                            )}
+                            {screenshotUrl && (
+                                <>
+                                    <HeatmapCanvas
+                                        positioning="absolute"
+                                        widthOverride={actualImageDimensions?.width ?? widthOverride}
+                                        context="in-app"
+                                    />
+                                    <img
+                                        id="heatmap-screenshot"
+                                        ref={imageRef}
+                                        src={screenshotUrl}
+                                        style={{
+                                            maxWidth: widthOverride ?? '100%',
+                                            height: 'auto',
+                                            display: 'block',
+                                        }}
+                                        onLoad={handleImageLoad}
+                                        className="rounded-b-lg"
+                                        onError={() => {
+                                            console.error('Failed to load screenshot')
+                                        }}
+                                    />
+                                </>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="relative min-h-screen">
+                            <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
+                            <iframe
+                                id="heatmap-iframe"
+                                className="min-h-screen bg-white rounded-b-lg"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ width: widthOverride ?? '100%' }}
+                                src={displayUrl || ''}
+                                onLoad={onIframeLoad}
+                                // these two sandbox values are necessary so that the site and toolbar can run
+                                // this is a very loose sandbox,
+                                // but we specify it so that at least other capabilities are denied
+                                sandbox="allow-scripts allow-same-origin"
+                                // we don't allow things such as camera access though
+                                allow=""
+                            />
+                        </div>
+                    )}
                 </div>
             </SceneContent>
         </BindLogic>

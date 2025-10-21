@@ -95,11 +95,8 @@ function ScrollDepthMouseInfo({
     }
 
     // Get the iframe's offset from the top of the viewport
-    const iframe = document.getElementById('heatmap-iframe')
-    if (!iframe) {
-        return null
-    }
-    const iframeTop = iframe.getBoundingClientRect().top
+    const iframe = document.getElementById('heatmap-iframe') || document.getElementById('heatmap-screenshot')
+    const iframeTop = iframe ? iframe.getBoundingClientRect().top : 0
     const relativeMouseY = mouseY - iframeTop
     const adjustedMouseY = relativeMouseY < 0 ? 0 : relativeMouseY
 

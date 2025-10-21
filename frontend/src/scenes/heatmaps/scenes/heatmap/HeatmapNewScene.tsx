@@ -91,7 +91,7 @@ export function HeatmapNewScene(): JSX.Element {
                 {!isDisplayUrlValid ? <InvalidURL /> : null}
             </SceneSection>
             <SceneDivider />
-            <SceneSection title="Type of heatmap" description="Select the type of heatmap you want to create">
+            <SceneSection title="Capture method" description="Select the method to represent the source of the heatmap">
                 <LemonRadio
                     options={[
                         {
@@ -118,6 +118,7 @@ export function HeatmapNewScene(): JSX.Element {
                         value: option.value,
                         icon: option.icon,
                     }))}
+                    disabledReason={type === 'upload' ? 'You cannot change the width when uploading an image' : false}
                     value={width}
                     onChange={(value: number) => setWidth(value)}
                 />

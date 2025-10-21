@@ -37,11 +37,20 @@ export function HeatmapsScene(): JSX.Element {
             ),
         },
         {
-            title: 'URL',
+            title: 'Page',
             dataIndex: 'url',
             render: (_, row) => (
                 <Link to={urls.heatmap(row.short_id)}>
                     <span className="truncate max-w-[32rem] inline-block align-middle">{row.url}</span>
+                </Link>
+            ),
+        },
+        {
+            title: 'Heatmap data URL',
+            dataIndex: 'data_url',
+            render: (_, row) => (
+                <Link to={urls.heatmap(row.short_id)}>
+                    <span className="truncate max-w-[32rem] inline-block align-middle">{row.data_url}</span>
                 </Link>
             ),
         },
