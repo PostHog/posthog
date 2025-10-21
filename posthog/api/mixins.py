@@ -27,7 +27,7 @@ class PydanticModelMixin:
 def validated_request(
     request_serializer: type[serializers.Serializer],
     *,
-    responses: dict | None = None,
+    responses: dict[int, Response] | None = None,
     summary: str | None = None,
     description: str | None = None,
     tags: list[str] | None = None,
@@ -41,8 +41,8 @@ def validated_request(
         @validated_request(
             request_serializer=RequestSerializer,
             responses={
-                200: OpenApiResponse(response=SuccessResponseSerializer, ...),
-                400: OpenApiResponse(response=InvalidRequestResponseSerializer, ...),
+                200: Response(response=SuccessResponseSerializer, ...),
+                400: Response(response=InvalidRequestResponseSerializer, ...),
             },
             summary="Do something"
         )
@@ -59,10 +59,10 @@ def validated_request(
 
     def decorator(view_func: Callable) -> Callable:
         # Extract serializers from responses dict
-        response_serializers = {}
+        response_serializers: dict[int, type[serializers.Serializer]] = {}
         if responses:
             for status_code, response_config in responses.items():
-                if hasattr(response_config, "response"):
+                if hasattr(response_config, "response") and response_config.response is not None:
                     response_serializers[status_code] = response_config.response
 
         @extend_schema(
