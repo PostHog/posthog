@@ -336,7 +336,6 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             {"ts": "2.345"},  # First thread message "Showing 1 of 10"
         ]
 
-        # Pre-fetch related objects
         assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight")[:1])
 
         result = asyncio.run(
