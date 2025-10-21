@@ -6,7 +6,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.exceptions_capture import capture_exception
 
 
-def get_join_field_chain(key: str) -> Optional[list[str]]:
+def get_join_field_chain(key: str) -> Optional[list[str | int]]:
     field = parse_expr(key)
     if isinstance(field, ast.Field):
         return field.chain

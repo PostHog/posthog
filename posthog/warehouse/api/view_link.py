@@ -22,13 +22,13 @@ from posthog.warehouse.models import DataWarehouseJoin
 
 class ViewLinkValidationMixin:
     def _database(self, team_id: int) -> Database:
-        database = self.context.get("database", None)
+        database = self.context.get("database", None)  # type: ignore[attr-defined]
         if not database:
             database = create_hogql_database(team_id=team_id)
         return database
 
     def get_table_name(self, table_name: str) -> str:
-        team_id = self.context["team_id"]
+        team_id = self.context["team_id"]  # type: ignore[attr-defined]
         database = self._database(team_id)
 
         if not database.has_table(table_name):
@@ -185,7 +185,12 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=False)
     def validate(self, request, *args, **kwargs):
-        response_data = {"is_valid": False, "msg": None, "hogql": None, "results": []}
+        response_data: dict[str, Optional[bool | str | list]] = {
+            "is_valid": False,
+            "msg": None,
+            "hogql": None,
+            "results": [],
+        }
         status_code = status.HTTP_200_OK
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -201,6 +206,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         joining_table = database.get_table(serializer.validated_data.get("joining_table_name"))
         joining_table_key = serializer.validated_data.get("joining_table_key")
         to_field = get_join_field_chain(joining_table_key)
+        assert to_field is not None
 
         source_table.fields["validation"] = LazyJoin(
             from_field=from_field,
@@ -232,7 +238,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "detail": "An internal error occurred while validating.",
                 "type": "query_error",
             }
-            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            status_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # type: ignore[assignment]
             response_data["is_valid"] = False
 
             is_safe = look_up_error_code_meta(e).user_safe
