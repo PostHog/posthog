@@ -334,10 +334,12 @@ class TestProjectionPushdown(BaseTest):
 
         # Both branches should only have 'event' column
         first_branch = union_query.initial_select_query
+        assert isinstance(first_branch, ast.SelectQuery)
         first_cols = {self._col_name(col) for col in first_branch.select}
         assert first_cols == {"event"}, f"Expected only 'event' but got {first_cols}"
 
         second_branch = union_query.subsequent_select_queries[0].select_query
+        assert isinstance(second_branch, ast.SelectQuery)
         second_cols = {self._col_name(col) for col in second_branch.select}
         assert second_cols == {"event"}, f"Expected only 'event' but got {second_cols}"
 
@@ -360,10 +362,12 @@ class TestProjectionPushdown(BaseTest):
 
         # Both branches should have the same columns (event, distinct_id)
         first_branch = union_query.initial_select_query
+        assert isinstance(first_branch, ast.SelectQuery)
         first_cols = {self._col_name(col) for col in first_branch.select}
         assert first_cols == {"event", "distinct_id"}
 
         second_branch = union_query.subsequent_select_queries[0].select_query
+        assert isinstance(second_branch, ast.SelectQuery)
         second_cols = {self._col_name(col) for col in second_branch.select}
         assert second_cols == {"event", "distinct_id"}
 
@@ -391,6 +395,7 @@ class TestProjectionPushdown(BaseTest):
         ]
 
         for branch in all_branches:
+            assert isinstance(branch, ast.SelectQuery)
             cols = {self._col_name(col) for col in branch.select}
             assert cols == {"event"}, f"Expected only 'event' but got {cols}"
 

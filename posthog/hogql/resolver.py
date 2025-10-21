@@ -200,7 +200,7 @@ class Resolver(CloningVisitor):
                     visited_col = self.visit(col)
                     if isinstance(visited_col, ast.Field):
                         visited_col.from_asterisk = True
-                    elif isinstance(visited_col, ast.Alias):
+                    elif isinstance(visited_col, ast.Alias) and isinstance(visited_col.expr, ast.Field):
                         visited_col.expr.from_asterisk = True
                     select_nodes.append(visited_col)
             else:

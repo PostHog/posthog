@@ -132,6 +132,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
     def _register_subqueries(self, from_clause: ast.JoinExpr) -> None:
         """Register all subqueries in FROM clause before collecting demands"""
+        if from_clause.type is None:
+            return
+
         if isinstance(from_clause.table, ast.SelectQuery):
             self._register_subquery(from_clause.table, from_clause.type)
         elif isinstance(from_clause.table, ast.SelectSetQuery):
@@ -140,27 +143,35 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         if from_clause.next_join:
             self._register_subqueries(from_clause.next_join)
 
-    def _register_subquery(self, subquery: ast.SelectQuery, type_annotation: ast.Type) -> None:
+    def _register_subquery(
+        self,
+        subquery: ast.SelectQuery,
+        type_annotation: ast.BaseTableType | ast.SelectSetQueryType | ast.SelectQueryType | ast.SelectQueryAliasType,
+    ) -> None:
         """Map type to subquery node for demand tracking"""
         # Map both the type and the inner SelectQueryType if it's an alias
         self.subquery_map[id(type_annotation)] = subquery
         if isinstance(type_annotation, ast.SelectQueryAliasType) and type_annotation.select_query_type:
             self.subquery_map[id(type_annotation.select_query_type)] = subquery
 
-    def _register_union_subquery(self, union_query: ast.SelectSetQuery, type_annotation: ast.Type) -> None:
+    def _register_union_subquery(
+        self,
+        union_query: ast.SelectSetQuery,
+        type_annotation: ast.BaseTableType | ast.SelectSetQueryType | ast.SelectQueryType | ast.SelectQueryAliasType,
+    ) -> None:
         """Map type to union subquery node for demand tracking"""
-        self.subquery_map[id(type_annotation)] = union_query  # type: ignore
+        self.subquery_map[id(type_annotation)] = union_query
 
         # Also register with the inner SelectSetQueryType for both aliased and non-aliased cases
         if isinstance(type_annotation, ast.SelectQueryAliasType):
             # Aliased: register with the inner select_query_type
             if type_annotation.select_query_type:
-                self.subquery_map[id(type_annotation.select_query_type)] = union_query  # type: ignore
+                self.subquery_map[id(type_annotation.select_query_type)] = union_query
         elif isinstance(type_annotation, ast.SelectSetQueryType):
             # Non-aliased: the type_annotation IS the SelectSetQueryType, but we also need to
             # register with the first branch's type for field resolution
             if type_annotation.types:
-                self.subquery_map[id(type_annotation.types[0])] = union_query  # type: ignore
+                self.subquery_map[id(type_annotation.types[0])] = union_query
 
     def _get_subquery(self, table_type: ast.Type) -> ast.SelectQuery | ast.SelectSetQuery | None:
         """Retrieve subquery by type"""
