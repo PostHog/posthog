@@ -228,7 +228,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         DB operations and activity logs), we calculate the diff and only modify
         what has actually changed.
         """
-        if not obj or evaluation_tags is None:
+        if not obj:
             return
 
         # If user doesn't have TAGGING access or FLAG_EVALUATION_TAGS is disabled, silently skip evaluation tag updates
