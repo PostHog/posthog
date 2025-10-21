@@ -4,6 +4,7 @@ from django.conf import settings
 
 from pydantic import BaseModel, Field
 
+from ee.hogai.graph.entity_search.toolkit import EntitySearchToolkit
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import EntityType
 
@@ -86,8 +87,6 @@ class SearchTool(MaxTool):
             return "This tool is not available in this environment.", None
 
         if kind == "entities":
-            from ee.hogai.graph.entity_search.toolkit import EntitySearchToolkit
-
             entity_search_toolkit = EntitySearchToolkit(self._team, self._user)
             response = await entity_search_toolkit.search_entities(query, entity_types or [])
             return response, None
