@@ -34,8 +34,10 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
         assert data["name"] == "User Info"
         assert data["description"] == "Basic user information"
         assert len(data["properties"]) == 2
-        assert data["properties"][0]["name"] == "user_id"
-        assert data["properties"][0]["is_required"] is True
+        assert data["properties"][0]["name"] == "email"
+        assert data["properties"][0]["is_required"] is False
+        assert data["properties"][1]["name"] == "user_id"
+        assert data["properties"][1]["is_required"] is True
 
     def test_update_property_group_preserves_existing_properties(self):
         # Create initial property group
