@@ -209,7 +209,7 @@ exports: PostgresTable = PostgresTable(
 
 class SystemTables(TableNode):
     name: str = "system"
-    tables: dict[str, TableNode] = {
+    children: dict[str, TableNode] = {
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "insights": TableNode(name="insights", table=insights),
