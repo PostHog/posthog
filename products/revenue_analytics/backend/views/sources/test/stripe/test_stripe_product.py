@@ -37,7 +37,7 @@ class TestProductStripeBuilder(StripeSourceBaseTest):
         self.assertQueryContainsFields(query.query, PRODUCT_SCHEMA)
         self.assertBuiltQueryStructure(
             query,
-            str(self.stripe_handle.source.id),
+            str(self.stripe_handle.source.id),  # type: ignore
             f"stripe.{self.external_data_source.prefix}",
             expected_test_comments="no_schema",
         )
@@ -63,7 +63,7 @@ class TestProductStripeBuilder(StripeSourceBaseTest):
         self.assertQueryContainsFields(query.query, PRODUCT_SCHEMA)
         self.assertBuiltQueryStructure(
             query,
-            str(self.stripe_handle.source.id),
+            str(self.stripe_handle.source.id),  # type: ignore
             f"stripe.{self.external_data_source.prefix}",
             expected_test_comments="no_table",
         )
