@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { IconApps, IconDatabase, IconHogQL, IconPerson, IconToggle } from '@posthog/icons'
+import { IconApps, IconDatabase, IconHogQL, IconPerson, IconSparkles, IconToggle } from '@posthog/icons'
 
 import api from 'lib/api'
 import { Command } from 'lib/components/CommandInput'
@@ -38,6 +38,7 @@ export type NEW_TAB_CATEGORY_ITEMS =
     | 'persons'
     | 'eventDefinitions'
     | 'propertyDefinitions'
+    | 'askAI'
 
 export type NEW_TAB_COMMANDS =
     | 'all'
@@ -48,6 +49,7 @@ export type NEW_TAB_COMMANDS =
     | 'persons'
     | 'eventDefinitions'
     | 'propertyDefinitions'
+    | 'askAI'
 
 export const NEW_TAB_COMMANDS_ITEMS: Command<NEW_TAB_COMMANDS>[] = [
     { value: 'all', displayName: 'Toggle all' },
@@ -58,6 +60,7 @@ export const NEW_TAB_COMMANDS_ITEMS: Command<NEW_TAB_COMMANDS>[] = [
     { value: 'persons', displayName: 'Persons' },
     { value: 'eventDefinitions', displayName: 'Events' },
     { value: 'propertyDefinitions', displayName: 'Properties' },
+    { value: 'askAI', displayName: 'Ask Posthog AI' },
 ]
 
 export interface NewTabTreeDataItem extends TreeDataItem {
@@ -108,6 +111,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setNewTabSceneDataInclude: (include: NEW_TAB_COMMANDS[]) => ({ include }),
         toggleNewTabSceneDataInclude: (item: NEW_TAB_COMMANDS) => ({ item }),
         triggerSearchForIncludedItems: true,
+        askAI: (searchTerm: string) => ({ searchTerm }),
     }),
     loaders(({ values }) => ({
         recents: [
@@ -347,6 +351,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         key: 'propertyDefinitions',
                         label: 'Properties',
                     })
+                    categories.push({
+                        key: 'askAI',
+                        label: 'Ask Posthog AI',
+                    })
                 }
                 return categories
             },
@@ -468,9 +476,34 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 return items
             },
         ],
+        aiSearchItems: [
+            (s) => [s.search],
+            (search: string): NewTabTreeDataItem[] => {
+                const searchTerm = search.trim()
+
+                const item: NewTabTreeDataItem = {
+                    id: 'ask-ai',
+                    name: searchTerm ? `${searchTerm}` : 'Ask Posthog AI anything...',
+                    category: 'askAI',
+                    href: '#',
+                    icon: <IconSparkles />,
+                    record: {
+                        type: 'ai',
+                        path: searchTerm ? `Ask Posthog AI: ${searchTerm}` : 'Ask Posthog AI',
+                        href: '#',
+                        searchTerm: searchTerm || '',
+                    },
+                }
+                return [item]
+            },
+        ],
         itemsGrid: [
-            (s) => [s.featureFlags, s.projectTreeSearchItems],
-            (featureFlags, projectTreeSearchItems): NewTabTreeDataItem[] => {
+            (s) => [s.featureFlags, s.projectTreeSearchItems, s.aiSearchItems],
+            (
+                featureFlags: any,
+                projectTreeSearchItems: NewTabTreeDataItem[],
+                aiSearchItems: NewTabTreeDataItem[]
+            ): NewTabTreeDataItem[] => {
                 const newInsightItems = getDefaultTreeNew()
                     .filter(({ path }) => path.startsWith('Insight/'))
                     .map((fs, index) => ({
@@ -536,6 +569,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
                 const allItems: NewTabTreeDataItem[] = [
+                    ...aiSearchItems,
                     {
                         id: 'new-sql-query',
                         name: 'New SQL query',
@@ -544,6 +578,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         href: '/sql',
                         record: { type: 'query', path: 'New SQL query' },
                     },
+                    ...newInsightItems,
+                    ...newOtherItems,
+                    ...products,
+                    ...data,
+                    ...newDataItems,
+                    ...projectTreeSearchItems,
                     {
                         id: 'new-hog-program',
                         name: 'New Hog program',
@@ -552,12 +592,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         href: '/debug/hog',
                         record: { type: 'hog', path: 'New Hog program' },
                     },
-                    ...newInsightItems,
-                    ...newOtherItems,
-                    ...products,
-                    ...data,
-                    ...newDataItems,
-                    ...projectTreeSearchItems,
                 ]
                 return allItems
             },
@@ -616,6 +650,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.personSearchItems,
                 s.eventDefinitionSearchItems,
                 s.propertyDefinitionSearchItems,
+                s.aiSearchItems,
                 s.featureFlags,
             ],
             (
@@ -625,6 +660,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 personSearchItems: NewTabTreeDataItem[],
                 eventDefinitionSearchItems: NewTabTreeDataItem[],
                 propertyDefinitionSearchItems: NewTabTreeDataItem[],
+                aiSearchItems: NewTabTreeDataItem[],
                 featureFlags: any
             ): Record<string, NewTabTreeDataItem[]> => {
                 const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
@@ -686,6 +722,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     grouped['recents'] = filterBySearch(itemsGrid.filter((item) => item.category === 'recents'))
                 }
 
+                // Add AI section if filter is enabled
+                if (showAll || newTabSceneDataInclude.includes('askAI')) {
+                    grouped['askAI'] = aiSearchItems
+                }
+
                 return grouped
             },
         ],
@@ -718,7 +759,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 // Expand 'all' to include all data types
                 const itemsToProcess = values.newTabSceneDataInclude.includes('all')
-                    ? ['persons', 'eventDefinitions', 'propertyDefinitions']
+                    ? ['persons', 'eventDefinitions', 'propertyDefinitions', 'askAI']
                     : values.newTabSceneDataInclude
 
                 itemsToProcess.forEach((item) => {
@@ -744,8 +785,12 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
         },
         onSubmit: () => {
-            if (values.selectedItem?.href) {
-                router.actions.push(values.selectedItem.href)
+            if (values.selectedItem) {
+                if (values.selectedItem.category === 'askAI' && values.selectedItem.record?.searchTerm) {
+                    actions.askAI(values.selectedItem.record.searchTerm)
+                } else if (values.selectedItem.href) {
+                    router.actions.push(values.selectedItem.href)
+                }
             }
         },
         setSearch: () => {
@@ -759,7 +804,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 // Expand 'all' to include all data types
                 const itemsToProcess = values.newTabSceneDataInclude.includes('all')
-                    ? ['persons', 'eventDefinitions', 'propertyDefinitions']
+                    ? ['persons', 'eventDefinitions', 'propertyDefinitions', 'askAI']
                     : values.newTabSceneDataInclude
 
                 itemsToProcess.forEach((item) => {
@@ -874,6 +919,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 actions.loadPropertyDefinitionSearchResultsFailure(error as string)
             }
         },
+        askAI: ({ searchTerm }) => {
+            alert(`ask ai: ${searchTerm}`)
+        },
     })),
     tabAwareActionToUrl(({ values }) => ({
         setSearch: () => [
@@ -957,6 +1005,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                               'persons',
                               'eventDefinitions',
                               'propertyDefinitions',
+                              'askAI',
                           ].includes(item)
                       )
                 : []
@@ -974,7 +1023,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     // Expand 'all' to include all data types
                     const itemsToProcess = includeFromUrl.includes('all')
-                        ? ['persons', 'eventDefinitions', 'propertyDefinitions']
+                        ? ['persons', 'eventDefinitions', 'propertyDefinitions', 'askAI']
                         : includeFromUrl
 
                     itemsToProcess.forEach((item) => {

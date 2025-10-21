@@ -1,8 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconApps, IconDatabase, IconDocument, IconInfo, IconPerson, IconPlusSmall, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import {
+    IconApps,
+    IconDatabase,
+    IconDocument,
+    IconInfo,
+    IconPerson,
+    IconPlusSmall,
+    IconSearch,
+    IconSparkles,
+    IconX,
+} from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { Command, CommandInput, CommandInputHandle } from 'lib/components/CommandInput'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
@@ -45,6 +55,7 @@ export const getCategoryDisplayName = (category: string): string => {
         persons: 'Persons',
         eventDefinitions: 'Events',
         propertyDefinitions: 'Properties',
+        askAI: 'Ask Posthog AI',
     }
     return displayNames[category] || category
 }
@@ -64,6 +75,7 @@ export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {
 export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homepage' } = {}): JSX.Element {
     const commandInputRef = useRef<CommandInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
+    const inputRef = useRef<HTMLInputElement>(null)
     const {
         filteredItemsGrid,
         search,
@@ -125,39 +137,52 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
             >
                 <div className="flex flex-col gap-2">
                     <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
-                        <CommandInput
-                            ref={commandInputRef}
-                            commands={NEW_TAB_COMMANDS_ITEMS}
-                            value={search}
-                            onChange={(value) => {
-                                if (!value.startsWith('/')) {
-                                    setSearch(value)
-                                }
-                            }}
-                            placeholder="Search or type / to see commands..."
-                            activeCommands={activeCommands}
-                            selectedCommands={selectedCommands}
-                            onSelectedCommandsChange={(commands) =>
-                                setSelectedCommands(commands as Command<NEW_TAB_COMMANDS>[])
-                            }
-                            onCommandSelect={(command) => {
-                                if (command.value === 'all') {
-                                    // Check if "all" is currently selected
-                                    if (newTabSceneDataInclude.includes('all')) {
-                                        // If "all" is on, turn off everything (clear all filters)
-                                        newTabSceneDataInclude.forEach((selectedCommand) => {
-                                            toggleNewTabSceneDataInclude(selectedCommand)
-                                        })
-                                    } else {
-                                        // If "all" is off, turn it on (which will show all filters)
-                                        toggleNewTabSceneDataInclude('all')
+                        {!newTabSceneData ? (
+                            <LemonInput
+                                inputRef={inputRef}
+                                value={search}
+                                onChange={(value) => setSearch(value)}
+                                prefix={<IconSearch />}
+                                className="w-full"
+                                placeholder="Search..."
+                                autoFocus
+                                allowClear
+                            />
+                        ) : (
+                            <CommandInput
+                                ref={commandInputRef}
+                                commands={NEW_TAB_COMMANDS_ITEMS}
+                                value={search}
+                                onChange={(value) => {
+                                    if (!value.startsWith('/')) {
+                                        setSearch(value)
                                     }
-                                } else {
-                                    toggleNewTabSceneDataInclude(command.value as NEW_TAB_COMMANDS)
+                                }}
+                                placeholder="Search or type / to see commands..."
+                                activeCommands={activeCommands}
+                                selectedCommands={selectedCommands}
+                                onSelectedCommandsChange={(commands) =>
+                                    setSelectedCommands(commands as Command<NEW_TAB_COMMANDS>[])
                                 }
-                                setSearch('')
-                            }}
-                        />
+                                onCommandSelect={(command) => {
+                                    if (command.value === 'all') {
+                                        // Check if "all" is currently selected
+                                        if (newTabSceneDataInclude.includes('all')) {
+                                            // If "all" is on, turn off everything (clear all filters)
+                                            newTabSceneDataInclude.forEach((selectedCommand) => {
+                                                toggleNewTabSceneDataInclude(selectedCommand)
+                                            })
+                                        } else {
+                                            // If "all" is off, turn it on (which will show all filters)
+                                            toggleNewTabSceneDataInclude('all')
+                                        }
+                                    } else {
+                                        toggleNewTabSceneDataInclude(command.value as NEW_TAB_COMMANDS)
+                                    }
+                                    setSearch('')
+                                }}
+                            />
+                        )}
 
                         <div
                             className={cn('mx-1.5', {
@@ -266,6 +291,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                                 {command === 'recents' && (
                                                                     <IconDocument className="size-4" />
                                                                 )}
+                                                                {command === 'askAI' && (
+                                                                    <IconSparkles className="size-4" />
+                                                                )}
                                                                 {commandInfo.displayName}
                                                                 <IconX className="size-3" />
                                                             </ButtonPrimitive>
@@ -326,7 +354,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                 onClick={() => openSidePanel(SidePanelTab.Max)}
                                                 variant="panel"
                                             >
-                                                Ask Max!
+                                                Ask Posthog AI
                                             </ButtonPrimitive>
                                         </ListBox.Item>
                                     </div>
@@ -337,18 +365,18 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 className={cn({
                                     'grid grid-cols-1 @md/main-content:grid-cols-2 @xl/main-content:grid-cols-3 @2xl/main-content:grid-cols-4 gap-4':
                                         !newTabSceneData,
-                                    'flex flex-col gap-4': newTabSceneData,
+                                    'flex flex-col gap-4 mb-32': newTabSceneData,
                                 })}
                             >
                                 {/* TODO: Remove this once we're done testing */}
                                 {newTabSceneData && (
                                     <div className="col-span-full border border-primary border-px rounded-md p-2">
                                         <p className="flex flex-col items-center @md/main-content:flex-row gap-1 m-0 text-sm text-tertiary">
-                                            <IconInfo className="size-4" /> You're trying out the new tab scene with the
-                                            flag:{' '}
-                                            <pre className="border border-primary border-px rounded-md px-1 mb-0">
+                                            <IconInfo className="size-4 text-accent" /> You're trying out the new tab UX
+                                            with the flag:{' '}
+                                            <span className="font-mono border border-primary border-px rounded-md px-1 mb-0">
                                                 data-in-new-tab-scene
-                                            </pre>
+                                            </span>
                                         </p>
                                     </div>
                                 )}

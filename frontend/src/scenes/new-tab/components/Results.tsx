@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { IconArrowRight, IconEllipsis, IconInfo } from '@posthog/icons'
+import { IconArrowRight, IconEllipsis, IconInfo, IconSparkles } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -324,7 +324,7 @@ export function Results({
         const orderedSections: string[] = []
         const showAll = newTabSceneDataInclude.includes('all')
 
-        // Add sections in order: persons, events, properties (if enabled), new, apps, data-management, recents
+        // Add sections in order: persons, events, properties (if enabled), new, apps, data-management, recents, askAI
         if (showAll || newTabSceneDataInclude.includes('persons')) {
             orderedSections.push('persons')
         }
@@ -341,6 +341,9 @@ export function Results({
                 orderedSections.push(section)
             }
         })
+        if (showAll || newTabSceneDataInclude.includes('askAI')) {
+            orderedSections.push('askAI')
+        }
 
         return orderedSections
             .map((section) => [section, newTabSceneDataGroupedItems[section] || []] as [string, any[]])
@@ -359,6 +362,9 @@ export function Results({
                     section === 'propertyDefinitions' &&
                     (showAll || newTabSceneDataInclude.includes('propertyDefinitions'))
                 ) {
+                    return true
+                }
+                if (section === 'askAI' && (showAll || newTabSceneDataInclude.includes('askAI'))) {
                     return true
                 }
                 // Hide empty categories for other sections
@@ -527,7 +533,8 @@ export function Results({
                                     variant="panel"
                                     className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
                                 >
-                                    Ask Max!
+                                    <IconSparkles className="size-4" />
+                                    Ask Posthog AI
                                 </ButtonPrimitive>
                             </ListBox.Item>
                         </div>

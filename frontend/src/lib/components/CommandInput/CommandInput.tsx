@@ -166,7 +166,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(fu
                 className={cn(
                     textInputVariants({
                         variant: 'default',
-                        size: 'default',
+                        size: 'lg',
                     }),
                     'flex gap-0 focus-within:border-secondary p-0 items-center h-8'
                 )}
@@ -266,6 +266,7 @@ export const CommandInput = forwardRef<CommandInputHandle, CommandInputProps>(fu
                     autoFocus
                     autoComplete="off"
                     className="pl-2 w-full border-none flex-1 h-full min-h-full"
+                    size="lg"
                 />
             </div>
         </div>
