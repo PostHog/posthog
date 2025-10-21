@@ -353,6 +353,74 @@ pub struct Config {
 
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: Level,
+
+    // Query timeout settings for flag evaluation (milliseconds)
+    // These control how long individual database queries can run before timing out
+    // Lower values fail fast but may timeout under load; higher values are more resilient
+    #[envconfig(from = "FLAG_PERSON_QUERY_TIMEOUT_MS", default = "500")]
+    pub flag_person_query_timeout_ms: u64,
+
+    #[envconfig(from = "FLAG_COHORT_QUERY_TIMEOUT_MS", default = "200")]
+    pub flag_cohort_query_timeout_ms: u64,
+
+    #[envconfig(from = "FLAG_GROUP_QUERY_TIMEOUT_MS", default = "300")]
+    pub flag_group_query_timeout_ms: u64,
+
+    #[envconfig(from = "FLAG_HASH_KEY_OVERRIDE_QUERY_TIMEOUT_MS", default = "500")]
+    pub flag_hash_key_override_query_timeout_ms: u64,
+
+    // Server-side statement timeout (milliseconds)
+    // This sets PostgreSQL's statement_timeout to actually cancel long-running queries
+    // Should be slightly higher than client-side timeouts to allow for network overhead
+    #[envconfig(from = "STATEMENT_TIMEOUT_MS", default = "1000")]
+    pub statement_timeout_ms: u64,
+
+    // Logging thresholds for slow queries (milliseconds)
+    // Queries exceeding these thresholds will be logged at different severity levels
+    #[envconfig(from = "FLAG_QUERY_SLOW_INFO_THRESHOLD_MS", default = "100")]
+    pub flag_query_slow_info_threshold_ms: u64,
+
+    #[envconfig(from = "FLAG_QUERY_SLOW_WARN_THRESHOLD_MS", default = "500")]
+    pub flag_query_slow_warn_threshold_ms: u64,
+
+    #[envconfig(from = "FLAG_QUERY_SLOW_ERROR_THRESHOLD_MS", default = "1000")]
+    pub flag_query_slow_error_threshold_ms: u64,
+
+    // Total function execution time threshold for critical logging (milliseconds)
+    #[envconfig(from = "FLAG_TOTAL_EXECUTION_WARN_THRESHOLD_MS", default = "1000")]
+    pub flag_total_execution_warn_threshold_ms: u64,
+
+    #[envconfig(from = "FLAG_TOTAL_EXECUTION_ERROR_THRESHOLD_MS", default = "2000")]
+    pub flag_total_execution_error_threshold_ms: u64,
+
+    // Rate limiting configuration for /flags endpoint (token-based)
+    // Enable/disable token-based rate limiting (defaults to off to match /decide)
+    #[envconfig(from = "FLAGS_RATE_LIMIT_ENABLED", default = "false")]
+    pub flags_rate_limit_enabled: FlexBool,
+
+    // Token bucket capacity (maximum burst size)
+    // Matches Python's DecideRateThrottle default of 100
+    #[envconfig(from = "FLAGS_BUCKET_CAPACITY", default = "100")]
+    pub flags_bucket_capacity: u32,
+
+    // Token bucket replenish rate (tokens per second)
+    // Matches Python's DecideRateThrottle default of 5.0
+    #[envconfig(from = "FLAGS_BUCKET_REPLENISH_RATE", default = "5.0")]
+    pub flags_bucket_replenish_rate: f64,
+
+    // IP-based rate limiting configuration
+    // Provides defense-in-depth against DDoS attacks with rotating fake tokens
+    // This limits ALL requests per IP address, regardless of token validity
+    #[envconfig(from = "FLAGS_IP_RATE_LIMIT_ENABLED", default = "false")]
+    pub flags_ip_rate_limit_enabled: FlexBool,
+
+    // IP rate limit burst size (maximum requests per IP in a burst)
+    #[envconfig(from = "FLAGS_IP_BURST_SIZE", default = "100")]
+    pub flags_ip_burst_size: u32,
+
+    // IP rate limit replenish rate (requests per second per IP)
+    #[envconfig(from = "FLAGS_IP_REPLENISH_RATE", default = "20.0")]
+    pub flags_ip_replenish_rate: f64,
 }
 
 impl Config {
@@ -411,6 +479,22 @@ impl Config {
             object_storage_bucket: "posthog".to_string(),
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
+            flag_person_query_timeout_ms: 500,
+            flag_cohort_query_timeout_ms: 200,
+            flag_group_query_timeout_ms: 300,
+            flag_hash_key_override_query_timeout_ms: 500,
+            statement_timeout_ms: 1000,
+            flag_query_slow_info_threshold_ms: 100,
+            flag_query_slow_warn_threshold_ms: 500,
+            flag_query_slow_error_threshold_ms: 1000,
+            flag_total_execution_warn_threshold_ms: 1000,
+            flag_total_execution_error_threshold_ms: 2000,
+            flags_rate_limit_enabled: FlexBool(false),
+            flags_bucket_capacity: 100,
+            flags_bucket_replenish_rate: 5.0,
+            flags_ip_rate_limit_enabled: FlexBool(false),
+            flags_ip_burst_size: 100,
+            flags_ip_replenish_rate: 20.0,
         }
     }
 
