@@ -12461,6 +12461,12 @@
                 "metric_uuid": {
                     "type": "string"
                 },
+                "recalculation_created_at": {
+                    "type": ["string", "null"]
+                },
+                "recalculation_status": {
+                    "type": ["string", "null"]
+                },
                 "status": {
                     "enum": ["pending", "completed", "partial", "failed"],
                     "type": "string"

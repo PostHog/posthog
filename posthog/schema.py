@@ -14133,6 +14133,8 @@ class ExperimentMetricTimeseries(BaseModel):
     errors: Optional[dict[str, str]] = None
     experiment_id: float
     metric_uuid: str
+    recalculation_created_at: Optional[str] = None
+    recalculation_status: Optional[str] = None
     status: Status5
     timeseries: Optional[dict[str, ExperimentQueryResponse]] = None
     updated_at: str
