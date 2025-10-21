@@ -431,9 +431,10 @@ services:
         image: otel/opentelemetry-collector-contrib:latest
         container_name: otel-collector-local
         command: [--config=/etc/otel-collector-config.yaml]
-        user: '0:0'
+        user: '0:0'  # have to run as root to read the docker logs
         volumes:
             - ./otel-collector-config.dev.yaml:/etc/otel-collector-config.yaml
+            # mount docker containers dir so we can ship the docker logs to local posthog
             - /var/lib/docker/containers:/var/lib/docker/containers:ro
         ports:
             - '4317:4317' # OTLP gRPC receiver (mapped to host)
