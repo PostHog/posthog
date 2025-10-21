@@ -124,11 +124,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             inner_query.select.append(total_count_for_breakdown)
             inner_query.order_by = [ast.OrderExpr(expr=ast.Field(chain=["total_count_for_breakdown"]), order="DESC")]
 
+            if self.breakdown.is_multiple_breakdown:
+                breakdown_count = len(self.breakdown.field_exprs)
+                breakdown_other_expr = parse_expr(
+                    str([BREAKDOWN_OTHER_STRING_LABEL] * breakdown_count),
+                )
+            else:
+                breakdown_other_expr = ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL)
+
             breakdown_limit = None  # TODO: Investigate what this override is used for
-            breakdown_count = len(self.breakdown.field_exprs)
-            breakdown_other_array_expr = parse_expr(
-                str([BREAKDOWN_OTHER_STRING_LABEL] * breakdown_count),
-            )
             breakdown_limit_expr = ast.Constant(value=breakdown_limit or self._get_breakdown_limit())
 
             return parse_select(
@@ -154,7 +158,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     SELECT
                         day_start,
                         sum(count) as value,
-                        {breakdown_other_array} as breakdown_value
+                        {breakdown_other} as breakdown_value
                     FROM ranked_breakdown_values
                     WHERE breakdown_rank > {breakdown_limit}
                     GROUP BY breakdown_value, day_start
@@ -176,11 +180,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     breakdown_value
                 FROM top_n_and_other_breakdown_values
                 GROUP BY breakdown_value
-                ORDER BY (breakdown_value = {breakdown_other_array}) ASC, grand_total DESC
+                ORDER BY (breakdown_value = {breakdown_other}) ASC, grand_total DESC
                 """,
                 {
                     "inner_query": inner_query,
-                    "breakdown_other_array": breakdown_other_array_expr,
+                    "breakdown_other": breakdown_other_expr,
                     "breakdown_limit": breakdown_limit_expr,
                 },
             )
