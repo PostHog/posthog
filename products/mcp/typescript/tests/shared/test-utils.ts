@@ -9,7 +9,7 @@ import { expect } from 'vitest'
 export const API_BASE_URL = process.env.TEST_POSTHOG_API_BASE_URL || 'http://localhost:8010'
 export const API_TOKEN = process.env.MCP_TEST_POSTHOG_PERSONAL_API_KEY
 export const TEST_ORG_ID = process.env.TEST_ORG_ID
-export const TEST_PROJECT_ID = process.env.TEST_PROJECT_ID
+export const TEST_PROJECT_ID = process.env.MCP_TEST_PROJECT_ID
 
 export interface CreatedResources {
     featureFlags: number[]
