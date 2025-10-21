@@ -234,13 +234,18 @@ class Database(BaseModel):
         if isinstance(table_name, str):
             table_name = table_name.split(".")
 
+        if isinstance(table_name, list) and len(table_name) == 1 and "." in table_name[0]:
+            table_name = table_name[0].split(".")
+
         return self.tables.get_child(table_name)
 
     def get_table(self, table_name: str | list[str]) -> Table:
         try:
             return cast(Table, self.get_table_node(table_name).get())
         except ResolutionError as e:
-            raise QueryError(f"Unknown table `{'.'.join(table_name)}`.") from e
+            if isinstance(table_name, list):
+                table_name = ".".join(table_name)
+            raise QueryError(f"Unknown table `{table_name}`.") from e
 
     def get_all_table_names(self) -> list[str]:
         warehouse_table_names = list(filter(lambda x: "." in x, self._warehouse_table_names))
@@ -273,17 +278,17 @@ class Database(BaseModel):
 
     def _add_warehouse_tables(self, node: TableNode):
         self.tables.merge_with(node)
-        for name in node.children.keys():
+        for name in node.resolve_all_table_names():
             self._warehouse_table_names.append(name)
 
     def _add_warehouse_self_managed_tables(self, node: TableNode):
         self.tables.merge_with(node)
-        for name in node.children.keys():
+        for name in node.resolve_all_table_names():
             self._warehouse_self_managed_table_names.append(name)
 
     def _add_views(self, node: TableNode):
         self.tables.merge_with(node)
-        for name in node.children.keys():
+        for name in node.resolve_all_table_names():
             self._view_table_names.append(name)
 
 
@@ -587,11 +592,12 @@ def create_hogql_database(
         # but still allowing the bare `stripe.prefix.table_name` string access
         for view in revenue_views:
             try:
-                views.add_child(TableNode(name=view.name, table=view))
                 create_nested_table_group(view.name.split("."), views, view)
             except Exception as e:
                 capture_exception(e)
                 continue
+
+    with timings.measure("data_warehouse_tables"):
 
         class WarehousePropertiesVirtualTable(VirtualTable):
             fields: dict[str, FieldOrTable]
@@ -603,7 +609,6 @@ def create_hogql_database(
             def to_printed_clickhouse(self, context):
                 return self.parent_table.to_printed_clickhouse(context)
 
-    with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
             tables: list[DataWarehouseTable] = list(
                 DataWarehouseTable.raw_objects.filter(team_id=team.pk)
@@ -611,10 +616,11 @@ def create_hogql_database(
                 .select_related("credential", "external_data_source")
             )
 
+        view_names = views.resolve_all_table_names()
         for table in tables:
             # Skip adding data warehouse tables that are materialized from views
             # We can detect that because they have the exact same name as the view
-            if views.get(table.name, None) is not None:
+            if table.name in view_names:
                 continue
 
             with timings.measure(f"table_{table.name}"):
