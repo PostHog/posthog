@@ -27,6 +27,10 @@ impl SourcePair {
         Ok(Self { source, sourcemap })
     }
 
+    pub fn get_chunk_id(&self) -> Option<String> {
+        self.sourcemap.get_chunk_id()
+    }
+
     pub fn has_chunk_id(&self) -> bool {
         self.sourcemap.get_chunk_id().is_some()
     }
@@ -35,12 +39,25 @@ impl SourcePair {
         self.sourcemap.get_release_id().is_some()
     }
 
-    pub fn set_chunk_id(&mut self, chunk_id: String) -> Result<()> {
+    pub fn update_chunk_id(
+        &mut self,
+        previous_chunk_id: String,
+        new_chunk_id: String,
+    ) -> Result<()> {
+        let adjustment = self
+            .source
+            .update_chunk_id(&previous_chunk_id, &new_chunk_id)?;
+        self.sourcemap.apply_adjustment(adjustment)?;
+        self.sourcemap.set_chunk_id(new_chunk_id);
+        Ok(())
+    }
+
+    pub fn add_chunk_id(&mut self, chunk_id: String) -> Result<()> {
         if self.has_chunk_id() {
             return Err(anyhow!("Chunk ID already set"));
         }
 
-        let adjustment = self.source.set_chunk_id(&chunk_id)?;
+        let adjustment = self.source.add_chunk_id(&chunk_id)?;
         self.sourcemap.apply_adjustment(adjustment)?;
         self.sourcemap.set_chunk_id(chunk_id);
         Ok(())

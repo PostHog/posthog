@@ -36,7 +36,7 @@ pub fn upload(args: &Args) -> Result<()> {
     info!("Processing directory: {}", directory.display());
     let pairs = read_pairs(&directory, ignore, is_metro_bundle)?;
 
-    let maps: Result<Vec<_>> = pairs.iter().map(|p| get_composed_map(p)).collect();
+    let maps: Result<Vec<_>> = pairs.iter().map(get_composed_map).collect();
     let maps = maps?;
 
     let mut uploads: Vec<SymbolSetUpload> = Vec::new();

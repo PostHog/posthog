@@ -39,12 +39,7 @@ pub fn get_composed_map(pair: &SourcePair) -> Result<Option<SourceMapFile>> {
                 None
             }
         })
-        .ok_or_else(|| {
-            anyhow!(
-                "Could not determine composed map path for {:?}",
-                sourcemap_path
-            )
-        })?;
+        .ok_or_else(|| anyhow!("Could not determine composed map path for {sourcemap_path:?}"))?;
 
     if !composed_path.exists() {
         info!(

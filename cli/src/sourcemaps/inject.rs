@@ -47,7 +47,7 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Re
     })?;
 
     info!("Processing directory: {}", directory.display());
-    let mut pairs = read_pairs(&directory, &ignore, matcher)?;
+    let mut pairs = read_pairs(&directory, ignore, matcher)?;
     if pairs.is_empty() {
         bail!("No source files found");
     }
@@ -61,7 +61,7 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Re
     let mut created_release = None;
     if needs_release {
         let mut builder = get_git_info(Some(directory))?
-            .map(|g| ReleaseBuilder::init_from_git(g))
+            .map(ReleaseBuilder::init_from_git)
             .unwrap_or_default();
 
         if let Some(project) = project {
@@ -76,26 +76,21 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Re
         }
     }
 
-    let mut skipped_pairs = 0;
     for pair in &mut pairs {
-        if pair.has_chunk_id() {
-            skipped_pairs += 1;
-            continue;
-        }
         let chunk_id = uuid::Uuid::now_v7().to_string();
-        pair.set_chunk_id(chunk_id)?;
+        if let Some(previous_chunk_id) = pair.get_chunk_id() {
+            pair.update_chunk_id(previous_chunk_id, chunk_id)?;
+        } else {
+            pair.add_chunk_id(chunk_id)?;
+        }
 
         // If we've got a release, and the user asked us to, or a set is missing one,
         // put the release ID on the pair
-        if created_release.is_some() && !pair.has_release_id() {
-            pair.set_release_id(created_release.as_ref().unwrap().id.to_string());
+        if !pair.has_release_id() {
+            if let Some(release) = created_release.as_ref() {
+                pair.set_release_id(release.id.to_string());
+            }
         }
-    }
-    if skipped_pairs > 0 {
-        info!(
-            "Skipped {} pairs because chunk IDs already exist",
-            skipped_pairs
-        );
     }
 
     // Write the source and sourcemaps back to disk

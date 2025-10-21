@@ -52,7 +52,7 @@ impl SourceMapFile {
         let new_content = {
             let content = serde_json::to_string(&self.inner.content)?.into_bytes();
             let mut map = sourcemap::decode_slice(content.as_slice())
-                .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?;
+                .map_err(|err| anyhow!("Failed to parse sourcemap: {err}"))?;
 
             // This looks weird. The reason we do it, is that we want `original` below
             // to be a &mut SourceMap. This is easy to do if it's a Regular, or Hermes
@@ -67,7 +67,7 @@ impl SourceMapFile {
             if let sourcemap::DecodedMap::Index(indexed) = &mut map {
                 let replacement = indexed
                     .flatten()
-                    .map_err(|err| anyhow!("Failed to flatten sourcemap: {}", err))?;
+                    .map_err(|err| anyhow!("Failed to flatten sourcemap: {err}"))?;
 
                 map = sourcemap::DecodedMap::Regular(replacement);
             };
@@ -118,32 +118,82 @@ impl MinifiedSourceFile {
         self.get_comment_value(&patterns)
     }
 
-    pub fn set_chunk_id(&mut self, chunk_id: &str) -> Result<SourceMap> {
+    pub fn remove_chunk_id(&mut self, chunk_id: &str) -> Result<SourceMap> {
         let (new_source_content, source_adjustment) = {
             // Update source content with chunk ID
             let source_content = &self.inner.content;
             let mut magic_source = MagicString::new(source_content);
-            let code_snippet = CODE_SNIPPET_TEMPLATE.replace(CHUNKID_PLACEHOLDER, &chunk_id);
+            let (code_snippet, chunk_comment) = self.get_injected(chunk_id);
+
+            // find location of chunk comment
+            let chunk_comment_start = source_content.find(&chunk_comment).unwrap() as i64;
+            let chunk_comment_end = chunk_comment_start + chunk_comment.len() as i64;
             magic_source
-                .prepend(&code_snippet)
-                .map_err(|err| anyhow!("Failed to prepend code snippet: {}", err))?;
-            let chunk_comment = CHUNKID_COMMENT_PREFIX.replace(CHUNKID_PLACEHOLDER, &chunk_id);
+                .remove(chunk_comment_start, chunk_comment_end)
+                .map_err(|err| anyhow!("Failed to remove chunk comment: {err}"))?;
+
+            let code_snippet_start = source_content.find(&code_snippet).unwrap() as i64;
+            let code_snippet_end = code_snippet_start + code_snippet.len() as i64;
             magic_source
-                .append(&chunk_comment)
-                .map_err(|err| anyhow!("Failed to append chunk comment: {}", err))?;
+                .remove(code_snippet_start, code_snippet_end)
+                .map_err(|err| anyhow!("Failed to remove code snippet {err}"))?;
+
             let adjustment = magic_source
                 .generate_map(GenerateDecodedMapOptions {
                     include_content: true,
                     ..Default::default()
                 })
-                .map_err(|err| anyhow!("Failed to generate source map: {}", err))?;
+                .map_err(|err| anyhow!("Failed to generate source map: {err}"))?;
             let adjustment_sourcemap = SourceMap::from_slice(
                 adjustment
                     .to_string()
-                    .map_err(|err| anyhow!("Failed to serialize source map: {}", err))?
+                    .map_err(|err| anyhow!("Failed to serialize source map: {err}"))?
                     .as_bytes(),
             )
-            .map_err(|err| anyhow!("Failed to parse adjustment sourcemap: {}", err))?;
+            .map_err(|err| anyhow!("Failed to parse adjustment sourcemap: {err}"))?;
+            (magic_source.to_string(), adjustment_sourcemap)
+        };
+
+        self.inner.content = new_source_content;
+        Ok(source_adjustment)
+    }
+
+    pub fn update_chunk_id(
+        &mut self,
+        previous_chunk_id: &str,
+        new_chunk_id: &str,
+    ) -> Result<SourceMap> {
+        let mut previous_adjustment = self.remove_chunk_id(previous_chunk_id)?;
+        let new_adjustment = self.add_chunk_id(new_chunk_id)?;
+        previous_adjustment.adjust_mappings(&new_adjustment);
+        Ok(previous_adjustment)
+    }
+
+    pub fn add_chunk_id(&mut self, chunk_id: &str) -> Result<SourceMap> {
+        let (new_source_content, source_adjustment) = {
+            // Update source content with chunk ID
+            let source_content = &self.inner.content;
+            let mut magic_source = MagicString::new(source_content);
+            let (code_snippet, chunk_comment) = self.get_injected(chunk_id);
+            magic_source
+                .prepend(&code_snippet)
+                .map_err(|err| anyhow!("Failed to prepend code snippet: {err}"))?;
+            magic_source
+                .append(&chunk_comment)
+                .map_err(|err| anyhow!("Failed to append chunk comment: {err}"))?;
+            let adjustment = magic_source
+                .generate_map(GenerateDecodedMapOptions {
+                    include_content: true,
+                    ..Default::default()
+                })
+                .map_err(|err| anyhow!("Failed to generate source map: {err}"))?;
+            let adjustment_sourcemap = SourceMap::from_slice(
+                adjustment
+                    .to_string()
+                    .map_err(|err| anyhow!("Failed to serialize source map: {err}"))?
+                    .as_bytes(),
+            )
+            .map_err(|err| anyhow!("Failed to parse adjustment sourcemap: {err}"))?;
             (magic_source.to_string(), adjustment_sourcemap)
         };
 
@@ -208,6 +258,12 @@ impl MinifiedSourceFile {
         }
         None
     }
+
+    fn get_injected(&self, chunk_id: &str) -> (String, String) {
+        let code_snippet = CODE_SNIPPET_TEMPLATE.replace(CHUNKID_PLACEHOLDER, chunk_id);
+        let chunk_comment = CHUNKID_COMMENT_PREFIX.replace(CHUNKID_PLACEHOLDER, chunk_id);
+        (code_snippet, chunk_comment)
+    }
 }
 
 impl TryInto<SymbolSetUpload> for SourceMapFile {
@@ -230,7 +286,7 @@ impl TryInto<SymbolSetUpload> for SourceMapFile {
         let data = write_symbol_data(data)?;
 
         Ok(SymbolSetUpload {
-            chunk_id: chunk_id,
+            chunk_id,
             release_id,
             data,
         })
