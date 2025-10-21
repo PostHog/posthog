@@ -228,14 +228,6 @@ projects_router.register(r"agents", tasks.AgentDefinitionViewSet, "project_agent
 # Workflows endpoints
 projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
 
-project_workflows_router = projects_router.register(
-    r"workflows", tasks.TaskWorkflowViewSet, "project_workflows", ["team_id"]
-)
-
-project_workflows_router.register(
-    r"stages", tasks.WorkflowStageViewSet, "project_workflow_stages", ["team_id", "workflow_id"]
-)
-
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(
     r"dashboard_templates",
