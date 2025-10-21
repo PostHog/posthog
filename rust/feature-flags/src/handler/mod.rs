@@ -47,6 +47,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 struct MetricsData {
     team_id: Option<i32>,
     flags_disabled: Option<bool>,
+    library: Library,
 }
 
 fn record_metrics(
@@ -64,9 +65,12 @@ fn record_metrics(
         .map(|disabled| disabled.to_string())
         .unwrap_or_else(|| "not_available".to_string());
 
+    let library = data.library.to_string();
+
     let labels = [
         ("flags_disabled".to_string(), flags_disabled),
         ("team_id".to_string(), team_id.clone()),
+        ("library".to_string(), library),
     ];
 
     inc(FLAG_REQUESTS_COUNTER, &labels, 1);
@@ -86,9 +90,12 @@ fn record_metrics(
 async fn process_request_inner(
     context: RequestContext,
 ) -> (Result<FlagsResponse, FlagError>, MetricsData) {
+    let library = Library::from_headers(&context.headers);
+
     let mut metrics_data = MetricsData {
         team_id: None,
         flags_disabled: None,
+        library,
     };
 
     let result = async {
@@ -294,6 +301,7 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: Some(123),
             flags_disabled: Some(false),
+            library: Library::PosthogNode,
         };
 
         // Call the real record_metrics function - it will use our test metrics functions
@@ -318,6 +326,9 @@ mod metrics_tests {
         assert!(counter
             .labels
             .contains(&("flags_disabled".to_string(), "false".to_string())));
+        assert!(counter
+            .labels
+            .contains(&("library".to_string(), "posthog-node".to_string())));
 
         // Check the histogram metric
         let histogram = &metrics[1];
@@ -339,6 +350,7 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: None,
             flags_disabled: None,
+            library: Library::Other,
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(50));
@@ -365,6 +377,7 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: Some(456),
             flags_disabled: Some(true),
+            library: Library::PosthogJs,
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(200));
@@ -397,6 +410,7 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: None,
             flags_disabled: Some(false),
+            library: Library::PosthogPython,
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(150));
@@ -425,6 +439,7 @@ mod metrics_tests {
         let data = MetricsData {
             team_id: Some(789),
             flags_disabled: Some(false),
+            library: Library::PosthogAndroid,
         };
 
         record_metrics(&result, data, std::time::Duration::from_millis(75));
