@@ -15,7 +15,7 @@ import {
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
 } from '~/queries/schema/schema-general'
-import { Experiment } from '~/types'
+import { Experiment, ExperimentIdType } from '~/types'
 
 import { COLORS } from './MetricsView/shared/colors'
 import { getVariantInterval } from './MetricsView/shared/utils'
@@ -103,7 +103,10 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         if (response.ok) {
                             if (response.status === 201) {
                                 lemonToast.success('Recalculation started successfully')
-                                actions.reportExperimentTimeseriesRecalculated(props.experimentId, metric)
+                                actions.reportExperimentTimeseriesRecalculated(
+                                    props.experimentId as ExperimentIdType,
+                                    metric
+                                )
                             } else if (response.status === 200) {
                                 lemonToast.info('Recalculation already in progress')
                             }
