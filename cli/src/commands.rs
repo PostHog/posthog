@@ -42,12 +42,6 @@ pub enum Commands {
         #[command(subcommand)]
         cmd: SourcemapCommand,
     },
-
-    #[command(about = "Upload hermes sourcemaps to PostHog")]
-    Hermes {
-        #[command(subcommand)]
-        cmd: HermesSubcommand,
-    },
 }
 
 #[derive(Subcommand)]
@@ -67,6 +61,12 @@ pub enum ExpCommand {
     Query {
         #[command(subcommand)]
         cmd: QueryCommand,
+    },
+
+    #[command(about = "Upload hermes sourcemaps to PostHog")]
+    Hermes {
+        #[command(subcommand)]
+        cmd: HermesSubcommand,
     },
 }
 
@@ -126,17 +126,17 @@ impl Cli {
                 ExpCommand::Query { cmd } => {
                     crate::experimental::query::command::query_command(&cmd)?
                 }
-            },
-            Commands::Hermes { cmd } => match cmd {
-                HermesSubcommand::Inject(args) => {
-                    crate::sourcemaps::hermes::inject::inject(&args)?;
-                }
-                HermesSubcommand::Upload(args) => {
-                    crate::sourcemaps::hermes::upload::upload(&args)?;
-                }
-                HermesSubcommand::Clone(args) => {
-                    crate::sourcemaps::hermes::clone::clone(&args)?;
-                }
+                ExpCommand::Hermes { cmd } => match cmd {
+                    HermesSubcommand::Inject(args) => {
+                        crate::sourcemaps::hermes::inject::inject(&args)?;
+                    }
+                    HermesSubcommand::Upload(args) => {
+                        crate::sourcemaps::hermes::upload::upload(&args)?;
+                    }
+                    HermesSubcommand::Clone(args) => {
+                        crate::sourcemaps::hermes::clone::clone(&args)?;
+                    }
+                },
             },
         }
 
