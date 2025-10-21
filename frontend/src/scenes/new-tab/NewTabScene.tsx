@@ -272,7 +272,15 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                                     focusSearchInput()
                                                                 }}
                                                                 className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
-                                                                tooltip={`Remove ${command} from selected filters`}
+                                                                tooltip={
+                                                                    <span>
+                                                                        Remove{' '}
+                                                                        <span className="font-bold">
+                                                                            {commandInfo.displayName}
+                                                                        </span>{' '}
+                                                                        from selected filters
+                                                                    </span>
+                                                                }
                                                             >
                                                                 {command === 'persons' && (
                                                                     <IconPerson className="size-4" />
