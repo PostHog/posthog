@@ -216,7 +216,7 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
 
         usable_user: User = User.objects.get(pk=user.pk)
         login_timestamp = "" if user.last_login is None else user.last_login.replace(microsecond=0, tzinfo=None)
-        return f"{usable_user.pk}{usable_user.email}{usable_user.is_active}{login_timestamp}{timestamp}"
+        return f"{usable_user.pk}{usable_user.email}{usable_user.password}{usable_user.is_active}{login_timestamp}{timestamp}"
 
 
 email_mfa_token_generator = EmailMFATokenGenerator()
