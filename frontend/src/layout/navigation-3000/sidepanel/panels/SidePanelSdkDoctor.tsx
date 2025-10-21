@@ -311,19 +311,27 @@ function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
         <div className="flex flex-col mb-4 p-2">
             <div className="flex flex-row justify-between items-center gap-2 mb-4">
                 <div>
-                    <div className="flex flex-row gap-2">
+                    <div className="flex flex-row items-center gap-2">
                         <h3 className="mb-0">{sdkName}</h3>
-                        <span>
-                            <LemonTag type={sdk.isOutdated ? 'warning' : 'success'}>
+                        <span className="inline-flex gap-1">
+                            <LemonTag type={sdk.isOutdated ? 'danger' : 'success'}>
                                 {sdk.isOutdated ? 'Outdated' : 'Up to date'}
                             </LemonTag>
-                        </span>
 
-                        {sdk.isOld && (
-                            <LemonTag type="warning" className="shrink-0">
-                                Old
-                            </LemonTag>
-                        )}
+                            {sdk.isOld && (
+                                <Tooltip
+                                    title={
+                                        sdk.allReleases[0]!.daysSinceRelease
+                                            ? `This SDK is ${Math.floor(sdk.allReleases[0]!.daysSinceRelease / 7)} weeks old`
+                                            : 'This SDK is old and we suggest upgrading'
+                                    }
+                                    delayMs={0}
+                                    placement="right"
+                                >
+                                    <LemonTag type="warning">Old</LemonTag>
+                                </Tooltip>
+                            )}
+                        </span>
                     </div>
                     <small>Current version: {sdk.currentVersion}</small>
                 </div>
