@@ -56,7 +56,7 @@ pub fn plan_checkpoint(
         for candidate in local_files {
             let remote_filepath = info.get_file_key(&candidate.filename);
             info.metadata
-                .track_file(remote_filepath, candidate.checksum.clone(), candidate.size);
+                .track_file(remote_filepath, candidate.checksum.clone());
             files_to_upload.push(candidate);
         }
         return Ok(CheckpointPlan {
@@ -97,16 +97,13 @@ pub fn plan_checkpoint(
     for candidate in local_files {
         let filename = &candidate.filename;
         if let Some(prev_file) = prev_file_map.get(filename) {
-            if decide_with_duplicate(&candidate, prev_file) {
+            if retain_or_replace_duplicate(&candidate, prev_file) {
                 debug!("Duplicate file {} - new file will be uploaded", filename);
                 metrics::counter!(CHECKPOINT_PLAN_FILE_TRACKED_COUNTER, "file" => "replaced")
                     .increment(1);
                 let remote_filepath = info.get_file_key(filename);
-                info.metadata.track_file(
-                    remote_filepath,
-                    candidate.checksum.clone(),
-                    candidate.size,
-                );
+                info.metadata
+                    .track_file(remote_filepath, candidate.checksum.clone());
                 files_to_upload.push(candidate);
             } else {
                 debug!(
@@ -118,7 +115,6 @@ pub fn plan_checkpoint(
                 info.metadata.track_file(
                     prev_file.remote_filepath.clone(),
                     prev_file.checksum.clone(),
-                    prev_file.file_size,
                 );
             }
         } else {
@@ -127,7 +123,7 @@ pub fn plan_checkpoint(
             metrics::counter!(CHECKPOINT_PLAN_FILE_TRACKED_COUNTER, "file" => "added").increment(1);
             let remote_filepath = info.get_file_key(filename);
             info.metadata
-                .track_file(remote_filepath, candidate.checksum.clone(), candidate.size);
+                .track_file(remote_filepath, candidate.checksum.clone());
             files_to_upload.push(candidate);
         }
     }
@@ -146,7 +142,10 @@ pub fn plan_checkpoint(
 
 // if true, keep the new LocalCheckpointFile and add it to the metadata
 // if false, drop the new file and add the old CandidateFile to the metadata
-fn decide_with_duplicate(candidate: &LocalCheckpointFile, prev_file: &CheckpointFile) -> bool {
+fn retain_or_replace_duplicate(
+    candidate: &LocalCheckpointFile,
+    prev_file: &CheckpointFile,
+) -> bool {
     match &candidate.filename {
         // simple cases - CURRENT should always be latest; SST files should be retained
         f if f == "CURRENT" => true,
@@ -206,7 +205,7 @@ fn build_candidate_file(file_path: &Path) -> Result<LocalCheckpointFile> {
     let mut file =
         File::open(file_path).with_context(|| format!("Failed to open file: {file_path:?}"))?;
     let mut hasher = Sha256::new();
-    let file_size = std::io::copy(&mut file, &mut hasher)
+    std::io::copy(&mut file, &mut hasher)
         .with_context(|| format!("Failed to read and hash file: {file_path:?}"))?;
 
     let hash = hasher.finalize();
@@ -215,7 +214,6 @@ fn build_candidate_file(file_path: &Path) -> Result<LocalCheckpointFile> {
     Ok(LocalCheckpointFile::new(
         filename,
         checksum,
-        file_size,
         local_file_path,
     ))
 }
@@ -224,16 +222,14 @@ fn build_candidate_file(file_path: &Path) -> Result<LocalCheckpointFile> {
 pub struct LocalCheckpointFile {
     pub filename: String,
     pub checksum: String,
-    pub size: u64,
     pub local_path: PathBuf,
 }
 
 impl LocalCheckpointFile {
-    pub fn new(filename: String, checksum: String, size: u64, local_path: PathBuf) -> Self {
+    pub fn new(filename: String, checksum: String, local_path: PathBuf) -> Self {
         Self {
             filename,
             checksum,
-            size,
             local_path,
         }
     }
@@ -370,14 +366,12 @@ mod tests {
         prev_metadata.track_file(
             prev_sst1_remote_path.clone(),
             expected_prev_sst1.checksum.clone(),
-            expected_prev_sst1.size,
         );
 
         let prev_sst2_remote_path = format!("{prev_remote_path}/00002.sst");
         prev_metadata.track_file(
             prev_sst2_remote_path.clone(),
             expected_prev_sst2.checksum.clone(),
-            expected_prev_sst2.size,
         );
 
         let attempt_timestamp = Utc::now();
@@ -438,9 +432,7 @@ mod tests {
 
         // checksums should match across checkpoint file meta and local file refs for upload
         assert_eq!(&sst1_file_meta.checksum, &expected_prev_sst1.checksum);
-        assert_eq!(sst1_file_meta.file_size, expected_prev_sst1.size);
         assert_eq!(&sst2_file_meta.checksum, &expected_prev_sst2.checksum);
-        assert_eq!(sst2_file_meta.file_size, expected_prev_sst2.size);
 
         // Check that file3 is in metadata as a reference
         let current_attempt_remote_path =
@@ -476,11 +468,8 @@ mod tests {
 
         // checksums should match across checkpoint file meta and local file refs for upload
         assert_eq!(&sst1_file_meta.checksum, &expected_prev_sst1.checksum);
-        assert_eq!(sst1_file_meta.file_size, expected_prev_sst1.size);
         assert_eq!(&sst2_file_meta.checksum, &expected_prev_sst2.checksum);
-        assert_eq!(sst2_file_meta.file_size, expected_prev_sst2.size);
         assert_eq!(sst3_file_meta.checksum, expected_sst3.checksum);
-        assert_eq!(sst3_file_meta.file_size, expected_sst3.size);
     }
 
     #[test]
@@ -534,17 +523,14 @@ mod tests {
         prev_metadata.track_file(
             prev_sst1_remote_path.clone(),
             expected_prev_sst1.checksum.clone(),
-            expected_prev_sst1.size,
         );
         prev_metadata.track_file(
             prev_sst2_remote_path.clone(),
             expected_prev_sst2.checksum.clone(),
-            expected_prev_sst2.size,
         );
         prev_metadata.track_file(
             prev_sst3_remote_path.clone(),
             expected_prev_sst3.checksum.clone(),
-            expected_prev_sst3.size,
         );
 
         let attempt_timestamp = Utc::now();
@@ -608,11 +594,8 @@ mod tests {
         // checksums & sizes should match across tracked file metadata
         // and the original checkpoint attempt's local files
         assert_eq!(&sst1_file_meta.checksum, &expected_prev_sst1.checksum);
-        assert_eq!(sst1_file_meta.file_size, expected_prev_sst1.size);
         assert_eq!(&sst2_file_meta.checksum, &expected_prev_sst2.checksum);
-        assert_eq!(sst2_file_meta.file_size, expected_prev_sst2.size);
         assert_eq!(&sst3_file_meta.checksum, &expected_prev_sst3.checksum);
-        assert_eq!(sst3_file_meta.file_size, expected_prev_sst3.size);
     }
 
     #[test]
@@ -678,32 +661,26 @@ mod tests {
         prev_metadata.track_file(
             prev_sst1_remote_path.clone(),
             expected_prev_sst1.checksum.clone(),
-            expected_prev_sst1.size,
         );
         prev_metadata.track_file(
             prev_sst2_remote_path.clone(),
             expected_prev_sst2.checksum.clone(),
-            expected_prev_sst2.size,
         );
         prev_metadata.track_file(
             prev_manifest_remote_path.clone(),
             expected_prev_manifest.checksum.clone(),
-            expected_prev_manifest.size,
         );
         prev_metadata.track_file(
             prev_options_remote_path.clone(),
             expected_prev_options.checksum.clone(),
-            expected_prev_options.size,
         );
         prev_metadata.track_file(
             prev_current_remote_path.clone(),
             expected_prev_current.checksum.clone(),
-            expected_prev_current.size,
         );
         prev_metadata.track_file(
             prev_log_remote_path.clone(),
             expected_prev_log.checksum.clone(),
-            expected_prev_log.size,
         );
 
         let attempt_timestamp = Utc::now();

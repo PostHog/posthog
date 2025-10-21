@@ -85,9 +85,9 @@ impl CheckpointMetadata {
     }
 
     /// Append another CheckpointFile to the files list
-    pub fn track_file(&mut self, remote_filepath: String, checksum: String, file_size: u64) {
+    pub fn track_file(&mut self, remote_filepath: String, checksum: String) {
         self.files
-            .push(CheckpointFile::new(remote_filepath, checksum, file_size));
+            .push(CheckpointFile::new(remote_filepath, checksum));
     }
 
     /// Generate attempt-scoped path elements for this checkpoint, not including
@@ -171,19 +171,16 @@ pub struct CheckpointFile {
     /// planning to decide if we should keep the original reference to
     /// same-named files from a previous checkpoint attempt, or replace with
     /// the newest version. Critical for non-SST files that can be appended to
-    /// by RocksDB between checkpoint attempts
+    /// by RocksDB between checkpoint attempts. NOT TRACKED FOR SST FILES as
+    /// they are immutable after creation.
     pub checksum: String,
-
-    /// The size of the file in bytes as u64. Useful metadata for debugging etc.
-    pub file_size: u64,
 }
 
 impl CheckpointFile {
-    pub fn new(remote_filepath: String, checksum: String, file_size: u64) -> Self {
+    pub fn new(remote_filepath: String, checksum: String) -> Self {
         Self {
             remote_filepath,
             checksum,
-            file_size,
         }
     }
 }
@@ -241,17 +238,14 @@ mod tests {
         metadata.track_file(
             format!("{remote_base_path}/000001.sst"),
             "checksum1".to_string(),
-            100,
         );
         metadata.track_file(
             format!("{remote_base_path}/000002.sst"),
             "checksum2".to_string(),
-            200,
         );
         metadata.track_file(
             format!("{remote_base_path}/MANIFEST-000123"),
             "checksum3".to_string(),
-            300,
         );
 
         assert_eq!(metadata.files.len(), 3);
@@ -260,19 +254,16 @@ mod tests {
             format!("checkpoints/test-topic/0/{checkpoint_id}/000001.sst")
         );
         assert_eq!(metadata.files[0].checksum, "checksum1");
-        assert_eq!(metadata.files[0].file_size, 100);
         assert_eq!(
             metadata.files[1].remote_filepath,
             format!("checkpoints/test-topic/0/{checkpoint_id}/000002.sst")
         );
         assert_eq!(metadata.files[1].checksum, "checksum2");
-        assert_eq!(metadata.files[1].file_size, 200);
         assert_eq!(
             metadata.files[2].remote_filepath,
             format!("checkpoints/test-topic/0/{checkpoint_id}/MANIFEST-000123")
         );
         assert_eq!(metadata.files[2].checksum, "checksum3");
-        assert_eq!(metadata.files[2].file_size, 300);
     }
 
     #[tokio::test]
@@ -308,7 +299,6 @@ mod tests {
                 metadata.get_attempt_path()
             ),
             "checksum1".to_string(),
-            100,
         );
 
         // Save metadata
@@ -338,7 +328,6 @@ mod tests {
             expected_remote_file_path
         );
         assert_eq!(loaded_metadata.files[0].checksum, "checksum1");
-        assert_eq!(loaded_metadata.files[0].file_size, 100);
     }
 
     #[test]
