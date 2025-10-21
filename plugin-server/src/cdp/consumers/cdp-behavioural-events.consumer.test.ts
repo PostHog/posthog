@@ -146,20 +146,15 @@ describe('CdpBehaviouralEventsConsumer', () => {
             const preCalculatedEvent = events[0]
             expect(preCalculatedEvent.key).toBe('2025-03-03 18:15:46.319') // Partitioned by timestamp
 
-            // Hash the action bytecode to get expected condition
-            const expectedCondition = processor['createFilterHash'](TEST_FILTERS.chromePageview)
-            const expectedTimestamp = '2025-03-03 18:15:46.319'
-
             expect(preCalculatedEvent.payload).toMatchObject({
                 uuid: eventUuid,
                 team_id: team.id,
-                date: expectedTimestamp,
+                evaluation_timestamp: '2025-03-03 18:15:46.319',
                 person_id: personId,
                 distinct_id: distinctId,
-                condition: expectedCondition,
+                condition: String(actionId),
                 source: `action_${actionId}`,
             })
-
             // Test publishing the events to Kafka
             await processor['publishEvents'](events)
 

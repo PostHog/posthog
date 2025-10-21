@@ -1,4 +1,3 @@
-import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
@@ -18,7 +17,7 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 export type PreCalculatedEvent = {
     uuid: string // event uuid
     team_id: number
-    date: string
+    evaluation_timestamp: string
     person_id: string
     distinct_id: string
     condition: string // hash of the filter bytecode
@@ -68,11 +67,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             })
             // Don't clear queue on error - messages will be retried with next batch
         }
-    }
-
-    private createFilterHash(bytecode: any): string {
-        const data = typeof bytecode === 'string' ? bytecode : JSON.stringify(bytecode)
-        return createHash('sha256').update(data).digest('hex')
     }
 
     // Evaluate if event matches action using bytecode execution
@@ -165,17 +159,16 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                             if (matches) {
                                 // Hash the action bytecode/id as the condition identifier
                                 // This ensures consistent condition hashes for the same action
-                                const bytecodeHash = this.createFilterHash(action.bytecode)
 
                                 const preCalculatedEvent: ProducedEvent = {
                                     key: evaluationTimestamp,
                                     payload: {
                                         uuid: filterGlobals.uuid,
                                         team_id: clickHouseEvent.team_id,
-                                        date: evaluationTimestamp,
+                                        evaluation_timestamp: evaluationTimestamp,
                                         person_id: clickHouseEvent.person_id!,
                                         distinct_id: filterGlobals.distinct_id,
-                                        condition: bytecodeHash,
+                                        condition: String(action.id),
                                         source: `action_${action.id}`,
                                     },
                                 }
