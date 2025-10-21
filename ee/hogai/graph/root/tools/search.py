@@ -4,7 +4,7 @@ from django.conf import settings
 
 from pydantic import BaseModel, Field
 
-from ee.hogai.graph.entity_search.toolkit import EntitySearchToolkit
+from ee.hogai.graph.root.tools.full_text_search.toolkit import ENTITY_MAP, EntitySearchToolkit
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import EntityType
 
@@ -31,7 +31,7 @@ Examples:
 - Needs help understanding PostHog concepts
 - Has questions about SDK integration or instrumentation
     - e.g. `posthog.capture('event')`, `posthog.captureException(err)`,
-    `posthog.identify(userId)`, `capture({ ... })` not working, etc.
+    `posthog.identify(userId)`, `capture({{ ... }})` not working, etc.
 - Troubleshooting missing or unexpected data
     - e.g. "Events aren't arriving", "Why don't I see errors on the dashboard?"
 - Wants to know more about PostHog the company
@@ -50,25 +50,30 @@ Examples:
 - Product-specific metrics that most likely exist.
 - Common sense metrics that are relevant to the product.
 
-# Entity search
+# Full-text entity search
 
-Use this tool to find PostHog entities (dashboards, cohorts, actions, experiments, feature flags, surveys) by name or description.
-- Use when users ask to find, search for, or look up any PostHog entity
-- The search functionality works better with natural language queries that include context
-- Use this tool when users ask general questions like "find my dashboards about conversion" or "show me cohorts for mobile users"
-""".strip()
+Use this tool to find PostHog entities using full-text search aka FTS.
+Full-text search is a more powerful way to find entities than natural language search. It relies on the PostgreSQL full-text search capabilities.
+So the query used in this tool should be a natural language query that is optimized for full-text search, consider tokenizing of the query and using synonyms.
 
-SearchKind = Literal["insights", "docs", "entities"]
+- Use this tool when users ask to find, search for, or look up any PostHog entity.
+- When using this tool, you should use the entity type in the format of `{{entity}}_fts`.
+For example, if you want to search for dashboards, you should use `dashboard_fts`.
+- If you want to search for all entities, you should use `all_fts`.
+
+The supported PostHog entity types are:
+`{fts_entities}`
+
+""".format(fts_entities="\n".join([f"- {entity_name}" for entity_name in ENTITY_MAP.keys()])).strip()
+
+FTS_ENTITIES = [f"{entity}_fts" for entity in [EntityType.ALL, *ENTITY_MAP.keys()]]
+SearchKind = Literal["insights", "docs", *FTS_ENTITIES]
 
 
 class SearchToolArgs(BaseModel):
-    kind: SearchKind = Field(description="Select what you want to search for: 'insights', 'docs', or 'entities'")
+    kind: SearchKind = Field(description="Select the entity you want to find")
     query: str = Field(
         description="Describe what you want to find. Include as much details from the context as possible."
-    )
-    entity_types: list[EntityType] | None = Field(
-        default=None,
-        description="When kind='entities', specify which entity types to search (dashboards, cohorts, actions, experiments, feature flags, surveys). If not specified, searches all types.",
     )
 
 
@@ -80,16 +85,14 @@ class SearchTool(MaxTool):
     args_schema: type[BaseModel] = SearchToolArgs
     show_tool_call_message: bool = False
 
-    async def _arun_impl(
-        self, kind: SearchKind, query: str, entity_types: list[EntityType] | None = None
-    ) -> tuple[str, dict[str, Any] | None]:
+    async def _arun_impl(self, kind: SearchKind, query: str) -> tuple[str, dict[str, Any] | None]:
         if kind == "docs" and not settings.INKEEP_API_KEY:
             return "This tool is not available in this environment.", None
 
-        if kind == "entities":
+        if kind in FTS_ENTITIES:
             entity_search_toolkit = EntitySearchToolkit(self._team, self._user)
-            response = await entity_search_toolkit.search(query, entity_types or [])
+            response = await entity_search_toolkit.execute(query, kind.replace("_fts", ""))
             return response, None
 
         # Used for routing
-        return "Search tool executed", SearchToolArgs(kind=kind, query=query, entity_types=entity_types).model_dump()
+        return "Search tool executed", SearchToolArgs(kind=kind, query=query).model_dump()

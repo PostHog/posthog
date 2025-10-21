@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
-from ee.hogai.graph.entity_search.toolkit import ENTITY_MAP, EntitySearchToolkit
+from ee.hogai.graph.root.tools.full_text_search.toolkit import ENTITY_MAP, EntitySearchToolkit
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 
 
@@ -30,20 +30,14 @@ class TestEntitySearchToolkit:
         ]
     )
     def test_build_url(self, entity_type, result_id, expected_path):
-        url = self.toolkit.build_url(entity_type, result_id)
-        expected_url = expected_path.format(team_id=self.team.id)
+        from posthog.settings import SITE_URL
+
+        url = self.toolkit._build_url(entity_type, result_id)
+        expected_url = f"{SITE_URL}{expected_path.format(team_id=self.team.id)}"
         assert url == expected_url
 
     @parameterized.expand(
         [
-            (
-                {
-                    "type": "cohort",
-                    "result_id": "123",
-                    "extra_fields": {"name": "Test cohort", "key": "test_key", "description": "Test description"},
-                },
-                ["name: Test cohort", "key: test_key", "description: Test description"],
-            ),
             (
                 {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}},
                 ["name: Test Dashboard"],
@@ -75,7 +69,8 @@ class TestEntitySearchToolkit:
 
         assert "No entities found" in content
         assert "test query" in content
-        assert "['dashboard', 'cohort']" in content
+        assert "dashboard" in content
+        assert "cohort" in content
 
     def test_format_results_for_display_with_results(self):
         results = [
@@ -93,17 +88,17 @@ class TestEntitySearchToolkit:
         assert "Test Dashboard" in content
         assert "Cohort: 1" in content
         assert "Dashboard: 1" in content
-        assert "VERY IMPORTANT INSTRUCTIONS" in content
+        assert HYPERLINK_USAGE_INSTRUCTIONS in content
 
     @pytest.mark.asyncio
     async def test_arun_no_query(self):
-        result = await self.toolkit.search(query=None, entity_types=["cohort", "dashboard", "action"])  # type: ignore
+        result = await self.toolkit.execute(query=None, entity="cohort")  # type: ignore
 
         assert "No search query was provided" in result
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.entity_search.toolkit.search_entities")
-    @patch("ee.hogai.graph.entity_search.toolkit.database_sync_to_async")
+    @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.search_entities")
+    @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.database_sync_to_async")
     async def test_search_no_entity_types(self, mock_db_sync, mock_search_entities):
         all_results = [
             {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
@@ -123,15 +118,15 @@ class TestEntitySearchToolkit:
         mock_db_sync.side_effect = async_wrapper
         mock_search_entities.side_effect = side_effect_func
 
-        _ = await self.toolkit.search(query="test query", entity_types=[])
+        _ = await self.toolkit.execute(query="test query", entity="all")
 
         mock_search_entities.assert_called_once_with(
             set(ENTITY_MAP.keys()), "test query", self.team.project_id, self.toolkit, ENTITY_MAP
         )
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.entity_search.toolkit.search_entities")
-    @patch("ee.hogai.graph.entity_search.toolkit.database_sync_to_async")
+    @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.search_entities")
+    @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.database_sync_to_async")
     async def test_arun_with_results(self, mock_db_sync, mock_search_entities):
         all_results = [
             {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
@@ -140,7 +135,8 @@ class TestEntitySearchToolkit:
         ]
 
         def side_effect_func(entities, query, project_id, view, entity_map):
-            return (all_results, {entity: 1 for entity in entities})
+            result = [result for result in all_results if result["type"] in entities]
+            return (result, {entity: len(result) for entity in entities})
 
         def async_wrapper(func):
             async def inner(*args, **kwargs):
@@ -151,29 +147,25 @@ class TestEntitySearchToolkit:
         mock_db_sync.side_effect = async_wrapper
         mock_search_entities.side_effect = side_effect_func
 
-        result = await self.toolkit.search(query="test query", entity_types=["cohort", "dashboard", "action"])
-
-        assert "Test cohort" in result
-        assert "Test Dashboard" in result
-        assert "Test Action" in result
-
-        for mock_result in all_results:
-            assert self.toolkit.build_url(mock_result["type"], mock_result["result_id"]) in result  # type: ignore
-
-        assert HYPERLINK_USAGE_INSTRUCTIONS in result
+        for expected_result in all_results:
+            result = await self.toolkit.execute(query="test query", entity=expected_result["type"])
+            assert expected_result["type"] in result
+            assert expected_result["extra_fields"]["name"] in result
+            assert self.toolkit._build_url(expected_result["type"], expected_result["result_id"]) in result
+            assert HYPERLINK_USAGE_INSTRUCTIONS in result
 
     @pytest.mark.asyncio
-    @patch("ee.hogai.graph.entity_search.toolkit.database_sync_to_async")
-    @patch("ee.hogai.graph.entity_search.toolkit.capture_exception")
+    @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.database_sync_to_async")
+    @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.capture_exception")
     async def test_arun_exception_handling(self, mock_capture, mock_db_sync):
         mock_db_sync.side_effect = Exception("Database error")
 
-        result = await self.toolkit.search(query="test query", entity_types=["cohort", "dashboard", "action"])
+        result = await self.toolkit.execute(query="test query", entity="dashboard")
 
         assert "Database error" in result
 
     @pytest.mark.asyncio
     async def test_search_entities_invalid_entity_type(self):
-        result = await self.toolkit.search(query="test query", entity_types=["invalid_type"])
+        result = await self.toolkit.execute(query="test query", entity="invalid_type")
 
-        assert "No valid entity types were provided. Will not search for any entity types." in result
+        assert "Invalid entity type: invalid_type. Will not search for this entity type." in result

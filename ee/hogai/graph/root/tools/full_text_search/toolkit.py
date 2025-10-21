@@ -4,8 +4,9 @@ import yaml
 from posthoganalytics import capture_exception
 
 from posthog.api.search import EntityConfig, search_entities
-from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Survey, Team, User
+from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey, Team, User
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.settings import SITE_URL
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
@@ -14,6 +15,11 @@ from ee.hogai.utils.types.base import EntityType
 from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE
 
 ENTITY_MAP: dict[str, EntityConfig] = {
+    "insight": {
+        "klass": Insight,
+        "search_fields": {"name": "A", "description": "C", "query_metadata": "B"},
+        "extra_fields": ["name", "description", "query", "query_metadata"],
+    },
     "dashboard": {
         "klass": Dashboard,
         "search_fields": {"name": "A", "description": "C"},
@@ -66,8 +72,8 @@ class EntitySearchToolkit:
     def user_access_control(self) -> UserAccessControl:
         return UserAccessControl(user=self._user, team=self._team, organization_id=self._team.organization.id)
 
-    def build_url(self, entity_type: str | EntityType, result_id: str) -> str:
-        base_url = f"/project/{self._team.id}"
+    def _build_url(self, entity_type: str | EntityType, result_id: str) -> str:
+        base_url = f"{SITE_URL}/project/{self._team.id}"
         match entity_type:
             case EntityType.INSIGHT:
                 return f"{base_url}/insights/{result_id}"
@@ -95,10 +101,10 @@ class EntitySearchToolkit:
 
         result_dict = {
             "name": extra_fields.get("name", f"{entity_type.upper()} {result_id}"),
+            "id": result_id,
             "extra_fields": extra_fields,
             "type": entity_type.title(),
-            "id": result_id,
-            "url": self.build_url(entity_type, result_id),
+            "url": self._build_url(entity_type, result_id),
         }
 
         return yaml.dump(result_dict, default_flow_style=False, allow_unicode=True, sort_keys=False).strip()
@@ -132,31 +138,24 @@ class EntitySearchToolkit:
             content += f"\n\n{HYPERLINK_USAGE_INSTRUCTIONS}"
         return content
 
-    async def search(self, query: str, entity_types: list[str] | list[EntityType]) -> str:
-        """Search for entities by query and optional entity types."""
+    async def execute(self, query: str, entity: str) -> str:
+        """Search for entities by query and entity."""
         try:
             if not query:
                 return "No search query was provided"
 
-            entities = set(entity_types) if len(entity_types) > 0 else set(ENTITY_MAP.keys())
-            valid_entity_types = set()
-            content = ""
-            for entity_type in entities:
-                entity_meta = ENTITY_MAP.get(entity_type)
-                if not entity_meta:
-                    content += f"Invalid entity type: {entity_type}. Will not search for this entity type."
-                else:
-                    valid_entity_types.add(entity_type)
-
-            if len(valid_entity_types) == 0:
-                return "No valid entity types were provided. Will not search for any entity types."
+            if entity == EntityType.ALL:
+                entity_types = set(ENTITY_MAP.keys())
+            elif entity in ENTITY_MAP:
+                entity_types = {entity}
+            else:
+                return f"Invalid entity type: {entity}. Will not search for this entity type."
 
             results, counts = await database_sync_to_async(search_entities)(
-                valid_entity_types, query, self._team.project_id, self, ENTITY_MAP
+                entity_types, query, self._team.project_id, self, ENTITY_MAP
             )  # type: ignore
 
-            # Format all results for display
-            content += self._format_results_for_display(query, valid_entity_types, results, counts)
+            content = self._format_results_for_display(query, entity_types, results, counts)
             return content
 
         except Exception as e:

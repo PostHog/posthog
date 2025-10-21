@@ -488,9 +488,8 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     name="search",
                     args={
-                        "kind": "entities",
+                        "kind": "dashboard_fts",
                         "query": "user engagement",
-                        "entity_types": ["dashboard"],
                     },
                     id="call_search_1",
                 ),
@@ -500,9 +499,8 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     name="search",
                     args={
-                        "kind": "entities",
+                        "kind": "cohort_fts",
                         "query": "mobile users",
-                        "entity_types": ["cohort"],
                     },
                     id="call_search_3",
                 ),
@@ -512,9 +510,8 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     name="search",
                     args={
-                        "kind": "entities",
+                        "kind": "feature_flag_fts",
                         "query": "batch export",
-                        "entity_types": ["feature_flag"],
                     },
                     id="call_search_4",
                 ),
@@ -524,9 +521,8 @@ async def eval_root(call_root, pytestconfig):
                 expected=AssistantToolCall(
                     name="search",
                     args={
-                        "kind": "entities",
+                        "kind": "all_fts",
                         "query": "revenue",
-                        "entity_types": [],
                     },
                     id="call_search_5",
                 ),
