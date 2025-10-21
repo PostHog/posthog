@@ -435,7 +435,7 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         created_at = request.session.get("email_mfa_token_created_at", 0)
         if int(time.time()) - created_at < 60:  # 60 second cooldown
             raise serializers.ValidationError(
-                {"detail": "Please wait before requesting another email."}, code="too_soon"
+                {"detail": "Please wait 60 seconds before requesting another email."}, code="too_soon"
             )
 
         try:
