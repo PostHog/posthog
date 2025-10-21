@@ -42,10 +42,12 @@ pub struct PoolStats {
 #[derive(Debug, Clone)]
 pub struct PoolConfig {
     pub max_connections: u32,
+    pub min_connections: u32,
     pub acquire_timeout: Duration,
     pub idle_timeout: Option<Duration>,
     pub max_lifetime: Option<Duration>,
     pub test_before_acquire: bool,
+    pub statement_timeout: Option<Duration>,
 }
 
 impl Default for PoolConfig {
@@ -54,10 +56,12 @@ impl Default for PoolConfig {
     fn default() -> Self {
         Self {
             max_connections: 10,
+            min_connections: 0,
             acquire_timeout: Duration::from_secs(10),
             idle_timeout: Some(Duration::from_secs(300)), // Close idle connections after 5 minutes
             max_lifetime: Some(Duration::from_secs(1800)), // Force refresh connections after 30 minutes
             test_before_acquire: true,                     // Test connection health before use
+            statement_timeout: None,                       // No statement timeout by default
         }
     }
 }
@@ -92,6 +96,7 @@ pub async fn get_pool_with_timeout(
 pub async fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sqlx::Error> {
     let mut options = PgPoolOptions::new()
         .max_connections(config.max_connections)
+        .min_connections(config.min_connections)
         .acquire_timeout(config.acquire_timeout)
         .test_before_acquire(config.test_before_acquire);
 
@@ -101,6 +106,20 @@ pub async fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPoo
 
     if let Some(max_lifetime) = config.max_lifetime {
         options = options.max_lifetime(max_lifetime);
+    }
+
+    // Add statement timeout if configured
+    if let Some(statement_timeout) = config.statement_timeout {
+        let timeout_duration = statement_timeout;
+        options = options.after_connect(move |conn, _meta| {
+            let timeout_str = format!("{}ms", timeout_duration.as_millis());
+            Box::pin(async move {
+                sqlx::query(&format!("SET statement_timeout = '{timeout_str}'"))
+                    .execute(&mut *conn)
+                    .await?;
+                Ok(())
+            })
+        });
     }
 
     options.connect(url).await
