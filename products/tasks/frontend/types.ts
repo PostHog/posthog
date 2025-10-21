@@ -31,7 +31,6 @@ export interface Task {
 export type TaskUpsertProps = Optional<
     Pick<
         Task,
-        | 'title'
         | 'description'
         | 'origin_product'
         | 'position'
