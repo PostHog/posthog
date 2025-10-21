@@ -1924,6 +1924,7 @@ const api = {
                     ActivityScope.HOG_FUNCTION,
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
+                    ActivityScope.ENDPOINT,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
