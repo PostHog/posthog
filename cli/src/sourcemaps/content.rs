@@ -202,7 +202,7 @@ impl SourceMapFile {
         let new_content = {
             let content = serde_json::to_string(&self.inner.content)?.into_bytes();
             let mut map = sourcemap::decode_slice(content.as_slice())
-                .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?;
+                .map_err(|err| anyhow!("Failed to parse sourcemap: {err}"))?;
 
             // This looks weird. The reason we do it, is that we want `original` below
             // to be a &mut SourceMap. This is easy to do if it's a Regular, or Hermes
@@ -217,7 +217,7 @@ impl SourceMapFile {
             if let sourcemap::DecodedMap::Index(indexed) = &mut map {
                 let replacement = indexed
                     .flatten()
-                    .map_err(|err| anyhow!("Failed to flatten sourcemap: {}", err))?;
+                    .map_err(|err| anyhow!("Failed to flatten sourcemap: {err}"))?;
 
                 map = sourcemap::DecodedMap::Regular(replacement);
             };

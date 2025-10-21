@@ -58,8 +58,7 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Re
     })?;
 
     info!("Processing directory: {}", directory.display());
-    let mut pairs = read_pairs(&directory, ignore, public_path_prefix)?;
-    let mut pairs = read_pairs(&directory, &ignore, matcher)?;
+    let mut pairs = read_pairs(&directory, ignore, matcher)?;
     if pairs.is_empty() {
         bail!("No source files found");
     }
@@ -91,6 +90,20 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Re
     let created_release_id = created_release.as_ref().map(|r| r.id.to_string());
 
     pairs = inject_pairs(pairs, created_release_id)?;
+        // If we've got a release, and the user asked us to, or a set is missing one,
+        // put the release ID on the pair
+        if let Some(created_release) = created_release.as_ref() {
+            if !pair.has_release_id() {
+                pair.set_release_id(created_release.id.to_string());
+            }
+        }
+    }
+    if skipped_pairs > 0 {
+        info!(
+            "Skipped {} pairs because chunk IDs already exist",
+            skipped_pairs
+        );
+    }
 
     // Write the source and sourcemaps back to disk
     for pair in &pairs {
