@@ -11,12 +11,13 @@ from django.utils import timezone
 
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
     from posthog.models.user import User
 
 
-class FileSystemViewLog(models.Model):
+class FileSystemViewLog(UUIDModel):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     user = models.ForeignKey("User", on_delete=models.CASCADE)
     type = models.CharField(max_length=150)

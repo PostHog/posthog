@@ -5,6 +5,8 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
+import posthog.models.utils
+
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -15,7 +17,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="FileSystemViewLog",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("id", models.UUIDField(default=posthog.models.utils.uuid7, primary_key=True, serialize=False)),
                 ("type", models.CharField(max_length=150)),
                 ("ref", models.CharField(max_length=200)),
                 ("viewed_at", models.DateTimeField(default=django.utils.timezone.now)),
