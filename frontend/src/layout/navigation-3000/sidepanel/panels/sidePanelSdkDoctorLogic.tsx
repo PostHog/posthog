@@ -50,6 +50,7 @@ export type AugmentedTeamSdkVersionsInfo = {
     [key in SdkType]?: {
         isOutdated: boolean
         isOld: boolean
+        needsUpdating: boolean
         currentVersion: SdkVersion
         allReleases: AugmentedTeamSdkVersionsInfoRelease[]
     }
@@ -65,6 +66,7 @@ export type AugmentedTeamSdkVersionsInfoRelease = {
     daysSinceRelease: number | undefined
     isOutdated: boolean
     isOld: boolean
+    needsUpdating: boolean
 }
 
 /**
@@ -96,7 +98,10 @@ const DEVICE_CONTEXT_CONFIG = {
         'posthog-dotnet',
         'posthog-elixir',
     ] as SdkType[],
-    ageThresholds: { mobile: 16, desktop: 8 },
+    // Age-based outdated detection depends on mobile/desktop
+    // We're more lenient with mobile versions because it's harder to keep them up to date
+    // Arbitrary threshold for now, 4 months for desktop, 6 months for mobile
+    ageThresholds: { desktop: 16, mobile: 24 },
 } as const
 
 export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
@@ -178,6 +183,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             {
                                 isOutdated: releasesInfo[0]!.isOutdated,
                                 isOld: releasesInfo[0]!.isOld,
+                                needsUpdating: releasesInfo[0]!.needsUpdating,
                                 currentVersion: sdkVersion.latestVersion,
                                 allReleases: releasesInfo,
                             },
@@ -187,18 +193,18 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             },
         ],
 
-        outdatedSdkCount: [
+        needsUpdatingCount: [
             (s) => [s.sdkVersionsMap],
             (sdkVersionsMap: AugmentedTeamSdkVersionsInfo): number => {
-                return Object.values(sdkVersionsMap).filter((sdk) => sdk.isOutdated).length
+                return Object.values(sdkVersionsMap).filter((sdk) => sdk.needsUpdating).length
             },
         ],
 
         needsAttention: [
-            (s) => [s.sdkVersionsMap, s.outdatedSdkCount, s.snoozedUntil],
+            (s) => [s.sdkVersionsMap, s.needsUpdatingCount, s.snoozedUntil],
             (
                 sdkVersionsMap: AugmentedTeamSdkVersionsInfo,
-                outdatedSdkCount: number,
+                needsUpdatingCount: number,
                 snoozedUntil: string | null
             ): boolean => {
                 // If snoozed, we don't need attention to this
@@ -219,20 +225,20 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 // |                4           |     |     |     | YES | YES |
                 // |                5           |     |     |     |     | YES |
                 const teamSdkCount = Object.values(sdkVersionsMap).length
-                return outdatedSdkCount >= Math.ceil(teamSdkCount / 2)
+                return needsUpdatingCount >= Math.ceil(teamSdkCount / 2)
             },
         ],
 
         sdkHealth: [
-            (s) => [s.needsAttention, s.outdatedSdkCount],
-            (needsAttention: boolean, outdatedSdkCount: number): SdkHealthStatus => {
+            (s) => [s.needsAttention, s.needsUpdatingCount],
+            (needsAttention: boolean, needsUpdatingCount: number): SdkHealthStatus => {
                 // If there's need for attention, then it's automatically marked as danger
                 if (needsAttention) {
                     return 'danger'
                 }
 
                 // If there's no need for attention, but there are outdated SDKs, then it's marked as warning
-                if (outdatedSdkCount >= 1) {
+                if (needsUpdatingCount >= 1) {
                     return 'warning'
                 }
 
@@ -370,18 +376,18 @@ function computeAugmentedInfoRelease(
         } else if (diff) {
             switch (diff.kind) {
                 case 'major':
-                    // Major version behind (1.x → 2.x): Always flag as outdated
+                    // Major version behind (e.g. 1.x -> 2.x): Always flag as outdated
                     isOutdated = true
                     break
                 case 'minor':
-                    // Minor version behind (1.2.x → 1.5.x): Flag if 3+ minors behind OR >6 months old
+                    // Minor version behind (e.g. 1.2.x -> 1.5.x): Flag if 3+ minors behind OR >6 months old
                     const sixMonthsInDays = 180
                     const isMinorOutdatedByCount = diff.diff >= 3
                     const isMinorOutdatedByAge = daysSinceRelease !== undefined && daysSinceRelease > sixMonthsInDays
                     isOutdated = isMinorOutdatedByCount || isMinorOutdatedByAge
                     break
                 case 'patch':
-                    // Patch version is never outdated
+                    // Patch version behind (e.g. 1.2.3 -> 1.2.7) is never outdated
                     isOutdated = false
                     break
             }
@@ -392,8 +398,9 @@ function computeAugmentedInfoRelease(
             version: version.lib_version,
             maxTimestamp: version.max_timestamp,
             count: version.count,
-            isOutdated: isOutdated || isOld,
+            isOutdated,
             isOld, // Returned separately for "Old" badge in UI
+            needsUpdating: isOutdated || isOld,
             releaseDate,
             daysSinceRelease,
             latestVersion: sdkVersion.latestVersion,
@@ -407,6 +414,7 @@ function computeAugmentedInfoRelease(
             count: version.count,
             isOutdated: false,
             isOld: false,
+            needsUpdating: false,
             releaseDate: undefined,
             daysSinceRelease: undefined,
             latestVersion: sdkVersion.latestVersion,
