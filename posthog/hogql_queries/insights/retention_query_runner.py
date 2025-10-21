@@ -773,7 +773,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             "dateDiff({unit}, start_event_timestamps[1], _timestamp)", {"unit": ast.Constant(value=unit)}
         )
 
-        cumulative_total = 0
+        cumulative_total = 1  # Brackets start from day 1
         multi_if_args: list[ast.Expr] = []
         for i, bracket_size in enumerate(self.query.retentionFilter.retentionCustomBrackets):
             cumulative_total += int(bracket_size)
@@ -783,7 +783,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 right=ast.Constant(value=cumulative_total),
             )
             multi_if_args.append(condition)
-            multi_if_args.append(ast.Constant(value=i))  # 0-indexed bracket
+            multi_if_args.append(ast.Constant(value=i + 1))  # 1-indexed bracket
 
         multi_if_args.append(ast.Constant(value=-1))  # Else, not in any bracket
 
@@ -944,7 +944,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         labels = [f"{self.query_date_range.interval_name.title()} 0"]
         if self.is_custom_bracket_retention and self.query.retentionFilter.retentionCustomBrackets:
             unit = self.query_date_range.interval_name.title()
-            cumulative_total = 0
+            cumulative_total = 1  # Return periods start from day 1
             for bracket_size in self.query.retentionFilter.retentionCustomBrackets:
                 bracket_size = int(bracket_size)
                 start = cumulative_total

@@ -45,7 +45,7 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
             .filter((b): b is number => !isNaN(b) && b > 0)
 
         const unit = dateOptionPlurals[period || 'Day'].toLowerCase().slice(0, -1)
-        let cumulativeTotal = 0
+        let cumulativeTotal = 1
         for (let i = 0; i < index; i++) {
             cumulativeTotal += numericBrackets[i] || 0
         }
