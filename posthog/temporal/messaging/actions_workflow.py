@@ -9,6 +9,8 @@ from structlog.contextvars import bind_contextvars
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.models.action import Action
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -148,7 +150,7 @@ def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsRes
                     product=Product.MESSAGING,
                     query_type="action_event_counts_per_person_per_day",
                 ):
-                    sync_execute(
+                    results = sync_execute(
                         query,
                         {
                             "team_id": action.team_id,
@@ -159,6 +161,18 @@ def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsRes
                         ch_user=ClickHouseUser.DEFAULT,
                         workload=Workload.OFFLINE,
                     )
+
+                    for row in results:
+                        payload = {
+                            "team_id": row[0],
+                            "cohort_id": row[1],
+                            "person_id": str(row[2]),
+                            "last_updated": str(row[3]),
+                            "status": row[4],
+                        }
+                        KafkaProducer().produce(
+                            topic=KAFKA_COHORT_MEMBERSHIP_CHANGED, key=payload["person_id"], data=payload
+                        )
 
             except Exception as e:
                 logger.exception(
