@@ -1,16 +1,14 @@
-from typing import Annotated, Literal
+from typing import Literal
 from uuid import uuid4
 
-from langchain_core.tools import InjectedToolCallId
 from pydantic import BaseModel, Field
-from pydantic.json_schema import SkipJsonSchema
 
 from posthog.schema import AssistantContextualTool, AssistantToolCallMessage, VisualizationMessage
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
-from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool, MaxToolArgs, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState
 
@@ -139,8 +137,7 @@ The agent has encountered an unknown error while creating an insight.
 """.strip()
 
 
-class CreateAndQueryInsightToolArgs(BaseModel):
-    tool_call_id: Annotated[str, InjectedToolCallId, SkipJsonSchema]
+class CreateAndQueryInsightToolArgs(MaxToolArgs):
     query_description: str = Field(
         description=(
             "A description of the query to generate, encapsulating the details of the user's request. "

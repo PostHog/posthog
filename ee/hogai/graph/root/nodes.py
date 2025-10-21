@@ -44,7 +44,6 @@ from ee.hogai.utils.types import (
     AssistantState,
     BaseState,
     BaseStateWithMessages,
-    InsightQuery,
     PartialAssistantState,
     ReplaceMessages,
 )
@@ -62,12 +61,12 @@ from .prompts import (
 )
 from .tools import (
     CreateAndQueryInsightTool,
+    CreateDashboardTool,
     ReadDataTool,
     ReadTaxonomyTool,
     SearchTool,
     SessionSumarizationTool,
     TodoWriteTool,
-    create_dashboard,
 )
 
 if TYPE_CHECKING:
@@ -256,6 +255,13 @@ class RootNode(AssistantNode):
         if self._has_session_summarization_feature_flag():
             default_tools.append(SessionSumarizationTool)
 
+        # Add other lower-priority tools
+        default_tools.extend(
+            [
+                CreateDashboardTool,
+            ]
+        )
+
         # Processed tools
         available_tools: list[RootTool] = []
 
@@ -265,9 +271,6 @@ class RootNode(AssistantNode):
             for tool_class in default_tools
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))
-
-        # Dashboard creation tool
-        available_tools.append(create_dashboard)
 
         # Inject contextual tools
         tool_names = self.context_manager.get_contextual_tools().keys()
@@ -405,18 +408,6 @@ class RootNodeTools(AssistantNode):
 
         from ee.hogai.tool import get_contextual_tool_class
 
-        if tool_call.name == "create_dashboard":
-            raw_queries = tool_call.args["search_insights_queries"]
-            search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
-
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                dashboard_name=tool_call.args.get("dashboard_name"),
-                search_insights_queries=search_insights_queries,
-                root_tool_calls_count=tool_call_count + 1,
-            )
-
-        # MaxTool flow
         ToolClass = get_contextual_tool_class(tool_call.name)
 
         # If the tool doesn't exist, return the message to the agent
@@ -496,14 +487,6 @@ class RootNodeTools(AssistantNode):
 
     def router(self, state: AssistantState) -> RouteName:
         last_message = state.messages[-1]
-
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
-        if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
-            tool_calls = getattr(last_message, "tool_calls", None)
-            if tool_calls and len(tool_calls) > 0:
-                tool_call = tool_calls[0]
-                tool_call_name = tool_call.name
-                if tool_call_name == "create_dashboard":
-                    return "create_dashboard"
         return "end"

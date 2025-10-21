@@ -1,12 +1,10 @@
-from typing import Annotated, Literal
+from typing import Literal
 
 from langchain_core.runnables import RunnableLambda
-from langchain_core.tools import InjectedToolCallId
 from pydantic import BaseModel, Field
-from pydantic.json_schema import SkipJsonSchema
 
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
-from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool, MaxToolArgs, ToolMessagesArtifact
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 SESSION_SUMMARIZATION_TOOL_PROMPT = """
@@ -47,8 +45,7 @@ Otherwise:
 """.strip()
 
 
-class SessionSumarizationToolArgs(BaseModel):
-    tool_call_id: Annotated[str, InjectedToolCallId, SkipJsonSchema]
+class SessionSumarizationToolArgs(MaxToolArgs):
     session_summarization_query: str = Field(
         description="""
         - The user's complete query for session recordings summarization.
