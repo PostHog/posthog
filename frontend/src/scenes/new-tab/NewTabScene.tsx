@@ -32,7 +32,6 @@ import {
     newTabSceneLogic,
 } from 'scenes/new-tab/newTabSceneLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
