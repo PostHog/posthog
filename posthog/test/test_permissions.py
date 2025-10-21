@@ -759,3 +759,228 @@ class TestOAuthAccessTokenWithTeamScoping(BaseTest):
         response = self._do_request(f"/api/projects/{other_team.id}/feature_flags/")
         self.assertEqual(response.status_code, 403)
         self.assertIn("does not have access to the requested project", response.json()["detail"])
+
+
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    },
+)
+class TestOAuthAccessTokenWithBothTeamAndOrgScoping(BaseTest):
+    """Test that OAuth access tokens properly enforce scoping when both teams and orgs are defined"""
+
+    def setUp(self):
+        super().setUp()
+
+        # Create a second team in the same org
+        self.team2 = Team.objects.create(organization=self.organization, name="Test Team 2", project=self.project)
+
+        # Create a second org with a team
+        _, self.project2, self.other_org_team = Organization.objects.bootstrap(
+            user=self.user, name="Other Organization"
+        )
+
+        # Create OAuth application
+        self.oauth_application = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            skip_authorization=False,
+            organization=self.organization,
+            user=self.user,
+        )
+
+        # Create access token scoped to specific org and specific team within that org
+        self.access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.oauth_application,
+            token="test_mixed_scoped_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="*",
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[self.team.id],
+        )
+
+    def _do_request(self, url):
+        return self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}")
+
+    def test_allows_access_to_scoped_team(self):
+        """OAuth token with both org and team scopes allows access to the scoped team"""
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
+        self.assertEqual(response.status_code, 200)
+
+    def test_denies_access_to_other_team_in_scoped_org(self):
+        """OAuth token with both org and team scopes denies access to other teams in the same org"""
+        response = self._do_request(f"/api/projects/{self.team2.id}/feature_flags/")
+        # Returns 404 because the user is a member of the org but the token is scoped to a different team
+        self.assertEqual(response.status_code, 404)
+
+    def test_denies_access_to_team_in_non_scoped_org(self):
+        """OAuth token with both org and team scopes denies access to teams in other orgs"""
+        response = self._do_request(f"/api/projects/{self.other_org_team.id}/feature_flags/")
+        self.assertEqual(response.status_code, 403)
+
+    def test_denies_access_to_org_endpoint_when_teams_scoped(self):
+        """OAuth token with scoped_teams cannot access org endpoints (current limitation)"""
+        response = self._do_request(f"/api/organizations/{self.organization.id}/")
+        # When scoped_teams is set, org endpoints are denied because the logic requires team-based endpoints
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("only supported on project-based endpoints", response.json()["detail"])
+
+
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    },
+)
+class TestOAuthAccessTokenExpiration(BaseTest):
+    """Test that expired OAuth access tokens are properly rejected"""
+
+    def setUp(self):
+        super().setUp()
+
+        # Create OAuth application
+        self.oauth_application = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            skip_authorization=False,
+            organization=self.organization,
+            user=self.user,
+        )
+
+        # Create a valid access token
+        self.access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.oauth_application,
+            token="test_expiring_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="feature_flag:read",
+        )
+
+    def _do_request(self, token=None):
+        token = token or self.access_token.token
+        return self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+    def test_valid_token_allows_access(self):
+        """A valid non-expired OAuth token allows access"""
+        response = self._do_request()
+        self.assertEqual(response.status_code, 200)
+
+    def test_expired_token_denies_access(self):
+        """An expired OAuth token denies access"""
+        # Expire the token
+        self.access_token.expires = timezone.now() - timedelta(hours=1)
+        self.access_token.save()
+
+        response = self._do_request()
+        self.assertEqual(response.status_code, 401)
+
+    def test_token_works_then_expires_then_fails(self):
+        """OAuth token works when valid, then fails after expiration"""
+        # First verify it works
+        response = self._do_request()
+        self.assertEqual(response.status_code, 200)
+
+        # Expire the token
+        self.access_token.expires = timezone.now() - timedelta(hours=1)
+        self.access_token.save()
+
+        # Verify it no longer works
+        response = self._do_request()
+        self.assertEqual(response.status_code, 401)
+
+
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    },
+)
+class TestOAuthAccessTokenUserMembership(BaseTest):
+    """Test that OAuth tokens respect current user membership (not historical)"""
+
+    def setUp(self):
+        super().setUp()
+
+        # Create OAuth application
+        self.oauth_application = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            skip_authorization=False,
+            organization=self.organization,
+            user=self.user,
+        )
+
+        # Create a valid access token
+        self.access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.oauth_application,
+            token="test_membership_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="feature_flag:read",
+        )
+
+    def _do_request(self, token=None):
+        token = token or self.access_token.token
+        return self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+    def test_token_works_with_membership(self):
+        """OAuth token works when user has org membership"""
+        response = self._do_request()
+        self.assertEqual(response.status_code, 200)
+
+    def test_token_fails_after_user_leaves_organization(self):
+        """OAuth token stops working when user leaves the organization"""
+        from posthog.models import OrganizationMembership
+
+        # First verify token works
+        response = self._do_request()
+        self.assertEqual(response.status_code, 200)
+
+        # Remove user from organization
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
+
+        # Verify token no longer works (membership check fails)
+        response = self._do_request()
+        self.assertEqual(response.status_code, 403)  # Forbidden - user no longer has org membership
+
+    def test_team_scoped_token_fails_when_user_not_in_team_org(self):
+        """OAuth token scoped to a team requires user to be in that team's organization"""
+        from posthog.models import Organization, User
+
+        # Create a different organization with a team (self.user is NOT a member)
+        other_user = User.objects.create(email="other@example.com")
+        other_org, _, other_team = Organization.objects.bootstrap(user=other_user)
+
+        # Create a token scoped to the other team
+        other_team_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=self.oauth_application,
+            token="test_other_team_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="feature_flag:read",
+            scoped_teams=[other_team.id],
+        )
+
+        # Verify token does NOT work because user is not in that org
+        response = self.client.get(
+            f"/api/projects/{other_team.id}/feature_flags/",
+            HTTP_AUTHORIZATION=f"Bearer {other_team_token.token}",
+        )
+        self.assertEqual(response.status_code, 403)  # Forbidden - user not in org
