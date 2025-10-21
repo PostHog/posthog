@@ -4,11 +4,23 @@
 
 ## Installation & usage
 
-The CLI is shipped with the repository and is available automatically inside the Flox environment.
+hogli is shipped with the repository. There are two ways to use it:
+
+**With Flox (recommended):**
 
 ```bash
-flox activate && hogli quickstart
+flox activate  # hogli is available in PATH
+hogli quickstart
 ```
+
+**Without Flox:**
+
+```bash
+uv sync        # Install Python dependencies (includes Click)
+bin/hogli quickstart
+```
+
+The Flox environment adds `hogli` to your PATH via a symlink. Without Flox, use `bin/hogli` directly or add `bin/` to your PATH.
 
 ### Getting started
 
