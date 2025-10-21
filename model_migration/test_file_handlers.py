@@ -260,5 +260,108 @@ class TestHandlerIntegration:
             assert str(target) == expected_target, f"Failed for {source_file}"
 
 
+class TestIntegrationWithRealFiles:
+    """Integration test with real file operations using tmp_path."""
+
+    def test_move_single_file_and_verify_location(self, tmp_path):
+        """Test moving a single model file to correct target location."""
+        # Setup: Create source file structure
+        source_dir = tmp_path / "posthog" / "warehouse"
+        models_dir = source_dir / "models"
+        models_dir.mkdir(parents=True)
+
+        source_file = models_dir / "table.py"
+        source_file.write_text("""from django.db import models
+
+class DataWarehouseTable(models.Model):
+    name = models.CharField(max_length=255)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+""")
+
+        # Setup: Create target directory
+        target_dir = tmp_path / "products" / "data_warehouse" / "backend"
+        target_dir.mkdir(parents=True)
+
+        # Setup: Create context
+        context = FileTransformContext(
+            model_names={"DataWarehouseTable"},
+            target_app="data_warehouse",
+            import_base_path="posthog.warehouse",
+            source_base_path="posthog/warehouse",
+            root_dir=tmp_path,
+            model_to_filename_mapping={"DataWarehouseTable": "table"},
+        )
+
+        # Execute: Move the file using handler
+        handler = HandlerFactory.create_handler("models/table.py", context)
+        target_path = handler.compute_target_path("models/table.py", target_dir)
+
+        # Manually copy to simulate the move (without LibCST transformation)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text(source_file.read_text())
+
+        # Verify: File exists at correct location
+        assert target_path.exists()
+        expected_path = tmp_path / "products" / "data_warehouse" / "backend" / "models" / "table.py"
+        assert target_path == expected_path
+        assert "DataWarehouseTable" in target_path.read_text()
+
+    def test_multiple_file_types_to_correct_locations(self, tmp_path):
+        """Test that different file types go to their correct backend/ subdirectories."""
+        # Setup: Create source directory structure
+        source_dir = tmp_path / "posthog" / "warehouse"
+
+        # Create models/ file
+        models_dir = source_dir / "models"
+        models_dir.mkdir(parents=True)
+        (models_dir / "table.py").write_text("class Table: pass")
+
+        # Create api/ file
+        api_dir = source_dir / "api"
+        api_dir.mkdir(parents=True)
+        (api_dir / "saved_query.py").write_text("class SavedQueryViewSet: pass")
+
+        # Create data_load/ file
+        data_load_dir = source_dir / "data_load"
+        data_load_dir.mkdir(parents=True)
+        (data_load_dir / "service.py").write_text("def load_data(): pass")
+
+        # Create root-level file
+        (source_dir / "hogql.py").write_text("def parse(): pass")
+
+        # Setup: Create target directory
+        target_dir = tmp_path / "products" / "data_warehouse" / "backend"
+        target_dir.mkdir(parents=True)
+
+        # Setup: Create context
+        context = FileTransformContext(
+            model_names={"Table"},
+            target_app="data_warehouse",
+            import_base_path="posthog.warehouse",
+            source_base_path="posthog/warehouse",
+            root_dir=tmp_path,
+            model_to_filename_mapping={},
+        )
+
+        # Test cases: (source_file, expected_relative_target)
+        test_cases = [
+            ("models/table.py", "models/table.py"),
+            ("api/saved_query.py", "api/saved_query.py"),
+            ("data_load/service.py", "data_load/service.py"),
+            ("hogql.py", "hogql.py"),
+        ]
+
+        for source_file, expected_relative in test_cases:
+            # Execute: Get handler and compute target
+            handler = HandlerFactory.create_handler(source_file, context)
+            target_path = handler.compute_target_path(source_file, target_dir)
+
+            # Verify: Path is correct
+            expected_full_path = target_dir / expected_relative
+            assert (
+                target_path == expected_full_path
+            ), f"Failed for {source_file}: expected {expected_full_path}, got {target_path}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
