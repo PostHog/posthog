@@ -53,7 +53,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     })),
     actions(() => ({
         setExperiment: (experiment: Experiment) => ({ experiment }),
-        setExposureCriteria: (criteria: Partial<ExperimentExposureCriteria>) => ({ criteria }),
+        setExposureCriteria: (criteria: ExperimentExposureCriteria) => ({ criteria }),
         createExperiment: () => ({}),
         createExperimentSuccess: true,
         setSharedMetrics: (sharedMetrics: { primary: ExperimentMetric[]; secondary: ExperimentMetric[] }) => ({

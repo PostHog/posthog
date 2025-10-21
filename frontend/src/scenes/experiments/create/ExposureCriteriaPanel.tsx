@@ -17,7 +17,7 @@ import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 
 type ExposureCriteriaPanelProps = {
     experiment: Experiment
-    onChange: (exposureCriteria: Partial<ExperimentExposureCriteria>) => void
+    onChange: (exposureCriteria: ExperimentExposureCriteria) => void
 }
 
 export function ExposureCriteriaPanel({ experiment, onChange }: ExposureCriteriaPanelProps): JSX.Element {
