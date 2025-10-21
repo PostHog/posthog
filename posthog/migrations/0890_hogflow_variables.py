@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0888_datawarehousemanagedviewset_and_more"),
+        ("posthog", "0889_add_schema_models"),
     ]
 
     operations = [
