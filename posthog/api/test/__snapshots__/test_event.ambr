@@ -286,7 +286,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT nullIf(nullIf(events.mat_visible_prop, ''), 'null') AS visible_prop
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2025-09-25 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2025-10-02 23:59:59'), isNotNull(nullIf(nullIf(events.mat_visible_prop, ''), 'null')))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_visible_prop, ''), 'null')))
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
@@ -322,7 +322,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT nullIf(nullIf(events.mat_test_prop, ''), 'null') AS test_prop
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2025-09-25 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2025-10-02 23:59:59'), isNotNull(nullIf(nullIf(events.mat_test_prop, ''), 'null')))
+  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_test_prop, ''), 'null')))
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,

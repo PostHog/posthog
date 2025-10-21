@@ -1,5 +1,6 @@
 import gzip
 import json
+import asyncio
 from typing import Any, Optional
 
 from posthog.exceptions_capture import capture_exception
@@ -71,17 +72,29 @@ async def get_cached_accounts_count() -> Optional[int]:
     Returns:
         Total number of cached accounts, or None if cache miss/error
     """
+    logger = LOGGER.bind()
+
     try:
+        logger.info("Getting Redis client")
         redis_client = get_async_client()
-        raw_redis_data = await redis_client.get(SALESFORCE_ACCOUNTS_CACHE_KEY)
+
+        logger.info("Fetching Redis data")
+        raw_redis_data = await asyncio.wait_for(redis_client.get(SALESFORCE_ACCOUNTS_CACHE_KEY), timeout=30.0)
 
         if not raw_redis_data:
+            logger.info("No cached data found")
             return None
 
         accounts_json = _decompress_redis_data(raw_redis_data)
         all_accounts = json.loads(accounts_json)
-        return len(all_accounts)
+        count = len(all_accounts)
+        logger.info(f"Found {count} cached accounts")
+        return count
 
+    except TimeoutError:
+        logger.exception("Redis operation timed out after 30 seconds")
+        return None
     except Exception as e:
+        logger.exception(f"Redis error: {str(e)}")
         capture_exception(e)
         return None

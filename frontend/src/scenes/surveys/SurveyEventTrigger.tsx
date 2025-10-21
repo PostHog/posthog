@@ -250,6 +250,7 @@ export function SurveyEventTrigger(): JSX.Element {
                                     setAddEventPopoverOpen(false)
                                 }
                             }}
+                            allowNonCapturedEvents
                             taxonomicGroupTypes={[
                                 TaxonomicFilterGroupType.CustomEvents,
                                 TaxonomicFilterGroupType.Events,

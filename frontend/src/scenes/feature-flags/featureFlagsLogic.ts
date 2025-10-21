@@ -12,7 +12,8 @@ import { urls } from 'scenes/urls'
 
 import { ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { Breadcrumb, FeatureFlagType } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityScope, Breadcrumb, FeatureFlagType } from '~/types'
 
 import type { featureFlagsLogicType } from './featureFlagsLogicType'
 
@@ -178,6 +179,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     entryCount: count,
                 }
             },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.FEATURE_FLAG,
+            }),
         ],
     }),
     listeners(({ actions, values }) => ({

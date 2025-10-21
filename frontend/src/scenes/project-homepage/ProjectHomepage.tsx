@@ -19,7 +19,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 
-import { PosthogStoriesContainer } from '~/layout/navigation/PosthogStories/PosthogStoriesContainer'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -58,13 +57,6 @@ function HomePageContent(): JSX.Element {
                 <span className="hidden" data-attr="person-read-test-flag-active">
                     Person read test flag is active: {String(personReadTestFlag)}
                 </span>
-            )}
-
-            {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && (
-                <>
-                    <PosthogStoriesContainer />
-                    <SceneDivider />
-                </>
             )}
 
             <SceneTitleSection

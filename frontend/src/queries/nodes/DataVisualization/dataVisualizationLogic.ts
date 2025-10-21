@@ -861,33 +861,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
     }),
     sharedListeners(({ values, actions }) => ({
-        selectedXAxis: () => {
-            if (values.isTableVisualization) {
-                return
-            }
-
-            const value = values.selectedXAxis
+        axesChanged: () => {
             const yColumns =
                 values.selectedYAxis?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
-            const xColumn: ChartAxis | undefined = value !== null ? { column: value } : undefined
-
-            actions.setQuery((query) => ({
-                ...query,
-                chartSettings: {
-                    ...query.chartSettings,
-                    yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
-                    xAxis: xColumn,
-                },
-            }))
-        },
-        selectedYAxis: () => {
-            if (values.isTableVisualization) {
-                return
-            }
-            const value = values.selectedYAxis
-            const yColumns = value?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
             const xColumn: ChartAxis | undefined =
                 values.selectedXAxis !== null ? { column: values.selectedXAxis } : undefined
+            const columns =
+                values.tabularColumnSettings?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
 
             actions.setQuery((query) => ({
                 ...query,
@@ -896,17 +876,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
                     xAxis: xColumn,
                 },
-            }))
-        },
-        tabularColumnSettings: () => {
-            if (!values.isTableVisualization) {
-                return
-            }
-            const value = values.tabularColumnSettings
-            const columns = value?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
-
-            actions.setQuery((query) => ({
-                ...query,
                 tableSettings: {
                     ...query.tableSettings,
                     columns: columns.map((n) => ({ column: n.name, settings: n.settings })),
@@ -944,17 +913,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 display: visualizationType,
             }))
         },
-        clearAxis: [
-            sharedListeners.selectedXAxis,
-            sharedListeners.selectedYAxis,
-            sharedListeners.tabularColumnSettings,
-        ],
-        updateXSeries: [sharedListeners.selectedXAxis],
-        addYSeries: [sharedListeners.selectedYAxis],
-        addSeries: [sharedListeners.tabularColumnSettings],
-        updateSeriesIndex: [sharedListeners.selectedYAxis, sharedListeners.tabularColumnSettings],
-        updateSeries: [sharedListeners.selectedYAxis, sharedListeners.tabularColumnSettings],
-        deleteYSeries: [sharedListeners.selectedYAxis],
+        clearAxis: [sharedListeners.axesChanged],
+        updateXSeries: [sharedListeners.axesChanged],
+        addYSeries: [sharedListeners.axesChanged],
+        addSeries: [sharedListeners.axesChanged],
+        updateSeriesIndex: [sharedListeners.axesChanged],
+        updateSeries: [sharedListeners.axesChanged],
+        deleteYSeries: [sharedListeners.axesChanged],
         updateConditionalFormattingRule: [sharedListeners.conditionalFormattingRules],
     })),
     subscriptions(({ actions, values }) => ({

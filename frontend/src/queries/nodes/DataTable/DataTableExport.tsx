@@ -5,6 +5,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-
 
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { SaveToCohortModalContent } from 'lib/components/SaveToCohortModalContent/SaveToCohortModalContent'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
@@ -195,7 +196,7 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                     ],
                 },
                 canSaveAsCohort && {
-                    label: 'Save as cohort',
+                    label: 'Save to cohort',
                     items: [
                         {
                             label: 'Save as static cohort',
@@ -220,6 +221,22 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                                         name: (name) => (!name ? 'You must enter a name' : undefined),
                                     },
                                     onSubmit: async ({ name }) => createStaticCohort(name, source),
+                                })
+                            },
+                        },
+                        {
+                            label: 'Add to existing cohort',
+                            onClick: () => {
+                                LemonDialog.open({
+                                    title: 'Add to existing cohort',
+                                    description: 'This will add the current list of people to a static cohort.',
+                                    content: (closeDialog) => (
+                                        <SaveToCohortModalContent closeModal={closeDialog} query={source} />
+                                    ),
+                                    primaryButton: null,
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
                                 })
                             },
                         },

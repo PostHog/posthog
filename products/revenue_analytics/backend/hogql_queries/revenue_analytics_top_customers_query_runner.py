@@ -22,7 +22,7 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
     cached_response: CachedRevenueAnalyticsTopCustomersQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subqueries = self.revenue_subqueries(RevenueAnalyticsRevenueItemView)
+        subqueries = list(self.revenue_subqueries(RevenueAnalyticsRevenueItemView))
         if not subqueries:
             return ast.SelectQuery.empty(columns=["customer_id", "name", "amount", "month"])
 

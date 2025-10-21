@@ -11,10 +11,12 @@ export const EvenlyDistributedRows = ({
     children,
     minWidthRems,
     className,
+    maxItemsPerRow,
 }: {
     children: React.ReactNode[]
     minWidthRems: number
     className: string
+    maxItemsPerRow?: number
 }): JSX.Element => {
     const [rowLayout, setRowLayout] = useState<{ itemsPerRow: number; numRows: number }>()
     const elementRef = useRef<HTMLDivElement>(null)
@@ -27,18 +29,22 @@ export const EvenlyDistributedRows = ({
         const minWidthPx = minWidthRems * pxPerRem
         const containerWidthPx = elementRef.current.offsetWidth
 
-        const maxItemsPerRow = Math.floor(containerWidthPx / minWidthPx)
+        const calculatedMaxItemsPerRow = Math.floor(containerWidthPx / minWidthPx)
+        const effectiveMaxItemsPerRow = maxItemsPerRow
+            ? Math.min(calculatedMaxItemsPerRow, maxItemsPerRow)
+            : calculatedMaxItemsPerRow
+
         // Distribute items evenly
         // e.g. if we can have 4 elements per row and have 9 items
         // prefer 3,3,3 to 4,4,1
-        const numRows = Math.ceil(children.length / maxItemsPerRow)
-        const itemsPerRow = Math.ceil(children.length / numRows)
+        const numRows = Math.ceil(children.length / effectiveMaxItemsPerRow)
+        const itemsPerRow = Math.min(Math.ceil(children.length / numRows), effectiveMaxItemsPerRow)
 
         setRowLayout({
             numRows,
             itemsPerRow,
         })
-    }, [setRowLayout, elementRef, minWidthRems, children.length])
+    }, [setRowLayout, elementRef, minWidthRems, children.length, maxItemsPerRow])
 
     useEffect(() => {
         const element = elementRef.current

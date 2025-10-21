@@ -57,6 +57,8 @@ class MessageSerializer(serializers.Serializer):
                     {"content": data["content"], "ui_context": data.get("ui_context")}
                 )
             except pydantic.ValidationError:
+                if settings.DEBUG:
+                    raise
                 raise serializers.ValidationError("Invalid message content.")
             data["message"] = message
         else:

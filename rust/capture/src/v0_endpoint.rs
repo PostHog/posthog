@@ -308,7 +308,7 @@ pub async fn event(
                     "processing",
                     state.capture_mode.as_tag(),
                 );
-                error!("event: rejected payload: {}", err);
+                warn!("event: rejected payload: {}", err);
                 return Err(err);
             }
 
@@ -373,7 +373,7 @@ pub async fn recording(
                     "processing",
                     state.capture_mode.as_tag(),
                 );
-                error!("recordings:rejected payload: {:?}", err);
+                warn!("recordings:rejected payload: {:?}", err);
                 return Err(err);
             }
             Ok(CaptureResponse {

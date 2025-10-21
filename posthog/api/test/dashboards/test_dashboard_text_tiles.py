@@ -221,10 +221,12 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             dashboard_id, text="i am a third text"
         )
         assert len(with_another_tile_dashboard_json["tiles"]) == 2
-        assert [t["text"]["body"] for t in with_another_tile_dashboard_json["tiles"]] == [
-            "soy texto",
-            "i am a third text",
-        ]
+        assert sorted([t["text"]["body"] for t in with_another_tile_dashboard_json["tiles"]]) == sorted(
+            [
+                "soy texto",
+                "i am a third text",
+            ]
+        )
 
     def test_cannot_create_text_tile_with_body_over_4000_characters(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})

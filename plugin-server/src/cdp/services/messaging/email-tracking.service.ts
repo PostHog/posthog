@@ -4,6 +4,7 @@ import express from 'ultimate-express'
 import { ModifiedRequest } from '~/api/router'
 import { CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
 import { defaultConfig } from '~/config/config'
+import { parseJSON } from '~/utils/json-parse'
 import { captureException } from '~/utils/posthog'
 
 import { Hub } from '../../../types'
@@ -177,13 +178,13 @@ export class EmailTrackingService {
     }
 
     public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
-        if (!req.rawBody) {
+        if (!req.body) {
             return { status: 403, message: 'Missing request body' }
         }
 
         try {
             const { status, body, metrics } = await this.sesWebhookHandler.handleWebhook({
-                body: req.rawBody,
+                body: parseJSON(req.body),
                 headers: req.headers,
                 verifySignature: true,
             })

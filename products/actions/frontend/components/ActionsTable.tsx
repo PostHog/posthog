@@ -4,6 +4,7 @@ import { IconCheckCircle, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -24,7 +25,16 @@ import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { ActionType, AvailableFeature, ChartDisplayType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActionType,
+    AvailableFeature,
+    ChartDisplayType,
+    FilterLogicalOperator,
+    ProductKey,
+    ReplayTabs,
+} from '~/types'
 
 import { actionsLogic } from '../logics/actionsLogic'
 import { NewActionButton } from './NewActionButton'
@@ -185,9 +195,15 @@ export function ActionsTable(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton to={urls.action(action.id)} fullWidth>
-                                    Edit
-                                </LemonButton>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Action}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={action.user_access_level}
+                                >
+                                    <LemonButton to={urls.action(action.id)} fullWidth>
+                                        Edit
+                                    </LemonButton>
+                                </AccessControlAction>
                                 <LemonButton to={urls.duplicateAction(action)} fullWidth>
                                     Duplicate
                                 </LemonButton>
@@ -228,21 +244,27 @@ export function ActionsTable(): JSX.Element {
                                     Try out in Insights
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        deleteWithUndo({
-                                            endpoint: api.actions.determineDeleteEndpoint(),
-                                            object: action,
-                                            callback: loadActions,
-                                        }).catch((e: any) => {
-                                            lemonToast.error(`Error deleting action: ${e.detail}`)
-                                        })
-                                    }}
-                                    fullWidth
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Action}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={action.user_access_level}
                                 >
-                                    Delete action
-                                </LemonButton>
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => {
+                                            deleteWithUndo({
+                                                endpoint: api.actions.determineDeleteEndpoint(),
+                                                object: action,
+                                                callback: loadActions,
+                                            }).catch((e: any) => {
+                                                lemonToast.error(`Error deleting action: ${e.detail}`)
+                                            })
+                                        }}
+                                        fullWidth
+                                    >
+                                        Delete action
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />

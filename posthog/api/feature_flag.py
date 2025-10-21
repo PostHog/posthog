@@ -16,6 +16,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
 from posthog.schema import PropertyOperator
@@ -330,6 +331,7 @@ class FeatureFlagSerializer(
             "has_encrypted_payloads",
             "status",
             "evaluation_runtime",
+            "last_called_at",
             "_create_in_folder",
             "_should_create_usage_dashboard",
         ]
@@ -616,6 +618,7 @@ class FeatureFlagSerializer(
         # TODO: Once we move to no DB level evaluation, can get rid of this.
 
         temporary_flag = FeatureFlag(**data)
+        team_id = self.context["team_id"]
         project_id = self.context["project_id"]
 
         # Skip validation for flags with flag dependencies since the evaluation
@@ -626,7 +629,7 @@ class FeatureFlagSerializer(
             return  # Skip validation for flag dependencies
 
         try:
-            check_flag_evaluation_query_is_ok(temporary_flag, project_id)
+            check_flag_evaluation_query_is_ok(temporary_flag, team_id, project_id)
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 
@@ -1021,6 +1024,7 @@ class FeatureFlagViewSet(
                     # Get flags that are at least 30 days old and active
                     # This is an approximation - the serializer will compute the exact status
                     queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
+                        # This needs to be in sync with the implementation in `FeatureFlagStatusChecker`, flag_status.py
                         where=[
                             """
                             (
@@ -1044,6 +1048,18 @@ class FeatureFlagViewSet(
                                         AND (elem->'properties')::text = '[]'::text
                                     )
                                 )
+                                OR
+                                -- Multivariate that has a condition that overrides with a specific variant and the rollout_percentage is 100
+                                (
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                        AND elem->'variant' IS NOT NULL
+                                    )
+                                    AND (filters->'multivariate' IS NOT NULL AND jsonb_array_length(filters->'multivariate'->'variants') > 0)
+                                )
+                                OR (filters IS NULL OR filters = '{}'::jsonb)
                             )
                             """
                         ]
@@ -1686,3 +1702,22 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
     param_derived_from_user_current_team = "project_id"
+
+
+class CanEditFeatureFlag(BasePermission):
+    """
+    Permission class to check if a user can edit a specific feature flag.
+    This leverages PostHog's existing access control system for feature flags.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        # Get the team from the object (feature flag)
+        team = obj.team if hasattr(obj, "team") else obj
+
+        # Get user access control for this team
+        user_access_control = UserAccessControl(user=request.user, team=team)
+
+        # Check if user has editor or higher access to feature flags for this team
+        return user_access_control.check_access_level_for_object(obj, "editor")

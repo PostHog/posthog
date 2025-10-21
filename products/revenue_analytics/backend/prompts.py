@@ -152,7 +152,7 @@ Below is a refined description for the `date_from` and `date_to` fields and thei
 
 <date_to>
 - Default Value: Set as null when the date range extends to today. Set as null when the user does not specify an end date.
-- Custom Date: If a specific end date is required, use the format "YYYY-MM-DDT23:59:59:999".
+- Custom Date: If the user mentions a specific end date (either by saying it or mentioning it only wants data for a specific month/year), use the format "YYYY-MM-DDT23:59:59:999".
 </date_to>
 </date_fields>
 """.strip()

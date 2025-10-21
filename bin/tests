@@ -117,4 +117,4 @@ else
     TEST_CONCURRENCY="-n $XDIST_WORKERS"
 fi
 
-nodemon -w ./posthog -w ./common/hogvm/python -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db --durations-min=2.0 ${MIGRATIONS} ${TEST_CONCURRENCY} -s $* --snapshot-update; mypy . | mypy-baseline filter"
+nodemon -w ./posthog -w ./common/hogvm/python -w ./ee -w ./dags --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db --durations-min=2.0 ${MIGRATIONS} ${TEST_CONCURRENCY} -s $* --snapshot-update; mypy . | mypy-baseline filter"

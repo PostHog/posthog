@@ -1,8 +1,9 @@
 use std::fmt::{Display, Formatter, Result};
 
 use rdkafka::topic_partition_list::TopicPartitionListElem;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct Partition {
     topic: String,
     partition_number: i32,
