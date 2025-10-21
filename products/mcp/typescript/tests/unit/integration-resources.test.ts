@@ -14,7 +14,9 @@ const FRAMEWORK_TEMPLATE_VARIABLE = '{framework}'
 const createMockContext = (): Context => ({
     api: {} as any,
     cache: {} as any,
-    env: {},
+    env: {
+        INKEEP_API_KEY: undefined,
+    },
     stateManager: {} as any,
     sessionManager: {} as any,
 })
@@ -110,7 +112,7 @@ describe('Integration Resources - Resource Templates', () => {
                 t.resourceTemplate.uriTemplate
                     .toString()
                     .startsWith(ResourceUri.DOCS_FRAMEWORK.replace(FRAMEWORK_TEMPLATE_VARIABLE, ''))
-            )
+            ) as any
             expect(template).toBeDefined()
 
             const completeCallback = template.resourceTemplate.completeCallback('framework')
@@ -134,7 +136,7 @@ describe('Integration Resources - Resource Templates', () => {
                             ''
                         )
                     )
-            )
+            ) as any
             expect(template).toBeDefined()
 
             const completeCallback = template.resourceTemplate.completeCallback('framework')
@@ -155,7 +157,7 @@ describe('Integration Resources - Resource Templates', () => {
                 t.resourceTemplate.uriTemplate
                     .toString()
                     .startsWith(ResourceUri.DOCS_FRAMEWORK.replace(FRAMEWORK_TEMPLATE_VARIABLE, ''))
-            )
+            ) as any
             expect(template).toBeDefined()
 
             const listCallback = template.resourceTemplate.listCallback
@@ -187,7 +189,7 @@ describe('Integration Resources - Resource Templates', () => {
                             ''
                         )
                     )
-            )
+            ) as any
             expect(template).toBeDefined()
 
             const listCallback = template.resourceTemplate.listCallback
@@ -214,7 +216,7 @@ describe('Integration Resources - Resource Templates', () => {
                 t.resourceTemplate.uriTemplate
                     .toString()
                     .startsWith(ResourceUri.DOCS_FRAMEWORK.replace(FRAMEWORK_TEMPLATE_VARIABLE, ''))
-            )
+            ) as any
             const examplesTemplate = templates.find((t: any) =>
                 t.resourceTemplate.uriTemplate
                     .toString()
@@ -224,7 +226,7 @@ describe('Integration Resources - Resource Templates', () => {
                             ''
                         )
                     )
-            )
+            ) as any
 
             const docsResult = await docsTemplate.resourceTemplate.listCallback({})
             const examplesResult = await examplesTemplate.resourceTemplate.listCallback({})
