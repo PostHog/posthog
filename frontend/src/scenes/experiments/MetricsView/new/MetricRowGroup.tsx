@@ -290,7 +290,7 @@ export function MetricRowGroup({
                             visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
                         }}
                     >
-                        {renderTooltipContent(tooltipState.variantResult, metric)}
+                        {renderTooltipContent(experiment.id, tooltipState.variantResult, metric)}
                     </div>,
                     document.body
                 )}
