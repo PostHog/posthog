@@ -589,6 +589,7 @@ class Alias(Expr):
     Hidden aliases are printed only when printing the columns of a SELECT query in the ClickHouse dialect.
     """
     hidden: bool = False
+    from_asterisk: bool = False
 
 
 class ArithmeticOperationOp(StrEnum):
@@ -716,6 +717,7 @@ class Constant(Expr):
 @dataclass(kw_only=True)
 class Field(Expr):
     chain: list[str | int]
+    from_asterisk: bool = False
 
 
 @dataclass(kw_only=True)

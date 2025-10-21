@@ -104,13 +104,14 @@ class Producer:
             stream: StreamingBody = s3_ob["Body"]
             # read in 128KB chunks of data from S3
             reader = asyncpa.AsyncRecordBatchReader(stream.iter_chunks(chunk_size=128 * 1024))
+
             async for batch in reader:
                 for record_batch_slice in slice_record_batch(batch, max_record_batch_size_bytes, min_records_per_batch):
                     await queue.put(record_batch_slice)
 
         async with asyncio.TaskGroup() as tg:
             stream_func = make_retryable_with_exponential_backoff(
-                stream_from_s3_file, max_attempts=3, max_retry_delay=1
+                stream_from_s3_file, max_attempts=5, max_retry_delay=1
             )
             for key in keys:
                 tg.create_task(stream_func(key))
