@@ -1,1 +1,1 @@
-0889_organizationdomain_scim_bearer_token_and_more
+0889_add_schema_models

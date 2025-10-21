@@ -30,7 +30,7 @@ describe('LLM Analytics utils', () => {
         }
         expect(normalizeMessage(message, 'user')).toEqual([
             {
-                role: 'user',
+                role: 'assistant',
                 content: JSON.stringify(message),
             },
         ])
@@ -281,6 +281,148 @@ describe('LLM Analytics utils', () => {
                 ],
             },
         ])
+    })
+
+    describe('role preservation in nested content', () => {
+        it('preserves assistant role when recursing into nested array content with output_text', () => {
+            // This is the bug we fixed - messages with role + array content should preserve the role
+            // Now output_text is properly recognized and content is preserved as array
+            const message = {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'output_text',
+                        text: 'Hello! How can I help you?',
+                    },
+                ],
+            }
+
+            const result = normalizeMessage(message, 'user')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('assistant') // Role is preserved!
+            expect(result[0].content).toEqual([
+                {
+                    type: 'output_text',
+                    text: 'Hello! How can I help you?',
+                },
+            ])
+        })
+
+        it('preserves system role when recursing into nested array content with output_text', () => {
+            const message = {
+                role: 'system',
+                content: [
+                    {
+                        type: 'output_text',
+                        text: 'You are a helpful assistant.',
+                    },
+                ],
+            }
+
+            const result = normalizeMessage(message, 'user')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('system') // Role is preserved!
+            expect(result[0].content).toEqual([
+                {
+                    type: 'output_text',
+                    text: 'You are a helpful assistant.',
+                },
+            ])
+        })
+
+        it('preserves role even when defaultRole is different', () => {
+            const assistantMessage = {
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'Response' }],
+            }
+
+            // Even though defaultRole is 'user', the actual role 'assistant' should be preserved
+            const result = normalizeMessage(assistantMessage, 'user')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('assistant') // Key test: role is preserved despite different defaultRole
+            expect(result[0].content).toEqual([{ type: 'output_text', text: 'Response' }])
+        })
+
+        it('preserves input_text content type', () => {
+            const message = {
+                role: 'user',
+                content: [{ type: 'input_text', text: 'What is the weather?' }],
+            }
+
+            const result = normalizeMessage(message, 'user')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('user')
+            expect(result[0].content).toEqual([{ type: 'input_text', text: 'What is the weather?' }])
+        })
+
+        it('uses defaultRole when message has no role property', () => {
+            const messageWithoutRole = {
+                type: 'output_text',
+                text: 'Some text',
+            }
+
+            const result = normalizeMessage(messageWithoutRole, 'assistant')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('assistant')
+            // Without a role wrapper, output_text falls through to unsupported and gets stringified
+            expect(result[0].content).toBe('{"type":"output_text","text":"Some text"}')
+        })
+
+        it('handles Anthropic tool result with nested content and preserves role', () => {
+            const toolResultMessage = {
+                type: 'tool_result',
+                tool_use_id: 'tool_123',
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Weather is sunny',
+                    },
+                ],
+            }
+
+            const result = normalizeMessage(toolResultMessage, 'tool')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('tool')
+            expect(result[0].content).toBe('Weather is sunny')
+            expect(result[0].tool_call_id).toBe('tool_123')
+        })
+
+        it('preserves custom/unknown roles', () => {
+            const customRoleMessage = {
+                role: 'custom_agent',
+                content: [{ type: 'text', text: 'Custom response' }],
+            }
+
+            const result = normalizeMessage(customRoleMessage, 'user')
+
+            // Unknown roles should be preserved as-is (lowercased)
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('custom_agent')
+            expect(result[0].content).toEqual([{ type: 'text', text: 'Custom response' }])
+        })
+
+        it('handles LiteLLM choice wrapper and preserves nested role', () => {
+            const liteLLMChoice = {
+                finish_reason: 'stop',
+                index: 0,
+                message: {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'Response from LiteLLM' }],
+                },
+            }
+
+            const result = normalizeMessage(liteLLMChoice, 'user')
+
+            expect(result).toHaveLength(1)
+            expect(result[0].role).toBe('assistant')
+            expect(result[0].content).toEqual([{ type: 'text', text: 'Response from LiteLLM' }])
+        })
     })
 
     describe('looksLikeXml', () => {
