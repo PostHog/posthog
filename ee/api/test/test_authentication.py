@@ -818,7 +818,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
 class TestCustomGoogleOAuth2(APILicensedTest):
     def setUp(self):
         super().setUp()
-        self.google_oauth = CustomGoogleOAuth2()
+        self.google_oauth = CustomGoogleOAuth2()  # type: ignore[call-arg]
         self.details = {"email": "test@posthog.com"}
         self.sub = "google-oauth2|123456789"
 
