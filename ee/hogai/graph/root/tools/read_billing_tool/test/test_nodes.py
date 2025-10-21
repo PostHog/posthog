@@ -33,10 +33,9 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.tool = ReadBillingTool(
             self.team,
             self.user,
-            AssistantState(messages=[], root_tool_call_id=self.tool_call_id),
+            AssistantState(messages=[], root_tool_call_id=str(uuid4())),
             AssistantContextManager(self.team, self.user, {}),
         )
-        self.tool_call_id = str(uuid4())
 
     async def test_run_with_no_billing_context(self):
         with patch.object(self.tool._context_manager, "get_billing_context", return_value=None):

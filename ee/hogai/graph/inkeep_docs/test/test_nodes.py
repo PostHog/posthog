@@ -67,8 +67,12 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             assert next_state is not None
             messages = cast(list, next_state.messages)
             self.assertEqual(len(messages), 2)
-            second_message = cast(AssistantMessage, messages[1])
-            self.assertEqual(second_message.content, response_with_continuation)
+            # When should_continue is True, messages are reversed
+            first_message = cast(AssistantMessage, messages[0])
+            self.assertEqual(first_message.content, response_with_continuation)
+            # Tool call message should have the continuation prompt
+            second_message = cast(AssistantToolCallMessage, messages[1])
+            self.assertIn("Continue with the user's data request", second_message.content)
 
     def test_node_constructs_messages(self):
         node = InkeepDocsNode(self.team, self.user)

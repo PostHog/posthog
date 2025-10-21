@@ -515,6 +515,6 @@ class RootNodeTools(AssistantNode):
                 tool_call_name = tool_call.name
                 if tool_call_name == "create_dashboard":
                     return "create_dashboard"
-            elif state.session_summarization_query:
+            if state.session_summarization_query:
                 return "session_summarization"
         return "end"

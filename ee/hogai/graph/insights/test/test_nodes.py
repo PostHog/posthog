@@ -23,7 +23,7 @@ from posthog.schema import (
 
 from posthog.models import Insight, InsightViewed
 
-from ee.hogai.graph.insights.nodes import InsightDict, InsightSearchNode
+from ee.hogai.graph.insights.nodes import InsightDict, InsightSearchNode, NoInsightsException
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 
@@ -455,7 +455,7 @@ class TestInsightSearchNode(BaseTest):
                         self.assertIsNone(result.root_tool_call_id)
 
     def test_run_with_no_insights(self):
-        """Test arun method when no insights exist."""
+        """Test arun method when no insights exist - should raise NoInsightsException."""
         # Clear all insights (done outside async context)
         InsightViewed.objects.all().delete()
         Insight.objects.all().delete()
@@ -471,13 +471,10 @@ class TestInsightSearchNode(BaseTest):
         async def async_test():
             # Mock the database calls that happen in async context
             with patch.object(self.node, "_get_total_insights_count", return_value=0):
-                result = await self.node.arun(state, {"configurable": {"thread_id": str(conversation.id)}})
-            return result
+                await self.node.arun(state, {"configurable": {"thread_id": str(conversation.id)}})
 
-        result = asyncio.run(async_test())
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
-        self.assertIn("No insights found in the database", result.messages[0].content)
+        with self.assertRaises(NoInsightsException):
+            asyncio.run(async_test())
 
     async def test_team_filtering(self):
         """Test that insights are filtered by team."""
