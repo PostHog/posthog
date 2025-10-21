@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from django import forms
 from django.contrib import admin
 from django.urls import reverse
@@ -45,7 +47,7 @@ class OAuthApplicationForm(forms.ModelForm):
                 self.fields["client_type"].initial = AbstractApplication.CLIENT_CONFIDENTIAL
 
 
-class OAuthApplicationAdmin(admin.ModelAdmin):
+class OAuthApplicationAdmin(admin.ModelAdmin[OAuthApplication]):
     form = OAuthApplicationForm
     list_display = (
         "id",
@@ -87,8 +89,8 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
                 ("Ownership", {"fields": ("user", "organization")}),
             )
 
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj, change=change, **kwargs)
 
         if not obj:
             # Set user and organization defaults for new applications
