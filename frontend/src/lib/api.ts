@@ -8,6 +8,8 @@ import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
+import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
+import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -2272,16 +2274,20 @@ const api = {
     },
 
     schemaPropertyGroups: {
-        async list(projectId?: ProjectType['id']): Promise<{ results: any[] }> {
+        async list(projectId?: ProjectType['id']): Promise<{ results: SchemaPropertyGroup[] }> {
             return new ApiRequest().schemaPropertyGroups(projectId).get()
         },
-        async get(id: string, projectId?: ProjectType['id']): Promise<any> {
+        async get(id: string, projectId?: ProjectType['id']): Promise<SchemaPropertyGroup> {
             return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).get()
         },
-        async create(data: any, projectId?: ProjectType['id']): Promise<any> {
+        async create(data: Partial<SchemaPropertyGroup>, projectId?: ProjectType['id']): Promise<SchemaPropertyGroup> {
             return new ApiRequest().schemaPropertyGroups(projectId).create({ data })
         },
-        async update(id: string, data: any, projectId?: ProjectType['id']): Promise<any> {
+        async update(
+            id: string,
+            data: Partial<SchemaPropertyGroup>,
+            projectId?: ProjectType['id']
+        ): Promise<SchemaPropertyGroup> {
             return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).update({ data })
         },
         async delete(id: string, projectId?: ProjectType['id']): Promise<void> {
@@ -2290,13 +2296,13 @@ const api = {
     },
 
     eventSchemas: {
-        async list(eventDefinitionId: string, projectId?: ProjectType['id']): Promise<{ results: any[] }> {
+        async list(eventDefinitionId: string, projectId?: ProjectType['id']): Promise<{ results: EventSchema[] }> {
             return new ApiRequest()
                 .eventSchemas(projectId)
                 .withQueryString(toParams({ event_definition: eventDefinitionId }))
                 .get()
         },
-        async create(data: any, projectId?: ProjectType['id']): Promise<any> {
+        async create(data: Partial<EventSchema>, projectId?: ProjectType['id']): Promise<EventSchema> {
             return new ApiRequest().eventSchemas(projectId).create({ data })
         },
         async delete(id: string, projectId?: ProjectType['id']): Promise<void> {
