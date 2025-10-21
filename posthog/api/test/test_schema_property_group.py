@@ -18,14 +18,12 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
                         "property_type": "String",
                         "is_required": True,
                         "description": "User ID",
-                        "order": 0,
                     },
                     {
                         "name": "email",
                         "property_type": "String",
                         "is_required": False,
                         "description": "Email",
-                        "order": 1,
                     },
                 ],
             },
@@ -83,18 +81,16 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
         # Create property group with 2 properties
         property_group = SchemaPropertyGroup.objects.create(team=self.team, project=self.project, name="Test Group")
         prop1 = SchemaPropertyGroupProperty.objects.create(
-            property_group=property_group, name="prop1", property_type="String", order=0
+            property_group=property_group, name="prop1", property_type="String"
         )
-        SchemaPropertyGroupProperty.objects.create(
-            property_group=property_group, name="prop2", property_type="Numeric", order=1
-        )
+        SchemaPropertyGroupProperty.objects.create(property_group=property_group, name="prop2", property_type="Numeric")
 
         # Update to only keep prop1
         response = self.client.patch(
             f"/api/projects/{self.project.id}/schema_property_groups/{property_group.id}/",
             {
                 "properties": [
-                    {"id": str(prop1.id), "name": "prop1", "property_type": "String", "order": 0},
+                    {"id": str(prop1.id), "name": "prop1", "property_type": "String"},
                 ]
             },
         )
@@ -121,7 +117,7 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
             {
                 "name": "Test Group",
                 "properties": [
-                    {"name": "123invalid", "property_type": "String", "order": 0},
+                    {"name": "123invalid", "property_type": "String"},
                 ],
             },
         )
@@ -131,9 +127,7 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
 
     def test_delete_property_group(self):
         property_group = SchemaPropertyGroup.objects.create(team=self.team, project=self.project, name="To Delete")
-        SchemaPropertyGroupProperty.objects.create(
-            property_group=property_group, name="prop1", property_type="String", order=0
-        )
+        SchemaPropertyGroupProperty.objects.create(property_group=property_group, name="prop1", property_type="String")
 
         response = self.client.delete(f"/api/projects/{self.project.id}/schema_property_groups/{property_group.id}/")
 
