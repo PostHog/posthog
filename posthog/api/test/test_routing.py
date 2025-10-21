@@ -26,6 +26,12 @@ class FooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = AnnotationSerializer
 
 
+class ScopedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "annotation"
+    queryset = Annotation.objects.all()
+    serializer_class = AnnotationSerializer
+
+
 test_router = DefaultRouterPlusPlus()
 
 test_environments_router = test_router.register(r"environments", FooViewSet, "environments")
@@ -36,6 +42,21 @@ test_projects_router.register(r"foos", FooViewSet, "project_foos", ["project_id"
 
 test_organizations_router = test_router.register(r"organizations", FooViewSet, "organizations")
 test_organizations_router.register(r"foos", FooViewSet, "organization_foos", ["organization_id"])
+
+scoped_test_environments_router = test_router.register(r"scoped_environments", ScopedFooViewSet, "scoped_environments")
+scoped_test_environments_router.register(
+    r"scoped_foos", ScopedFooViewSet, "scoped_environment_foos", ["team_id"]
+)
+
+scoped_test_projects_router = test_router.register(r"scoped_projects", ScopedFooViewSet, "scoped_projects")
+scoped_test_projects_router.register(r"scoped_foos", ScopedFooViewSet, "scoped_project_foos", ["project_id"])
+
+scoped_test_organizations_router = test_router.register(
+    r"scoped_organizations", ScopedFooViewSet, "scoped_organizations"
+)
+scoped_test_organizations_router.register(
+    r"scoped_foos", ScopedFooViewSet, "scoped_organization_foos", ["organization_id"]
+)
 
 
 urlpatterns = [
@@ -150,14 +171,14 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             application=self.oauth_app,
             token="test_oauth_access_token_123",
             expires=timezone.now() + timedelta(hours=1),
-            scope="openid profile",
+            scope="annotation:read",
         )
 
     def test_oauth_token_can_access_team_resources(self):
         annotation = Annotation.objects.create(team=self.team, organization=self.organization, content="Test note")
 
         response = self.client.get(
-            f"/api/environments/{self.team.id}/foos/",
+            f"/api/scoped_environments/{self.team.id}/scoped_foos/",
             HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}",
         )
 
@@ -175,7 +196,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         Annotation.objects.create(team=other_team, organization=other_org)
 
         response = self.client.get(
-            f"/api/environments/{other_team.id}/foos/",
+            f"/api/scoped_environments/{other_team.id}/scoped_foos/",
             HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}",
         )
 
@@ -187,7 +208,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         Annotation.objects.create(team=self.team, organization=self.organization)
 
         response = self.client.get(
-            f"/api/organizations/{self.organization.id}/foos/",
+            f"/api/scoped_organizations/{self.organization.id}/scoped_foos/",
             HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}",
         )
 
@@ -201,11 +222,11 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             application=self.oauth_app,
             token="expired_oauth_token_123",
             expires=timezone.now() - timedelta(hours=1),
-            scope="openid profile",
+            scope="annotation:read",
         )
 
         response = self.client.get(
-            f"/api/environments/{self.team.id}/foos/",
+            f"/api/scoped_environments/{self.team.id}/scoped_foos/",
             HTTP_AUTHORIZATION=f"Bearer {expired_token.token}",
         )
 
@@ -215,18 +236,18 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         """Test that OAuth authentication is part of the authentication chain"""
         # First, verify session auth works
         Annotation.objects.create(team=self.team, organization=self.organization)
-        response = self.client.get(f"/api/environments/{self.team.id}/foos/")
+        response = self.client.get(f"/api/scoped_environments/{self.team.id}/scoped_foos/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)
 
         # Logout and verify OAuth token works
         self.client.logout()
-        response = self.client.get(f"/api/environments/{self.team.id}/foos/")
+        response = self.client.get(f"/api/scoped_environments/{self.team.id}/scoped_foos/")
         self.assertEqual(response.status_code, 401)
 
         # Now use OAuth token
         response = self.client.get(
-            f"/api/environments/{self.team.id}/foos/",
+            f"/api/scoped_environments/{self.team.id}/scoped_foos/",
             HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}",
         )
         self.assertEqual(response.status_code, 200)

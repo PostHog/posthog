@@ -758,4 +758,4 @@ class TestOAuthAccessTokenWithTeamScoping(BaseTest):
 
         response = self._do_request(f"/api/projects/{other_team.id}/feature_flags/")
         self.assertEqual(response.status_code, 403)
-        self.assertIn("does not have access to the requested organization", response.json()["detail"])
+        self.assertIn("does not have access to the requested project", response.json()["detail"])
