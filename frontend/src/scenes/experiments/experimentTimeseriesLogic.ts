@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { hexToRGBA } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import {
     ExperimentMetric,
@@ -59,6 +60,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
     path((key) => ['scenes', 'experiments', 'experimentTimeseriesLogic', key]),
     connect(() => ({
         values: [experimentLogic, ['experiment']],
+        actions: [eventUsageLogic, ['reportExperimentTimeseriesRecalculated']],
     })),
 
     actions(() => ({
@@ -66,7 +68,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
         recalculateTimeseries: ({ metric }: { metric: ExperimentMetric }) => ({ metric }),
     })),
 
-    loaders(({ props }) => ({
+    loaders(({ actions, props }) => ({
         timeseries: [
             null as ExperimentMetricTimeseries | null,
             {
@@ -101,6 +103,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         if (response.ok) {
                             if (response.status === 201) {
                                 lemonToast.success('Recalculation started successfully')
+                                actions.reportExperimentTimeseriesRecalculated(props.experimentId, metric)
                             } else if (response.status === 200) {
                                 lemonToast.info('Recalculation already in progress')
                             }
