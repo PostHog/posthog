@@ -198,7 +198,10 @@ class Resolver(CloningVisitor):
                 columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
                 for col in columns:
                     visited_col = self.visit(col)
-                    visited_col.from_asterisk = True
+                    if isinstance(visited_col, ast.Field):
+                        visited_col.from_asterisk = True
+                    elif isinstance(visited_col, ast.Alias):
+                        visited_col.expr.from_asterisk = True
                     select_nodes.append(visited_col)
             else:
                 select_nodes.append(new_expr)

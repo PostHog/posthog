@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 
 from posthog.schema import HogQLQueryModifiers
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
@@ -35,7 +36,7 @@ class TestProjectionPushdown(BaseTest):
             assert first_col.alias == "event"
         else:
             assert first_col.chain == ["event"]
-        assert getattr(first_col, "from_asterisk", False)
+        assert first_col.from_asterisk if isinstance(first_col, ast.Field) else first_col.expr.from_asterisk
 
     def _col_name(self, col):
         """Helper to get column name for debugging"""
@@ -306,4 +307,6 @@ class TestProjectionPushdown(BaseTest):
         column_names = {self._col_name(col) for col in subquery.select}
         assert column_names >= {"event", "distinct_id", "timestamp"}
         # Verify columns have from_asterisk marker
-        assert any(getattr(col, "from_asterisk", False) for col in subquery.select)
+        assert any(
+            col.from_asterisk if isinstance(col, ast.Field) else col.expr.from_asterisk for col in subquery.select
+        )

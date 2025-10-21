@@ -72,7 +72,11 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
     def _is_from_asterisk(self, expr: ast.Expr) -> bool:
         """Check if an expression was expanded from asterisk"""
-        return isinstance(expr, ast.Field | ast.Alias) and getattr(expr, "from_asterisk", False)
+        if isinstance(expr, ast.Alias):
+            expr = expr.expr  # whoops - we want to take the Field from the Alias
+        if isinstance(expr, ast.Field):
+            return expr.from_asterisk
+        return False
 
     def _propagate_demands_to_children(self, node: ast.SelectQuery) -> None:
         """
