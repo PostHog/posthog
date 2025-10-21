@@ -45,6 +45,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Groups]: () => import('./groups/Groups'),
     [Scene.Heatmaps]: () => import('./heatmaps/scenes/heatmaps/HeatmapsScene'),
     [Scene.Heatmap]: () => import('./heatmaps/scenes/heatmap/HeatmapScene'),
+    [Scene.HeatmapNew]: () => import('./heatmaps/scenes/heatmap/HeatmapNewScene'),
     [Scene.HogFunction]: () => import('./hog-functions/HogFunctionScene'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),

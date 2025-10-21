@@ -1,6 +1,7 @@
 from django.db import models
 
 from posthog.models.utils import UUIDTModel
+from posthog.utils import generate_short_id
 
 
 class HeatmapScreenshot(UUIDTModel):
@@ -14,6 +15,8 @@ class HeatmapScreenshot(UUIDTModel):
         IFRAME = "iframe", "Iframe"
         RECORDING = "recording", "Recording"
 
+    short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
+    name = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     url = models.URLField(max_length=2000)
     data_url = models.URLField(max_length=2000, null=True, blank=True, help_text="URL for fetching heatmap data")
@@ -38,9 +41,8 @@ class HeatmapScreenshot(UUIDTModel):
             models.Index(fields=["team", "url", "width"]),
             models.Index(fields=["status"]),
         ]
-        constraints = [
-            models.UniqueConstraint(fields=["team", "url", "width", "type"], name="unique_team_url_width_type")
-        ]
+        constraints: list = []
+        unique_together = ("team", "short_id")
 
     @property
     def has_content(self) -> bool:

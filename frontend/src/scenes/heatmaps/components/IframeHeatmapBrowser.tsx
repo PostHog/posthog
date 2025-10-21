@@ -28,8 +28,8 @@ export function IframeHeatmapBrowser({
     }, [iframeWidth, setIframeWidth, widthOverride, setWindowWidthOverride])
 
     return (
-        <div className="flex flex-row gap-x-2 w-full">
-            <div className="relative flex justify-center flex-1 w-full h-full overflow-scroll">
+        <div className="flex flex-row gap-x-2 w-full min-h-full">
+            <div className="relative flex justify-center flex-1 w-full min-h-full overflow-scroll">
                 <div
                     className="relative h-full overflow-scroll"
                     // eslint-disable-next-line react/forbid-dom-props

@@ -63,6 +63,7 @@ export enum Scene {
     GroupsNew = 'GroupsNew',
     Heatmaps = 'Heatmaps',
     Heatmap = 'Heatmap',
+    HeatmapNew = 'HeatmapNew',
     HogFunction = 'HogFunction',
     Insight = 'Insight',
     IntegrationsRedirect = 'IntegrationsRedirect',

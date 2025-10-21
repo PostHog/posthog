@@ -320,6 +320,28 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 return checkUrlIsAuthorized(dataUrl)
             },
         ],
+        isDisplayUrlValid: [
+            (s) => [s.displayUrl],
+            (displayUrl) => {
+                if (!displayUrl) {
+                    // an empty dataUrl is valid
+                    // since we just won't do anything with it
+                    return true
+                }
+
+                try {
+                    // must be something that can be parsed as a URL
+                    new URL(displayUrl)
+                    // and must be a valid URL that our redirects can cope with
+                    // this is a very loose check, but `http:/blaj` is not valid for PostHog
+                    // but survives new URL(http:/blaj)
+                    return displayUrl.includes('://')
+                } catch {
+                    return false
+                }
+            },
+        ],
+
         isBrowserUrlValid: [
             (s) => [s.dataUrl],
             (dataUrl) => {

@@ -5846,11 +5846,18 @@ export interface DataWarehouseActivityRecord {
     workflow_run_id?: string
 }
 
+export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
+export type HeatmapStatus = 'processing' | 'completed' | 'failed'
+
 export interface HeatmapScreenshotType {
     id: number
+    name: string
+    short_id: string
     url: string
+    data_url: string | null
+    type: HeatmapType
     width: number
-    status: 'processing' | 'completed' | 'failed'
+    status: HeatmapStatus
     has_content: boolean
     created_at: string
     updated_at: string

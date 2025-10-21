@@ -238,6 +238,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Heatmap',
         iconType: 'heatmap',
     },
+    [Scene.HeatmapNew]: {
+        projectBased: true,
+        name: 'New heatmap',
+        iconType: 'heatmap',
+    },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
@@ -677,6 +682,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
+    [urls.heatmapNew()]: [Scene.HeatmapNew, 'heatmapNew'],
     [urls.heatmap(':id')]: [Scene.Heatmap, 'heatmap'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],

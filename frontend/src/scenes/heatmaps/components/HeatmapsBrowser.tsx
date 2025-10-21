@@ -27,7 +27,7 @@ import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panel
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { FilterPanel } from './FilterPanel'
-import { ScreenshotHeatmapBrowser } from './ScreenshotHeatmapBrowser'
+import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
 function ExportButton({
@@ -321,13 +321,13 @@ function HeatmapsBrowserIntro(): JSX.Element {
     )
 }
 
-function ForbiddenURL(): JSX.Element {
+export function ForbiddenURL(): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
     const { dataUrl } = useValues(logic)
 
     return (
-        <div className="flex-1 p-4 gap-y-4 mb-2">
+        <div className="flex-1 py-4 gap-y-4 mb-2">
             <LemonBanner type="error">
                 {dataUrl} is not an authorized URL. Please add it to the list of authorized URLs to view heatmaps on
                 this page.
@@ -339,15 +339,15 @@ function ForbiddenURL(): JSX.Element {
     )
 }
 
-function InvalidURL(): JSX.Element {
+export function InvalidURL(): JSX.Element {
     return (
-        <div className="flex-1 p-4 gap-y-4 mb-2">
+        <div className="flex-1 py-4 gap-y-4 mb-2">
             <LemonBanner type="error">Not a valid URL. Can't load a heatmap for that 😰</LemonBanner>
         </div>
     )
 }
 
-function Warnings(): JSX.Element | null {
+export function Warnings(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const heatmapsEnabled = currentTeam?.heatmaps_opt_in
 
@@ -397,7 +397,7 @@ export function HeatmapsBrowser(): JSX.Element {
                                 ) : !isBrowserUrlValid ? (
                                     <InvalidURL />
                                 ) : null}
-                                <ScreenshotHeatmapBrowser />
+                                <IframeHeatmapBrowser iframeRef={iframeRef} />
                             </>
                         ) : (
                             <HeatmapsBrowserIntro />

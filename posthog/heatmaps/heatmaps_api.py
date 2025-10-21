@@ -301,6 +301,8 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
         model = HeatmapScreenshot
         fields = [
             "id",
+            "short_id",
+            "name",
             "url",
             "data_url",
             "width",
@@ -313,6 +315,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "short_id",
             "status",
             "has_content",
             "created_at",
@@ -338,46 +341,14 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         url = request_serializer.validated_data["url"]
         width = request_serializer.validated_data["width"]
-        force_reload = request_serializer.validated_data["force_reload"]
 
-        # Check if screenshot already exists
-        existing_screenshot = None
-        try:
-            existing_screenshot = HeatmapScreenshot.objects.get(team=self.team, url=url, width=width)
-        except HeatmapScreenshot.DoesNotExist:
-            pass
-
-        # Handle existing screenshot based on force_reload and status
-        if existing_screenshot and not force_reload:
-            if existing_screenshot.status == HeatmapScreenshot.Status.COMPLETED and existing_screenshot.has_content:
-                # Return existing completed screenshot
-                response_serializer = HeatmapScreenshotResponseSerializer(existing_screenshot)
-                return response.Response(response_serializer.data, status=status.HTTP_200_OK)
-            elif existing_screenshot.status == HeatmapScreenshot.Status.PROCESSING:
-                # Return processing screenshot
-                response_serializer = HeatmapScreenshotResponseSerializer(existing_screenshot)
-                return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
-
-        # Create new screenshot or update existing one for force_reload
-        if existing_screenshot and force_reload:
-            existing_screenshot.status = HeatmapScreenshot.Status.PROCESSING
-            existing_screenshot.content = None
-            existing_screenshot.content_location = None
-            existing_screenshot.exception = None
-            existing_screenshot.created_by = request.user
-            existing_screenshot.save()
-            screenshot = existing_screenshot
-        elif not existing_screenshot:
-            screenshot = HeatmapScreenshot.objects.create(
-                team=self.team,
-                url=url,
-                width=width,
-                created_by=request.user,
-                status=HeatmapScreenshot.Status.PROCESSING,
-            )
-        else:
-            # This should not happen as we already handled existing screenshots above
-            screenshot = existing_screenshot
+        screenshot = HeatmapScreenshot.objects.create(
+            team=self.team,
+            url=url,
+            width=width,
+            created_by=request.user,
+            status=HeatmapScreenshot.Status.PROCESSING,
+        )
 
         generate_heatmap_screenshot.delay(screenshot.id)
 
@@ -415,8 +386,9 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 class HeatmapSavedRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = HeatmapScreenshot
-        fields = ["url", "data_url", "width", "type"]
+        fields = ["name", "url", "data_url", "width", "type"]
         extra_kwargs = {
+            "name": {"required": False, "allow_null": True},
             "url": {"required": True},
             "data_url": {"required": False, "allow_null": True},
             "width": {"required": False, "default": 1400},
@@ -430,6 +402,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = HeatmapScreenshotResponseSerializer
     authentication_classes = [TemporaryTokenAuthentication]
     queryset = HeatmapScreenshot.objects.all()
+    lookup_field = "short_id"
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team=self.team)
@@ -460,6 +433,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = HeatmapSavedRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        name = serializer.validated_data.get("name")
         url = serializer.validated_data["url"]
         data_url = serializer.validated_data.get("data_url") or url
         width = serializer.validated_data.get("width", 1400)
@@ -467,6 +441,7 @@ class HeatmapSavedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         screenshot = HeatmapScreenshot.objects.create(
             team=self.team,
+            name=name,
             url=url,
             data_url=data_url,
             width=width,

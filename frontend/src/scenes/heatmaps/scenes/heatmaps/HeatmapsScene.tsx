@@ -5,6 +5,7 @@ import { LemonButton, LemonTable, LemonTableColumn, LemonTableColumns, Link } fr
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { Warnings } from 'scenes/heatmaps/components/HeatmapsBrowser'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -27,17 +28,32 @@ export function HeatmapsScene(): JSX.Element {
 
     const columns: LemonTableColumns<HeatmapScreenshotType> = [
         {
+            title: 'Name',
+            dataIndex: 'name',
+            render: (_, row) => (
+                <Link to={urls.heatmap(row.short_id)}>
+                    <span className="truncate max-w-[32rem] inline-block align-middle">{row.name}</span>
+                </Link>
+            ),
+        },
+        {
             title: 'URL',
             dataIndex: 'url',
             render: (_, row) => (
-                <Link to={urls.heatmap(row.id.toString())}>
+                <Link to={urls.heatmap(row.short_id)}>
                     <span className="truncate max-w-[32rem] inline-block align-middle">{row.url}</span>
                 </Link>
             ),
         },
         {
+            title: 'Type',
+            dataIndex: 'type',
+            render: (_, row) => row.type.charAt(0).toUpperCase() + row.type.slice(1),
+        },
+        {
             title: 'Width',
             dataIndex: 'width',
+            render: (_, row) => `${row.width} px`,
         },
         {
             title: 'Created',
@@ -55,6 +71,7 @@ export function HeatmapsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <Warnings />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Heatmaps].name}
                 description={sceneConfigurations[Scene.Heatmaps].description}
