@@ -15,6 +15,7 @@ from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods
 
@@ -47,6 +48,7 @@ from posthog.utils import (
     is_plugin_server_alive,
     is_postgres_alive,
     is_redis_alive,
+    render_template,
 )
 
 logger = structlog.get_logger(__name__)
@@ -136,6 +138,15 @@ def security_txt(request):
         Expires: 2024-03-14T00:00:00.000Z
         """
     return HttpResponse(SECURITY_TXT_CONTENT, content_type="text/plain")
+
+
+@xframe_options_exempt
+def render_query(request: HttpRequest) -> HttpResponse:
+    """Render a lightweight container for third parties to display PostHog visualizations."""
+    from posthog.api.sharing import get_global_themes
+
+    payload = {"query": None, "cachedResults": None, "context": None, "insight": None, "themes": get_global_themes()}
+    return render_template("render_query.html", request, context={"render_query_payload": payload})
 
 
 @never_cache

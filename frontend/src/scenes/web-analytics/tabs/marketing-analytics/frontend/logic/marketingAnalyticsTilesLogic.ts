@@ -9,6 +9,7 @@ import {
     ConversionGoalFilter,
     DataTableNode,
     EventsNode,
+    IntegrationFilter,
     MARKETING_ANALYTICS_SCHEMA,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsHelperForColumnNames,
@@ -37,6 +38,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'draftConversionGoal',
                 'chartDisplayType',
                 'tileColumnSelection',
+                'integrationFilter',
             ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
@@ -52,6 +54,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.chartDisplayType,
                 s.tileColumnSelection,
                 s.draftConversionGoal,
+                s.integrationFilter,
             ],
             (
                 compareFilter: CompareFilter | null,
@@ -64,7 +67,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 campaignCostsBreakdown: DataTableNode,
                 chartDisplayType: ChartDisplayType,
                 tileColumnSelection: MarketingAnalyticsColumnsSchemaNames | null,
-                draftConversionGoal: ConversionGoalFilter | null
+                draftConversionGoal: ConversionGoalFilter | null,
+                integrationFilter: IntegrationFilter
             ) => {
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
@@ -97,6 +101,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             compareFilter: compareFilter || undefined,
                             properties: [],
                             draftConversionGoal: draftConversionGoal || undefined,
+                            integrationFilter: integrationFilter,
                         },
                         insightProps: createInsightProps(TileId.MARKETING_OVERVIEW),
                         canOpenInsight: false,
@@ -179,14 +184,23 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
             },
         ],
         campaignCostsBreakdown: [
-            (s) => [s.loading, s.query, s.dateFilter, s.draftConversionGoal, s.defaultColumns, s.compareFilter],
+            (s) => [
+                s.loading,
+                s.query,
+                s.dateFilter,
+                s.draftConversionGoal,
+                s.defaultColumns,
+                s.compareFilter,
+                s.integrationFilter,
+            ],
             (
                 loading: boolean,
                 query: DataTableNode,
                 dateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
                 draftConversionGoal: ConversionGoalFilter | null,
                 defaultColumns: string[],
-                compareFilter: CompareFilter
+                compareFilter: CompareFilter,
+                integrationFilter: IntegrationFilter
             ): DataTableNode | null => {
                 if (loading) {
                     return null
@@ -206,6 +220,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 const sortedColumns = getSortedColumnsByArray(columnsWithDraftConversionGoal, defaultColumns)
                 const orderedColumns = orderArrayByPreference(sortedColumns, query?.pinnedColumns || [])
                 const orderBy = getOrderBy(marketingQuery, sortedColumns)
+
                 return {
                     ...query,
                     kind: NodeKind.DataTableNode,
@@ -223,6 +238,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                         select: orderedColumns,
                         compareFilter: compareFilter || undefined,
+                        integrationFilter: integrationFilter,
                     },
                     full: true,
                     embedded: false,

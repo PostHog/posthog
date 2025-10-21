@@ -256,7 +256,7 @@ class RedshiftClient(PostgreSQLClient):
         s3_files = sql.Literal(f"s3://{s3_bucket}/{manifest_key}")
 
         if isinstance(authorization, AWSCredentials):
-            credentials = sql.SQL(
+            credentials: sql.SQL | sql.Composed = sql.SQL(
                 """
                 ACCESS_KEY_ID {access_key_id}
                 SECRET_ACCESS_KEY {secret_access_key}
@@ -267,7 +267,10 @@ class RedshiftClient(PostgreSQLClient):
             )
 
         else:
-            credentials = sql.SQL("IAM_ROLE {iam_role}").format(iam_role=sql.Literal(authorization))
+            if authorization == "default":
+                credentials = sql.SQL("IAM_ROLE default")
+            else:
+                credentials = sql.SQL("IAM_ROLE {iam_role}").format(iam_role=sql.Literal(authorization))
 
         copy_query = sql.SQL(
             """

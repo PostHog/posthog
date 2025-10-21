@@ -8,6 +8,8 @@ import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
+import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
+import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -17,6 +19,7 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     DashboardFilter,
+    DataWarehouseManagedViewsetKind,
     DatabaseSerializedFieldType,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
@@ -71,6 +74,7 @@ import {
     DataColorThemeModel,
     DataModelingJob,
     DataWarehouseActivityRecord,
+    DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSourceRowCount,
@@ -649,6 +653,22 @@ export class ApiRequest {
 
     public sessionPropertyDefinitions(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('sessions').addPathComponent('property_definitions')
+    }
+
+    public schemaPropertyGroups(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('schema_property_groups')
+    }
+
+    public schemaPropertyGroupsDetail(id: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.schemaPropertyGroups(projectId).addPathComponent(id)
+    }
+
+    public eventSchemas(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('event_schemas')
+    }
+
+    public eventSchemasDetail(id: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.eventSchemas(projectId).addPathComponent(id)
     }
 
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
@@ -1259,7 +1279,7 @@ export class ApiRequest {
         return this.featureFlag(flagId).addPathComponent('role_access')
     }
 
-    // # Queries
+    // Queries
     public query(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('query')
     }
@@ -1280,7 +1300,7 @@ export class ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
     }
 
-    // # Endpoints
+    // Endpoints
     public endpoint(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('endpoints')
     }
@@ -1291,6 +1311,11 @@ export class ApiRequest {
 
     public lastExecutionTimes(): ApiRequest {
         return this.addPathComponent('last_execution_times')
+    }
+
+    // Managed Viewsets
+    public dataWarehouseManagedViewset(kind: DataWarehouseManagedViewsetKind, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('managed_viewsets').addPathComponent(kind)
     }
 
     // Conversations
@@ -1634,6 +1659,9 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<EndpointType>> {
             return await new ApiRequest().endpoint().get()
         },
+        async get(name: string): Promise<EndpointType> {
+            return await new ApiRequest().endpointDetail(name).get()
+        },
         async create(data: EndpointRequest): Promise<EndpointType> {
             return await new ApiRequest().endpoint().create({ data })
         },
@@ -1896,6 +1924,7 @@ const api = {
                     ActivityScope.HOG_FUNCTION,
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
+                    ActivityScope.ENDPOINT,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2245,6 +2274,43 @@ const api = {
         },
     },
 
+    schemaPropertyGroups: {
+        async list(projectId?: ProjectType['id']): Promise<{ results: SchemaPropertyGroup[] }> {
+            return new ApiRequest().schemaPropertyGroups(projectId).get()
+        },
+        async get(id: string, projectId?: ProjectType['id']): Promise<SchemaPropertyGroup> {
+            return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).get()
+        },
+        async create(data: Partial<SchemaPropertyGroup>, projectId?: ProjectType['id']): Promise<SchemaPropertyGroup> {
+            return new ApiRequest().schemaPropertyGroups(projectId).create({ data })
+        },
+        async update(
+            id: string,
+            data: Partial<SchemaPropertyGroup>,
+            projectId?: ProjectType['id']
+        ): Promise<SchemaPropertyGroup> {
+            return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).update({ data })
+        },
+        async delete(id: string, projectId?: ProjectType['id']): Promise<void> {
+            return new ApiRequest().schemaPropertyGroupsDetail(id, projectId).delete()
+        },
+    },
+
+    eventSchemas: {
+        async list(eventDefinitionId: string, projectId?: ProjectType['id']): Promise<{ results: EventSchema[] }> {
+            return new ApiRequest()
+                .eventSchemas(projectId)
+                .withQueryString(toParams({ event_definition: eventDefinitionId }))
+                .get()
+        },
+        async create(data: Partial<EventSchema>, projectId?: ProjectType['id']): Promise<EventSchema> {
+            return new ApiRequest().eventSchemas(projectId).create({ data })
+        },
+        async delete(id: string, projectId?: ProjectType['id']): Promise<void> {
+            return new ApiRequest().eventSchemasDetail(id, projectId).delete()
+        },
+    },
+
     cohorts: {
         async get(cohortId: CohortType['id']): Promise<CohortType> {
             return await new ApiRequest().cohortsDetail(cohortId).get()
@@ -2305,7 +2371,11 @@ const api = {
 
         async streamTiles(
             id: number,
-            params: { layoutSize?: 'sm' | 'xs' } = {},
+            params: {
+                layoutSize?: 'sm' | 'xs'
+                filtersOverride?: DashboardFilter
+                variablesOverride?: Record<string, HogQLVariable>
+            } = {},
             onMessage: (data: any) => void,
             onComplete: () => void,
             onError: (error: any) => void
@@ -2313,7 +2383,13 @@ const api = {
             const url = new ApiRequest()
                 .dashboardsDetail(id)
                 .withAction('stream_tiles')
-                .withQueryString(toParams(params))
+                .withQueryString(
+                    toParams({
+                        layout_size: params.layoutSize,
+                        filters_override: params.filtersOverride,
+                        variables_override: params.variablesOverride,
+                    })
+                )
                 .assembleFullUrl(true)
 
             const abortController = new AbortController()
@@ -4386,6 +4462,17 @@ const api = {
     sessionSummaries: {
         async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
             return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
+        },
+    },
+
+    dataWarehouseManagedViewsets: {
+        async toggle(kind: DataWarehouseManagedViewsetKind, enabled: boolean): Promise<void> {
+            return await new ApiRequest().dataWarehouseManagedViewset(kind).put({ data: { enabled } })
+        },
+        async getViews(
+            kind: DataWarehouseManagedViewsetKind
+        ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
+            return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
         },
     },
 }

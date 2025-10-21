@@ -861,6 +861,10 @@ class DataWarehouseEventsModifier(BaseModel):
     timestamp_field: str
 
 
+class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
+    root: Literal["revenue_analytics"] = "revenue_analytics"
+
+
 class DataWarehouseViewLinkConfiguration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1416,6 +1420,7 @@ class FileSystemIconType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
+    MANAGED_VIEWSETS = "managed_viewsets"
     ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
     WEB_ANALYTICS = "web_analytics"
@@ -1438,6 +1443,7 @@ class FileSystemIconType(StrEnum):
     ACTION = "action"
     COMMENT = "comment"
     ANNOTATION = "annotation"
+    EVENT = "event"
     EVENT_DEFINITION = "event_definition"
     PROPERTY_DEFINITION = "property_definition"
     INGESTION_WARNING = "ingestion_warning"
@@ -1456,6 +1462,7 @@ class FileSystemIconType(StrEnum):
     HOME = "home"
     APPS = "apps"
     LIVE = "live"
+    CHAT = "chat"
 
 
 class FileSystemImport(BaseModel):
@@ -1478,6 +1485,7 @@ class FileSystemImport(BaseModel):
     path: str = Field(..., description="Object's name and folder")
     protocol: Optional[str] = Field(default=None, description='Protocol of the item, defaults to "project://"')
     ref: Optional[str] = Field(default=None, description="Object's ID or other unique reference")
+    sceneKey: Optional[str] = Field(default=None, description="Match this with the a base scene key or a specific one")
     shortcut: Optional[bool] = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: Optional[list[Tag]] = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
     type: Optional[str] = Field(
@@ -1738,6 +1746,15 @@ class InsightsThresholdBounds(BaseModel):
     )
     lower: Optional[float] = None
     upper: Optional[float] = None
+
+
+class IntegrationFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    integrationSourceIds: Optional[list[str]] = Field(
+        default=None, description="Selected integration source IDs to filter by (e.g., table IDs or source map IDs)"
+    )
 
 
 class IntegrationKind(StrEnum):
@@ -2172,6 +2189,7 @@ class PlaywrightWorkspaceSetupResult(BaseModel):
 class PropertyFilterType(StrEnum):
     META = "meta"
     EVENT = "event"
+    INTERNAL_EVENT = "internal_event"
     EVENT_METADATA = "event_metadata"
     PERSON = "person"
     ELEMENT = "element"
@@ -2804,6 +2822,8 @@ class TaxonomicFilterGroupType(StrEnum):
     DATA_WAREHOUSE_PERSON_PROPERTIES = "data_warehouse_person_properties"
     ELEMENTS = "elements"
     EVENTS = "events"
+    INTERNAL_EVENTS = "internal_events"
+    INTERNAL_EVENT_PROPERTIES = "internal_event_properties"
     EVENT_PROPERTIES = "event_properties"
     EVENT_FEATURE_FLAGS = "event_feature_flags"
     EVENT_METADATA = "event_metadata"
@@ -12526,6 +12546,7 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     )
     filterTestAccounts: Optional[bool] = None
     includeRevenue: Optional[bool] = None
+    integrationFilter: Optional[IntegrationFilter] = Field(default=None, description="Filter by integration IDs")
     kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -12557,6 +12578,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
         default=None, description="Include conversion goal rows even when they don't match campaign costs table"
     )
     includeRevenue: Optional[bool] = None
+    integrationFilter: Optional[IntegrationFilter] = Field(default=None, description="Filter by integration type")
     kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
     limit: Optional[int] = Field(default=None, description="Number of rows to return")
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -14112,6 +14134,8 @@ class ExperimentMetricTimeseries(BaseModel):
     errors: Optional[dict[str, str]] = None
     experiment_id: float
     metric_uuid: str
+    recalculation_created_at: Optional[str] = None
+    recalculation_status: Optional[str] = None
     status: Status5
     timeseries: Optional[dict[str, ExperimentQueryResponse]] = None
     updated_at: str
