@@ -23,6 +23,8 @@ HOG_FUNCTION_TYPES = ["broadcast", "campaign", "destination", "site_app", "sourc
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
+    last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
     class Meta:
         model = FileSystem
         fields = [
@@ -35,12 +37,14 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "meta",
             "shortcut",
             "created_at",
+            "last_viewed_at",
         ]
         read_only_fields = [
             "id",
             "depth",
             "created_at",
             "team_id",
+            "last_viewed_at",
         ]
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:

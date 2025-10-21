@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
+from django.utils.dateparse import parse_datetime
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -242,8 +243,12 @@ class TestFileSystemOrdering(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
 
-        paths = [item["path"] for item in response.json()["results"]]
+        results = response.json()["results"]
+        paths = [item["path"] for item in results]
         assert paths == ["Testing/Second", "Testing/First", "Testing/Fourth", "Testing/Third"]
+
+        assert parse_datetime(results[0]["last_viewed_at"]) == timestamp - timedelta(hours=1)
+        assert parse_datetime(results[1]["last_viewed_at"]) == timestamp - timedelta(hours=3)
 
 
 class TestLogApiFileSystemView(APIBaseTest):
