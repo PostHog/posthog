@@ -21,7 +21,7 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
     const tip =
         !coreMemoryLoading && !coreMemory?.text
             ? 'Tip: Run /init to initialize PostHog AI in this project'
-            : 'Ask Max about…'
+            : 'Try PostHog AI for…'
 
     return (
         <DismissableLayer

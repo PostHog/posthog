@@ -41,7 +41,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
-    const { conversationId: tabConversationId, chatTitle } = useValues(maxLogic({ tabId: tabId || '' }))
+    const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
 
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
@@ -51,7 +51,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
             <SceneContent className="px-4 py-4">
-                <SceneTitleSection name={chatTitle || 'PostHog AI'} resourceType={{ type: 'chat' }} />
+                <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
                 <SceneDivider />
                 <div className="flex flex-col items-center justify-center w-full grow">
                     <IconSidePanel className="text-3xl text-muted mb-2" />
@@ -200,10 +200,8 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     ) : (
         <SceneContent className="px-4 py-4">
             <SceneTitleSection
-                name={conversationHistoryVisible ? 'Chat history' : chatTitle || 'PostHog AI'}
-                resourceType={{
-                    type: 'chat',
-                }}
+                name={null}
+                resourceType={{ type: 'chat' }}
                 actions={
                     conversationId && tabId ? (
                         <LemonButton

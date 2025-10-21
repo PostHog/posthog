@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 
+import { Link, Tooltip } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,9 +23,30 @@ export function Intro(): JSX.Element {
             <div className="text-center mb-1">
                 <h2 className="text-xl @md/max-welcome:text-2xl font-bold my-2 text-balance">{headline}</h2>
                 <div className="text-sm italic text-tertiary text-pretty py-0.5">
-                    {shouldShowMaxRebrandMessage
-                        ? 'Max is now PostHog AI – a core part of PostHog.'
-                        : 'Build something people want.'}
+                    {shouldShowMaxRebrandMessage ? (
+                        <Tooltip
+                            title={
+                                <>
+                                    As consolation, you can still{' '}
+                                    <Link
+                                        to="https://posthog.com/merch?product=posthog-plush-hedgehog"
+                                        target="_blank"
+                                        targetBlankIcon
+                                    >
+                                        welcome Max
+                                        <br />
+                                        to your home – in plush form
+                                    </Link>
+                                </>
+                            }
+                        >
+                            <span className="inline-block cursor-help">
+                                Max is now PostHog AI – a core part of PostHog.
+                            </span>
+                        </Tooltip>
+                    ) : (
+                        'Build something people want.'
+                    )}
                 </div>
             </div>
         </>

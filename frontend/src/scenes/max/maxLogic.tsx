@@ -271,7 +271,7 @@ export const maxLogic = kea<maxLogicType>([
                 return [
                     {
                         key: Scene.Max,
-                        name: `AI`,
+                        name: 'AI',
                         path: urls.max(),
                         iconType: 'chat',
                     },
