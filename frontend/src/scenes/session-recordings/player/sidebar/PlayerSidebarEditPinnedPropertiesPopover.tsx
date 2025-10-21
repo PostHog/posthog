@@ -8,7 +8,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { personsLogic } from 'scenes/persons/personsLogic'
 
-import { playerMetaLogic } from '../player-meta/playerMetaLogic'
+import { getPropertyDisplayInfo, playerMetaLogic } from '../player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 export type PlayerSidebarEditPinnedPropertiesPopoverProps = {
@@ -23,7 +23,9 @@ export function PlayerSidebarEditPinnedPropertiesPopover(
     const { loadPerson, loadPersonUUID } = useActions(personsLogic({ syncWithUrl: false }))
     const { person, personLoading } = useValues(personsLogic({ syncWithUrl: false }))
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { allOverviewItems, pinnedProperties } = useValues(playerMetaLogic(logicProps))
+    const { allOverviewItems, pinnedProperties, sessionPlayerMetaData, recordingPropertiesById } = useValues(
+        playerMetaLogic(logicProps)
+    )
     const { togglePropertyPin } = useActions(playerMetaLogic(logicProps))
 
     useEffect(() => {
@@ -66,7 +68,7 @@ export function PlayerSidebarEditPinnedPropertiesPopover(
     const allPropertyKeys = Array.from(new Set([...recordingPropertyKeys, ...personPropertyKeys])).sort()
 
     return (
-        <div className="flex flex-col overflow-hidden max-h-96 w-[400px]">
+        <div className="flex flex-col overflow-hidden max-h-96 max-w-160">
             <div className="flex items-center gap-2 px-4 py-3 border-b">
                 <IconPinFilled className="text-muted" />
                 <h4 className="font-semibold m-0">Pinned properties</h4>
@@ -76,6 +78,10 @@ export function PlayerSidebarEditPinnedPropertiesPopover(
                 <div className="flex flex-col">
                     {allPropertyKeys.map((propertyKey) => {
                         const isPinned = pinnedProperties.includes(propertyKey)
+                        const recordingProperties = sessionPlayerMetaData?.id
+                            ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
+                            : {}
+                        const propertyInfo = getPropertyDisplayInfo(propertyKey, recordingProperties)
 
                         const handleToggle = (): void => {
                             togglePropertyPin(propertyKey)
@@ -84,13 +90,21 @@ export function PlayerSidebarEditPinnedPropertiesPopover(
                         return (
                             <LemonButton
                                 key={propertyKey}
+                                data-attr={
+                                    isPinned ? 'session-overview-unpin-property' : 'session-overview-pin-property'
+                                }
                                 size="small"
                                 fullWidth
                                 className="justify-between"
                                 onClick={handleToggle}
                                 sideIcon={isPinned ? <IconPinFilled /> : <IconPin />}
+                                tooltip={
+                                    propertyInfo.label !== propertyInfo.originalKey
+                                        ? `Sent as: ${propertyInfo.originalKey}`
+                                        : undefined
+                                }
                             >
-                                <span>{propertyKey}</span>
+                                <span>{propertyInfo.label}</span>
                             </LemonButton>
                         )
                     })}

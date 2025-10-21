@@ -28,6 +28,32 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                     </div>
                 ) : (
                     <OverviewGrid>
+                        <Popover
+                            visible={isPropertyPopoverOpen}
+                            onClickOutside={() => setIsPropertyPopoverOpen(false)}
+                            overlay={
+                                sessionPerson?.distinct_ids?.[0] || sessionPerson?.id ? (
+                                    <PlayerSidebarEditPinnedPropertiesPopover
+                                        distinctId={sessionPerson?.distinct_ids?.[0]}
+                                        personId={sessionPerson?.id}
+                                        onClose={() => setIsPropertyPopoverOpen(false)}
+                                    />
+                                ) : null
+                            }
+                            placement="left-start"
+                            fallbackPlacements={['bottom']}
+                            showArrow
+                        >
+                            <LemonButton
+                                icon={<IconGear />}
+                                onClick={() => setIsPropertyPopoverOpen(true)}
+                                fullWidth
+                                size="small"
+                                type="secondary"
+                            >
+                                Edit pinned overview properties
+                            </LemonButton>
+                        </Popover>
                         {displayOverviewItems.map((item) => {
                             return (
                                 <OverviewGridItem
@@ -49,33 +75,6 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                         })}
                     </OverviewGrid>
                 )}
-                <div className="px-2 py-2 border-t">
-                    <Popover
-                        visible={isPropertyPopoverOpen}
-                        onClickOutside={() => setIsPropertyPopoverOpen(false)}
-                        overlay={
-                            sessionPerson?.distinct_ids?.[0] || sessionPerson?.id ? (
-                                <PlayerSidebarEditPinnedPropertiesPopover
-                                    distinctId={sessionPerson?.distinct_ids?.[0]}
-                                    personId={sessionPerson?.id}
-                                    onClose={() => setIsPropertyPopoverOpen(false)}
-                                />
-                            ) : null
-                        }
-                        placement="bottom"
-                        fallbackPlacements={['top', 'right']}
-                        showArrow
-                    />
-                    <LemonButton
-                        icon={<IconGear />}
-                        onClick={() => setIsPropertyPopoverOpen(true)}
-                        fullWidth
-                        size="small"
-                        type="secondary"
-                    >
-                        Edit pinned overview properties
-                    </LemonButton>
-                </div>
             </div>
         </>
     )

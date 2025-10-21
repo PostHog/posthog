@@ -213,7 +213,7 @@ export function PropertiesTable({
     rootKey,
     onEdit,
     sortProperties = true,
-    searchable = true, //false,
+    searchable = false,
     filterable = false,
     embedded = true,
     nestingLevel = 0,

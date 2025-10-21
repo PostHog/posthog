@@ -63,6 +63,44 @@ export function countryTitleFrom(
     return [city, subdivision, country].filter(Boolean).join(', ')
 }
 
+/**
+ * Get human-readable property label and type information
+ * @param property - The property key (e.g., '$browser', 'email')
+ * @param recordingProperties - Recording properties to determine if it's an event property
+ * @returns Object with label, originalKey, and type information
+ */
+export function getPropertyDisplayInfo(
+    property: string,
+    recordingProperties?: Record<string, any>
+): {
+    label: string
+    originalKey: string
+    type: TaxonomicFilterGroupType
+    propertyFilterType?: PropertyFilterType
+} {
+    const propertyType = recordingProperties?.[property]
+        ? // HogQL query can return multiple types, so we need to check
+          // but if it doesn't match a core definition it must be an event property
+          getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
+        : TaxonomicFilterGroupType.PersonProperties
+
+    const propertyFilterType: PropertyFilterType | undefined =
+        propertyType === TaxonomicFilterGroupType.EventProperties
+            ? PropertyFilterType.Event
+            : propertyType === TaxonomicFilterGroupType.SessionProperties
+              ? PropertyFilterType.Session
+              : PropertyFilterType.Person
+
+    const label = getCoreFilterDefinition(property, propertyType)?.label ?? property
+
+    return {
+        label,
+        originalKey: property,
+        type: propertyType,
+        propertyFilterType,
+    }
+}
+
 export const playerMetaLogic = kea<playerMetaLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -291,11 +329,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         return
                     }
 
-                    const propertyType = recordingProperties[property]
-                        ? // HogQL query can return multiple types, so we need to check
-                          // but if it doesn't match a core definition it must be an event property
-                          getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
-                        : TaxonomicFilterGroupType.PersonProperties
+                    const propertyInfo = getPropertyDisplayInfo(property, recordingProperties)
 
                     const safeValue =
                         value == null
@@ -306,18 +340,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                                 ? value.toString()
                                 : JSON.stringify(value, null, 2)
 
-                    const calculatedPropertyType: PropertyFilterType | undefined =
-                        propertyType === TaxonomicFilterGroupType.EventProperties
-                            ? PropertyFilterType.Event
-                            : propertyType === TaxonomicFilterGroupType.SessionProperties
-                              ? PropertyFilterType.Session
-                              : PropertyFilterType.Person
                     items.push({
-                        icon: <PropertyFilterIcon type={calculatedPropertyType} />,
-                        label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
+                        icon: <PropertyFilterIcon type={propertyInfo.propertyFilterType} />,
+                        label: propertyInfo.label,
                         value: safeValue,
-                        keyTooltip: calculatedPropertyType
-                            ? `${capitalizeFirstLetter(calculatedPropertyType)} property`
+                        keyTooltip: propertyInfo.propertyFilterType
+                            ? `${capitalizeFirstLetter(propertyInfo.propertyFilterType)} property`
                             : undefined,
                         valueTooltip:
                             property === '$geoip_country_code' && safeValue in COUNTRY_CODE_TO_LONG_NAME
