@@ -10,10 +10,12 @@ from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.file_system_logging import log_api_file_system_view
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.file_system.file_system_view_log import annotate_file_system_with_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
@@ -92,6 +94,12 @@ class FileSystemsLimitOffsetPagination(pagination.LimitOffsetPagination):
 
 class UnfiledFilesQuerySerializer(serializers.Serializer):
     type = serializers.CharField(required=False, allow_blank=True)
+
+
+class FileSystemViewLogSerializer(serializers.Serializer):
+    type = serializers.CharField()
+    ref = serializers.CharField()
+    viewed_at = serializers.DateTimeField(required=False)
 
 
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -488,6 +496,30 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
 
         return Response({"count": qs.count()}, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False, url_path="log_view")
+    def log_view(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = FileSystemViewLogSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        data = serializer.validated_data
+        representation = FileSystemRepresentation(
+            base_folder="",
+            type=data["type"],
+            ref=data["ref"],
+            name="",
+            href="",
+            meta={},
+        )
+
+        log_api_file_system_view(
+            request,
+            representation,
+            team_id=self.team.id,
+            viewed_at=data.get("viewed_at"),
+        )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(methods=["POST"], detail=False)
     def count_by_path(self, request: Request, *args: Any, **kwargs: Any) -> Response:

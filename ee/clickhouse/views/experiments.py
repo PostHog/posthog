@@ -18,7 +18,6 @@ from posthog.schema import ActionsNode, ExperimentEventExposureConfig
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -506,7 +505,6 @@ class ExperimentStatus(str, Enum):
 
 
 class EnterpriseExperimentsViewSet(
-    FileSystemViewSetMixin,
     ForbidDestroyModel,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

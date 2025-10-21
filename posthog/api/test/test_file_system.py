@@ -287,12 +287,10 @@ class TestFileSystemViewSetLogging(APIBaseTest):
         [
             ("action", _create_action_case),
             ("cohort", _create_cohort_case),
-            ("feature_flag", _create_feature_flag_case),
             ("survey", _create_survey_case),
             ("insight", _create_insight_case),
             ("dashboard", _create_dashboard_case),
             ("web_experiment", _create_web_experiment_case),
-            ("experiment", _create_enterprise_experiment_case),
             ("hog_function", _create_hog_function_case),
             ("session_recording_playlist", _create_session_recording_playlist_case),
             ("notebook", _create_notebook_case),
@@ -313,6 +311,38 @@ class TestFileSystemViewSetLogging(APIBaseTest):
         response = self.client.get(url)
 
         assert response.status_code == status.HTTP_200_OK
+
+        log_entry = FileSystemViewLog.objects.get()
+        assert log_entry.type == representation.type
+        assert log_entry.ref == str(representation.ref)
+
+
+class TestFileSystemLogViewEndpoint(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        _ensure_session_cookie(self.client)
+
+    @parameterized.expand(
+        [
+            ("feature_flag", _create_feature_flag_case, False),
+            ("experiment", _create_enterprise_experiment_case, True),
+        ]
+    )
+    def test_log_view_endpoint_creates_entry(self, _name: str, setup_case, requires_ee: bool) -> None:
+        if requires_ee and not settings.EE_AVAILABLE:
+            raise unittest.SkipTest("Enterprise features unavailable")
+
+        FileSystemViewLog.objects.all().delete()
+
+        obj, _ = setup_case(self)
+        representation = obj.get_file_system_representation()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/file_system/log_view/",
+            {"type": representation.type, "ref": str(representation.ref)},
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         log_entry = FileSystemViewLog.objects.get()
         assert log_entry.type == representation.type

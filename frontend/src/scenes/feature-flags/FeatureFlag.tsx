@@ -22,6 +22,7 @@ import {
 } from '@posthog/icons'
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -219,6 +220,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const { tags } = useValues(tagsModel)
     const { hasAvailableFeature, user } = useValues(userLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -229,6 +231,21 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
+
+    useEffect(() => {
+        if (
+            !currentTeamId ||
+            featureFlagMissing ||
+            accessDeniedToFeatureFlag ||
+            props.id === 'new' ||
+            props.id === 'link' ||
+            !featureFlag?.id
+        ) {
+            return
+        }
+
+        void api.fileSystemLogView.create({ type: 'feature_flag', ref: String(featureFlag.id) })
+    }, [currentTeamId, featureFlag?.id, featureFlagMissing, accessDeniedToFeatureFlag, props.id])
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
