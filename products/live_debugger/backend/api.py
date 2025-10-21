@@ -5,7 +5,8 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import ProjectSecretAPIKeyAuthentication, SessionAuthentication
+from posthog.permissions import ProjectSecretAPITokenPermission
 
 from products.live_debugger.backend.models import LiveDebuggerBreakpoint
 
@@ -26,7 +27,7 @@ class LiveDebuggerBreakpointViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     Create, Read, Update and Delete breakpoints for live debugging.
     """
 
-    scope_object = "query"  # Changed from "INTERNAL" to allow API access
+    scope_object = "live_debugger"
     scope_object_read_actions = ["list", "retrieve", "active_breakpoints", "breakpoint_hits"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
     queryset = LiveDebuggerBreakpoint.objects.all()
@@ -96,18 +97,22 @@ class LiveDebuggerBreakpointViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     @action(
         methods=["GET"],
         detail=False,
-        authentication_classes=[PersonalAPIKeyAuthentication, SessionAuthentication],
+        authentication_classes=[ProjectSecretAPIKeyAuthentication, SessionAuthentication],
+        required_scopes=["live_debugger:read"],
+        permission_classes=[ProjectSecretAPITokenPermission],
         url_path="active",
     )
     def active_breakpoints(self, request, *args, **kwargs) -> Response:
         """
-        External API endpoint for client applications to fetch active breakpoints using API key.
+        External API endpoint for client applications to fetch active breakpoints using Project API key.
 
         This endpoint allows external client applications (like Python scripts, Node.js apps, etc.)
         to fetch the list of active breakpoints so they can instrument their code accordingly.
 
-        Authentication: Requires a Personal API Key in the Authorization header:
-        Authorization: Bearer <your-personal-api-key>
+        Authentication: Requires a Project API Key in the Authorization header:
+        Authorization: Bearer phs_<your-project-api-key>
+
+        You can find your Project API Key in PostHog at: Settings → Project → Project API Key
 
         Query parameters:
         - filename (optional): Filter breakpoints for specific file

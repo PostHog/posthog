@@ -736,6 +736,8 @@ environments_router.register(
     ["team_id"],
 )
 
+<<<<<<< Conflict 1 of 1
++++++++ Contents of side #1
 environments_router.register(
     r"error_tracking/git-provider-file-links",
     git_provider_file_link_resolver.GitProviderFileLinksViewSet,
@@ -748,6 +750,20 @@ environments_router.register(
     live_debugger.LiveDebuggerBreakpointViewSet,
     "live_debugger_breakpoints",
     ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/git-provider-file-links",
+    git_provider_file_link_resolver.GitProviderFileLinksViewSet,
+    "project_error_tracking_git_provider_file_links",
+    ["team_id"],
+)
+ 
+projects_router.register(
+    r"live_debugger_breakpoints",
+    live_debugger.LiveDebuggerBreakpointViewSet,
+    "project_live_debugger_breakpoints",
+    ["project_id"],
 )
 
 projects_router.register(
