@@ -115,11 +115,6 @@ class TestInsightSearchNode(BaseTest):
             short_id=insight.short_id,
         )
 
-    def test_router_returns_root(self):
-        """Test that router returns 'root' as expected."""
-        result = self.node.router(AssistantState(messages=[]))
-        self.assertEqual(result, "root")
-
     async def test_load_insights_page(self):
         """Test loading paginated insights from database."""
         # Load first page
@@ -350,12 +345,6 @@ class TestInsightSearchNode(BaseTest):
         # Should return empty list when LLM fails to select anything
         self.assertEqual(len(result), 0)
 
-    def test_router_always_returns_root(self):
-        """Test that router always returns 'root'."""
-        state = AssistantState(messages=[], root_tool_insight_plan="some plan", search_insights_query=None)
-        result = self.node.router(state)
-        self.assertEqual(result, "root")
-
     async def test_evaluation_flow_returns_creation_when_no_suitable_insights(self):
         """Test that when evaluation returns NO, the system transitions to creation flow."""
         selected_insights = [self.insight1.id, self.insight2.id]
@@ -409,21 +398,6 @@ class TestInsightSearchNode(BaseTest):
                             result.root_tool_insight_plan,
                             search_query,
                             "root_tool_insight_plan should be set to search_query",
-                        )
-
-                        # Test router behavior with the returned state
-                        # Create a new state that simulates what happens after this node runs
-                        post_evaluation_state = AssistantState(
-                            messages=state.messages,
-                            root_tool_insight_plan=search_query,  # This gets set to search_query
-                            search_insights_query=None,  # This gets cleared
-                        )
-
-                        router_result = self.node.router(post_evaluation_state)
-                        self.assertEqual(
-                            router_result,
-                            "root",
-                            "Router should always return root",
                         )
 
                         # Verify that _evaluate_insights_with_tools was called with the search_query
