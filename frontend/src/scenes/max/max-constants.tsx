@@ -6,6 +6,8 @@ import { Scene } from 'scenes/sceneTypes'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AssistantTool } from '~/queries/schema/schema-assistant-messages'
 
+import { EnhancedToolCall } from './Thread'
+
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
     /** A user-friendly display name for the tool. Must be a verb phrase, like "Create surveys" or "Search docs" */
@@ -15,16 +17,15 @@ export interface ToolDefinition<N extends string = string> {
      * e.g. "Create surveys in seconds"
      */
     description?: `${N} ${string}`
-    /** If the tool has multiple kinds, you can specify them here
+    /** If the tool has multiple subtools, you can specify them here
      * These will populate the tool summary list, instead of the tool itself
      */
-    kinds?: Record<
+    subtools?: Record<
         string, // identifier, should match the "kind" key in the tool call
         ToolDefinition
     >
     icon: JSX.Element
-    activeDescription?: string
-    passiveDescription?: string
+    displayFormatter?: (toolCall: EnhancedToolCall) => string
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -68,8 +69,12 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         description: 'Summarize sessions to analyze real user behavior',
         flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
-        activeDescription: 'Summarizing sessions...',
-        passiveDescription: 'Summarized sessions',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Summarized sessions'
+            }
+            return 'Summarizing sessions...'
+        },
     },
     create_dashboard: {
         name: 'Create dashboards',
@@ -79,40 +84,67 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
     search: {
         name: 'Search',
         icon: <IconSearch />,
-        kinds: {
+        subtools: {
             docs: {
                 name: 'Search docs',
                 description: 'Search docs for answers regarding PostHog',
                 icon: <IconBook />,
-                activeDescription: 'Searching docs...',
-                passiveDescription: 'Searched docs',
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched docs'
+                    }
+                    return 'Searching docs...'
+                },
             },
             insights: {
                 name: 'Search existing insights',
                 description: 'Search existing insights for answers',
                 icon: iconForType('product_analytics'),
-                activeDescription: 'Searching insights...',
-                passiveDescription: 'Searched insights',
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Searched insights'
+                    }
+                    return 'Searching insights...'
+                },
             },
         },
     },
     read_taxonomy: {
         name: 'Read taxonomy',
         icon: iconForType('data_warehouse'),
-        activeDescription: 'Reading taxonomy...',
-        passiveDescription: 'Read taxonomy',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Read taxonomy'
+            }
+            return 'Reading taxonomy...'
+        },
     },
     read_data: {
         name: 'Read data',
         description: 'Read data from PostHog',
         icon: iconForType('data_warehouse'),
-        kinds: {
+        subtools: {
             billing_info: {
-                name: 'Read billing data',
+                name: 'Check your billing data',
                 description: 'Check your billing data',
                 icon: <IconCreditCard />,
-                activeDescription: 'Reading billing data...',
-                passiveDescription: 'Read billing data',
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Read billing data'
+                    }
+                    return 'Reading billing data...'
+                },
+            },
+            datawarehouse_schema: {
+                name: 'Read your data warehouse schema',
+                description: 'Read your data warehouse schema',
+                icon: iconForType('data_warehouse'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Read data warehouse schema'
+                    }
+                    return 'Reading data warehouse schema...'
+                },
             },
         },
     },
@@ -120,31 +152,47 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         name: 'Navigate',
         description: 'Navigate to other places in PostHog',
         icon: <IconCompass />,
-        activeDescription: 'Navigating to a different page...',
-        passiveDescription: 'Navigated to a different page',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Navigated to a different page'
+            }
+            return 'Navigating to a different page...'
+        },
     },
     create_and_query_insight: {
         name: 'Query data',
         description: 'Query data by creating insights and SQL queries',
         icon: iconForType('product_analytics'),
-        activeDescription: 'Creating an insight...', // This is not correct, we currently don't have a division between creating and editing an insight
-        passiveDescription: 'Created an insight',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created an insight'
+            }
+            return 'Creating an insight...'
+        },
     },
     search_session_recordings: {
         name: 'Search recordings',
         description: 'Search recordings quickly',
         product: Scene.Replay,
         icon: iconForType('session_replay'),
-        activeDescription: 'Searching recordings...',
-        passiveDescription: 'Searched recordings',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Searched recordings'
+            }
+            return 'Searching recordings...'
+        },
     },
     generate_hogql_query: {
         name: 'Write and tweak SQL',
         description: 'Write and tweak SQL right there',
         product: Scene.SQLEditor,
         icon: iconForType('insight/hog'),
-        activeDescription: 'Writing and tweaking SQL...',
-        passiveDescription: 'Edited SQL',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Edited SQL'
+            }
+            return 'Writing and tweaking SQL...'
+        },
     },
     analyze_user_interviews: {
         name: 'Analyze user interviews',
@@ -152,40 +200,60 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         product: Scene.UserInterviews,
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
         icon: iconForType('user_interview'),
-        activeDescription: 'Analyzing user interviews...',
-        passiveDescription: 'Analyzed user interviews',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Analyzed user interviews'
+            }
+            return 'Analyzing user interviews...'
+        },
     },
     create_hog_function_filters: {
         name: 'Set up function filters',
         description: 'Set up function filters for quick pipeline configuration',
         product: Scene.DataPipelines,
         icon: iconForType('data_warehouse'),
-        activeDescription: 'Setting up function filters...',
-        passiveDescription: 'Set up function filters',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Set up function filters'
+            }
+            return 'Setting up function filters...'
+        },
     },
     create_hog_transformation_function: {
         name: 'Write and tweak Hog code',
         description: 'Write and tweak Hog code of transformations',
         product: Scene.DataPipelines,
         icon: iconForType('data_warehouse'),
-        activeDescription: 'Writing and tweaking Hog code...',
-        passiveDescription: 'Edited Hog code',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Edited Hog code'
+            }
+            return 'Writing and tweaking Hog code...'
+        },
     },
     create_hog_function_inputs: {
         name: 'Manage function variables',
         description: 'Manage function variables in Hog functions',
         product: Scene.DataPipelines,
         icon: iconForType('data_warehouse'),
-        activeDescription: 'Managing function variables...',
-        passiveDescription: 'Managed function variables',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Managed function variables'
+            }
+            return 'Managing function variables...'
+        },
     },
     filter_error_tracking_issues: {
         name: 'Filter issues',
         description: 'Filter issues to dig into errors',
         product: Scene.ErrorTracking,
         icon: iconForType('error_tracking'),
-        activeDescription: 'Filtering issues...',
-        passiveDescription: 'Filtered issues',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Filtered issues'
+            }
+            return 'Filtering issues...'
+        },
     },
     find_error_tracking_impactful_issue_event_list: {
         name: 'Find impactful issues',
@@ -193,8 +261,12 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         product: Scene.ErrorTracking,
         flag: FEATURE_FLAGS.ERROR_TRACKING_ISSUE_CORRELATION,
         icon: iconForType('error_tracking'),
-        activeDescription: 'Finding impactful issues...',
-        passiveDescription: 'Found impactful issues',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Found impactful issues'
+            }
+            return 'Finding impactful issues...'
+        },
     },
     experiment_results_summary: {
         name: 'Summarize experiment results',
@@ -202,62 +274,94 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         product: Scene.Experiment,
         flag: 'experiments-ai-summary',
         icon: iconForType('experiment'),
-        activeDescription: 'Summarizing experiment results...',
-        passiveDescription: 'Summarized experiment results',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Summarized experiment results'
+            }
+            return 'Summarizing experiment results...'
+        },
     },
     create_survey: {
         name: 'Create surveys',
         description: 'Create surveys in seconds',
         product: Scene.Surveys,
         icon: iconForType('survey'),
-        activeDescription: 'Creating surveys...',
-        passiveDescription: 'Created surveys',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created surveys'
+            }
+            return 'Creating surveys...'
+        },
     },
     analyze_survey_responses: {
         name: 'Analyze survey responses',
         description: 'Analyze survey responses to extract themes and actionable insights',
         product: Scene.Surveys,
         icon: iconForType('survey'),
-        activeDescription: 'Analyzing survey responses...',
-        passiveDescription: 'Analyzed survey responses',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Analyzed survey responses'
+            }
+            return 'Analyzing survey responses...'
+        },
     },
     create_message_template: {
         name: 'Create email templates',
         description: 'Create email templates from scratch or using a URL for inspiration',
         product: Scene.Workflows,
         icon: iconForType('workflows'),
-        activeDescription: 'Creating email templates...',
-        passiveDescription: 'Created email templates',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created email templates'
+            }
+            return 'Creating email templates...'
+        },
     },
     fix_hogql_query: {
         name: 'Fix SQL',
         icon: iconForType('data_warehouse'),
-        activeDescription: 'Fixing SQL...',
-        passiveDescription: 'Fixed SQL',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Fixed SQL'
+            }
+            return 'Fixing SQL...'
+        },
     },
     edit_current_insight: {
         name: 'Edit the insight',
         description: "Edit the insight you're viewing",
         icon: iconForType('product_analytics'),
         product: Scene.Insight,
-        activeDescription: 'Editing the insight you are viewing...',
-        passiveDescription: 'Edited the insight you are viewing',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Edited the insight you are viewing'
+            }
+            return 'Editing the insight you are viewing...'
+        },
     },
     filter_revenue_analytics: {
         name: 'Filter revenue analytics',
         description: 'Filter revenue analytics to find the most impactful revenue insights',
         product: Scene.RevenueAnalytics,
         icon: iconForType('revenue_analytics'),
-        activeDescription: 'Filtering revenue analytics...',
-        passiveDescription: 'Filtered revenue analytics',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Filtered revenue analytics'
+            }
+            return 'Filtering revenue analytics...'
+        },
     },
     edit_current_dashboard: {
         name: 'Add insight to the dashboard',
         description: "Edit insight to the dashboard you're viewing",
         product: Scene.Dashboard,
         icon: iconForType('dashboard'),
-        activeDescription: 'Adding insight to the dashboard...',
-        passiveDescription: 'Added insight to the dashboard',
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Added insight to the dashboard'
+            }
+            return 'Adding insight to the dashboard...'
+        },
     },
 }
 
@@ -276,8 +380,8 @@ export const MAX_GENERALLY_CANNOT: string[] = [
 
 export function getToolDefinition(identifier: string): ToolDefinition | null {
     const flatTools = Object.entries(TOOL_DEFINITIONS).flatMap(([key, tool]) => {
-        if (tool.kinds) {
-            return [{ ...tool, key }, ...Object.entries(tool.kinds).map(([key, value]) => ({ ...value, key }))]
+        if (tool.subtools) {
+            return [{ ...tool, key }, ...Object.entries(tool.subtools).map(([key, value]) => ({ ...value, key }))]
         }
         return [{ ...tool, key }]
     })

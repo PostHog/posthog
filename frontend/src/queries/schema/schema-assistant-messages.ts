@@ -52,7 +52,6 @@ export enum AssistantMessageType {
     Notebook = 'ai/notebook',
     Planning = 'ai/planning',
     TaskExecution = 'ai/task_execution',
-    Update = 'ai/update',
 }
 
 export interface BaseAssistantMessage {
@@ -109,13 +108,6 @@ export interface ReasoningMessage extends BaseAssistantMessage {
 
 export interface ContextMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Context
-    content: string
-}
-
-export interface UpdateMessage {
-    type: AssistantMessageType.Update
-    id: string
-    parent_tool_call_id: string
     content: string
 }
 
@@ -236,13 +228,19 @@ export type RootAssistantMessage =
     | PlanningMessage
     | TaskExecutionMessage
     | AssistantToolCallMessage
-    | UpdateMessage
 
 export enum AssistantEventType {
     Status = 'status',
     Message = 'message',
     Conversation = 'conversation',
     Notebook = 'notebook',
+    Update = 'update',
+}
+
+export interface UpdateEvent {
+    id: string
+    tool_call_id: string
+    content: string
 }
 
 export enum AssistantGenerationStatusType {
