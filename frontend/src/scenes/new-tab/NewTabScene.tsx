@@ -156,7 +156,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 commands={NEW_TAB_COMMANDS_ITEMS}
                                 value={search}
                                 onChange={(value) => {
-                                    if (!value.startsWith('/')) {
+                                    // Only prevent setting search if the entire value is just "/" (command mode)
+                                    // Allow "/" characters in other positions for normal search
+                                    if (value !== '/') {
                                         setSearch(value)
                                     }
                                 }}
@@ -181,7 +183,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     } else {
                                         toggleNewTabSceneDataInclude(command.value as NEW_TAB_COMMANDS)
                                     }
-                                    setSearch('')
+                                    // Don't clear search when selecting filters
                                 }}
                             />
                         )}

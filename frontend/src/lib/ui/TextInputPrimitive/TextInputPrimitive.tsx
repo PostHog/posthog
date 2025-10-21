@@ -6,7 +6,7 @@ import { forwardRef, useCallback, useEffect, useRef } from 'react'
 import { cn } from 'lib/utils/css-classes'
 
 export const textInputVariants = cva({
-    base: 'text-input-primitive w-full rounded border text-sm outline-none',
+    base: 'text-input-primitive w-full rounded border text-sm outline-none relative',
     variants: {
         variant: {
             default: 'border-primary bg-surface-primary hover:border-secondary focus-visible:border-secondary',
@@ -133,7 +133,7 @@ export const TextInputPrimitive = forwardRef<HTMLInputElement, TextInputPrimitiv
                 )}
                 {...rest}
             />
-            {suffix && <div className="absolute right-0 top-0 bottom-0 flex items-center pr-2">{suffix}</div>}
+            {suffix && <div className="absolute right-0 top-0 bottom-0 flex items-center pr-[5px]">{suffix}</div>}
         </div>
     )
 })

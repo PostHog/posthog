@@ -91,16 +91,20 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
             setFocusedTagIndex(null)
         }
 
-        if (newValue.endsWith('/')) {
-            // Show all commands when slash is typed
+        if (newValue === '/') {
+            // Show all commands when slash is typed as first character
             setFilteredCommands(commands)
             setShowDropdown(true)
             setFocusedIndex(0)
-        } else if (showDropdown && newValue.includes('/')) {
-            const searchTerm = newValue.split('/').pop()?.toLowerCase() || ''
+        } else if (showDropdown && newValue.startsWith('/') && newValue.length > 1) {
+            // Filter commands when typing after the initial slash
+            const searchTerm = newValue.substring(1).toLowerCase()
             const filtered = commands.filter((cmd) => cmd.displayName.toLowerCase().includes(searchTerm))
             setFilteredCommands(filtered)
             setFocusedIndex(0)
+        } else if (showDropdown && !newValue.startsWith('/')) {
+            // Hide dropdown if user removes the initial slash
+            setShowDropdown(false)
         }
     }
 
@@ -112,11 +116,11 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
         onSelectedCommandsChange?.(newSelectedCommands)
         onCommandSelect?.(command)
 
-        // Remove the /command part from input
-        const lastSlashIndex = inputValue.lastIndexOf('/')
-        const newInputValue = inputValue.substring(0, lastSlashIndex)
-        setInputValue(newInputValue)
-        onChange?.(newInputValue)
+        // Only clear input if it was in command mode (started with /)
+        if (inputValue.startsWith('/')) {
+            setInputValue('')
+            onChange?.('')
+        }
         setShowDropdown(false)
         // Small delay to ensure dropdown closes before focusing
         setTimeout(() => {
@@ -141,14 +145,17 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
     const handleKeyDown = (e: React.KeyboardEvent): void => {
         switch (e.key) {
             case '/':
-                if (!showDropdown) {
+                if (!showDropdown && inputValue === '') {
+                    // Only prevent default and show dropdown if input is empty (first character)
                     e.preventDefault()
                     setFilteredCommands(commands)
                     setShowDropdown(true)
                     setFocusedIndex(0)
-                    // Don't add the '/' to the input value
+                    setInputValue('/')
+                    onChange?.('/')
                     return
                 }
+                // If input already has content, let the '/' be typed normally
                 break
         }
     }
@@ -276,7 +283,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                                         setInputValue('')
                                         inputRef.current?.focus()
                                     }}
-                                    className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
+                                    className="data-[focused=true]:outline-2 data-[focused=true]:outline-accent rounded-xs"
                                     aria-label="Clear input"
                                 >
                                     <IconX />
