@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import Mock, patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from ee.hogai.graph.root.tools.full_text_search.toolkit import ENTITY_MAP, EntitySearchToolkit
@@ -30,10 +32,8 @@ class TestEntitySearchToolkit:
         ]
     )
     def test_build_url(self, entity_type, result_id, expected_path):
-        from posthog.settings import SITE_URL
-
         url = self.toolkit._build_url(entity_type, result_id)
-        expected_url = f"{SITE_URL}{expected_path.format(team_id=self.team.id)}"
+        expected_url = f"{settings.SITE_URL}{expected_path.format(team_id=self.team.id)}"
         assert url == expected_url
 
     @parameterized.expand(

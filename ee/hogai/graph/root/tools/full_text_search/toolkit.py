@@ -1,12 +1,13 @@
 from typing import TypedDict
 
+from django.conf import settings
+
 import yaml
 from posthoganalytics import capture_exception
 
 from posthog.api.search import EntityConfig, search_entities
 from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey, Team, User
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.settings import SITE_URL
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
@@ -73,7 +74,7 @@ class EntitySearchToolkit:
         return UserAccessControl(user=self._user, team=self._team, organization_id=self._team.organization.id)
 
     def _build_url(self, entity_type: str | EntityType, result_id: str) -> str:
-        base_url = f"{SITE_URL}/project/{self._team.id}"
+        base_url = f"{settings.SITE_URL}/project/{self._team.id}"
         match entity_type:
             case EntityType.INSIGHT:
                 return f"{base_url}/insights/{result_id}"
