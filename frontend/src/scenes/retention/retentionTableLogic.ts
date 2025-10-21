@@ -95,7 +95,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                             break
                         }
                         default:
-                            label = currentDate.format('MMM D')
+                            label = currentDate.format('ddd, MMM D')
                     }
 
                     const cohortSize = currentResult.values?.[0] ? currentResult.values[0].count : 0
