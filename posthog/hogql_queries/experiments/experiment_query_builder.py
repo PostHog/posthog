@@ -428,11 +428,11 @@ class ExperimentQueryBuilder:
                 ))"""
             )
         elif math_type == ExperimentMetricMathType.MIN:
-            return parse_expr("coalesce(min(toFloat(metric_events.value)), 0.0)")
+            return parse_expr("min(coalesce(toFloat(metric_events.value), 0))")
         elif math_type == ExperimentMetricMathType.MAX:
-            return parse_expr("coalesce(max(toFloat(metric_events.value)), 0.0)")
+            return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
         elif math_type == ExperimentMetricMathType.AVG:
-            return parse_expr("coalesce(avg(toFloat(metric_events.value)), 0.0)")
+            return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(self.metric.source, "math_hogql", None)
             if math_hogql is not None:
@@ -441,7 +441,7 @@ class ExperimentQueryBuilder:
                     return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
             return parse_expr(f"sum(coalesce(toFloat(metric_events.value), 0))")
         else:
-            return parse_expr("coalesce(sum(toFloat(metric_events.value)), 0.0)")
+            return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
 
     def _build_test_accounts_filter(self) -> ast.Expr:
         if (
