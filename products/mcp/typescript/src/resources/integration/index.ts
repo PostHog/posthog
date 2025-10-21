@@ -39,8 +39,26 @@ export enum ResourceUri {
 export const WORKFLOW_NEXT_STEP_MESSAGE =
     'Upon completion, access the following resource to continue:'
 
+/**
+ * URL to the identify() documentation
+ */
+const IDENTIFY_USERS_DOCS_URL = 'https://posthog.com/docs/getting-started/identify-users.md'
+
 // Cache for the examples monorepo ZIP contents
 let cachedExamplesRepo: Unzipped | null = null
+
+/**
+ * Fetches documentation content from a URL with error handling
+ */
+async function fetchDocumentation(url: string): Promise<string> {
+    const response = await fetch(url)
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch documentation: ${response.statusText}`)
+    }
+
+    return response.text()
+}
 
 /**
  * Fetches and caches the examples monorepo ZIP at startup
@@ -152,19 +170,13 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
             // Ensure framework is a string
             const frameworkStr = Array.isArray(framework) ? framework[0] : framework
             if (!frameworkStr || !isSupportedFramework(frameworkStr)) {
-                return {
-                    contents: [
-                        {
-                            uri: uri.toString(),
-                            text: `Framework "${frameworkStr || 'unknown'}" is not supported yet. Currently supported: ${getSupportedFrameworksList()}`,
-                        },
-                    ],
-                }
+                throw new Error(
+                    `Framework "${frameworkStr || 'unknown'}" is not supported yet. Currently supported: ${getSupportedFrameworksList()}`
+                )
             }
 
             const docsUrl = FRAMEWORK_DOCS[frameworkStr]
-            const response = await fetch(docsUrl)
-            const content = await response.text()
+            const content = await fetchDocumentation(docsUrl)
             return {
                 contents: [
                     {
@@ -185,10 +197,7 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
             description: 'PostHog documentation on identifying users',
         },
         async (uri) => {
-            const response = await fetch(
-                'https://posthog.com/docs/getting-started/identify-users.md'
-            )
-            const content = await response.text()
+            const content = await fetchDocumentation(IDENTIFY_USERS_DOCS_URL)
             return {
                 contents: [
                     {
@@ -230,45 +239,29 @@ export function registerIntegrationResources(server: McpServer, _context: Contex
             // Ensure framework is a string
             const frameworkStr = Array.isArray(framework) ? framework[0] : framework
             if (!frameworkStr || !isSupportedFramework(frameworkStr)) {
-                return {
-                    contents: [
-                        {
-                            uri: uri.toString(),
-                            text: `Framework "${frameworkStr || 'unknown'}" is not supported yet. Currently supported: ${getSupportedFrameworksList()}`,
-                        },
-                    ],
-                }
+                throw new Error(
+                    `Framework "${frameworkStr || 'unknown'}" is not supported yet. Currently supported: ${getSupportedFrameworksList()}`
+                )
             }
 
-            try {
-                // Get the cached monorepo (or fetch if not yet cached)
-                const unzippedRepo = await fetchExamplesMonorepo()
-                const subfolderPath = FRAMEWORK_EXAMPLE_PATHS[frameworkStr]
+            // Get the cached monorepo (or fetch if not yet cached)
+            const unzippedRepo = await fetchExamplesMonorepo()
+            const subfolderPath = FRAMEWORK_EXAMPLE_PATHS[frameworkStr]
 
-                const markdown = convertSubfolderToMarkdown({
-                    unzippedRepo,
-                    subfolderPath,
-                    frameworkName: frameworkStr,
-                    repoUrl: EXAMPLES_MONOREPO_URL.replace('/archive/refs/heads/main.zip', ''),
-                })
+            const markdown = convertSubfolderToMarkdown({
+                unzippedRepo,
+                subfolderPath,
+                frameworkName: frameworkStr,
+                repoUrl: EXAMPLES_MONOREPO_URL.replace('/archive/refs/heads/main.zip', ''),
+            })
 
-                return {
-                    contents: [
-                        {
-                            uri: uri.toString(),
-                            text: markdown,
-                        },
-                    ],
-                }
-            } catch (error) {
-                return {
-                    contents: [
-                        {
-                            uri: uri.toString(),
-                            text: `Error loading example project: ${error}\n\nPlease check your network connection and try again.`,
-                        },
-                    ],
-                }
+            return {
+                contents: [
+                    {
+                        uri: uri.toString(),
+                        text: markdown,
+                    },
+                ],
             }
         }
     )
