@@ -5,6 +5,7 @@ import {
     IconApp,
     IconApps,
     IconBook,
+    IconBrackets,
     IconBug,
     IconCircleDashed,
     IconCode2,
@@ -57,6 +58,9 @@ import { FileSystemIconColor } from '~/types'
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     default_icon_type: {
         icon: <IconCircleDashed />,
+    },
+    example_icon_type: {
+        icon: <IconBrackets />,
     },
     dashboard: {
         icon: <IconDashboard />,

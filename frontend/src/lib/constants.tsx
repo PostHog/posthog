@@ -151,6 +151,7 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 
 export const FEATURE_FLAGS = {
     // Experiments / beta features
+    EXAMPLE_APP_LIST_VIEW: 'example-app-list-view', // owner: @platform-ux
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303

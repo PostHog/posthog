@@ -2492,6 +2492,7 @@ export interface FileSystemEntry {
 
 export type FileSystemIconType =
     | 'default_icon_type'
+    | 'example_icon_type'
     | 'dashboard'
     | 'llm_analytics'
     | 'product_analytics'
