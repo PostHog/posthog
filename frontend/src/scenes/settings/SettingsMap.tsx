@@ -370,7 +370,14 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'web-analytics-opt-in-pre-aggregated-tables-and-api',
-                title: 'New query engine',
+                title: (
+                    <>
+                        New query engine
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
                 component: <WebAnalyticsEnablePreAggregatedTables />,
                 flag: 'WEB_ANALYTICS_API',
             },
