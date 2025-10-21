@@ -131,6 +131,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "edges",
             "actions",
             "abort_action",
+            "variables",
         ]
         read_only_fields = fields
 
