@@ -205,6 +205,14 @@ class ExperimentQueryBuilder:
         """
         assert isinstance(self.metric, ExperimentMeanMetric)
 
+        # Check if we need to apply winsorization (outlier handling)
+        needs_winsorization = (
+            self.metric.lower_bound_percentile is not None or self.metric.upper_bound_percentile is not None
+        )
+
+        if needs_winsorization:
+            return self._build_mean_query_with_winsorization()
+
         query = parse_select(
             f"""
             WITH exposures AS (
@@ -246,6 +254,103 @@ class ExperimentQueryBuilder:
                 "value_expr": self._build_value_expr(),
                 "value_agg": self._build_value_aggregation_expr(),
                 "conversion_window_predicate": self._build_conversion_window_predicate(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _build_mean_query_with_winsorization(self) -> ast.SelectQuery:
+        """
+        Builds query for mean metrics with winsorization (outlier handling).
+        This clamps entity-level values to percentile-based bounds.
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # Build lower bound expression
+        if self.metric.lower_bound_percentile is not None:
+            lower_bound_expr = parse_expr(
+                "quantile({level})(entity_metrics.value)",
+                placeholders={"level": ast.Constant(value=self.metric.lower_bound_percentile)},
+            )
+        else:
+            lower_bound_expr = parse_expr("min(entity_metrics.value)")
+
+        # Build upper bound expression
+        if self.metric.upper_bound_percentile is not None:
+            # Handle ignore_zeros flag for upper bound calculation
+            if getattr(self.metric, "ignore_zeros", False):
+                upper_bound_expr = parse_expr(
+                    "quantile({level})(if(entity_metrics.value != 0, entity_metrics.value, null))",
+                    placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
+                )
+            else:
+                upper_bound_expr = parse_expr(
+                    "quantile({level})(entity_metrics.value)",
+                    placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
+                )
+        else:
+            upper_bound_expr = parse_expr("max(entity_metrics.value)")
+
+        query = parse_select(
+            f"""
+            WITH exposures AS (
+                {{exposure_select_query}}
+            ),
+
+            metric_events AS (
+                SELECT
+                    {{entity_key}} AS entity_id,
+                    timestamp,
+                    {{value_expr}} AS value
+                FROM events
+                WHERE {{metric_predicate}}
+            ),
+
+            entity_metrics AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    {{value_agg}} AS value
+                FROM exposures
+                LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
+                    AND {{conversion_window_predicate}}
+                GROUP BY exposures.entity_id, exposures.variant
+            ),
+
+            percentiles AS (
+                SELECT
+                    {{lower_bound}} AS lower_bound,
+                    {{upper_bound}} AS upper_bound
+                FROM entity_metrics
+            ),
+
+            winsorized_entity_metrics AS (
+                SELECT
+                    entity_metrics.entity_id AS entity_id,
+                    entity_metrics.variant AS variant,
+                    least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
+                FROM entity_metrics
+                CROSS JOIN percentiles
+            )
+
+            SELECT
+                winsorized_entity_metrics.variant AS variant,
+                count(winsorized_entity_metrics.entity_id) AS num_users,
+                sum(winsorized_entity_metrics.value) AS total_sum,
+                sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
+            FROM winsorized_entity_metrics
+            GROUP BY winsorized_entity_metrics.variant
+            """,
+            placeholders={
+                "exposure_select_query": self._build_exposure_select_query(),
+                "entity_key": parse_expr(self.entity_key),
+                "metric_predicate": self._build_metric_predicate(),
+                "value_expr": self._build_value_expr(),
+                "value_agg": self._build_value_aggregation_expr(),
+                "conversion_window_predicate": self._build_conversion_window_predicate(),
+                "lower_bound": lower_bound_expr,
+                "upper_bound": upper_bound_expr,
             },
         )
 
