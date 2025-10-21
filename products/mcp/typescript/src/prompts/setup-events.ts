@@ -6,7 +6,7 @@ export async function setupEventsPrompt(_context: Context): Promise<Prompt> {
     return {
         name: 'event-setup',
         title: 'Setup PostHog Event Tracking',
-        description: 'Automatically instrument your project with PostHog event tracking',
+        description: 'Automatically instrument your Next.js project with PostHog event tracking',
         handler: async (_context, _args) => {
             return {
                 messages: [
