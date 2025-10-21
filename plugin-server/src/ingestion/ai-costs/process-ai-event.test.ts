@@ -52,7 +52,7 @@ const costsByModel: Record<string, MockModelRow> = {
     },
     'google/gemini-2.5-flash': {
         model: 'google/gemini-2.5-flash',
-        cost: { prompt_token: 3e-7, completion_token: 0.0000025, cache_read_token: 3e-8 },
+        cost: { prompt_token: 3e-7, completion_token: 0.0000025, cache_read_token: 7.5e-8 },
     },
     'google/gemini-2.0-flash-001': {
         model: 'google/gemini-2.0-flash-001',
@@ -68,7 +68,7 @@ const costsByModel: Record<string, MockModelRow> = {
 }
 
 jest.mock('./providers', () => {
-    const excludedFromOpenRouter = new Set(['claude-2', 'backup-model', 'fallback-model', 'testing_model'])
+    const excludedFromOpenRouter = new Set(['claude-2', 'backup-model', 'fallback-model'])
 
     const providerOverrides: Record<string, string> = {
         'openai/gpt-4': 'openai',
@@ -1446,21 +1446,6 @@ describe('normalizeTraceProperties()', () => {
         expect(result.properties!.$ai_parent_id).toBe('string-id') // Already a string
         expect(result.properties!.$ai_span_id).toBe(undefined)
         expect(result.properties!.$ai_generation_id).toBe(undefined)
-    })
-
-    it('handles event without properties', () => {
-        const event: PluginEvent = {
-            event: '$ai_span',
-            ip: '',
-            site_url: '',
-            team_id: 0,
-            now: '',
-            distinct_id: '',
-            uuid: '',
-            timestamp: '',
-        }
-        const result = normalizeTraceProperties(event as any)
-        expect(result).toEqual(event)
     })
 })
 

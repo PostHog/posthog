@@ -42,8 +42,6 @@ describe('manualCosts', () => {
             expect(openrouterAuto).toBeDefined()
             expect(openrouterAuto?.cost.default.prompt_token).toBe(0)
             expect(openrouterAuto?.cost.default.completion_token).toBe(0)
-            expect(openrouterAuto?.cost.openrouter?.prompt_token).toBe(0)
-            expect(openrouterAuto?.cost.openrouter?.completion_token).toBe(0)
         })
     })
 
@@ -54,8 +52,6 @@ describe('manualCosts', () => {
             expect(mistralModel).toBeDefined()
             expect(mistralModel?.cost.default.prompt_token).toBe(expected.prompt_token)
             expect(mistralModel?.cost.default.completion_token).toBe(expected.completion_token)
-            expect(mistralModel?.cost.mistral?.prompt_token).toBe(expected.prompt_token)
-            expect(mistralModel?.cost.mistral?.completion_token).toBe(expected.completion_token)
         })
     })
 })

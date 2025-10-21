@@ -185,6 +185,36 @@ const fetchOpenRouterCosts = async (): Promise<ModelRow[]> => {
     return allModels
 }
 
+const generateCanonicalProviders = (models: ModelRow[]): void => {
+    // Extract all unique provider keys from the cost data
+    const providerSet = new Set<string>()
+
+    for (const model of models) {
+        for (const providerKey of Object.keys(model.cost)) {
+            providerSet.add(providerKey)
+        }
+    }
+
+    // Sort alphabetically
+    const providers = Array.from(providerSet).sort()
+
+    // Generate TypeScript file content
+    const timestamp = new Date().toISOString().split('T')[0]
+    const typeUnion = providers.map((p) => `  | '${p}'`).join('\n')
+
+    const fileContent = `// Auto-generated from OpenRouter API - Do not edit manually
+// Generated on: ${timestamp}
+
+export type CanonicalProvider =
+${typeUnion}
+`
+
+    // Write the file
+    const filePath = path.join(PATH_TO_PROVIDERS, 'canonical-providers.ts')
+    fs.writeFileSync(filePath, fileContent)
+    console.log(`Generated canonical-providers.ts with ${providers.length} provider types`)
+}
+
 const main = async () => {
     // Create main directory if it doesn't exist
     if (!fs.existsSync(PATH_TO_PROVIDERS)) {
@@ -202,6 +232,9 @@ const main = async () => {
 
     fs.writeFileSync(path.join(PATH_TO_PROVIDERS, 'llm-prices.json'), JSON.stringify(openRouterCosts, null, 2))
     console.log('Wrote OpenRouter costs to llm-prices.json')
+
+    // Generate canonical providers TypeScript file
+    generateCanonicalProviders(openRouterCosts)
 }
 
 ;(async () => {

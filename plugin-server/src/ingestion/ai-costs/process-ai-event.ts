@@ -19,7 +19,7 @@ interface EventWithProperties extends PluginEvent {
 }
 
 const isEventWithProperties = (event: PluginEvent): event is EventWithProperties => {
-    return event.properties !== undefined
+    return event.properties !== undefined && event.properties !== null
 }
 
 export const AI_EVENT_TYPES = new Set([

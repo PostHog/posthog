@@ -1,8 +1,9 @@
 import { Properties } from '@posthog/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
+import { resolveModelCostForProvider } from './provider-matching'
 import { manualCostsByModel, openRouterCostsByModel } from './providers'
-import type { ModelCost, ModelCostByProvider, ModelCostRow, ResolvedModelCost } from './providers/types'
+import type { ModelCostRow, ResolvedModelCost } from './providers/types'
 
 // Work around for new gemini models that require special cost calculations
 const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
@@ -28,7 +29,7 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
     const manualExactMatch: ModelCostRow | undefined = manualCostsByModel[lowerCaseModel]
 
     const resolvedManualMatch: ResolvedModelCost | undefined = manualExactMatch
-        ? resolveModelCostForProvider(manualExactMatch, provider)
+        ? resolveModelCostForProvider(manualExactMatch.cost, provider, manualExactMatch.model)
         : undefined
 
     if (resolvedManualMatch) {
@@ -38,7 +39,7 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
     const openRouterMatch: ModelCostRow | undefined = searchModelInCosts(model, openRouterCostsByModel)
 
     const resolvedOpenRouterMatch: ResolvedModelCost | undefined = openRouterMatch
-        ? resolveModelCostForProvider(openRouterMatch, provider)
+        ? resolveModelCostForProvider(openRouterMatch.cost, provider, openRouterMatch.model)
         : undefined
 
     if (resolvedOpenRouterMatch) {
@@ -125,84 +126,6 @@ const searchModelInCosts = (model: string, costsDict: Record<string, ModelCostRo
     }
 
     return undefined
-}
-
-const normalizeProviderKey = (provider: string): string =>
-    provider
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-
-const resolveModelCostForProvider = (costRow: ModelCostRow, provider?: string): ResolvedModelCost | undefined => {
-    const providerCosts: ModelCostByProvider = costRow.cost
-
-    if (!providerCosts || Object.keys(providerCosts).length === 0) {
-        return undefined
-    }
-
-    const findProviderMatch = (providerKey: string): ResolvedModelCost | undefined => {
-        const cost: ModelCost | undefined = providerCosts[providerKey]
-
-        if (!cost) {
-            return undefined
-        }
-
-        return {
-            model: costRow.model,
-            provider: providerKey,
-            cost,
-        }
-    }
-
-    if (provider) {
-        const normalizedProvider: string = normalizeProviderKey(provider)
-
-        const providerCandidates: string[] = [normalizedProvider, provider.toLowerCase(), provider]
-
-        for (const candidate of providerCandidates) {
-            const match: ResolvedModelCost | undefined = findProviderMatch(candidate)
-
-            if (match) {
-                return match
-            }
-        }
-
-        const partialMatchKey: string | undefined = Object.keys(providerCosts).find((key: string) =>
-            key.includes(normalizedProvider)
-        )
-
-        if (partialMatchKey) {
-            const match: ResolvedModelCost | undefined = findProviderMatch(partialMatchKey)
-
-            if (match) {
-                return match
-            }
-        }
-    }
-
-    const defaultMatch: ResolvedModelCost | undefined = findProviderMatch('default')
-
-    if (defaultMatch) {
-        return defaultMatch
-    }
-
-    const firstEntry = Object.entries(providerCosts).find(([, value]) => value !== undefined)
-
-    if (!firstEntry) {
-        return undefined
-    }
-
-    const [firstProvider, firstCost] = firstEntry
-
-    if (!firstCost) {
-        return undefined
-    }
-
-    return {
-        model: costRow.model,
-        provider: firstProvider,
-        cost: firstCost,
-    }
 }
 
 export const requireSpecialCost = (aiModel: string): boolean => {
