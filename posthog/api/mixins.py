@@ -2,6 +2,9 @@ from collections.abc import Callable
 from functools import wraps
 from typing import TypeVar
 
+from django.conf import settings
+
+import structlog
 from drf_spectacular.utils import extend_schema
 from pydantic import BaseModel, ValidationError
 from rest_framework import serializers
@@ -10,6 +13,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
+
+logger = structlog.get_logger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -87,27 +92,47 @@ def validated_request(
 
             # Step 1: Fetch HTTP status code (must be a Response object)
             if not isinstance(result, Response):
-                raise TypeError(
-                    f"View must return a Response object when using @validated_request with response serializers. "
-                    f"Got {type(result).__name__} instead."
-                )
+                # Warn during development if the view does not return a Response object
+                if settings.DEBUG:
+                    logger.warning(
+                        "View must return a Response object when using @validated_request with response serializers",
+                        view_func=view_func.__name__,
+                        result_type=type(result).__name__,
+                    )
+                return result
 
             status_code = result.status_code
             data = result.data
 
             # Step 2: Check if status code is in defined response codes
             serializer_class = response_serializers.get(status_code)
+
+            # Warn during development if the status code is not declared in the responses parameter
             if not serializer_class:
-                raise ValueError(
-                    f"Response status code {status_code} not declared in responses parameter. "
-                    f"Declared status codes: {sorted(response_serializers.keys())}. "
-                    f"Add this status code to the @validated_request responses dict."
-                )
+                if settings.DEBUG:
+                    logger.warning(
+                        "Response status code not declared in responses parameter of the @validated_request decorator",
+                        view_func=view_func.__name__,
+                        status_code=status_code,
+                        declared_status_codes=sorted(response_serializers.keys()),
+                    )
+                return result
 
             # Step 3: Validate that response serializes properly
             context = getattr(self, "get_serializer_context", lambda: {})()
             serialized = serializer_class(data=data, context=context)
-            serialized.is_valid(raise_exception=True)
+
+            # Warn during development if the response data does not match the declared serializer
+            if not serialized.is_valid():
+                if settings.DEBUG:
+                    logger.warning(
+                        "Response data does not match declared serializer for status code {status_code} declared in responses parameter of the @validated_request decorator",
+                        view_func=view_func.__name__,
+                        status_code=status_code,
+                        serializer_class=serializer_class.__name__,
+                        validation_errors=serialized.errors,
+                    )
+                return result
 
             # Step 4: Return the validated response
             return Response(serialized.data, status=status_code)
