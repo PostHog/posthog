@@ -98,6 +98,19 @@ class HogFlowActionSerializer(serializers.Serializer):
         return data
 
 
+class HogFlowVariableSerializer(serializers.ListSerializer):
+    child = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+    )
+
+    def validate(self, attrs):
+        # Make sure the keys are unique
+        keys = [item.get("key") for item in attrs]
+        if len(keys) != len(set(keys)):
+            raise serializers.ValidationError("Variable keys must be unique")
+        return super().validate(attrs)
+
+
 class HogFlowMaskingSerializer(serializers.Serializer):
     ttl = serializers.IntegerField(required=False, min_value=60, max_value=60 * 60 * 24 * 365, allow_null=True)
     threshold = serializers.IntegerField(required=False, allow_null=True)
@@ -139,6 +152,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
 class HogFlowSerializer(HogFlowMinimalSerializer):
     actions = serializers.ListField(child=HogFlowActionSerializer(), required=True)
     trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
+    variables = HogFlowVariableSerializer(required=False)
 
     class Meta:
         model = HogFlow
@@ -158,6 +172,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "edges",
             "actions",
             "abort_action",
+            "variables",
         ]
         read_only_fields = [
             "id",

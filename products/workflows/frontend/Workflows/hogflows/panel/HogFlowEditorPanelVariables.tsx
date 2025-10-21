@@ -70,7 +70,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                         onClick={() => {
                             LemonDialog.open({
                                 title: 'Delete variable',
-                                description: `Are you sure you want to delete the variable "${variable}"?`,
+                                description: `Are you sure you want to delete the variable "${variable.key}"?`,
                                 primaryButton: {
                                     children: 'Delete',
                                     status: 'danger',
