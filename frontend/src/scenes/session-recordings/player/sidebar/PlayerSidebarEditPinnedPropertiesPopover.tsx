@@ -8,7 +8,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { personsLogic } from 'scenes/persons/personsLogic'
 
-import { getPropertyDisplayInfo, playerMetaLogic } from '../player-meta/playerMetaLogic'
+import { playerMetaLogic } from '../player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 export type PlayerSidebarEditPinnedPropertiesPopoverProps = {
@@ -23,8 +23,7 @@ export function PlayerSidebarEditPinnedPropertiesPopover(
     const { loadPerson, loadPersonUUID } = useActions(personsLogic({ syncWithUrl: false }))
     const { person, personLoading } = useValues(personsLogic({ syncWithUrl: false }))
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { allOverviewItems, pinnedProperties, sessionPlayerMetaData, recordingPropertiesById, propertySearchQuery } =
-        useValues(playerMetaLogic(logicProps))
+    const { pinnedProperties, propertySearchQuery, filteredPropertiesWithInfo } = useValues(playerMetaLogic(logicProps))
     const { togglePropertyPin, setPropertySearchQuery } = useActions(playerMetaLogic(logicProps))
 
     useEffect(() => {
@@ -57,35 +56,6 @@ export function PlayerSidebarEditPinnedPropertiesPopover(
             </div>
         )
     }
-
-    const personPropertyKeys = person.properties ? Object.keys(person.properties).sort() : []
-    const recordingPropertyKeys = allOverviewItems.map((item) =>
-        item.type === 'property' ? item.property : item.label
-    )
-
-    // Deduplicate and create a combined list
-    const allPropertyKeys = Array.from(new Set([...recordingPropertyKeys, ...personPropertyKeys])).sort()
-
-    const recordingProperties = sessionPlayerMetaData?.id
-        ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
-        : {}
-
-    const filteredPropertiesWithInfo = allPropertyKeys
-        .map((propertyKey) => {
-            const propertyInfo = getPropertyDisplayInfo(propertyKey, recordingProperties)
-            return { propertyKey, propertyInfo }
-        })
-        .filter(({ propertyInfo }) => {
-            if (!propertySearchQuery.trim()) {
-                return true
-            }
-
-            const searchLower = propertySearchQuery.toLowerCase()
-            return (
-                propertyInfo.label.toLowerCase().includes(searchLower) ||
-                propertyInfo.originalKey.toLowerCase().includes(searchLower)
-            )
-        })
 
     return (
         <div className="flex flex-col overflow-hidden max-h-96 w-[400px]">

@@ -385,6 +385,41 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 })
             },
         ],
+        filteredPropertiesWithInfo: [
+            (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById, s.propertySearchQuery],
+            (sessionPlayerMetaData, recordingPropertiesById, propertySearchQuery) => {
+                const recordingProperties = sessionPlayerMetaData?.id
+                    ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
+                    : {}
+
+                const personProperties = getAllPersonProperties(sessionPlayerMetaData)
+                const personPropertyKeys = personProperties ? Object.keys(personProperties).sort() : []
+
+                // Get recording property keys from allOverviewItems
+                const recordingPropertyKeys = sessionPlayerMetaData?.id
+                    ? Object.keys(recordingPropertiesById[sessionPlayerMetaData?.id] || {})
+                    : []
+
+                const allPropertyKeys = Array.from(new Set([...recordingPropertyKeys, ...personPropertyKeys])).sort()
+
+                return allPropertyKeys
+                    .map((propertyKey) => {
+                        const propertyInfo = getPropertyDisplayInfo(propertyKey, recordingProperties)
+                        return { propertyKey, propertyInfo }
+                    })
+                    .filter(({ propertyInfo }) => {
+                        if (!propertySearchQuery.trim()) {
+                            return true
+                        }
+
+                        const searchLower = propertySearchQuery.toLowerCase()
+                        return (
+                            propertyInfo.label.toLowerCase().includes(searchLower) ||
+                            propertyInfo.originalKey.toLowerCase().includes(searchLower)
+                        )
+                    })
+            },
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         loadRecordingMetaSuccess: () => {
