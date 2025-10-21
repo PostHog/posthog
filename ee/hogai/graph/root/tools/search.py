@@ -67,7 +67,7 @@ class SearchToolArgs(BaseModel):
     )
     entity_types: list[EntityType] | None = Field(
         default=None,
-        description="When kind='entities', specify which entity types to search (dashboards, cohorts, actions, experiments, feature flags, notebooks, surveys, event definitions). If not specified, searches all types.",
+        description="When kind='entities', specify which entity types to search (dashboards, cohorts, actions, experiments, feature flags, surveys). If not specified, searches all types.",
     )
 
 
