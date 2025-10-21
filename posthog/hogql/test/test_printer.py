@@ -2585,9 +2585,16 @@ class TestPrinter(BaseTest):
             sql == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
         )
 
-    @parameterized.expand([[True], [False]])
+    @parameterized.expand(
+        [
+            ("global_joins_with_optimize", True, True),
+            ("global_joins_without_optimize", True, False),
+            ("no_global_joins_with_optimize", False, True),
+            ("no_global_joins_without_optimize", False, False),
+        ]
+    )
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_with_cte(self, using_global_joins):
+    def test_s3_tables_global_join_with_cte(self, name, using_global_joins, optimize_projections):
         with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
             credential = DataWarehouseCredential.objects.create(
                 team=self.team, access_key="key", access_secret="secret"
@@ -2600,13 +2607,18 @@ class TestPrinter(BaseTest):
                 credential=credential,
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
-            printed = self._select("""
+            modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+            printed = self._select(
+                """
                 WITH some_remote_table AS
                 (
                     SELECT * FROM test_table
                 )
                 SELECT event FROM events
-                JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
+                JOIN some_remote_table ON events.event = toString(some_remote_table.id)""",
+                context=context,
+            )
 
             if using_global_joins:
                 assert "GLOBAL JOIN" in printed
@@ -2705,9 +2717,16 @@ class TestPrinter(BaseTest):
 
             assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
 
-    @parameterized.expand([[True], [False]])
+    @parameterized.expand(
+        [
+            ("global_joins_with_optimize", True, True),
+            ("global_joins_without_optimize", True, False),
+            ("no_global_joins_with_optimize", False, True),
+            ("no_global_joins_without_optimize", False, False),
+        ]
+    )
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_anonymous_tables(self, using_global_joins):
+    def test_s3_tables_global_join_anonymous_tables(self, name, using_global_joins, optimize_projections):
         with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
             credential = DataWarehouseCredential.objects.create(
                 team=self.team, access_key="key", access_secret="secret"
@@ -2721,7 +2740,10 @@ class TestPrinter(BaseTest):
                 columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
             )
 
-            printed = self._select("""
+            modifiers = HogQLQueryModifiers(optimizeProjections=optimize_projections)
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+            printed = self._select(
+                """
                 select e.event, ij.remote_id
                 from events e
                 inner join (
@@ -2733,7 +2755,9 @@ class TestPrinter(BaseTest):
                             select * from test_table
                         ) rt on rt.id = p.id
                     )
-                ) as ij on e.event = ij.remote_id""")
+                ) as ij on e.event = ij.remote_id""",
+                context=context,
+            )
 
             if using_global_joins:
                 assert "GLOBAL INNER JOIN" in printed
