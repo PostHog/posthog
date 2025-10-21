@@ -36,6 +36,8 @@ export const ICONS: Record<IntegrationKind, any> = {
     email: IconMailjet,
     linear: IconLinear,
     github: IconGitHub,
+    // TODO: replace with GitLab icon
+    gitlab: IconGitHub,
     'meta-ads': IconMetaAds,
     twilio: IconTwilio,
     clickup: IconClickUp,

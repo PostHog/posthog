@@ -17,6 +17,10 @@ export function GithubIntegration(): JSX.Element {
     return <Integration kind="github" connectText="Connect GitHub" />
 }
 
+export function GitLabIntegration(): JSX.Element {
+    return <Integration kind="gitlab" connectText="Connect GitLab" />
+}
+
 const Integration = ({ kind, connectText }: { kind: IntegrationKind; connectText: string }): JSX.Element => {
     const { getIntegrationsByKind } = useValues(integrationsLogic)
 

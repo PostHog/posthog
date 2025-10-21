@@ -15,8 +15,6 @@ from posthog.storage import object_storage
 
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
 
-# === From error_tracking/error_tracking.py ===
-
 
 class ErrorTrackingIssueManager(models.Manager):
     def with_first_seen(self):

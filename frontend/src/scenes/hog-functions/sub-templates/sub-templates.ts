@@ -352,6 +352,23 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
             },
         },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
+            template_id: 'template-gitlab',
+            name: 'GitLab issue on issue created',
+            description: 'Create an issue in GitLab when an issue is created.',
+            inputs: {
+                title: {
+                    value: '{event.properties.name}',
+                },
+                description: {
+                    value: '{event.properties.description}',
+                },
+                posthog_issue_id: {
+                    value: '{event.properties.distinct_id}',
+                },
+            },
+        },
     ],
     'error-tracking-issue-reopened': [
         {

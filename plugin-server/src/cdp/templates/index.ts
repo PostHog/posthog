@@ -11,6 +11,7 @@ import { template as googleAdsTemplate } from './_destinations/google_ads/google
 import { template as googleSheetsTemplate } from './_destinations/google_sheets/google_sheets.template'
 import { template as hubspotCompanyTemplate } from './_destinations/hubspot/hubspot.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
+import { template as gitlabTemplate } from './_destinations/linear/linear.template'
 import { template as linkedinAdsTemplate } from './_destinations/linkedin_ads/linkedin.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
 import { template as posthogCaptureTemplate } from './_destinations/posthog_capture/posthog-capture.template'
@@ -44,6 +45,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     snapchatAdsTemplate,
     linearTemplate,
     githubTemplate,
+    gitlabTemplate,
     googleAdsTemplate,
     linkedinAdsTemplate,
     redditAdsTemplate,

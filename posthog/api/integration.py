@@ -25,6 +25,7 @@ from posthog.models.integration import (
     DatabricksIntegrationError,
     EmailIntegration,
     GitHubIntegration,
+    GitLabIntegration,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     Integration,
@@ -419,6 +420,11 @@ class IntegrationViewSet(
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         github = GitHubIntegration(self.get_object())
         return Response({"repositories": github.list_repositories()})
+
+    @action(methods=["GET"], detail=True, url_path="github_repos")
+    def gitlab_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        gitlab = GitLabIntegration(self.get_object())
+        return Response({"repositories": gitlab.list_projects()})
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):

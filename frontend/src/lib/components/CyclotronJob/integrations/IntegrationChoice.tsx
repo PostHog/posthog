@@ -180,6 +180,11 @@ export function IntegrationChoice({
                 integration={integrationKind || undefined}
                 onComplete={handleNewDatabricksIntegration}
             />
+            <GitLabSetupModal
+                isOpen={newIntegrationModalKind === 'gitlab'}
+                integration={integrationKind || undefined}
+                onComplete={handleNewDatabricksIntegration}
+            />
         </>
     )
 }

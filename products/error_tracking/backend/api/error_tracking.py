@@ -30,7 +30,7 @@ from posthog.api.utils import action
 from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
+from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration, LinearIntegration
 from posthog.models.plugin import sync_execute
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT, uuid7
@@ -97,6 +97,9 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
         elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
             org = GitHubIntegration(reference.integration).organization()
             return f"https://github.com/{org}/{external_context['repository']}/issues/{external_context['number']}"
+        elif reference.integration.kind == Integration.IntegrationKind.GITLAB:
+            # TODO: implement GitLab external URL generation
+            return "https://gitlab.com"
         raise ValidationError("Provider not supported")
 
     def validate(self, data):
@@ -121,6 +124,8 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
 
         if integration.kind == "github":
             external_context = GitHubIntegration(integration).create_issue(config)
+        if integration.kind == "gitlab":
+            external_context = GitLabIntegration(integration).create_issue(config)
         elif integration.kind == "linear":
             external_context = LinearIntegration(integration).create_issue(team.pk, issue.id, config)
         else:
