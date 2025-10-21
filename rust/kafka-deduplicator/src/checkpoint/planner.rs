@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use super::{CheckpointFile, CheckpointInfo, CheckpointMetadata};
@@ -216,7 +215,7 @@ fn build_candidate_file(file_path: &Path) -> Result<LocalCheckpointFile> {
 }
 
 fn load_and_hash_file(file_path: &Path) -> Result<String> {
-    let mut file = File::open(file_path)
+    let mut file = std::fs::File::open(file_path)
         .with_context(|| format!("Failed to open file for hashing: {file_path:?}"))?;
 
     let mut hasher = Sha256::new();
