@@ -1,12 +1,11 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated on: 2025-01-21
+// Generated on: 2025-10-21
 
 export type CanonicalProvider =
     | 'ai21-fp8'
     | 'aion-labs'
     | 'aion-labs-bf16'
     | 'alibaba'
-    | 'alibaba-bf16'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
     | 'anthropic'
@@ -21,6 +20,7 @@ export type CanonicalProvider =
     | 'chutes'
     | 'chutes-bf16'
     | 'chutes-fp8'
+    | 'cirrascale'
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
@@ -60,7 +60,6 @@ export type CanonicalProvider =
     | 'infermatic-bf16'
     | 'infermatic-fp8'
     | 'inflection'
-    | 'liquid'
     | 'mancer-fp16'
     | 'mancer-fp8'
     | 'mancer-int4'
@@ -82,7 +81,6 @@ export type CanonicalProvider =
     | 'nextbit-bf16'
     | 'nextbit-fp8'
     | 'nextbit-int4'
-    | 'novita'
     | 'novita-bf16'
     | 'novita-fp16'
     | 'novita-fp8'
@@ -90,7 +88,6 @@ export type CanonicalProvider =
     | 'open-inference-int8'
     | 'openai'
     | 'openai-default'
-    | 'parasail'
     | 'parasail-bf16'
     | 'parasail-fp8'
     | 'perplexity'
@@ -100,8 +97,8 @@ export type CanonicalProvider =
     | 'sambanova-bf16'
     | 'sambanova-fp8'
     | 'sambanova-turbo'
-    | 'siliconflow'
     | 'siliconflow-fp8'
+    | 'stealth'
     | 'switchpoint'
     | 'targon-bf16'
     | 'targon-fp8'

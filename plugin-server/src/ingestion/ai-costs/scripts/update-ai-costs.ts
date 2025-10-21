@@ -230,9 +230,6 @@ const main = async () => {
     fs.writeFileSync(path.join(PATH_TO_PROVIDERS, OPENROUTER_COSTS_FILENAME), JSON.stringify(openRouterCosts, null, 2))
     console.log(`Wrote OpenRouter costs to ${OPENROUTER_COSTS_FILENAME}`)
 
-    fs.writeFileSync(path.join(PATH_TO_PROVIDERS, 'llm-prices.json'), JSON.stringify(openRouterCosts, null, 2))
-    console.log('Wrote OpenRouter costs to llm-prices.json')
-
     // Generate canonical providers TypeScript file
     generateCanonicalProviders(openRouterCosts)
 }
