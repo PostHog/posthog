@@ -348,6 +348,25 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
 
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
+    def parse_rate(self, rate):
+        """
+        Support custom duration formats like "6/20minutes"
+        """
+        if rate is None:
+            return (None, None)
+
+        num, period = rate.split("/")
+        num_requests = int(num)
+
+        if period.endswith("minutes"):
+            minutes = int(period[:-7])
+            duration = minutes * 60
+        else:
+            # Fall back to default
+            num_requests, duration = super().parse_rate(rate)
+
+        return (num_requests, duration)
+
 
 class SignupIPThrottle(SimpleRateThrottle):
     """
@@ -463,6 +482,11 @@ class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"
+
+
+class EmailMFAThrottle(UserOrEmailRateThrottle):
+    scope = "email_mfa"
+    rate = "6/20minutes"
 
 
 class UserAuthenticationThrottle(UserOrEmailRateThrottle):

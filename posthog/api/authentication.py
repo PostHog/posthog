@@ -48,7 +48,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.models import OrganizationDomain, User
-from posthog.rate_limit import UserPasswordResetThrottle
+from posthog.rate_limit import EmailMFAThrottle, UserPasswordResetThrottle
 from posthog.tasks.email import (
     login_from_new_device_notification,
     send_email_mfa_link,
@@ -372,7 +372,7 @@ class EmailMFAViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = EmailMFASerializer
     queryset = User.objects.none()
     permission_classes = (permissions.AllowAny,)
-    throttle_classes = [UserPasswordResetThrottle]
+    throttle_classes = [EmailMFAThrottle]
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Verify email MFA token from link"""
