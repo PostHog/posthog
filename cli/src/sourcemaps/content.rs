@@ -443,7 +443,7 @@ impl TryInto<SymbolSetUpload> for SourceMapFile {
         let data = write_symbol_data(data)?;
 
         Ok(SymbolSetUpload {
-            chunk_id: chunk_id,
+            chunk_id,
             release_id,
             data,
         })
