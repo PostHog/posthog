@@ -487,11 +487,6 @@ export function ReplayAuthorizedDomains(): JSX.Element {
                 domains below and using URL triggers in your recording conditions to control which domains you record.
             </LemonBanner>
             <p>
-                The settings below are used to restrict the domains where recordings will be captured. If no domains are
-                selected, then there will be no domain restriction.
-            </p>
-            <p>Authorized domains is only available for JavaScript Web.</p>
-            <p>
                 Domains and wildcard subdomains are allowed (e.g. <code>https://*.example.com</code>). However,
                 wildcarded top-level domains cannot be used (for security reasons).
             </p>
