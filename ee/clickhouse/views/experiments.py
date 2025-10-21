@@ -22,6 +22,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
+from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.cohort import Cohort
@@ -131,7 +132,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
                     saved_metric["query"],
                     instance.start_date,
-                    instance.stats_config,
+                    get_experiment_stats_method(instance),
                     instance.exposure_criteria,
                 )
 
@@ -300,8 +301,9 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         for metric_field in ["metrics", "metrics_secondary"]:
             if metric_field in validated_data:
                 for metric in validated_data[metric_field]:
+                    stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
                     metric["fingerprint"] = compute_metric_fingerprint(
-                        metric, validated_data.get("start_date"), stats_config, validated_data.get("exposure_criteria")
+                        metric, validated_data.get("start_date"), stats_method, validated_data.get("exposure_criteria")
                     )
 
         experiment = Experiment.objects.create(
@@ -477,10 +479,11 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 updated_metrics = []
                 for metric in metrics:
                     metric_copy = deepcopy(metric)
+                    stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
                     metric_copy["fingerprint"] = compute_metric_fingerprint(
                         metric_copy,
                         start_date,
-                        stats_config,
+                        stats_method,
                         exposure_criteria,
                     )
                     updated_metrics.append(metric_copy)
