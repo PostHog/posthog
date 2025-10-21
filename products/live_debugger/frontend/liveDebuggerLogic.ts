@@ -48,7 +48,7 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             [] as Breakpoint[],
             {
                 loadBreakpoints: async () => {
-                    const response = await api.get('api/environments/@current/live_debugger_breakpoints/')
+                    const response = await api.get('api/projects/@current/live_debugger_breakpoints/')
                     return response.results || []
                 },
             },
@@ -57,9 +57,7 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             [] as BreakpointInstance[],
             {
                 loadBreakpointInstances: async () => {
-                    const response = await api.get(
-                        'api/environments/@current/live_debugger_breakpoints/breakpoint_hits/'
-                    )
+                    const response = await api.get('api/projects/@current/live_debugger_breakpoints/breakpoint_hits/')
                     return response.results || []
                 },
             },
@@ -106,7 +104,7 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             },
         ],
         breakpointPollingInterval: [
-            null as NodeJS.Timeout | null,
+            null as number | null,
             {
                 savePollingInterval: (_, { intervalHdl }) => intervalHdl,
             },
@@ -131,9 +129,9 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 : undefined
 
             if (existingBreakpoint) {
-                await api.delete(`api/environments/@current/live_debugger_breakpoints/${existingBreakpoint.id}/`)
+                await api.delete(`api/projects/@current/live_debugger_breakpoints/${existingBreakpoint.id}/`)
             } else {
-                await api.create('api/environments/@current/live_debugger_breakpoints/', {
+                await api.create('api/projects/@current/live_debugger_breakpoints/', {
                     filename,
                     line_number: lineNumber,
                     enabled: true,
@@ -149,9 +147,9 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 : undefined
 
             if (existingBreakpoint) {
-                await api.delete(`api/environments/@current/live_debugger_breakpoints/${existingBreakpoint.id}/`)
+                await api.delete(`api/projects/@current/live_debugger_breakpoints/${existingBreakpoint.id}/`)
             } else {
-                await api.create('api/environments/@current/live_debugger_breakpoints/', {
+                await api.create('api/projects/@current/live_debugger_breakpoints/', {
                     filename,
                     line_number: lineNumber,
                     enabled: true,
@@ -165,7 +163,7 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             if (Array.isArray(values.breakpoints)) {
                 await Promise.all(
                     values.breakpoints.map((bp) =>
-                        api.delete(`api/environments/@current/live_debugger_breakpoints/${bp.id}/`)
+                        api.delete(`api/projects/@current/live_debugger_breakpoints/${bp.id}/`)
                     )
                 )
             }
@@ -174,7 +172,6 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             actions.loadBreakpointInstances()
         },
         startPollingBreakpoints: async () => {
-            console.log("START POLLING BREAKPOINTS")
             actions.loadBreakpoints()
             actions.loadBreakpointInstances()
 

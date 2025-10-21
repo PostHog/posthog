@@ -3143,7 +3143,7 @@ wheels = [
 [[package]]
 name = "libdebugger"
 version = "0.1.0"
-source = { git = "https://github.com/PostHog/libdebugger#f2d5f39a0a5b5d9fe46922d6e9151e2a7d12425e" }
+source = { git = "https://github.com/PostHog/libdebugger#7e4ffe929828962ab6a57911a6ab0757d4354195" }
 dependencies = [
     { name = "bytecode" },
     { name = "jsonpickle" },

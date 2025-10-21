@@ -54,13 +54,12 @@ function BreakpointInstanceCard({
 export function LiveDebugger(): JSX.Element {
     const isEnabled = useFeatureFlag('LIVE_DEBUGGER')
 
+    const { selectedInstance, newInstanceIds, selectedLineForHits, hitsForSelectedLine } = useValues(liveDebuggerLogic)
+    const { selectInstance, showHitsForLine } = useActions(liveDebuggerLogic)
+
     if (!isEnabled) {
         return <NotFound object="Live debugger" caption="This feature is not enabled for your project." />
     }
-
-    const { selectedInstance, newInstanceIds, selectedLineForHits, hitsForSelectedLine } = useValues(liveDebuggerLogic)
-
-    const { selectInstance, showHitsForLine } = useActions(liveDebuggerLogic)
 
     return (
         <>

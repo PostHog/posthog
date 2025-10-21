@@ -86,10 +86,10 @@ class LiveDebuggerBreakpoint(UUIDModel):
 
         # Process results to return structured data
         processed_results = []
+        import json
+
         for row in results:
             try:
-                import json
-
                 locals_data = json.loads(row[6]) if row[6] else {}
                 stack_trace_data = json.loads(row[7]) if row[7] else []
 
