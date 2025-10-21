@@ -48,7 +48,7 @@ function InternalNewSourceWizardScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Internal source wizard"
+                name="Source wizard"
                 resourceType={{ type: 'data_pipeline' }}
                 actions={
                     <LemonButton
