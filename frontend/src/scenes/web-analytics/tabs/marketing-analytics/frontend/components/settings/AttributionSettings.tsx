@@ -145,7 +145,7 @@ export function AttributionSettings(): JSX.Element {
 
             <div className="space-y-6">
                 <div>
-                    <label className="block text-sm font-medium mb-2 flex items-center gap-1">
+                    <label className="text-sm font-medium mb-2 flex items-center gap-1">
                         Attribution Window
                         <Tooltip title="The attribution window determines how far back in time to look for marketing touchpoints when attributing conversions. Example: With a 30-day window, if someone converts today, we'll look back 30 days for any UTM campaigns they interacted with. Recommendation: Use 30-60 days for short sales cycles, 90+ days for longer consideration periods.">
                             <IconInfo className="text-muted-alt hover:text-default cursor-help" />

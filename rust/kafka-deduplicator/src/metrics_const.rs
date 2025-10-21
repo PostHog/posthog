@@ -97,3 +97,9 @@ pub const CHECKPOINT_CLEANER_DELETE_ATTEMPTS: &str = "checkpoint_cleaner_delete_
 /// finds no associated DeduplicationStore, meaning ownership
 /// has changed across a rebalance or other event asynchronously
 pub const CHECKPOINT_STORE_NOT_FOUND_COUNTER: &str = "checkpoint_store_not_found";
+
+/// Histogram for checkpoint upload duration
+pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
+
+/// Counter for checkpoint upload outcome status
+pub const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_status";

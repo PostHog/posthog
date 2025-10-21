@@ -138,13 +138,23 @@ pub struct Config {
     #[envconfig(default = "")]
     pub redis_reader_url: String,
 
+    // S3 configuration for HyperCache fallback
+    #[envconfig(default = "posthog")]
+    pub object_storage_bucket: String,
+
+    #[envconfig(default = "us-east-1")]
+    pub object_storage_region: String,
+
+    #[envconfig(default = "")]
+    pub object_storage_endpoint: String,
+
     #[envconfig(default = "")]
     pub redis_writer_url: String,
 
     // How long to wait for a connection from the pool before timing out
     // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
     // - Decrease for faster failure detection (minimum 1s)
-    #[envconfig(default = "3")]
+    #[envconfig(default = "20")]
     pub acquire_timeout_secs: u64,
 
     // Close connections that have been idle for this many seconds
@@ -313,6 +323,9 @@ impl Config {
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
             otel_log_level: Level::ERROR,
+            object_storage_bucket: "posthog".to_string(),
+            object_storage_region: "us-east-1".to_string(),
+            object_storage_endpoint: "".to_string(),
         }
     }
 

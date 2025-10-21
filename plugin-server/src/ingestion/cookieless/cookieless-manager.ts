@@ -293,7 +293,7 @@ export class CookielessManager {
             // Drop all cookieless events if there are any errors.
             // We fail close here as Cookieless is a new feature, not available for general use yet, and we don't want any
             // errors to interfere with the processing of other events.
-            return this.dropAllCookielessEvents(events, 'cookieless-fail-close')
+            return this.dropAllCookielessEvents(events, 'cookieless_fail_close')
         }
     }
 
@@ -324,7 +324,7 @@ export class CookielessManager {
                         drop_cause: 'cookieless_disallowed_event',
                     })
                     .inc()
-                results[i] = drop('Event type not supported in cookieless mode')
+                results[i] = drop('cookieless_unsupported_event')
                 continue
             }
             if (
@@ -338,7 +338,7 @@ export class CookielessManager {
                         drop_cause: 'cookieless_stateless_disallowed_identify',
                     })
                     .inc()
-                results[i] = drop('$identify not supported in stateless cookieless mode')
+                results[i] = drop('cookieless_stateless_no_identify')
                 continue
             }
 
@@ -353,7 +353,7 @@ export class CookielessManager {
                         drop_cause: 'cookieless_team_disabled',
                     })
                     .inc()
-                results[i] = drop('Cookieless disabled for team')
+                results[i] = drop('cookieless_team_disabled')
                 continue
             }
             const timestamp = event.timestamp ?? event.sent_at ?? event.now
@@ -365,7 +365,7 @@ export class CookielessManager {
                         drop_cause: 'cookieless_no_timestamp',
                     })
                     .inc()
-                results[i] = drop('Missing timestamp')
+                results[i] = drop('cookieless_missing_timestamp')
                 continue
             }
 
@@ -398,7 +398,9 @@ export class CookielessManager {
                               : 'cookieless_missing_host',
                     })
                     .inc()
-                results[i] = drop(!userAgent ? 'Missing user agent' : !ip ? 'Missing IP' : 'Missing host')
+                results[i] = drop(
+                    !userAgent ? 'cookieless_missing_ua' : !ip ? 'cookieless_missing_ip' : 'cookieless_missing_host'
+                )
                 continue
             }
 

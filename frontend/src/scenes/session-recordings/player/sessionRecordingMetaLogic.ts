@@ -119,6 +119,8 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                 start_time: dayjs(snapshots[0].timestamp).toISOString(),
                 end_time: dayjs(snapshots[snapshots.length - 1].timestamp).toISOString(),
                 snapshot_source: 'unknown',
+                expiry_time: undefined,
+                recording_ttl: undefined,
             })
         },
 

@@ -40,6 +40,7 @@ export const urls = {
     propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
+    dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
@@ -80,7 +81,8 @@ export const urls = {
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectHomepage: (): string => '/',
-    max: (): string => '/max',
+    max: (chat?: string, ask?: string): string => combineUrl('/max', { ask, chat }).url,
+    maxHistory: (): string => '/max/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',

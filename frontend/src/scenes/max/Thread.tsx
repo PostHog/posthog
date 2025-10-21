@@ -90,12 +90,12 @@ import {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
 
     return (
         <div
             className={twMerge(
-                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow',
+                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow mx-auto',
                 className
             )}
         >
@@ -116,6 +116,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         key={`${conversationId}-${index}`}
                         messages={group}
                         isFinal={index === threadGrouped.length - 1}
+                        streamingActive={streamingActive}
                     />
                 ))
             ) : (
@@ -154,9 +155,10 @@ function MessageGroupContainer({
 interface MessageGroupProps {
     messages: ThreadMessage[]
     isFinal: boolean
+    streamingActive: boolean
 }
 
-function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
+function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { editInsightToolRegistered } = useValues(maxGlobalLogic)
 
@@ -254,11 +256,24 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                         return (
                             <MessageTemplate key={key} type="ai">
                                 <div className="flex items-center gap-2">
-                                    <img
-                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
-                                    />
-                                    <span className="font-medium">{message.content}…</span>
+                                    {messageIndex < messages.length - 1 ? (
+                                        <IconCheck className="size-4 m-0.5 animate-[scale-in_0.3s_ease-out]" />
+                                    ) : streamingActive ? (
+                                        <img
+                                            src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                            className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
+                                        />
+                                    ) : (
+                                        <IconX className="size-4 m-0.5" />
+                                    )}
+                                    <span className="font-medium">
+                                        {message.content}…
+                                        {messageIndex < messages.length - 1
+                                            ? ' Done.'
+                                            : !streamingActive
+                                              ? ' Canceled.'
+                                              : ''}
+                                    </span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <MarkdownMessage
@@ -312,11 +327,12 @@ interface MessageTemplateProps {
     action?: React.ReactNode
     className?: string
     boxClassName?: string
-    children: React.ReactNode
+    children?: React.ReactNode
+    header?: React.ReactNode
 }
 
 const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, action },
+    { type, children, className, boxClassName, action, header },
     ref
 ) {
     return (
@@ -328,15 +344,18 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
             )}
             ref={ref}
         >
-            <div
-                className={twMerge(
-                    'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
-                    type === 'human' && 'font-medium',
-                    boxClassName
-                )}
-            >
-                {children}
-            </div>
+            {header}
+            {children && (
+                <div
+                    className={twMerge(
+                        'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
+                        type === 'human' && 'font-medium',
+                        boxClassName
+                    )}
+                >
+                    {children}
+                </div>
+            )}
             {action}
         </div>
     )
@@ -388,10 +407,14 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             ref={ref}
             action={action}
         >
-            <MarkdownMessage
-                content={message.content || '*Max has failed to generate an answer. Please try again.*'}
-                id={message.id || 'error'}
-            />
+            {message.content ? (
+                <MarkdownMessage content={message.content} id={message.id || 'in-progress'} />
+            ) : (
+                <MarkdownMessage
+                    content={message.content || '*Max has failed to generate an answer. Please try again.*'}
+                    id={message.id || 'error'}
+                />
+            )}
         </MessageTemplate>
     )
 })
