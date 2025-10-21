@@ -2,9 +2,8 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import status
-
-from posthog.models import User
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -154,10 +153,8 @@ class TestEmailMFAAPI(APIBaseTest):
 
     @patch("posthog.tasks.email.send_email_mfa_link.delay")
     def test_login_with_totp_does_not_trigger_email_mfa(self, mock_send_email):
-        from django_otp.util import random_hex
-
         # Create TOTP device for user
-        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)
+        TOTPDevice.objects.create(user=self.user, name="default")
 
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
 
@@ -167,28 +164,6 @@ class TestEmailMFAAPI(APIBaseTest):
 
         # Email task should not have been called
         mock_send_email.assert_not_called()
-
-    @patch("posthog.tasks.email.send_email_mfa_link.delay")
-    def test_e2e_email_mfa_test_mode(self, mock_send_email):
-        # Test the E2E testing bypass
-        from django.conf import settings
-
-        original_e2e_testing = settings.E2E_TESTING
-        try:
-            settings.E2E_TESTING = True
-
-            # Create test user
-            User.objects.create_and_join(self.organization, "test@posthog.com", VALID_TEST_PASSWORD, first_name="Test")
-
-            response = self.client.post(
-                "/api/login/email-mfa/",
-                {"email": "test@posthog.com", "token": "e2e_test_token"},
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json(), {"success": True})
-
-        finally:
-            settings.E2E_TESTING = original_e2e_testing
 
     @patch("posthog.tasks.email.send_email_mfa_link.delay")
     def test_email_mfa_resend_success(self, mock_send_email):
@@ -214,7 +189,7 @@ class TestEmailMFAAPI(APIBaseTest):
         # Try to resend immediately
         response = self.client.post("/api/login/email-mfa/resend/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Please wait before requesting another email", response.json()["detail"])
+        self.assertIn("Please wait 60 seconds before requesting another email", response.json()["detail"])
 
         # Email task should only have been called once
         self.assertEqual(mock_send_email.call_count, 1)

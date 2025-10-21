@@ -363,7 +363,7 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
             duration = minutes * 60
         else:
             # Fall back to default
-            num_requests, duration = super().parse_rate(rate)
+            num_requests, duration = super().parse_rate(rate)  # type: ignore
 
         return (num_requests, duration)
 
