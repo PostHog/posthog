@@ -47,7 +47,7 @@ class OAuthApplicationForm(forms.ModelForm):
                 self.fields["client_type"].initial = AbstractApplication.CLIENT_CONFIDENTIAL
 
 
-class OAuthApplicationAdmin(admin.ModelAdmin[OAuthApplication]):
+class OAuthApplicationAdmin(admin.ModelAdmin):
     form = OAuthApplicationForm
     list_display = (
         "id",
