@@ -359,14 +359,6 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's queries to search for insights.
     """
-    entity_search_query: Optional[str] = Field(default=None)
-    """
-    The user's search query for finding entities.
-    """
-    entity_search_types: Optional[list[EntityType]] = Field(default=None)
-    """
-    The entity types to search for.
-    """
     dashboard_id: Optional[int] = Field(default=None)
     """
     The ID of the dashboard to be edited.
