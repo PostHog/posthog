@@ -6,7 +6,7 @@ import yaml
 from posthoganalytics import capture_exception
 
 from posthog.api.search import EntityConfig, search_entities
-from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey, Team, User
+from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Survey, Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
@@ -16,11 +16,6 @@ from ee.hogai.utils.types.base import EntityType
 from .prompts import ENTITY_TYPE_SUMMARY_TEMPLATE, FOUND_ENTITIES_MESSAGE_TEMPLATE
 
 ENTITY_MAP: dict[str, EntityConfig] = {
-    "insight": {
-        "klass": Insight,
-        "search_fields": {"name": "A", "description": "C", "query_metadata": "B"},
-        "extra_fields": ["name", "description", "query", "query_metadata"],
-    },
     "dashboard": {
         "klass": Dashboard,
         "search_fields": {"name": "A", "description": "C"},
