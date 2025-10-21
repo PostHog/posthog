@@ -59,11 +59,11 @@ mod tests {
             .await
             .expect("Failed to insert team");
         context
-            .insert_early_access_feature(team.id, None, "flag1".to_string())
+            .insert_early_access_feature(team.id, None, None)
             .await
             .expect("Failed to insert early_access_feature1");
         context
-            .insert_early_access_feature(team.id, Some("alpha".to_string()), "flag2".to_string())
+            .insert_early_access_feature(team.id, Some("alpha".to_string()), None)
             .await
             .expect("Failed to insert early_access_feature2");
 

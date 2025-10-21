@@ -810,14 +810,8 @@ pub async fn insert_early_access_feature_for_team_in_pg(
     feature_flag_id: i32,
     stage: Option<String>,
 ) -> Result<EarlyAccessFeature, Error> {
-    let early_access_feature = create_test_early_access_feature(
-        feature_flag_id,
-        Some(team_id),
-        None,
-        None,
-        stage,
-        None,
-    );
+    let early_access_feature =
+        create_test_early_access_feature(feature_flag_id, Some(team_id), None, None, stage, None);
     let mut conn = client.get_connection().await?;
     let row: (Uuid,) = sqlx::query_as(
         r#"
@@ -1340,27 +1334,49 @@ impl TestContext {
         &self,
         team_id: i32,
         stage: Option<String>,
-        feature_flag_key: String,
+        flag_id: Option<i32>,
     ) -> Result<EarlyAccessFeature, Error> {
-        let flag = FeatureFlagRow {
-            id: 1,
-            team_id: team_id,
-            name: Some("Test Flag".to_string()),
-            key: feature_flag_key,
-            filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 0}]}),
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: Some(1),
-            evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
+        // 1. Determine which FeatureFlag ID to use
+        let flag_id = match flag_id {
+            // Case A: Flag IS provided (flag is not null)
+            Some(existing_flag_id) => {
+                existing_flag_id 
+            }
+
+            // Case B: Flag is NULL (None)
+            None => {
+                // Create a new Flag using the logic you had before
+                let new_flag_row = FeatureFlagRow {
+                    id: 1, // Placeholder, usually ignored by insert_flag_for_team_in_pg
+                    team_id: team_id,
+                    name: Some("Early Access Flag".to_string()),
+                    key: format!("early_access_{}", uuid::Uuid::new_v4()), // Use a unique key
+                    filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 0}]}),
+                    deleted: false,
+                    active: true,
+                    ensure_experience_continuity: Some(false),
+                    version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
+                    evaluation_tags: None,
+                };
+
+                // Insert the new flag into the database
+                let inserted_flag = insert_flag_for_team_in_pg(
+                    self.non_persons_writer.clone(),
+                    team_id,
+                    Some(new_flag_row),
+                )
+                .await?;
+
+                // Return the ID of the newly inserted flag
+                inserted_flag.id
+            }
         };
-        let inserted_flag =
-            insert_flag_for_team_in_pg(self.non_persons_writer.clone(), team_id, Some(flag)).await?;
+
         insert_early_access_feature_for_team_in_pg(
             self.non_persons_writer.clone(),
             team_id,
-            inserted_flag.id,
+            flag_id,
             stage,
         )
         .await

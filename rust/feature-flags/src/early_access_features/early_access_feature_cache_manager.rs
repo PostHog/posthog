@@ -45,7 +45,7 @@ impl EarlyAccessFeatureCacheManager {
         }
 
         let _lock = self.fetch_lock.lock().await;
-
+    
         // Attempt to fetch from DB
         match EarlyAccessFeature::list_from_pg(self.reader.clone(), project_id).await {
             Ok(fetched_early_access_features) => {
@@ -75,7 +75,7 @@ mod tests {
         let team = context.insert_new_team(None).await?;
 
         let _early_access_feature = context
-            .insert_early_access_feature(team.id, None, "flag".to_string())
+            .insert_early_access_feature(team.id, None, None)
             .await?;
 
         // Initialize Cache with a short TTL for testing
@@ -115,7 +115,7 @@ mod tests {
         let team_id = team.id;
 
         let _early_access_feature = context
-            .insert_early_access_feature(team_id, None, "flag".to_string())
+            .insert_early_access_feature(team_id, None, None)
             .await;
 
         let cache =
