@@ -83,12 +83,6 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         description: 'Query data by creating insights and SQL queries',
         icon: <IconGraph />,
     },
-    {
-        identifier: 'create_dashboard' as const,
-        name: TOOL_DEFINITIONS['create_dashboard'].name,
-        description: TOOL_DEFINITIONS['create_dashboard'].description,
-        icon: <IconDashboard />,
-    },
 ]
 
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
