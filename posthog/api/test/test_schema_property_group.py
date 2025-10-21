@@ -225,12 +225,28 @@ class TestEventSchemaAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.project.id}/event_schemas/",
-            {
-                "event_definition": event_def.id,
-                "property_group_id": str(other_property_group.id),
-            },
+            {"event_definition": event_def.id, "property_group_id": str(other_property_group.id)},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        # The queryset filter prevents cross-team access, so the object "does not exist" from this team's perspective
+        assert "does not exist" in str(response.json())
+
+    def test_cross_team_event_definition_rejection(self):
+        other_project, other_team = Project.objects.create_with_team(
+            organization=self.organization,
+            name="Other Project",
+            initiating_user=self.user,
+            team_fields={"name": "Other Team"},
+        )
+        other_event_def = EventDefinition.objects.create(
+            team=other_team, project=other_project, name="other_team_event"
+        )
+        property_group = SchemaPropertyGroup.objects.create(team=self.team, project=self.project, name="Test Group")
+
+        response = self.client.post(
+            f"/api/projects/{self.project.id}/event_schemas/",
+            {"event_definition": other_event_def.id, "property_group_id": str(property_group.id)},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not exist" in str(response.json())
