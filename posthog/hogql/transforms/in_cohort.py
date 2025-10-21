@@ -329,7 +329,7 @@ class InCohortResolver(TraversingVisitor):
                     )
                     return
                 elif len(cohorts2) > 1:
-                    raise QueryError(f"3 Found multiple cohorts with name '{arg.value}'", node=arg)
+                    raise QueryError(f"Found multiple cohorts with name '{arg.value}'", node=arg)
                 raise QueryError(f"Could not find a cohort with the name '{arg.value}'", node=arg)
         else:
             self.visit(node.left)
