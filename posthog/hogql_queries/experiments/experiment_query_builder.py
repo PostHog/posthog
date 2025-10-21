@@ -87,6 +87,18 @@ class ExperimentQueryBuilder:
             case _:
                 raise NotImplementedError(f"Only funnel and mean metrics are supported. Got {type(self.metric)}")
 
+    def _get_conversion_window_seconds(self) -> int:
+        """
+        Returns the conversion window in seconds for the current metric.
+        Returns 0 if no conversion window is configured.
+        """
+        if self.metric.conversion_window and self.metric.conversion_window_unit:
+            return conversion_window_to_seconds(
+                self.metric.conversion_window,
+                self.metric.conversion_window_unit,
+            )
+        return 0
+
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
         Builds query for funnel metrics.
@@ -244,19 +256,19 @@ class ExperimentQueryBuilder:
         """
         Build the predicate for limiting metric events to the conversion window for the user.
         """
-        expr = "metric_events.timestamp >= exposures.first_exposure_time"
-
-        conversion_window_seconds = 0
-        if self.metric.conversion_window and self.metric.conversion_window_unit:
-            conversion_window_seconds = conversion_window_to_seconds(
-                self.metric.conversion_window,
-                self.metric.conversion_window_unit,
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds > 0:
+            return parse_expr(
+                """
+                metric_events.timestamp >= exposures.first_exposure_time
+                AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
+                """,
+                placeholders={
+                    "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                },
             )
-
-            if conversion_window_seconds > 0:
-                expr += f""" AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})"""
-
-        return parse_expr(expr)
+        else:
+            return parse_expr("metric_events.timestamp >= exposures.first_exposure_time")
 
     def _build_metric_predicate(self) -> ast.Expr:
         """
@@ -270,14 +282,7 @@ class ExperimentQueryBuilder:
 
         metric_event_filter = event_or_action_to_filter(self.team, self.metric.source)
 
-        # Build conversion window constraint
-        if self.metric.conversion_window and self.metric.conversion_window_unit:
-            conversion_window_seconds = conversion_window_to_seconds(
-                self.metric.conversion_window,
-                self.metric.conversion_window_unit,
-            )
-        else:
-            conversion_window_seconds = 0
+        conversion_window_seconds = self._get_conversion_window_seconds()
 
         return parse_expr(
             """
@@ -295,10 +300,9 @@ class ExperimentQueryBuilder:
 
     def _build_value_expr(self) -> ast.Expr:
         """
-        Builds the value expression for metric events based on math type.
+        Extracts the value expression from the metric source configuration.
         """
         assert isinstance(self.metric, ExperimentMeanMetric)
-        # TODO: refactor this
         return get_source_value_expr(self.metric.source)
 
     def _build_value_aggregation_expr(self) -> ast.Expr:
@@ -338,10 +342,8 @@ class ExperimentQueryBuilder:
                 aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
                     return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
-            # Default to sum if no aggregation function is found
             return parse_expr(f"sum(coalesce(toFloat(metric_events.value), 0))")
         else:
-            # Default: SUM or TOTAL
             return parse_expr("coalesce(sum(toFloat(metric_events.value)), 0.0)")
 
     def _build_test_accounts_filter(self) -> ast.Expr:
@@ -443,23 +445,23 @@ class ExperimentQueryBuilder:
             """,
             placeholders={
                 "entity_key": parse_expr(self.entity_key),
-                "variant_expr": self._build_variant_expr(),
+                "variant_expr": self._build_variant_expr_for_mean(),
                 "exposure_predicate": self._build_exposure_predicate(),
             },
         )
         assert isinstance(exposure_query, ast.SelectQuery)
         return exposure_query
 
-    def _build_variant_expr(self) -> ast.Expr:
+    def _build_variant_expr_for_mean(self) -> ast.Expr:
         """
-        Builds the variant selection expression based on multiple variant handling.
+        Builds the variant selection expression for mean metrics based on multiple variant handling.
         """
 
         if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
             return parse_expr(
                 "argMinIf({variant_property}, timestamp, {exposure_predicate})",
                 placeholders={
-                    "variant_property": ast.Field(chain=["properties", self.variant_property]),
+                    "variant_property": self._build_variant_property(),
                     "exposure_predicate": self._build_exposure_predicate(),
                 },
             )
@@ -467,7 +469,7 @@ class ExperimentQueryBuilder:
             return parse_expr(
                 "if(uniqExactIf({variant_property}, {exposure_predicate}) > 1, {multiple_key}, anyIf({variant_property}, {exposure_predicate}))",
                 placeholders={
-                    "variant_property": ast.Field(chain=["properties", self.variant_property]),
+                    "variant_property": self._build_variant_property(),
                     "exposure_predicate": self._build_exposure_predicate(),
                     "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                 },
@@ -497,12 +499,8 @@ class ExperimentQueryBuilder:
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
-        conversion_window_seconds = 0
-        if self.metric.conversion_window and self.metric.conversion_window_unit:
-            conversion_window_seconds = conversion_window_to_seconds(
-                self.metric.conversion_window,
-                self.metric.conversion_window_unit,
-            )
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds > 0:
             date_to = parse_expr(
                 "{to_date} + toIntervalSecond({conversion_window_seconds})",
                 placeholders={
