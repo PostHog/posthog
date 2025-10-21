@@ -92,13 +92,36 @@ export const currentPageLogic = kea<currentPageLogicType>([
     afterMount(({ actions, values, cache }) => {
         actions.setHref(withoutPostHogInit(values.href))
 
+        const checkAndUpdateHref = (): void => {
+            if (window.location.href !== values.href) {
+                actions.setHref(withoutPostHogInit(window.location.href))
+            }
+        }
+
         cache.disposables.add(() => {
-            const interval = window.setInterval(() => {
-                if (window.location.href !== values.href) {
-                    actions.setHref(withoutPostHogInit(window.location.href))
-                }
-            }, 500)
-            return () => window.clearInterval(interval)
-        }, 'urlChangeInterval')
+            const popstateHandler = (): void => checkAndUpdateHref()
+            window.addEventListener('popstate', popstateHandler)
+            return () => window.removeEventListener('popstate', popstateHandler)
+        }, 'popstateListener')
+
+        cache.disposables.add(() => {
+            const originalPushState = history.pushState
+            const originalReplaceState = history.replaceState
+
+            history.pushState = function (...args) {
+                originalPushState.apply(this, args)
+                checkAndUpdateHref()
+            }
+
+            history.replaceState = function (...args) {
+                originalReplaceState.apply(this, args)
+                checkAndUpdateHref()
+            }
+
+            return () => {
+                history.pushState = originalPushState
+                history.replaceState = originalReplaceState
+            }
+        }, 'historyProxy')
     }),
 ])

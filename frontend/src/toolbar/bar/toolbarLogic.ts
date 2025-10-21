@@ -449,15 +449,25 @@ export const toolbarLogic = kea<toolbarLogicType>([
             return () => window.removeEventListener('popstate', popstateHandler)
         }, 'popstateListener')
 
-        // Use a setInterval to periodically check for URL changes
-        // We do this because we don't want to write over the history.pushState function in case other scripts rely on it
-        // And mutation observers don't seem to work :shrug:
         cache.disposables.add(() => {
-            const navigationInterval = setInterval(() => {
+            const originalPushState = history.pushState
+            const originalReplaceState = history.replaceState
+
+            history.pushState = function (...args) {
+                originalPushState.apply(this, args)
                 actions.maybeSendNavigationMessage()
-            }, 500)
-            return () => clearInterval(navigationInterval)
-        }, 'navigationInterval')
+            }
+
+            history.replaceState = function (...args) {
+                originalReplaceState.apply(this, args)
+                actions.maybeSendNavigationMessage()
+            }
+
+            return () => {
+                history.pushState = originalPushState
+                history.replaceState = originalReplaceState
+            }
+        }, 'historyProxy')
 
         // the toolbar can be run within the posthog parent app
         // if it is then it listens to parent messages
