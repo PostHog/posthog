@@ -4,13 +4,14 @@ import { useRef, useState } from 'react'
 import { IconArrowRight, IconCalculator, IconPencil } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Label } from 'lib/ui/Label/Label'
-import { humanFriendlyDetailedTime, humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -57,11 +58,19 @@ const DateButton = ({ date, type, onChange }: DateButtonProps): JSX.Element => {
                               : undefined
                     }
                 >
-                    {date
-                        ? humanFriendlyDetailedTime(date, 'MMM DD, YYYY', 'hh:mm A')
-                        : type === 'end'
-                          ? 'Present'
-                          : 'No date'}
+                    {date ? (
+                        <TZLabel
+                            time={date}
+                            formatDate="MMM DD, YYYY"
+                            formatTime="hh:mm A"
+                            showPopover={true}
+                            noStyles={true}
+                        />
+                    ) : type === 'end' ? (
+                        'Present'
+                    ) : (
+                        'No date'
+                    )}
                 </LemonButton>
             </Popover>
         </div>

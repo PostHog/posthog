@@ -24,8 +24,10 @@ impl DatabasePools {
             ));
         }
 
-        let pool_config = PoolConfig {
+        // Use different configurations for read vs write pools
+        let read_pool_config = PoolConfig {
             max_connections: config.max_pg_connections,
+            min_connections: config.min_pg_connections, // Keep connections warm to avoid cold starts
             acquire_timeout: Duration::from_secs(config.acquire_timeout_secs),
             idle_timeout: if config.idle_timeout_secs > 0 {
                 Some(Duration::from_secs(config.idle_timeout_secs))
@@ -38,10 +40,29 @@ impl DatabasePools {
                 None
             },
             test_before_acquire: *config.test_before_acquire,
+            statement_timeout: Some(Duration::from_millis(config.statement_timeout_ms)),
+        };
+
+        let write_pool_config = PoolConfig {
+            max_connections: config.max_pg_connections_write,
+            min_connections: config.min_pg_connections_write, // Keep fewer write connections warm
+            acquire_timeout: Duration::from_secs(config.acquire_timeout_secs_write),
+            idle_timeout: if config.idle_timeout_secs > 0 {
+                Some(Duration::from_secs(config.idle_timeout_secs * 2))
+            } else {
+                None
+            },
+            max_lifetime: if config.max_lifetime_secs > 0 {
+                Some(Duration::from_secs(config.max_lifetime_secs))
+            } else {
+                None
+            },
+            test_before_acquire: *config.test_before_acquire,
+            statement_timeout: Some(Duration::from_millis(config.statement_timeout_ms)),
         };
 
         let non_persons_reader = Arc::new(
-            get_pool_with_config(&config.read_database_url, pool_config.clone())
+            get_pool_with_config(&config.read_database_url, read_pool_config.clone())
                 .await
                 .map_err(|e| {
                     FlagError::DatabaseError(
@@ -52,7 +73,7 @@ impl DatabasePools {
         );
 
         let non_persons_writer = Arc::new(
-            get_pool_with_config(&config.write_database_url, pool_config.clone())
+            get_pool_with_config(&config.write_database_url, write_pool_config.clone())
                 .await
                 .map_err(|e| {
                     FlagError::DatabaseError(
@@ -65,14 +86,17 @@ impl DatabasePools {
         // Create persons pools if configured, otherwise reuse the non-persons pools
         let persons_reader = if config.is_persons_db_routing_enabled() {
             Arc::new(
-                get_pool_with_config(&config.get_persons_read_database_url(), pool_config.clone())
-                    .await
-                    .map_err(|e| {
-                        FlagError::DatabaseError(
-                            e,
-                            Some("Failed to create persons reader pool".to_string()),
-                        )
-                    })?,
+                get_pool_with_config(
+                    &config.get_persons_read_database_url(),
+                    read_pool_config.clone(),
+                )
+                .await
+                .map_err(|e| {
+                    FlagError::DatabaseError(
+                        e,
+                        Some("Failed to create persons reader pool".to_string()),
+                    )
+                })?,
             )
         } else {
             non_persons_reader.clone()
@@ -82,7 +106,7 @@ impl DatabasePools {
             Arc::new(
                 get_pool_with_config(
                     &config.get_persons_write_database_url(),
-                    pool_config.clone(),
+                    write_pool_config.clone(),
                 )
                 .await
                 .map_err(|e| {
@@ -98,8 +122,12 @@ impl DatabasePools {
 
         // Log pool configuration at startup
         info!(
-            max_connections = config.max_pg_connections,
+            max_pg_connections = config.max_pg_connections,
+            min_pg_connections = config.min_pg_connections,
+            max_pg_connections_write = config.max_pg_connections_write,
+            min_pg_connections_write = config.min_pg_connections_write,
             acquire_timeout_secs = config.acquire_timeout_secs,
+            acquire_timeout_secs_write = config.acquire_timeout_secs_write,
             idle_timeout_secs = config.idle_timeout_secs,
             max_lifetime_secs = config.max_lifetime_secs,
             test_before_acquire = config.test_before_acquire.0,
