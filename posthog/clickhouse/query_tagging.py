@@ -23,6 +23,7 @@ class Product(StrEnum):
     FEATURE_FLAGS = "feature_flags"
     MAX_AI = "max_ai"
     MESSAGING = "messaging"
+    WORKFLOWS = "workflows"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     SESSION_SUMMARY = "session_summary"
@@ -224,8 +225,11 @@ def get_query_tag_value(key: str) -> Optional[Any]:
         return None
 
 
-def update_tags(query_tags: QueryTags):
-    get_query_tags().update(**query_tags.model_dump(exclude_none=True))
+def update_tags(new_query_tags: QueryTags):
+    current_tags = get_query_tags()
+    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags.update(**new_query_tags.model_dump(exclude_none=True))
+    query_tags.set(updated_tags)
 
 
 def tag_queries(**kwargs) -> None:
@@ -235,13 +239,18 @@ def tag_queries(**kwargs) -> None:
 
     :param kwargs: Key->value pairs of tags to be set.
     """
-    get_query_tags().update(**kwargs)
+    current_tags = get_query_tags()
+    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags.update(**kwargs)
+    query_tags.set(updated_tags)
 
 
 def clear_tag(key):
     with suppress(LookupError):
-        qt = query_tags.get()
-        setattr(qt, key, None)
+        current_tags = query_tags.get()
+        updated_tags = current_tags.model_copy(deep=True)
+        setattr(updated_tags, key, None)
+        query_tags.set(updated_tags)
 
 
 def reset_query_tags():

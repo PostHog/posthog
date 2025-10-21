@@ -5009,6 +5009,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             )
 
+        # Create a non-stale flag (100% rollout but has multiple groups, with only 1 group that has 100% rollout)
+        with freeze_time("2024-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="filtered_flag_with_multiple_groups",
+                active=True,
+                filters={
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {"key": "email", "value": "test@example.com", "operator": "exact", "type": "person"}
+                            ],
+                        },
+                        {
+                            "properties": [
+                                {"key": "$browser_version", "value": ["136"], "operator": "exact", "type": "person"}
+                            ],
+                            "rollout_percentage": 50,
+                        },
+                    ]
+                },
+            )
         # Test filtering by stale status
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
         response = filtered_flags_list.json()
@@ -5054,6 +5078,79 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             )
 
+        # Test filtering by stale status
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
+        response = filtered_flags_list.json()
+
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "stale_multivariate"
+        assert response["results"][0]["status"] == "STALE"
+
+    def test_get_flags_with_stale_filter_multivariate_condition_variant_override(self):
+        # Create a stale multivariate flag
+        with freeze_time("2023-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="stale_multivariate",
+                active=True,
+                filters={
+                    "groups": [{"rollout_percentage": 100, "properties": [], "variant": "test"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "test", "rollout_percentage": 50},
+                            {"key": "test2", "rollout_percentage": 50},
+                        ],
+                        "release_percentage": 100,
+                    },
+                },
+            )
+
+        # Create a multivariate flag with rollout <100% should not be stale
+        with freeze_time("2023-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="low_rollout",
+                active=True,
+                filters={
+                    "groups": [{"rollout_percentage": 90, "properties": [], "variant": "test"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "test", "rollout_percentage": 50},
+                            {"key": "test2", "rollout_percentage": 50},
+                        ],
+                        "release_percentage": 100,
+                    },
+                },
+            )
+
+        # Create a multivariate flag with rollout 100% but has properties filter, should not be stale
+        with freeze_time("2023-01-01"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key="with_properties",
+                active=True,
+                filters={
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "person"}
+                            ],
+                            "variant": "test",
+                        }
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "test", "rollout_percentage": 50},
+                            {"key": "test2", "rollout_percentage": 50},
+                        ],
+                        "release_percentage": 100,
+                    },
+                },
+            )
         # Test filtering by stale status
         filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
         response = filtered_flags_list.json()
