@@ -272,7 +272,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "billing": AssistantNodeName.BILLING,
             "end": AssistantNodeName.END,
             "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
-            # "entity_search": AssistantNodeName.ENTITY_SEARCH,
             "session_summarization": AssistantNodeName.SESSION_SUMMARIZATION,
             "create_dashboard": AssistantNodeName.DASHBOARD_CREATION,
         }
