@@ -33,6 +33,7 @@ class TraceMessagesStringifier:
             if stringified_messages and stringified_messages[-1] == stringified_message:
                 continue
             stringified_messages.append(stringified_message)
+
         # If human didn't respond to any AI messages (no interaction), skip the trace
         no_interaction_found = True
         for i, message in enumerate(stringified_messages):

@@ -66,9 +66,9 @@ class LLMTracesSummarizationNode(AssistantNode):
             summary_title=_create_notebook_title(query=llm_traces_summarization_query),
         )
         state.notebook_short_id = notebook.short_id
-        await self._stream_notebook_content(
-            content=_prepare_initial_notebook_state(query=llm_traces_summarization_query), state=state
-        )
+        # await self._stream_notebook_content(
+        #     content=_prepare_initial_notebook_state(query=llm_traces_summarization_query), state=state
+        # )
         try:
             # Search for similar traces
             similar_documents = EmbeddingSearcher.prepare_input_data(
