@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ChartDataset as ChartJsDataset } from 'lib/Chart'
@@ -117,6 +117,14 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
     })),
 
     selectors({
+        isRecalculating: [
+            (s) => [s.timeseries],
+            (timeseries: ExperimentMetricTimeseries | null): boolean => {
+                return (
+                    timeseries?.recalculation_status === 'pending' || timeseries?.recalculation_status === 'in_progress'
+                )
+            },
+        ],
         // Extract and process timeseries data for a specific variant
         processedVariantData: [
             (s) => [s.timeseries],
@@ -375,6 +383,15 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
             },
         ],
     }),
+
+    listeners(({ actions }) => ({
+        recalculateTimeseriesSuccess: ({ payload }) => {
+            const metric = payload?.metric
+            if (metric) {
+                actions.loadTimeseries({ metric })
+            }
+        },
+    })),
 
     afterMount(({ props, actions }) => {
         if (props.metric && props.metric.uuid && props.metric.fingerprint) {
