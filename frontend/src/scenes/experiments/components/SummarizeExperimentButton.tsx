@@ -30,11 +30,7 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
                 let variants: any[] = []
 
                 if (result.variant_results) {
-                    const allVariants = result.baseline
-                        ? [result.baseline, ...result.variant_results]
-                        : result.variant_results
-
-                    variants = allVariants.map((variant: any) => {
+                    variants = result.variant_results.map((variant: any) => {
                         const variantKey = variant.key
 
                         // Calculate conversion rate if we have the data
@@ -44,18 +40,14 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
 
                         return {
                             key: variantKey,
-                            // Extract Bayesian fields from top-level result
-                            chance_to_win: result.probability?.[variantKey] || 0,
-                            credible_interval: result.credible_intervals?.[variantKey] || [],
-                            significant: result.significant || false,
+                            // Extract Bayesian fields directly from variant
+                            chance_to_win: variant.chance_to_win || 0,
+                            credible_interval: variant.credible_interval || [],
+                            significant: variant.significant || false,
                             // Include variant-specific data
                             count: numerator,
                             exposure: denominator,
                             conversion_rate: conversion_rate,
-                            // Include raw data for debugging
-                            numerator_sum: variant.numerator_sum,
-                            denominator_sum: variant.denominator_sum,
-                            number_of_samples: variant.number_of_samples,
                         }
                     })
                 }
@@ -112,18 +104,25 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
         },
     })
 
-    return maxToolResult
+    return { ...maxToolResult, maxToolContext }
 }
 
 export function SummarizeExperimentButton(): JSX.Element | null {
-    const { openMax } = useExperimentSummaryMaxTool()
+    const { openMax, maxToolContext } = useExperimentSummaryMaxTool()
 
     if (!openMax) {
         return null
     }
 
     return (
-        <LemonButton size="small" onClick={openMax} type="secondary" icon={<IconAI />}>
+        <LemonButton
+            size="small"
+            onClick={() => {
+                openMax()
+            }}
+            type="secondary"
+            icon={<IconAI />}
+        >
             Summarize with AI
         </LemonButton>
     )
