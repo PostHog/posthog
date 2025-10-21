@@ -9,7 +9,7 @@ export function Intro(): JSX.Element {
 
     return (
         <>
-            <div className="flex">
+            <div className="flex *:h-full *:w-12 animate-logomark-jump">
                 <Logomark />
             </div>
             <div className="text-center mb-1">

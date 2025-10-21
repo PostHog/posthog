@@ -1768,4 +1768,39 @@
         outline: 2px dashed currentColor;
         outline-offset: 2px;
     }
+
+    .animate-logomark-jump {
+        --logomark-airtime: 0.4s;
+
+        svg {
+            overflow: visible;
+
+            // Animate each child with a staggered delay
+            > * {
+                animation: Logomark__jump calc(var(--logomark-airtime) * 25) cubic-bezier(0.6, 0, 0.2, 0.8) infinite;
+            }
+
+            @for $i from 1 through 4 {
+                > *:nth-child(#{$i}) {
+                    animation-delay: calc(var(--logomark-airtime) / 20 * ($i - 1));
+                }
+            }
+        }
+
+        @keyframes Logomark__jump {
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            2% {
+                transform: translateY(-33%);
+            }
+
+            4% {
+                // Only 4% so that this repeats every now and then nicely
+                transform: translateY(0);
+            }
+        }
+    }
 }
