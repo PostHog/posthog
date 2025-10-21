@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, PopoverReferenceContext } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
@@ -21,6 +21,8 @@ type PathNodeCardButton = {
     openPersonsModal: pathsDataLogicType['actions']['openPersonsModal']
     filter: PathsFilter
     setFilter: (filter: PathsFilter) => void
+    showFullUrls?: boolean
+    tooltipContent?: string
 }
 
 export function PathNodeCardButton({
@@ -31,12 +33,14 @@ export function PathNodeCardButton({
     openPersonsModal,
     filter,
     setFilter,
+    showFullUrls,
+    tooltipContent,
 }: PathNodeCardButton): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
     const nodeName = pageUrl(node)
     const isPath = nodeName.includes('/')
-    const displayName = pageUrl(node, isPath)
+    const displayName = pageUrl(node, isPath, showFullUrls)
     const fullName = pageUrl(node, false)
     const isTruncated = displayName !== fullName && displayName.includes('...')
     const setAsPathStart = (): void => setFilter({ startPoint: nodeName })
@@ -58,7 +62,9 @@ export function PathNodeCardButton({
         <div className="flex justify-between items-center w-full">
             <div className="font-semibold overflow-hidden max-h-16">
                 <span className="text-xxs text-secondary mr-1">{`0${name[0]}`}</span>
-                <span className="text-xs break-words">{displayName}</span>
+                <Tooltip title={tooltipContent} placement="right">
+                    <span className="text-xs break-words">{displayName}</span>
+                </Tooltip>
                 {isTruncated && <span className="text-xxs text-muted ml-1 italic">(hover for full URL)</span>}
             </div>
             {/* TRICKY: We don't want the popover to affect the buttons */}
