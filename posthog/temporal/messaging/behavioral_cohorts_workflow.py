@@ -207,7 +207,7 @@ def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> Coh
             query = """
                 SELECT
                     COALESCE(bcm.team_id, cmc.team_id) as team_id,
-                    %(cohort_id)s as cohort_id,
+                    COALESCE(bcm.cohort_id, cmc.cohort_id) as cohort_id,
                     COALESCE(bcm.person_id, cmc.person_id) as person_id,
                     now64() as last_updated,
                     CASE
@@ -229,24 +229,25 @@ def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) -> Coh
                     END as status
                 FROM
                 (
-                    SELECT team_id, person_id -- TODO: Pending to do person merging in this step, but let's ignore that for now
-                    FROM prefiltered_events
+                    SELECT team_id, cohort_id, person_id
+                    FROM behavioral_cohorts_matches
                     WHERE
                         team_id = %(team_id)s
+                        AND cohort_id = %(cohort_id)s
                         AND condition = %(condition)s
                         AND date >= now() - toIntervalDay(%(days)s)
-                    GROUP BY team_id, person_id
-                    HAVING count() >= %(min_matches)s -- TODO: We could test the performance of uniq here (instead of count) to deduplicate if needed.
+                    GROUP BY team_id, cohort_id, person_id
+                    HAVING sum(matches) >= %(min_matches)s
                 ) bcm
                 FULL OUTER JOIN
                 (
-                    SELECT team_id, person_id, argMax(status, last_updated) as status
+                    SELECT team_id, cohort_id, person_id, argMax(status, last_updated) as status
                     FROM cohort_membership
                     WHERE
                         team_id = %(team_id)s
                         AND cohort_id = %(cohort_id)s
-                    GROUP BY team_id, person_id
-                ) cmc ON bcm.team_id = cmc.team_id AND bcm.person_id = cmc.person_id
+                    GROUP BY team_id, cohort_id, person_id
+                ) cmc ON bcm.team_id = cmc.team_id AND bcm.cohort_id = cmc.cohort_id AND bcm.person_id = cmc.person_id
                 WHERE status != 'unchanged'
                 SETTINGS join_use_nulls = 1;
             """
