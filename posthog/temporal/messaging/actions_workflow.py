@@ -96,21 +96,49 @@ def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsRes
             # Query ClickHouse for persons who performed event X at least N times over the last X days
             query = """
                 SELECT
-                    person_id,
-                    count() as total_event_count
-                FROM events
-                WHERE
-                    team_id = %(team_id)s
-                    AND event = %(event_name)s
-                    AND timestamp >= now() - toIntervalDay(%(days)s)
-                    AND timestamp <= now()
-                GROUP BY
-                    person_id
-                HAVING
-                    count() >= %(min_matches)s
-                ORDER BY
-                    total_event_count DESC,
-                    person_id
+                    COALESCE(bcm.team_id, cmc.team_id) as team_id,
+                    %(action_id)s as cohort_id,
+                    COALESCE(bcm.person_id, cmc.person_id) as person_id,
+                    now64() as last_updated,
+                    CASE
+                        WHEN
+                            cmc.person_id IS NULL -- Does not exist in cohort_membership_changed
+                            THEN 'entered' -- so, new member
+                        WHEN
+                            cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
+                            AND cmc.status = 'left' -- it left the cohort at some point
+                            AND bcm.person_id IS NOT NULL -- but now there is a match in behavioral_cohorts_matches
+                            THEN 'entered' -- so, it re-entered the cohort
+                        WHEN
+                            cmc.person_id IS NOT NULL -- Exists in cohort_membership_changed
+                            AND cmc.status = 'entered' -- it is a member at some point
+                            AND bcm.person_id IS NULL -- but there is no match in behavioral_cohorts_matches
+                            THEN 'left' -- so, it left the cohort
+                        ELSE
+                            'unchanged' -- for all other cases, the membership did not change
+                    END as status
+                FROM
+                (
+                    SELECT team_id, person_id -- TODO: Pending to do person merging in this step, but let's ignore that for now
+                    FROM prefiltered_events
+                    WHERE
+                        team_id = %(team_id)s
+                        AND condition = %(action_id)s
+                        AND date >= now() - toIntervalDay(%(days)s)
+                    GROUP BY team_id, person_id
+                    HAVING count() >= %(min_matches)s -- TODO: We could test the performance of uniq here (instead of count) to deduplicate if needed.
+                ) bcm
+                FULL OUTER JOIN
+                (
+                    SELECT team_id, person_id, argMax(status, last_updated) as status
+                    FROM cohort_membership
+                    WHERE
+                        team_id = %(team_id)s
+                        AND cohort_id = %(action_id)s
+                    GROUP BY team_id, person_id
+                ) cmc ON bcm.team_id = cmc.team_id AND bcm.person_id = cmc.person_id
+                WHERE status != 'unchanged'
+                SETTINGS join_use_nulls = 1;
             """
 
             try:
@@ -124,7 +152,7 @@ def process_actions_activity(inputs: ActionsWorkflowInputs) -> ProcessActionsRes
                         query,
                         {
                             "team_id": action.team_id,
-                            "event_name": event_name,
+                            "action_id": action.id,
                             "days": inputs.days,
                             "min_matches": inputs.min_matches,
                         },
