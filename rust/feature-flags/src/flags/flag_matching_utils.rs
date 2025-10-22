@@ -25,10 +25,10 @@ use crate::{
     cohorts::cohort_models::CohortId,
     flags::flag_models::FeatureFlagId,
     metrics::consts::{
-        FLAG_CLIENT_TIMEOUT_COUNTER, FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME,
-        FLAG_CONNECTION_HOLD_TIME, FLAG_CONNECTION_OVERLAP_TIME_MS, FLAG_DATABASE_ERROR_COUNTER,
-        FLAG_DB_CONNECTION_TIME, FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME,
-        FLAG_GROUP_QUERY_TIME, FLAG_HASH_KEY_RETRIES_COUNTER,
+        FLAG_ACQUIRE_TIMEOUT_COUNTER, FLAG_CLIENT_TIMEOUT_COUNTER, FLAG_COHORT_PROCESSING_TIME,
+        FLAG_COHORT_QUERY_TIME, FLAG_CONNECTION_HOLD_TIME, FLAG_CONNECTION_OVERLAP_TIME_MS,
+        FLAG_DATABASE_ERROR_COUNTER, FLAG_DB_CONNECTION_TIME, FLAG_DEFINITION_QUERY_TIME,
+        FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME, FLAG_HASH_KEY_RETRIES_COUNTER,
         FLAG_MULTI_CONNECTION_OPERATION_COUNTER, FLAG_PERSON_PROCESSING_TIME,
         FLAG_PERSON_QUERY_TIME, FLAG_POOL_UTILIZATION_GAUGE,
         FLAG_READER_TIMEOUT_WITH_WRITER_STATE_COUNTER,
@@ -145,6 +145,25 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 error = ?e,
                 "Failed to acquire database connection"
             );
+
+            // Track pool acquisition timeouts specifically
+            if matches!(
+                e,
+                common_database::CustomDatabaseError::Other(sqlx::Error::PoolTimedOut)
+            ) {
+                common_metrics::inc(
+                    FLAG_ACQUIRE_TIMEOUT_COUNTER,
+                    &[
+                        ("pool".to_string(), "persons_reader".to_string()),
+                        (
+                            "operation".to_string(),
+                            "should_write_hash_key_override".to_string(),
+                        ),
+                    ],
+                    1,
+                );
+            }
+
             conn_timer.fin();
             return Err(FlagError::from(e));
         }
