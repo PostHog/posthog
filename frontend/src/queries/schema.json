@@ -15969,6 +15969,9 @@
         "LLMTrace": {
             "additionalProperties": false,
             "properties": {
+                "aiSessionId": {
+                    "type": "string"
+                },
                 "createdAt": {
                     "type": "string"
                 },
