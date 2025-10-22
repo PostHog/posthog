@@ -1,6 +1,8 @@
 use common_cookieless::CookielessConfig;
+use common_types::TeamId;
 use envconfig::Envconfig;
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::num::ParseIntError;
 use std::ops::Deref;
@@ -105,6 +107,41 @@ impl FromStr for TeamIdCollection {
     }
 }
 
+/// Flag definitions rate limits configuration
+/// Parses JSON from FLAG_DEFINITIONS_RATE_LIMITS environment variable
+/// Format: {"team_id": "rate_string", ...}
+/// Example: {"123": "1200/minute", "456": "2400/hour"}
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FlagDefinitionsRateLimits(pub HashMap<TeamId, String>);
+
+impl FromStr for FlagDefinitionsRateLimits {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+
+        // Empty string means no custom rate limits
+        if s.is_empty() {
+            return Ok(FlagDefinitionsRateLimits::default());
+        }
+
+        // Parse JSON into HashMap<String, String>
+        let parsed: HashMap<String, String> = serde_json::from_str(s)
+            .map_err(|e| format!("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS as JSON: {e}"))?;
+
+        // Convert string keys to TeamId
+        let mut rate_limits = HashMap::new();
+        for (team_id_str, rate_string) in parsed {
+            let team_id = team_id_str
+                .parse::<TeamId>()
+                .map_err(|e| format!("Invalid team ID '{team_id_str}': {e}"))?;
+            rate_limits.insert(team_id, rate_string);
+        }
+
+        Ok(FlagDefinitionsRateLimits(rate_limits))
+    }
+}
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:3001")]
@@ -125,12 +162,46 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
+    // ==== DATABASE CONNECTION POOL CONFIGURATION ====
+    //
+    // KEY INSIGHT: With immediate connection release pattern, connections are held for
+    // microseconds (query time only), not hundreds of milliseconds (full request time).
+    // This dramatically reduces the number of connections needed.
+    //
+    // MONITORING: Watch these metrics to tune:
+    // - Pool acquisition timeouts → Increase max_connections or acquire_timeout
+    // - High pool utilization (>80%) → Increase max_connections
+    // - Many idle connections → Decrease min_connections or idle_timeout
+    // - Connection storms during deployments → Decrease min_connections
+    //
     // Database connection pool settings:
-    // - High traffic: Increase max_pg_connections (e.g., 20-50)
-    // - Bursty traffic: Increase idle_timeout_secs to keep connections warm
-    // - Note: With 4 pools (readers/writers × persons/non-persons), total connections = 4 × max_pg_connections
+    // IMPORTANT: With immediate connection release pattern, fewer connections needed
+    // - Old pattern (holding connections): Would need 20-50 connections
+    // - New pattern (immediate release): 10-15 typically sufficient
+    // - Consider: total_connections = pods × (read_pool + write_pool) × (persons + non-persons pools if split)
+    // - Example: 50 pods × 15 connections × 2 (if persons split) = 1500 connections needed
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
+
+    // How many connections to keep in the pool for writes
+    // IMPORTANT: Writes are less frequent and also use immediate release
+    // - 5 connections typically sufficient even under write load
+    #[envconfig(default = "5")]
+    pub max_pg_connections_write: u32,
+
+    // Minimum connections to keep warm in read pools to avoid cold starts
+    // Set to 0 to disable minimum (connections created on demand)
+    // IMPORTANT: With immediate connection release pattern, fewer connections are needed
+    // - Set to 0-1 to prevent "thundering herd" during deployments/scaling
+    // - Higher values (5-10) can cause connection storms when many pods start simultaneously
+    #[envconfig(default = "1")]
+    pub min_pg_connections: u32,
+
+    // Minimum connections to keep warm in write pools
+    // IMPORTANT: Write operations are less frequent, so fewer warm connections needed
+    // - Set to 0 recommended (write connections created on demand)
+    #[envconfig(default = "0")]
+    pub min_pg_connections_write: u32,
 
     #[envconfig(default = "redis://localhost:6379/")]
     pub redis_url: String,
@@ -138,27 +209,45 @@ pub struct Config {
     #[envconfig(default = "")]
     pub redis_reader_url: String,
 
+    // S3 configuration for HyperCache fallback
+    #[envconfig(default = "posthog")]
+    pub object_storage_bucket: String,
+
+    #[envconfig(default = "us-east-1")]
+    pub object_storage_region: String,
+
+    #[envconfig(default = "")]
+    pub object_storage_endpoint: String,
+
     #[envconfig(default = "")]
     pub redis_writer_url: String,
 
     // How long to wait for a connection from the pool before timing out
-    // - Increase if seeing "pool timed out" errors under load (e.g., 5-10s)
-    // - Decrease for faster failure detection (minimum 1s)
-    #[envconfig(default = "20")]
+    // IMPORTANT: "PoolTimedOut" errors often indicate connection storms, not DB limits
+    // - Increase to 15-30s if seeing timeouts during deployments/scaling events
+    // - Keep at 10s for normal operation to detect real issues quickly
+    // - Never set below 5s in production (connection establishment takes 1-3s)
+    #[envconfig(default = "10")]
     pub acquire_timeout_secs: u64,
+
+    // How long to wait for a connection from the pool before timing out for writes
+    // - Usually can be lower than read timeout since write pool is less contested
+    // - Consider matching read timeout if seeing write timeouts during deployments
+    #[envconfig(default = "5")]
+    pub acquire_timeout_secs_write: u64,
 
     // Close connections that have been idle for this many seconds
     // - Set to 0 to disable (connections never close due to idle)
     // - Increase for bursty traffic to avoid reconnection overhead (e.g., 600-900)
     // - Decrease to free resources more aggressively (e.g., 60-120)
-    #[envconfig(default = "300")]
+    #[envconfig(default = "60")]
     pub idle_timeout_secs: u64,
 
     // Force refresh connections after this many seconds regardless of activity
     // - Set to 0 to disable (connections never refresh automatically)
     // - Decrease for unreliable networks or frequent DB restarts (e.g., 600-900)
     // - Increase for stable environments to reduce overhead (e.g., 3600-7200)
-    #[envconfig(default = "1800")]
+    #[envconfig(default = "600")]
     pub max_lifetime_secs: u64,
 
     // Test connection health before returning from pool
@@ -252,6 +341,18 @@ pub struct Config {
     #[envconfig(from = "FLAGS_SESSION_REPLAY_QUOTA_CHECK", default = "false")]
     pub flags_session_replay_quota_check: bool,
 
+    // Flag definitions rate limiting
+    // Default rate limit for all teams (requests per minute)
+    // Can be overridden per-team using FLAG_DEFINITIONS_RATE_LIMITS
+    #[envconfig(from = "FLAG_DEFINITIONS_DEFAULT_RATE_PER_MINUTE", default = "600")]
+    pub flag_definitions_default_rate_per_minute: u32,
+
+    // Per-team rate limit overrides for flag definitions endpoint
+    // JSON format: {"team_id": "rate_string", ...}
+    // Example: {"123": "1200/minute", "456": "2400/hour"}
+    #[envconfig(from = "FLAG_DEFINITIONS_RATE_LIMITS", default = "")]
+    pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
+
     // OpenTelemetry configuration
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
     pub otel_url: Option<String>,
@@ -264,6 +365,45 @@ pub struct Config {
 
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: Level,
+
+    // Query timeout settings for flag evaluation (milliseconds)
+    // These control how long individual database queries can run before timing out
+    // Lower values fail fast but may timeout under load; higher values are more resilient
+    #[envconfig(from = "FLAG_PERSON_QUERY_TIMEOUT_MS", default = "500")]
+    pub flag_person_query_timeout_ms: u64,
+
+    #[envconfig(from = "FLAG_COHORT_QUERY_TIMEOUT_MS", default = "200")]
+    pub flag_cohort_query_timeout_ms: u64,
+
+    #[envconfig(from = "FLAG_GROUP_QUERY_TIMEOUT_MS", default = "300")]
+    pub flag_group_query_timeout_ms: u64,
+
+    #[envconfig(from = "FLAG_HASH_KEY_OVERRIDE_QUERY_TIMEOUT_MS", default = "500")]
+    pub flag_hash_key_override_query_timeout_ms: u64,
+
+    // Server-side statement timeout (milliseconds)
+    // This sets PostgreSQL's statement_timeout to actually cancel long-running queries
+    // Should be slightly higher than client-side timeouts to allow for network overhead
+    #[envconfig(from = "STATEMENT_TIMEOUT_MS", default = "1000")]
+    pub statement_timeout_ms: u64,
+
+    // Logging thresholds for slow queries (milliseconds)
+    // Queries exceeding these thresholds will be logged at different severity levels
+    #[envconfig(from = "FLAG_QUERY_SLOW_INFO_THRESHOLD_MS", default = "100")]
+    pub flag_query_slow_info_threshold_ms: u64,
+
+    #[envconfig(from = "FLAG_QUERY_SLOW_WARN_THRESHOLD_MS", default = "500")]
+    pub flag_query_slow_warn_threshold_ms: u64,
+
+    #[envconfig(from = "FLAG_QUERY_SLOW_ERROR_THRESHOLD_MS", default = "1000")]
+    pub flag_query_slow_error_threshold_ms: u64,
+
+    // Total function execution time threshold for critical logging (milliseconds)
+    #[envconfig(from = "FLAG_TOTAL_EXECUTION_WARN_THRESHOLD_MS", default = "1000")]
+    pub flag_total_execution_warn_threshold_ms: u64,
+
+    #[envconfig(from = "FLAG_TOTAL_EXECUTION_ERROR_THRESHOLD_MS", default = "2000")]
+    pub flag_total_execution_error_threshold_ms: u64,
 }
 
 impl Config {
@@ -282,9 +422,11 @@ impl Config {
                 .to_string(),
             max_concurrency: 1000,
             max_pg_connections: 10,
-            acquire_timeout_secs: 3,
-            idle_timeout_secs: 300,
-            max_lifetime_secs: 1800,
+            max_pg_connections_write: 5,
+            acquire_timeout_secs: 10,
+            acquire_timeout_secs_write: 5,
+            idle_timeout_secs: 60,
+            max_lifetime_secs: 600,
             test_before_acquire: FlexBool(true),
             db_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
@@ -309,10 +451,27 @@ impl Config {
             session_replay_rrweb_script: "".to_string(),
             session_replay_rrweb_script_allowed_teams: TeamIdCollection::None,
             flags_session_replay_quota_check: false,
+            flag_definitions_default_rate_per_minute: 600,
+            flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
             otel_url: None,
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
             otel_log_level: Level::ERROR,
+            flag_person_query_timeout_ms: 500,
+            flag_cohort_query_timeout_ms: 200,
+            flag_group_query_timeout_ms: 300,
+            flag_hash_key_override_query_timeout_ms: 500,
+            statement_timeout_ms: 1000,
+            flag_query_slow_info_threshold_ms: 100,
+            flag_query_slow_warn_threshold_ms: 500,
+            flag_query_slow_error_threshold_ms: 1000,
+            flag_total_execution_warn_threshold_ms: 1000,
+            flag_total_execution_error_threshold_ms: 2000,
+            min_pg_connections: 1,
+            min_pg_connections_write: 0,
+            object_storage_bucket: "posthog".to_string(),
+            object_storage_region: "us-east-1".to_string(),
+            object_storage_endpoint: "".to_string(),
         }
     }
 
@@ -395,6 +554,13 @@ impl Config {
 }
 
 pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_config);
+
+/// Test-only helper to get a shared test config instance as Arc
+#[cfg(test)]
+pub fn test_config() -> std::sync::Arc<Config> {
+    use std::sync::Arc;
+    Arc::new(DEFAULT_TEST_CONFIG.clone())
+}
 
 #[cfg(test)]
 mod tests {
@@ -534,5 +700,63 @@ mod tests {
     fn test_invalid_number() {
         let result: Result<TeamIdCollection, _> = "abc".parse();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_empty() {
+        let limits: FlagDefinitionsRateLimits = "".parse().unwrap();
+        assert_eq!(limits.0.len(), 0);
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_valid_json() {
+        let json = r#"{"123": "1200/minute", "456": "2400/hour"}"#;
+        let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
+        assert_eq!(limits.0.len(), 2);
+        assert_eq!(limits.0.get(&123), Some(&"1200/minute".to_string()));
+        assert_eq!(limits.0.get(&456), Some(&"2400/hour".to_string()));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_single_team() {
+        let json = r#"{"789": "100/second"}"#;
+        let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
+        assert_eq!(limits.0.len(), 1);
+        assert_eq!(limits.0.get(&789), Some(&"100/second".to_string()));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_invalid_json() {
+        let result: Result<FlagDefinitionsRateLimits, _> = "not json".parse();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Failed to parse FLAG_DEFINITIONS_RATE_LIMITS"));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_invalid_team_id() {
+        let json = r#"{"abc": "600/minute"}"#;
+        let result: Result<FlagDefinitionsRateLimits, _> = json.parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid team ID"));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_negative_team_id() {
+        let json = r#"{"-123": "600/minute"}"#;
+        let result: Result<FlagDefinitionsRateLimits, _> = json.parse();
+        // Negative numbers are technically valid i32, so this should succeed
+        assert!(result.is_ok());
+        let limits = result.unwrap();
+        assert_eq!(limits.0.get(&-123), Some(&"600/minute".to_string()));
+    }
+
+    #[test]
+    fn test_flag_definitions_rate_limits_whitespace() {
+        let json = r#"  {"123": "600/minute"}  "#;
+        let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
+        assert_eq!(limits.0.len(), 1);
+        assert_eq!(limits.0.get(&123), Some(&"600/minute".to_string()));
     }
 }

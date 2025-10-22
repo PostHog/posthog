@@ -46,6 +46,7 @@ import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages
 import type {
     CurrencyCode,
     DashboardFilter,
+    DataWarehouseManagedViewsetKind,
     DatabaseSchemaField,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
@@ -685,6 +686,7 @@ export interface TeamType extends TeamBasicType {
     default_evaluation_environments_enabled: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
+    managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
 }
 
@@ -1069,6 +1071,7 @@ export interface RecordingSegment {
     durationMs: number
     windowId?: string
     isActive: boolean
+    isLoading?: boolean
 }
 
 export type EncodedRecordingSnapshot = {
@@ -4688,6 +4691,7 @@ export enum ActivityScope {
     TAGGED_ITEM = 'TaggedItem',
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
+    ENDPOINT = 'Endpoint',
 }
 
 export type CommentType = {
@@ -4763,6 +4767,13 @@ export interface DataWarehouseViewLink {
     created_by?: UserBasicType | null
     created_at?: string | null
     configuration?: DataWarehouseViewLinkConfiguration
+}
+
+export interface DataWarehouseViewLinkValidation {
+    is_valid: boolean
+    msg: string | null
+    hogql: string | null
+    results: any[]
 }
 
 export interface QueryTabState {
@@ -5022,7 +5033,6 @@ export type BatchExportServiceDatabricks = {
         schema: string
         table_name: string
         use_variant_type: boolean
-        table_partition_field: string | null
         exclude_events: string[]
         include_events: string[]
     }
@@ -5894,6 +5904,14 @@ export interface DatasetItem {
     updated_at: string
     created_at: string
     deleted: boolean
+}
+
+// Managed viewset
+export interface DataWarehouseManagedViewsetSavedQuery {
+    id: string
+    created_at: string
+    created_by_id: string | null
+    name: string
 }
 
 // Session Summaries
