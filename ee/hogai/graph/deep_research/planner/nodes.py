@@ -51,11 +51,10 @@ from ee.hogai.utils.types.composed import MaxNodeName
 logger = logging.getLogger(__name__)
 
 
-class TaskExecutionItem(BaseModel):
+class DeepResearchTaskExecutionItem(BaseModel):
     id: str
     description: str
     prompt: str
-    status: Literal["pending"]
     artifact_ids: Optional[list[str]] = None
     task_type: Literal["create_insight"]
 
@@ -65,7 +64,7 @@ class execute_tasks(WithCommentary):
     Execute a batch of work, assigning tasks to assistants. Returns the aggregated results of the tasks.
     """
 
-    tasks: list[TaskExecutionItem] = Field(description="The tasks to execute")
+    tasks: list[DeepResearchTaskExecutionItem] = Field(description="The tasks to execute")
 
 
 class todo_write(WithCommentary):

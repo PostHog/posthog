@@ -20,12 +20,13 @@ from posthog.schema import (
     DeepResearchType,
     HumanMessage,
     MultiVisualizationMessage,
+    TaskExecutionStatus,
 )
 
 from ee.hogai.graph.deep_research.planner.nodes import (
     DeepResearchPlannerNode,
     DeepResearchPlannerToolsNode,
-    TaskExecutionItem,
+    DeepResearchTaskExecutionItem,
 )
 from ee.hogai.graph.deep_research.planner.prompts import (
     FINALIZE_RESEARCH_TOOL_RESULT,
@@ -384,7 +385,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                     TaskResult(
                         id="1",
                         result="Result",
-                        status="completed",
+                        status=TaskExecutionStatus.COMPLETED,
                         artifacts=[_create_test_artifact("art1", "Artifact 1")],
                     )
                 ],
@@ -395,7 +396,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                     TaskResult(
                         id="1",
                         result="Result",
-                        status="completed",
+                        status=TaskExecutionStatus.COMPLETED,
                         artifacts=[],
                     )
                 ],
@@ -423,11 +424,10 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
     async def test_execute_tasks_tool(self):
         """Test execute_tasks tool returns None to redirect to task executor"""
         tasks = [
-            TaskExecutionItem(
+            DeepResearchTaskExecutionItem(
                 id="1",
                 description="Test task",
                 prompt="Test prompt",
-                status="pending",
                 task_type="create_insight",
             )
         ]
@@ -477,7 +477,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
-            task_results=[TaskResult(id="1", result="Result", status="completed")],
+            task_results=[TaskResult(id="1", result="Result", status=TaskExecutionStatus.COMPLETED)],
         )
 
         result = await self.node.arun(state, self.config)
@@ -508,7 +508,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 TaskResult(
                     id="1",
                     result="Result",
-                    status="completed",
+                    status=TaskExecutionStatus.COMPLETED,
                     artifacts=[_create_test_artifact("valid_id", "Valid artifact")],
                 )
             ],
@@ -535,7 +535,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 TaskResult(
                     id="1",
                     result="Result",
-                    status="completed",
+                    status=TaskExecutionStatus.COMPLETED,
                     artifacts=[artifact1, artifact2],
                 )
             ],
@@ -561,7 +561,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
-            task_results=[TaskResult(id="1", result="Result", status="completed")],
+            task_results=[TaskResult(id="1", result="Result", status=TaskExecutionStatus.COMPLETED)],
         )
 
         result = await self.node.arun(state, self.config)
@@ -577,7 +577,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
         state = self._create_state(
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[TodoItem(id="1", content="Test", status="pending", priority="high")],
-            task_results=[TaskResult(id="1", result="Result", status="completed")],
+            task_results=[TaskResult(id="1", result="Result", status=TaskExecutionStatus.COMPLETED)],
         )
 
         with self.assertRaises(ValueError) as cm:
