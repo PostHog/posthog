@@ -39,7 +39,6 @@ from posthog.schema import (
     TaskExecutionMessage,
     TaskExecutionStatus,
     TrendsQuery,
-    UpdateMessage,
     VisualizationMessage,
 )
 
