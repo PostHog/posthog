@@ -1071,6 +1071,7 @@ export interface RecordingSegment {
     durationMs: number
     windowId?: string
     isActive: boolean
+    isLoading?: boolean
 }
 
 export type EncodedRecordingSnapshot = {
