@@ -338,7 +338,13 @@ export function Results({
         const orderedSections: string[] = []
         const showAll = newTabSceneDataInclude.includes('all')
 
-        // Add sections in order: persons, events, properties (if enabled), new, apps, data-management, recents, askAI
+        // Add sections in a useful order
+        const mainSections = ['create-new', 'apps', 'data-management', 'recents']
+        mainSections.forEach((section) => {
+            if (showAll || newTabSceneDataInclude.includes(section as any)) {
+                orderedSections.push(section)
+            }
+        })
         if (showAll || newTabSceneDataInclude.includes('persons')) {
             orderedSections.push('persons')
         }
@@ -348,13 +354,6 @@ export function Results({
         if (showAll || newTabSceneDataInclude.includes('propertyDefinitions')) {
             orderedSections.push('propertyDefinitions')
         }
-
-        const mainSections = ['create-new', 'apps', 'data-management', 'recents']
-        mainSections.forEach((section) => {
-            if (showAll || newTabSceneDataInclude.includes(section as any)) {
-                orderedSections.push(section)
-            }
-        })
         if (isAIAvailable && (showAll || newTabSceneDataInclude.includes('askAI'))) {
             orderedSections.push('askAI')
         }
