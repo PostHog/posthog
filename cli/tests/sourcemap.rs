@@ -25,16 +25,27 @@ fn assert_file_eq(base_path: &Path, path: &str, actual: &str) {
 }
 
 #[test]
-fn test_search() {
+fn test_search_without_prefix() {
     let pairs =
         read_pairs(&get_case_path("search"), &Vec::new(), &None).expect("Failed to read pairs");
-    assert_eq!(pairs.len(), 2);
+    assert_eq!(pairs.len(), 3);
+}
+
+#[test]
+fn test_search_with_prefix() {
+    let pairs = read_pairs(
+        &get_case_path("search"),
+        &Vec::new(),
+        &Some("/static/".to_string()),
+    )
+    .expect("Failed to read pairs");
+    assert_eq!(pairs.len(), 4);
 }
 
 #[test]
 fn test_ignore() {
     let pairs = read_pairs(&get_case_path(""), &Vec::new(), &None).expect("Failed to read pairs");
-    assert_eq!(pairs.len(), 4);
+    assert_eq!(pairs.len(), 5);
 
     let pairs = read_pairs(&get_case_path(""), &["**/search/**".to_string()], &None)
         .expect("Failed to read pairs");
