@@ -306,6 +306,23 @@ class TableNode(
 
         return names
 
+    @staticmethod
+    def create_nested_for_chain(chain: list[str], table: Table) -> "TableNode":
+        assert len(chain) > 0
+
+        # Create a deeply nested table node structure
+        start: TableNode = TableNode(name=chain[0])
+        current: TableNode = start
+        for name in chain[1:]:
+            child = TableNode(name=name)
+            current.add_child(child)
+            current = child
+
+        # Add the table at the end
+        current.table = table
+
+        return start
+
 
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")

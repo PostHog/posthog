@@ -589,7 +589,7 @@ def create_hogql_database(
         # but still allowing the bare `stripe.prefix.table_name` string access
         for view in revenue_views:
             try:
-                create_nested_table_node(view.name.split("."), views, view)
+                views.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
             except Exception as e:
                 capture_exception(e)
                 continue
@@ -647,10 +647,10 @@ def create_hogql_database(
                         table_name_stripped = table.name.replace(f"{source_type}_".lower(), "")
                         table_chain.append(table_name_stripped)
 
-                    # For a chain of type a.b.c, we want to create a nested table group
+                    # For a chain of type a.b.c, we want to create a nested table node
                     # where a is the parent, b is the child of a, and c is the child of b
                     # where a.b.c will contain the s3_table
-                    create_nested_table_node(table_chain, warehouse_tables, s3_table)
+                    warehouse_tables.add_child(TableNode.create_nested_for_chain(table_chain, s3_table))
 
                     joined_table_chain = ".".join(table_chain)
                     s3_table.name = joined_table_chain
@@ -866,22 +866,6 @@ def create_hogql_database(
                 capture_exception(e)
 
     return database
-
-
-def create_nested_table_node(table_chain: list[str], root_node: TableNode, table: Table) -> None:
-    # Create a deeply nested table node structure
-    start: TableNode = TableNode(name=table_chain[0])
-    current: TableNode = start
-    for name in table_chain[1:]:
-        child = TableNode(name=name)
-        current.add_child(child)
-        current = child
-
-    # Make sure we add the table
-    current.table = table
-
-    # Add/merge the whole structure back into the root node
-    root_node.add_child(start)
 
 
 @dataclasses.dataclass
