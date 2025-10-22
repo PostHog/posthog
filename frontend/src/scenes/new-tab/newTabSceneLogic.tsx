@@ -75,7 +75,7 @@ export interface NewTabCategoryItem {
     description?: string
 }
 
-const PAGINATION_LIMIT = 20
+const PAGINATION_LIMIT = 10
 
 function getIconForFileSystemItem(fs: FileSystemImport): JSX.Element {
     // If the item has a direct icon property, use it with color wrapper
@@ -112,6 +112,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         toggleNewTabSceneDataInclude: (item: NEW_TAB_COMMANDS) => ({ item }),
         triggerSearchForIncludedItems: true,
         refreshDataAfterToggle: true,
+        showMoreInSection: (section: string) => ({ section }),
+        resetSectionLimits: true,
         askAI: (searchTerm: string) => ({ searchTerm }),
     }),
     loaders(({ values }) => ({
@@ -309,6 +311,18 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 setSelectedCategory: () => 0,
             },
         ],
+        sectionItemLimits: [
+            {} as Record<string, number>,
+            {
+                showMoreInSection: (state, { section }) => ({
+                    ...state,
+                    [section]: Infinity,
+                }),
+                resetSectionLimits: () => ({}),
+                setSearch: () => ({}),
+                toggleNewTabSceneDataInclude: () => ({}),
+            },
+        ],
     }),
     selectors(({ actions }) => ({
         newTabSceneDataIncludePersons: [
@@ -499,6 +513,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 return [item]
             },
         ],
+        getSectionItemLimit: [
+            (s) => [s.sectionItemLimits],
+            (sectionItemLimits: Record<string, number>) => (section: string) => sectionItemLimits[section] || 5,
+        ],
         itemsGrid: [
             (s) => [s.featureFlags, s.projectTreeSearchItems, s.aiSearchItems],
             (
@@ -657,6 +675,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 s.propertyDefinitionSearchItems,
                 s.aiSearchItems,
                 s.featureFlags,
+                s.getSectionItemLimit,
             ],
             (
                 itemsGrid: NewTabTreeDataItem[],
@@ -666,7 +685,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 eventDefinitionSearchItems: NewTabTreeDataItem[],
                 propertyDefinitionSearchItems: NewTabTreeDataItem[],
                 aiSearchItems: NewTabTreeDataItem[],
-                featureFlags: any
+                featureFlags: any,
+                getSectionItemLimit: (section: string) => number
             ): Record<string, NewTabTreeDataItem[]> => {
                 const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
                 if (!newTabSceneData) {
@@ -696,43 +716,151 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                 // Add persons section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('persons')) {
-                    grouped['persons'] = personSearchItems
+                    const limit = getSectionItemLimit('persons')
+                    grouped['persons'] = personSearchItems.slice(0, limit)
                 }
                 // Add event definitions section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
-                    grouped['eventDefinitions'] = eventDefinitionSearchItems
+                    const limit = getSectionItemLimit('eventDefinitions')
+                    grouped['eventDefinitions'] = eventDefinitionSearchItems.slice(0, limit)
                 }
 
                 // Add property definitions section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('propertyDefinitions')) {
-                    grouped['propertyDefinitions'] = propertyDefinitionSearchItems
+                    const limit = getSectionItemLimit('propertyDefinitions')
+                    grouped['propertyDefinitions'] = propertyDefinitionSearchItems.slice(0, limit)
                 }
 
                 // Add each category only if it's selected or if "all" is selected
                 if (showAll || newTabSceneDataInclude.includes('create-new')) {
-                    grouped['create-new'] = filterBySearch(itemsGrid.filter((item) => item.category === 'create-new'))
+                    const limit = getSectionItemLimit('create-new')
+                    grouped['create-new'] = filterBySearch(
+                        itemsGrid.filter((item) => item.category === 'create-new')
+                    ).slice(0, limit)
                 }
 
                 if (showAll || newTabSceneDataInclude.includes('apps')) {
-                    grouped['apps'] = filterBySearch(itemsGrid.filter((item) => item.category === 'apps'))
-                }
-
-                if (showAll || newTabSceneDataInclude.includes('data-management')) {
-                    grouped['data-management'] = filterBySearch(
-                        itemsGrid.filter((item) => item.category === 'data-management')
+                    const limit = getSectionItemLimit('apps')
+                    grouped['apps'] = filterBySearch(itemsGrid.filter((item) => item.category === 'apps')).slice(
+                        0,
+                        limit
                     )
                 }
 
+                if (showAll || newTabSceneDataInclude.includes('data-management')) {
+                    const limit = getSectionItemLimit('data-management')
+                    grouped['data-management'] = filterBySearch(
+                        itemsGrid.filter((item) => item.category === 'data-management')
+                    ).slice(0, limit)
+                }
+
                 if (showAll || newTabSceneDataInclude.includes('recents')) {
-                    grouped['recents'] = filterBySearch(itemsGrid.filter((item) => item.category === 'recents'))
+                    const limit = getSectionItemLimit('recents')
+                    grouped['recents'] = filterBySearch(itemsGrid.filter((item) => item.category === 'recents')).slice(
+                        0,
+                        limit
+                    )
                 }
 
                 // Add AI section if filter is enabled
                 if (showAll || newTabSceneDataInclude.includes('askAI')) {
-                    grouped['askAI'] = aiSearchItems
+                    const limit = getSectionItemLimit('askAI')
+                    grouped['askAI'] = aiSearchItems.slice(0, limit)
                 }
 
                 return grouped
+            },
+        ],
+        newTabSceneDataGroupedItemsFullData: [
+            (s) => [
+                s.itemsGrid,
+                s.search,
+                s.newTabSceneDataInclude,
+                s.personSearchItems,
+                s.eventDefinitionSearchItems,
+                s.propertyDefinitionSearchItems,
+                s.aiSearchItems,
+                s.featureFlags,
+            ],
+            (
+                itemsGrid: NewTabTreeDataItem[],
+                search: string,
+                newTabSceneDataInclude: NEW_TAB_COMMANDS[],
+                personSearchItems: NewTabTreeDataItem[],
+                eventDefinitionSearchItems: NewTabTreeDataItem[],
+                propertyDefinitionSearchItems: NewTabTreeDataItem[],
+                aiSearchItems: NewTabTreeDataItem[],
+                featureFlags: any
+            ): Record<string, number> => {
+                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+                if (!newTabSceneData) {
+                    return {}
+                }
+
+                // Filter all items by search term
+                const searchLower = search.toLowerCase().trim()
+                const filterBySearch = (items: NewTabTreeDataItem[]): NewTabTreeDataItem[] => {
+                    if (!searchLower) {
+                        return items
+                    }
+                    const searchChunks = searchLower.split(' ').filter((s) => s)
+                    return items.filter((item) =>
+                        searchChunks.every(
+                            (chunk) =>
+                                item.name.toLowerCase().includes(chunk) || item.category.toLowerCase().includes(chunk)
+                        )
+                    )
+                }
+
+                // Check if "all" is selected
+                const showAll = newTabSceneDataInclude.includes('all')
+
+                // Track full counts for each section
+                const fullCounts: Record<string, number> = {}
+
+                // Add persons section if filter is enabled
+                if (showAll || newTabSceneDataInclude.includes('persons')) {
+                    fullCounts['persons'] = personSearchItems.length
+                }
+                // Add event definitions section if filter is enabled
+                if (showAll || newTabSceneDataInclude.includes('eventDefinitions')) {
+                    fullCounts['eventDefinitions'] = eventDefinitionSearchItems.length
+                }
+
+                // Add property definitions section if filter is enabled
+                if (showAll || newTabSceneDataInclude.includes('propertyDefinitions')) {
+                    fullCounts['propertyDefinitions'] = propertyDefinitionSearchItems.length
+                }
+
+                // Add each category only if it's selected or if "all" is selected
+                if (showAll || newTabSceneDataInclude.includes('create-new')) {
+                    fullCounts['create-new'] = filterBySearch(
+                        itemsGrid.filter((item) => item.category === 'create-new')
+                    ).length
+                }
+
+                if (showAll || newTabSceneDataInclude.includes('apps')) {
+                    fullCounts['apps'] = filterBySearch(itemsGrid.filter((item) => item.category === 'apps')).length
+                }
+
+                if (showAll || newTabSceneDataInclude.includes('data-management')) {
+                    fullCounts['data-management'] = filterBySearch(
+                        itemsGrid.filter((item) => item.category === 'data-management')
+                    ).length
+                }
+
+                if (showAll || newTabSceneDataInclude.includes('recents')) {
+                    fullCounts['recents'] = filterBySearch(
+                        itemsGrid.filter((item) => item.category === 'recents')
+                    ).length
+                }
+
+                // Add AI section if filter is enabled
+                if (showAll || newTabSceneDataInclude.includes('askAI')) {
+                    fullCounts['askAI'] = aiSearchItems.length
+                }
+
+                return fullCounts
             },
         ],
         selectedIndex: [

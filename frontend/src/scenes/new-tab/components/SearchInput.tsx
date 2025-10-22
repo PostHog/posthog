@@ -1,4 +1,3 @@
-import { DropdownMenuGroup } from '@radix-ui/react-dropdown-menu'
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
@@ -8,12 +7,11 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuOpenIndicator,
-    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { Label } from 'lib/ui/Label/Label'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { TextInputPrimitive, textInputVariants } from 'lib/ui/TextInputPrimitive/TextInputPrimitive'
 import { cn } from 'lib/utils/css-classes'
@@ -192,10 +190,6 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         }}
                     >
                         <DropdownMenuGroup>
-                            <Label intent="menu" className="pl-1">
-                                Select all, or select multiple
-                            </Label>
-                            <DropdownMenuSeparator />
                             {filteredCommands.map((command, index) => {
                                 const isActive = activeCommands.includes(command.value)
                                 const isFocused = index === focusedIndex

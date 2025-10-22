@@ -53,7 +53,10 @@ function Category({
         personSearchResults,
         eventDefinitionSearchResults,
         propertyDefinitionSearchResults,
+        newTabSceneDataGroupedItemsFullData,
+        getSectionItemLimit,
     } = useValues(newTabSceneLogic({ tabId }))
+    const { showMoreInSection } = useActions(newTabSceneLogic({ tabId }))
 
     return (
         <>
@@ -254,6 +257,26 @@ function Category({
                     )}
                     {newTabSceneData && (
                         <>
+                            {(() => {
+                                const currentLimit = getSectionItemLimit(category)
+                                const fullCount = newTabSceneDataGroupedItemsFullData[category] || 0
+                                const hasMore = fullCount > currentLimit
+
+                                return (
+                                    hasMore && (
+                                        <ListBox.Item asChild>
+                                            <ButtonPrimitive
+                                                size="base"
+                                                onClick={() => showMoreInSection(category)}
+                                                className="w-full text-tertiary data-[focused=true]:outline-2 data-[focused=true]:outline-accent data-[focused=true]:text-primary"
+                                            >
+                                                <IconArrowRight className="size-4 rotate-90" /> Show all (
+                                                {fullCount - currentLimit} more)
+                                            </ButtonPrimitive>
+                                        </ListBox.Item>
+                                    )
+                                )
+                            })()}
                             {category === 'persons' && (
                                 <ListBox.Item asChild>
                                     <Link
