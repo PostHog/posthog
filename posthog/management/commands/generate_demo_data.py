@@ -81,8 +81,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--staff",
             action="store_true",
-            default=False,
-            help="Create a staff user",
+            default=True,
+            help="Whether the demo user should be a staff user (default: True)",
         )
         parser.add_argument(
             "--skip-materialization",
