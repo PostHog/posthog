@@ -4186,6 +4186,7 @@ class HogQLQueryModifiers(BaseModel):
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     optimizeJoinedFilters: Optional[bool] = None
+    optimizeProjections: Optional[bool] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
@@ -4418,6 +4419,7 @@ class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ch_table_names: Optional[list[str]] = None
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
@@ -9325,6 +9327,7 @@ class HogQLMetadataResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ch_table_names: Optional[list[str]] = None
     errors: list[HogQLNotice]
     isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
@@ -12604,7 +12607,15 @@ class MaxInnerUniversalFiltersGroup(BaseModel):
         extra="forbid",
     )
     type: FilterLogicalOperator
-    values: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, RecordingPropertyFilter]]
+    values: list[
+        Union[
+            EventPropertyFilter,
+            PersonPropertyFilter,
+            SessionPropertyFilter,
+            RecordingPropertyFilter,
+            GroupPropertyFilter,
+        ]
+    ]
 
 
 class MaxOuterUniversalFiltersGroup(BaseModel):
