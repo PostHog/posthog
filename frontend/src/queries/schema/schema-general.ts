@@ -2587,6 +2587,20 @@ export interface ExperimentVariantFunnelsBaseStats {
     failure_count: number
 }
 
+export interface ExperimentMaxBayesianContext {
+    key: string
+    chance_to_win: number
+    credible_interval: [number, number]
+    significant: boolean
+}
+
+export interface ExperimentMaxFrequentistContext {
+    key: string
+    p_value: number
+    confidence_interval: [number, number]
+    significant: boolean
+}
+
 export enum ExperimentSignificanceCode {
     Significant = 'significant',
     NotEnoughExposure = 'not_enough_exposure',

@@ -8,6 +8,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
+import {
+    ExperimentMaxBayesianContext,
+    ExperimentMaxFrequentistContext,
+    ExperimentVariantResultBayesian,
+    ExperimentVariantResultFrequentist,
+} from '~/queries/schema/schema-general'
 import { ProductKey } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -16,9 +22,10 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
     const { experiment, primaryMetricsResults } = useValues(experimentLogic)
 
     const maxToolContext = useMemo(() => {
-        const resultsToUse = primaryMetricsResults
+        const statisticalMethod = experiment.stats_config?.method || 'bayesian'
+        const isFrequentist = statisticalMethod === 'frequentist'
 
-        const formattedResults = resultsToUse
+        const formattedResults = primaryMetricsResults
             .map((result, index) => {
                 if (!result) {
                     return null
@@ -27,29 +34,31 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
                 const metric = experiment.metrics[index]
                 const metricName = metric?.name || `Metric ${index + 1}`
 
-                let variants: any[] = []
+                let variants: (ExperimentMaxBayesianContext | ExperimentMaxFrequentistContext)[] = []
 
                 if (result.variant_results) {
-                    variants = result.variant_results.map((variant: any) => {
-                        const variantKey = variant.key
+                    variants = result.variant_results.map(
+                        (variant: ExperimentVariantResultBayesian | ExperimentVariantResultFrequentist) => {
+                            const variantKey = variant.key
 
-                        // Calculate conversion rate if we have the data
-                        const numerator = variant.numerator_sum || 0
-                        const denominator = variant.number_of_samples || variant.denominator_sum || 0
-                        const conversion_rate = denominator > 0 ? numerator / denominator : 0
-
-                        return {
-                            key: variantKey,
-                            // Extract Bayesian fields directly from variant
-                            chance_to_win: variant.chance_to_win || 0,
-                            credible_interval: variant.credible_interval || [],
-                            significant: variant.significant || false,
-                            // Include variant-specific data
-                            count: numerator,
-                            exposure: denominator,
-                            conversion_rate: conversion_rate,
+                            if (isFrequentist) {
+                                const frequentistVariant = variant as ExperimentVariantResultFrequentist
+                                return {
+                                    key: variantKey,
+                                    p_value: frequentistVariant.p_value || 0,
+                                    confidence_interval: frequentistVariant.confidence_interval || [0, 0],
+                                    significant: frequentistVariant.significant || false,
+                                }
+                            }
+                            const bayesianVariant = variant as ExperimentVariantResultBayesian
+                            return {
+                                key: variantKey,
+                                chance_to_win: bayesianVariant.chance_to_win || 0,
+                                credible_interval: bayesianVariant.credible_interval || [0, 0],
+                                significant: bayesianVariant.significant || false,
+                            }
                         }
-                    })
+                    )
                 }
 
                 return {
@@ -62,19 +71,19 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
         const contextData = {
             experiment_id: experiment.id,
             experiment_name: experiment.name,
-            hypothesis: experiment.description, // Using description as hypothesis
+            hypothesis: experiment.description,
             description: experiment.description,
             variants: experiment.parameters?.feature_flag_variants || [],
             results: formattedResults,
             conclusion: experiment.conclusion,
             conclusion_comment: experiment.conclusion_comment,
+            statistical_method: statisticalMethod,
         }
 
         return contextData
     }, [experiment, primaryMetricsResults])
 
     const shouldShowMaxSummaryTool = useMemo(() => {
-        // Show button only if there are primary results and experiment has started
         const hasResults = primaryMetricsResults.length > 0
         const hasStarted = !!experiment.start_date
         return hasResults && hasStarted
@@ -104,11 +113,11 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
         },
     })
 
-    return { ...maxToolResult, maxToolContext }
+    return maxToolResult
 }
 
 export function SummarizeExperimentButton(): JSX.Element | null {
-    const { openMax, maxToolContext } = useExperimentSummaryMaxTool()
+    const { openMax } = useExperimentSummaryMaxTool()
 
     if (!openMax) {
         return null

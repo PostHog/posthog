@@ -6,12 +6,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from posthog.schema import ExperimentMaxBayesianContext, ExperimentMaxFrequentistContext
+
 from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
-from .prompts import EXPERIMENT_SUMMARY_BAYESIAN_PROMPT
+from .prompts import EXPERIMENT_SUMMARY_BAYESIAN_PROMPT, EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
 
 
 class ExperimentSummaryArgs(BaseModel):
@@ -19,24 +21,6 @@ class ExperimentSummaryArgs(BaseModel):
     Analyze experiment results to generate an executive summary with key insights and recommendations.
     All experiment data and results are automatically provided from context.
     """
-
-
-class BayesianVariantResult(BaseModel):
-    """Bayesian variant result structure"""
-
-    key: str = Field(description="Variant key (e.g., 'control', 'test')")
-    chance_to_win: float = Field(description="Probability of this variant being the best")
-    credible_interval: tuple[float, float] = Field(description="95% credible interval")
-    significant: bool = Field(description="Whether the result is statistically significant")
-
-
-class FrequentistVariantResult(BaseModel):
-    """Frequentist variant result structure (for future use)"""
-
-    key: str = Field(description="Variant key (e.g., 'control', 'test')")
-    p_value: float = Field(description="P-value from statistical test")
-    confidence_interval: tuple[float, float] = Field(description="95% confidence interval")
-    significant: bool = Field(description="Whether the result is statistically significant")
 
 
 class ExperimentSummaryOutput(BaseModel):
@@ -59,45 +43,71 @@ class ExperimentSummaryTool(MaxTool):
 
     args_schema: type[BaseModel] = ExperimentSummaryArgs
 
-    def _detect_statistical_method(self, experiment_data: dict[str, Any]) -> Literal["bayesian", "frequentist"]:
-        """
-        Detect whether the experiment results use Bayesian or Frequentist methods.
-        For now, assume Bayesian. In the future, check result structure.
-        """
-        # Check if any result has Bayesian-specific fields
-        results = experiment_data.get("results", [])
-        for result in results:
-            if result.get("variants"):
-                for variant in result["variants"]:
-                    if "chance_to_win" in variant or "credible_interval" in variant:
-                        return "bayesian"
-                    elif "p_value" in variant or "confidence_interval" in variant:
-                        return "frequentist"
+    def _extract_experiment_results(self) -> tuple[dict[str, Any], str]:
+        if not hasattr(self, "context") or not self.context:
+            # Return empty data - will be handled by caller
+            return {}, "bayesian"
 
-        # Default to Bayesian for now
-        return "bayesian"
+        experiment_data = {
+            "name": self.context.get("experiment_name", "Unknown Experiment"),
+            "hypothesis": self.context.get("hypothesis"),
+            "description": self.context.get("description"),
+            "variants": self.context.get("variants", []),
+            "conclusion": self.context.get("conclusion"),
+            "conclusion_comment": self.context.get("conclusion_comment"),
+        }
 
-    def _get_prompt_for_method(self, method: Literal["bayesian", "frequentist"]) -> str:
-        """Get the appropriate prompt based on statistical method."""
-        if method == "bayesian":
-            return EXPERIMENT_SUMMARY_BAYESIAN_PROMPT
-        else:
-            # Future: return EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
-            return EXPERIMENT_SUMMARY_BAYESIAN_PROMPT  # Fallback to Bayesian for now
+        statistical_method = self.context.get("statistical_method", "bayesian")
+        raw_results = self.context.get("results", [])
+        validated_results = []
 
-    async def _analyze_experiment(self, experiment_data: dict[str, Any]) -> ExperimentSummaryOutput:
-        """
-        Analyze experiment data using LLM to generate summary and insights.
-        """
+        for result in raw_results:
+            if not result:
+                continue
+
+            metric_result = {"metric_name": result.get("metric_name", "Unknown metric"), "variants": []}
+
+            raw_variants = result.get("variants", [])
+            for variant in raw_variants:
+                try:
+                    if statistical_method == "bayesian":
+                        validated_variant = ExperimentMaxBayesianContext.model_validate(variant)
+                        metric_result["variants"].append(validated_variant.model_dump())
+                    else:
+                        validated_variant = ExperimentMaxFrequentistContext.model_validate(variant)
+                        metric_result["variants"].append(validated_variant.model_dump())
+                except Exception as e:
+                    capture_exception(
+                        e,
+                        {
+                            "team_id": self._team.id,
+                            "user_id": self._user.id,
+                            "validation_error": str(e),
+                            "variant_data": variant,
+                            "statistical_method": statistical_method,
+                        },
+                    )
+                    continue
+
+            if metric_result["variants"]:
+                validated_results.append(metric_result)
+
+        experiment_data["results"] = validated_results
+        return experiment_data, statistical_method
+
+    async def _analyze_experiment(
+        self, experiment_data: dict[str, Any], statistical_method: str
+    ) -> ExperimentSummaryOutput:
         try:
-            # Detect statistical method and get appropriate prompt
-            method = self._detect_statistical_method(experiment_data)
-            prompt_template = self._get_prompt_for_method(method)
+            method = statistical_method if statistical_method in ["bayesian", "frequentist"] else "bayesian"
 
-            # Format the data for LLM analysis with method context
+            if method == "frequentist":
+                prompt_template = EXPERIMENT_SUMMARY_FREQUENTIST_PROMPT
+            else:
+                prompt_template = EXPERIMENT_SUMMARY_BAYESIAN_PROMPT
+
             formatted_data = self._format_experiment_for_llm(experiment_data, method)
 
-            # Initialize LLM with structured output
             llm = MaxChatOpenAI(
                 user=self._user,
                 team=self._team,
@@ -105,10 +115,7 @@ class ExperimentSummaryTool(MaxTool):
                 temperature=0.1,  # Low temperature for consistent analysis
             ).with_structured_output(ExperimentSummaryOutput)
 
-            # Create the analysis prompt
             formatted_prompt = prompt_template.replace("{{{experiment_data}}}", formatted_data)
-
-            # Generate analysis with structured output
             analysis_result = await llm.ainvoke([{"role": "system", "content": formatted_prompt}])
 
             if isinstance(analysis_result, dict):
@@ -118,20 +125,14 @@ class ExperimentSummaryTool(MaxTool):
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
 
-            # Return error state
             return ExperimentSummaryOutput(key_metrics=[f"Analysis failed: {str(e)}"])
 
     def _format_experiment_for_llm(
         self, experiment_data: dict[str, Any], method: Literal["bayesian", "frequentist"]
     ) -> str:
-        """
-        Format experiment data into a structured string for LLM analysis.
-        """
         lines = []
 
-        lines.append(f"Statistical Method: {method.title()}")
-
-        # Basic experiment info
+        lines.append(f"Statistical method: {method.title()}")
         lines.append(f"Experiment: {experiment_data.get('name', 'Unknown')}")
 
         if experiment_data.get("hypothesis"):
@@ -140,12 +141,10 @@ class ExperimentSummaryTool(MaxTool):
         if experiment_data.get("description"):
             lines.append(f"Description: {experiment_data.get('description')}")
 
-        # Variants info
         variants = experiment_data.get("variants", [])
         if variants:
             lines.append(f"\nVariants: {', '.join(v.get('key', '') for v in variants)}")
 
-        # Results data formatted for the specific method
         results = experiment_data.get("results", [])
         if results:
             lines.append("\nResults:")
@@ -159,7 +158,6 @@ class ExperimentSummaryTool(MaxTool):
                         lines.append(f"  {key}:")
 
                         if method == "bayesian":
-                            # Format Bayesian results
                             chance_to_win = variant.get("chance_to_win")
                             credible_interval = variant.get("credible_interval", [])
                             significant = variant.get("significant", False)
@@ -169,12 +167,11 @@ class ExperimentSummaryTool(MaxTool):
 
                             if credible_interval:
                                 ci_low, ci_high = credible_interval[:2]
-                                lines.append(f"    95% credible interval: [{ci_low:.3f}, {ci_high:.3f}]")
+                                lines.append(f"    95% credible interval: {ci_low:.1%} - {ci_high:.1%}")
 
                             lines.append(f"    Significant: {'Yes' if significant else 'No'}")
 
                         else:
-                            # Format Frequentist results (for future use)
                             p_value = variant.get("p_value")
                             confidence_interval = variant.get("confidence_interval", [])
                             significant = variant.get("significant", False)
@@ -184,11 +181,10 @@ class ExperimentSummaryTool(MaxTool):
 
                             if confidence_interval:
                                 ci_low, ci_high = confidence_interval[:2]
-                                lines.append(f"    95% confidence interval: [{ci_low:.3f}, {ci_high:.3f}]")
+                                lines.append(f"    95% confidence interval: {ci_low:.1%} - {ci_high:.1%}")
 
                             lines.append(f"    Significant: {'Yes' if significant else 'No'}")
 
-        # Conclusion if set
         if experiment_data.get("conclusion"):
             lines.append(f"\nConclusion: {experiment_data['conclusion']}")
 
@@ -200,11 +196,8 @@ class ExperimentSummaryTool(MaxTool):
     def _format_summary_for_user(self, summary: ExperimentSummaryOutput, experiment_name: str) -> str:
         """Format the structured summary into a user-friendly message."""
         lines = []
-
-        # Header
         lines.append(f"✅ **Experiment Summary: '{experiment_name}'**")
 
-        # Key metrics
         if summary.key_metrics:
             lines.append("\n**📊 Key Metrics:**")
             for metric in summary.key_metrics:
@@ -213,33 +206,25 @@ class ExperimentSummaryTool(MaxTool):
         return "\n".join(lines)
 
     async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
-        """
-        Generate experiment summary from provided context.
-        """
         try:
-            # Get experiment data from context
             experiment_id = self.context.get("experiment_id")
-            experiment_name = self.context.get("experiment_name", "Unknown Experiment")
-            experiment_data = {
-                "name": experiment_name,
-                "hypothesis": self.context.get("hypothesis"),
-                "description": self.context.get("description"),
-                "variants": self.context.get("variants", []),
-                "results": self.context.get("results", []),
-                "conclusion": self.context.get("conclusion"),
-                "conclusion_comment": self.context.get("conclusion_comment"),
-            }
-
             if not experiment_id:
                 return "❌ No experiment data provided", {
                     "error": "no_experiment_data",
                     "details": "Experiment information not found in context",
                 }
 
-            # Analyze the experiment
-            summary_result = await self._analyze_experiment(experiment_data)
+            experiment_data, statistical_method = self._extract_experiment_results()
 
-            # Format the summary as a user-friendly message
+            if not experiment_data.get("results"):
+                return "❌ No valid experiment results to analyze", {
+                    "error": "no_valid_results",
+                    "details": "No properly formatted experiment results found in context",
+                }
+
+            summary_result = await self._analyze_experiment(experiment_data, statistical_method)
+
+            experiment_name = experiment_data.get("name", "Unknown Experiment")
             user_message = self._format_summary_for_user(summary_result, experiment_name)
 
             return user_message, {

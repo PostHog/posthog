@@ -12261,6 +12261,54 @@
             "required": ["id", "name", "description", "filters", "created_by", "created_at", "updated_at"],
             "type": "object"
         },
+        "ExperimentMaxBayesianContext": {
+            "additionalProperties": false,
+            "properties": {
+                "chance_to_win": {
+                    "type": "number"
+                },
+                "credible_interval": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "chance_to_win", "credible_interval", "significant"],
+            "type": "object"
+        },
+        "ExperimentMaxFrequentistContext": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence_interval": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "p_value": {
+                    "type": "number"
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "p_value", "confidence_interval", "significant"],
+            "type": "object"
+        },
         "ExperimentMeanMetric": {
             "additionalProperties": false,
             "properties": {
