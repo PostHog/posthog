@@ -238,7 +238,7 @@ class EmailMFAVerifier:
         return request.session.get("email_mfa_pending_user_id") is not None
 
     @staticmethod
-    def get_pending_email_mfa_verification_user_id(request: HttpRequest) -> int:
+    def get_pending_email_mfa_verification_user_id(request: HttpRequest) -> int | None:
         return request.session.get("email_mfa_pending_user_id")
 
     @staticmethod
