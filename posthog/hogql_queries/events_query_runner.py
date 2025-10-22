@@ -37,6 +37,7 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
     "distinct_id",
     "elements_chain",
     "created_at",
+    "person_mode",
 ]
 
 

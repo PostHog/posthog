@@ -1,9 +1,8 @@
 import { useValues } from 'kea'
 
-import { IconPeople } from '@posthog/icons'
-
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -33,11 +32,10 @@ const Header = (): JSX.Element => {
     return (
         <>
             <SceneTitleSection
-                name="Customer analytics"
-                description="Analyze your customers"
+                name={sceneConfigurations[Scene.CustomerAnalytics].name}
+                description={sceneConfigurations[Scene.CustomerAnalytics].description}
                 resourceType={{
-                    type: 'customerAnalytics',
-                    forceIcon: <IconPeople />,
+                    type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                 }}
             />
             <SceneDivider />

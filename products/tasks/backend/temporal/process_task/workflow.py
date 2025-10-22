@@ -229,6 +229,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             await self._clone_repository_in_sandbox(setup_sandbox_id)
 
+            await self._inject_personal_api_key(setup_sandbox_id)
+
             await self._setup_repository_in_sandbox(setup_sandbox_id)
 
             snapshot_id = await self._snapshot_sandbox(setup_sandbox_id)
@@ -296,7 +298,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             task_id=self.task_details.task_id,
             repository=self.task_details.repository,
             distinct_id=self.task_details.distinct_id,
-            workflow_id=self.task_details.workflow_id,
         )
         return await workflow.execute_activity(
             execute_task_in_sandbox,

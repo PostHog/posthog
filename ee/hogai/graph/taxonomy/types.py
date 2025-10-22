@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from enum import Enum, StrEnum
 from typing import Generic, Optional, TypeVar
 
@@ -6,13 +5,12 @@ from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
-from ee.hogai.utils.types import AssistantMessageUnion
-from ee.hogai.utils.types.base import BaseStateWithIntermediateSteps
+from ee.hogai.utils.types.base import BaseStateWithIntermediateSteps, BaseStateWithMessages
 
 OutputType = TypeVar("OutputType", bound=BaseModel)
 
 
-class TaxonomyAgentState(BaseStateWithIntermediateSteps, Generic[OutputType]):
+class TaxonomyAgentState(BaseStateWithIntermediateSteps, BaseStateWithMessages, Generic[OutputType]):
     """
     Partial state class for filter options functionality.
     Only includes fields relevant to filter options generation.
@@ -38,7 +36,10 @@ class TaxonomyAgentState(BaseStateWithIntermediateSteps, Generic[OutputType]):
     The messages with tool calls to collect tool progress.
     """
 
-    messages: Sequence[AssistantMessageUnion] = Field(default=[])
+    iteration_count: int | None = Field(default=None)
+    """
+    The number of iterations the taxonomy agent has gone through.
+    """
 
 
 class TaxonomyNodeName(StrEnum):
@@ -48,6 +49,7 @@ class TaxonomyNodeName(StrEnum):
     TOOLS_NODE = "taxonomy_tools_node"
     START = START
     END = END
+    TASK_EXECUTOR = "taxonomy_task_executor"
 
 
 class EntityType(str, Enum):

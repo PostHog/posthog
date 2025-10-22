@@ -2,6 +2,7 @@ from collections import namedtuple
 from numbers import Number
 from typing import Literal, Optional, Union, cast
 
+import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -36,7 +37,7 @@ from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import get_property_type
 from posthog.hogql.query import HogQLQueryExecutor
 
@@ -92,7 +93,12 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
 
 class HogQLCohortQuery:
     def __init__(
-        self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None, team: Optional[Team] = None
+        self,
+        cohort_query: Optional[CohortQuery] = None,
+        cohort: Optional[Cohort] = None,
+        team: Optional[Team] = None,
+        chunk_index: Optional[int] = None,
+        total_chunks: Optional[int] = None,
     ):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
@@ -113,6 +119,9 @@ class HogQLCohortQuery:
         else:
             raise
 
+        self.chunk_index = chunk_index
+        self.total_chunks = total_chunks
+
     def get_query_executor(self) -> HogQLQueryExecutor:
         return HogQLQueryExecutor(
             query_type="HogQLCohortQuery",
@@ -127,7 +136,7 @@ class HogQLCohortQuery:
         return self._get_conditions()
 
     def query_str(self, dialect: Literal["hogql", "clickhouse"]):
-        return print_ast(self.get_query(), self.hogql_context, dialect, pretty=True)
+        return prepare_and_print_ast(self.get_query(), self.hogql_context, dialect, pretty=True)[0]
 
     def _get_series(self, prop: Property, math=None):
         if prop.event_type == "events":
@@ -435,8 +444,110 @@ class HogQLCohortQuery:
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
+    def _should_combine_person_properties(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "hogql-cohort-combine-person-properties",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(self.team.organization_id),
+                },
+                "project": {
+                    "id": str(self.team.id),
+                },
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    def _add_chunk_filter(self, query: ast.SelectQuery) -> ast.SelectQuery:
+        """Add hash-based chunking filter to a query"""
+        # Hash-based filtering
+        if self.chunk_index is not None and self.total_chunks is not None and self.total_chunks > 1:
+            # Create the hash condition: cityHash64(id) % total_chunks = chunk_index
+            hash_condition = ast.CompareOperation(
+                left=ast.Call(
+                    name="modulo",
+                    args=[
+                        ast.Call(name="cityHash64", args=[ast.Field(chain=["id"])]),
+                        ast.Constant(value=self.total_chunks),
+                    ],
+                ),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=self.chunk_index),
+            )
+
+            # Add to WHERE clause
+            if query.where is None:
+                query.where = hash_condition
+            else:
+                query.where = ast.And(exprs=[query.where, hash_condition])
+
+        return query
+
+    def _add_chunk_filter_to_query_tree(
+        self, query: Union[ast.SelectQuery, ast.SelectSetQuery]
+    ) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
+        """Recursively add chunk filter to all SelectQuery nodes in the query tree"""
+        if isinstance(query, ast.SelectQuery):
+            return self._add_chunk_filter(query)
+        elif isinstance(query, ast.SelectSetQuery):
+            # Apply to initial query
+            query.initial_select_query = self._add_chunk_filter_to_query_tree(query.initial_select_query)
+            # Apply to all subsequent queries
+            for node in query.subsequent_select_queries:
+                node.select_query = self._add_chunk_filter_to_query_tree(node.select_query)
+        return query
+
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         Condition = namedtuple("Condition", ["query", "negation"])
+        should_combine_person_properties = self._should_combine_person_properties()
+
+        def unwrap_property(prop: Union[PropertyGroup, Property]) -> Optional[Property]:
+            """Unwrap a PropertyGroup to get the underlying Property if it contains exactly one."""
+            if isinstance(prop, Property):
+                return prop
+            if isinstance(prop, PropertyGroup) and len(prop.values) == 1:
+                return unwrap_property(prop.values[0])
+            return None
+
+        def can_combine_person_properties(properties: Union[list[PropertyGroup], list[Property]]) -> bool:
+            """Check if all properties are person properties that can be combined into a single query."""
+            if not properties:
+                return False
+            unwrapped = [unwrap_property(prop) for prop in properties]
+            return all(p is not None and p.type == "person" and not p.negation for p in unwrapped)
+
+        def combine_person_properties(properties: Union[list[Property], list[PropertyGroup]]) -> ast.SelectQuery:
+            """
+            Combine multiple person property filters into a single ActorsQuery.
+
+            This optimization replaces N separate queries with N-1 INTERSECT operations
+            with a single query that includes all conditions. For cohorts with many person
+            properties, this reduces query time by ~19x and memory usage by ~15x.
+
+            Example:
+                Before: Query1 INTERSECT DISTINCT Query2 INTERSECT DISTINCT Query3
+                After:  Single query with AND(condition1, condition2, condition3)
+            """
+            person_filters = []
+            for prop_or_group in properties:
+                # Unwrap PropertyGroup to get the underlying Property
+                prop = unwrap_property(prop_or_group)
+                if prop is None:
+                    continue
+                person_filters.append(convert_property(prop))
+
+            actors_query = ActorsQuery(
+                properties=person_filters,
+                select=["id"],
+            )
+            query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
+            return query_runner.to_query()
 
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]],
@@ -446,6 +557,10 @@ class HogQLCohortQuery:
 
             if isinstance(prop, Property):
                 return Condition(self._get_condition_for_property(prop), prop.negation or False)
+
+            if should_combine_person_properties:
+                if prop.type == PropertyOperatorType.AND and can_combine_person_properties(prop.values):
+                    return Condition(combine_person_properties(prop.values), False)
 
             children = [build_conditions(property) for property in prop.values]
 
@@ -501,4 +616,6 @@ class HogQLCohortQuery:
         condition = build_conditions(self.property_groups)
         if condition.negation:
             raise ValidationError("Top level condition cannot be negated", str(self.property_groups))
-        return condition.query
+
+        # Apply chunking filter to the final query
+        return self._add_chunk_filter_to_query_tree(condition.query)

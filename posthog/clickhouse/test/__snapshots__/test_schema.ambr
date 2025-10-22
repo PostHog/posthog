@@ -56,7 +56,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_app_metrics
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -237,7 +237,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_heatmaps]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_heatmaps ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_heatmaps
   (
       session_id VARCHAR,
       team_id Int64,
@@ -262,7 +262,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_ingestion_warnings]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings
   (
       team_id Int64,
       source LowCardinality(VARCHAR),
@@ -624,7 +624,7 @@
 # name: test_create_table_query[app_metrics]
   '''
   
-  CREATE TABLE IF NOT EXISTS app_metrics ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS app_metrics
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -650,7 +650,7 @@
 # name: test_create_table_query[app_metrics_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv
   TO writable_app_metrics
   AS SELECT
   team_id,
@@ -1161,7 +1161,7 @@
 # name: test_create_table_query[heatmaps]
   '''
   
-  CREATE TABLE IF NOT EXISTS heatmaps ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS heatmaps
   (
       session_id VARCHAR,
       team_id Int64,
@@ -1189,7 +1189,7 @@
 # name: test_create_table_query[heatmaps_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS heatmaps_mv
   TO posthog_test.writable_heatmaps
   AS SELECT
       session_id,
@@ -1218,7 +1218,7 @@
 # name: test_create_table_query[ingestion_warnings]
   '''
   
-  CREATE TABLE IF NOT EXISTS ingestion_warnings ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS ingestion_warnings
   (
       team_id Int64,
       source LowCardinality(VARCHAR),
@@ -1237,7 +1237,7 @@
 # name: test_create_table_query[ingestion_warnings_mv]
   '''
   
-  CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv
   TO posthog_test.writable_ingestion_warnings
   AS SELECT
   team_id,
@@ -1273,7 +1273,7 @@
 # name: test_create_table_query[kafka_app_metrics]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_app_metrics
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -1454,7 +1454,7 @@
 # name: test_create_table_query[kafka_heatmaps]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_heatmaps ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_heatmaps
   (
       session_id VARCHAR,
       team_id Int64,
@@ -1479,7 +1479,7 @@
 # name: test_create_table_query[kafka_ingestion_warnings]
   '''
   
-  CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings
   (
       team_id Int64,
       source LowCardinality(VARCHAR),
@@ -2945,7 +2945,7 @@
           properties_group_feature_flags
       FROM posthog_test.sharded_events
       WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
-      AND True
+      AND TRUE
   )
   
   SELECT
@@ -3551,7 +3551,7 @@
 # name: test_create_table_query[sharded_heatmaps]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_heatmaps ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_heatmaps
   (
       session_id VARCHAR,
       team_id Int64,
@@ -3595,7 +3595,7 @@
 # name: test_create_table_query[sharded_ingestion_warnings]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_ingestion_warnings ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_ingestion_warnings
   (
       team_id Int64,
       source LowCardinality(VARCHAR),
@@ -4528,7 +4528,7 @@
 # name: test_create_table_query[writable_app_metrics]
   '''
   
-  CREATE TABLE IF NOT EXISTS writable_app_metrics ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS writable_app_metrics
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -4675,7 +4675,7 @@
 # name: test_create_table_query[writable_heatmaps]
   '''
   
-  CREATE TABLE IF NOT EXISTS writable_heatmaps ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS writable_heatmaps
   (
       session_id VARCHAR,
       team_id Int64,
@@ -4703,7 +4703,7 @@
 # name: test_create_table_query[writable_ingestion_warnings]
   '''
   
-  CREATE TABLE IF NOT EXISTS writable_ingestion_warnings ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS writable_ingestion_warnings
   (
       team_id Int64,
       source LowCardinality(VARCHAR),
@@ -5974,7 +5974,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_heatmaps]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_heatmaps ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_heatmaps
   (
       session_id VARCHAR,
       team_id Int64,
@@ -6018,7 +6018,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_ingestion_warnings]
   '''
   
-  CREATE TABLE IF NOT EXISTS sharded_ingestion_warnings ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_ingestion_warnings
   (
       team_id Int64,
       source LowCardinality(VARCHAR),

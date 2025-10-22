@@ -20,6 +20,7 @@ import type { Experiment } from '~/types'
 
 import { ExperimentTypePanel } from './ExperimentTypePanel'
 import { ExposureCriteriaPanel } from './ExposureCriteriaPanel'
+import { MetricsPanel } from './MetricsPanel/MetricsPanel'
 import { VariantsPanel } from './VariantsPanel'
 import { createExperimentLogic } from './createExperimentLogic'
 
@@ -44,8 +45,12 @@ const SHOW_TARGETING_PANEL = false
 export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JSX.Element => {
     const { HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
 
-    const { experiment, experimentErrors } = useValues(createExperimentLogic({ experiment: draftExperiment }))
-    const { setExperimentValue } = useActions(createExperimentLogic({ experiment: draftExperiment }))
+    const { experiment, experimentErrors, sharedMetrics } = useValues(
+        createExperimentLogic({ experiment: draftExperiment })
+    )
+    const { setExperimentValue, setExperiment, setSharedMetrics } = useActions(
+        createExperimentLogic({ experiment: draftExperiment })
+    )
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
 
@@ -171,9 +176,79 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                 key: 'experiment-metrics',
                                 header: 'Metrics',
                                 content: (
-                                    <div className="p-4">
-                                        <span>Metrics Panel Goes Here</span>
-                                    </div>
+                                    <MetricsPanel
+                                        experiment={experiment}
+                                        sharedMetrics={sharedMetrics}
+                                        onSaveMetric={(metric, context) => {
+                                            const isNew = !experiment[context.field].some((m) => m.uuid === metric.uuid)
+
+                                            setExperiment({
+                                                ...experiment,
+                                                [context.field]: isNew
+                                                    ? [...experiment[context.field], metric]
+                                                    : experiment[context.field].map((m) =>
+                                                          m.uuid === metric.uuid ? metric : m
+                                                      ),
+                                                ...(isNew && {
+                                                    [context.orderingField]: [
+                                                        ...(experiment[context.orderingField] ?? []),
+                                                        metric.uuid,
+                                                    ],
+                                                }),
+                                            })
+                                        }}
+                                        onDeleteMetric={(metric, context) => {
+                                            if (metric.isSharedMetric) {
+                                                setExperiment({
+                                                    ...experiment,
+                                                    [context.orderingField]: (
+                                                        experiment[context.orderingField] ?? []
+                                                    ).filter((uuid) => uuid !== metric.uuid),
+                                                })
+                                                setSharedMetrics({
+                                                    ...sharedMetrics,
+                                                    [context.type]: sharedMetrics[context.type].filter(
+                                                        (m) => m.uuid !== metric.uuid
+                                                    ),
+                                                })
+                                                return
+                                            }
+
+                                            const metricIndex = experiment[context.field].findIndex(
+                                                ({ uuid }) => uuid === metric.uuid
+                                            )
+                                            if (metricIndex !== -1) {
+                                                setExperiment({
+                                                    ...experiment,
+                                                    [context.field]: experiment[context.field].filter(
+                                                        ({ uuid }) => uuid !== metric.uuid
+                                                    ),
+                                                    [context.orderingField]: (
+                                                        experiment[context.orderingField] ?? []
+                                                    ).filter((uuid) => uuid !== metric.uuid),
+                                                })
+                                            }
+                                        }}
+                                        onSaveSharedMetrics={(metrics, context) => {
+                                            setExperiment({
+                                                ...experiment,
+                                                [context.orderingField]: [
+                                                    ...(experiment[context.orderingField] ?? []),
+                                                    ...metrics.map((metric) => metric.uuid),
+                                                ],
+                                                saved_metrics: [
+                                                    ...(experiment.saved_metrics ?? []),
+                                                    ...metrics.map((metric) => ({
+                                                        saved_metric: metric.sharedMetricId,
+                                                    })),
+                                                ],
+                                            })
+                                            setSharedMetrics({
+                                                ...sharedMetrics,
+                                                [context.type]: [...sharedMetrics[context.type], ...metrics],
+                                            })
+                                        }}
+                                    />
                                 ),
                             },
                         ]}
