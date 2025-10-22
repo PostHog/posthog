@@ -368,7 +368,11 @@ class ModelMigrator:
                     if isinstance(node, ast.ClassDef):
                         # Apply snake_case conversion to match what happens during file movement
                         filename_without_ext = source_file.replace(".py", "")
-                        snake_name = re.sub(r"(?<!^)(?=[A-Z])", "_", filename_without_ext).lower()
+                        # Extract just the base filename (remove any directory path like "models/")
+                        base_filename = (
+                            filename_without_ext.split("/")[-1] if "/" in filename_without_ext else filename_without_ext
+                        )
+                        snake_name = re.sub(r"(?<!^)(?=[A-Z])", "_", base_filename).lower()
                         mapping[node.name] = snake_name
             except (FileNotFoundError, SyntaxError):
                 continue
