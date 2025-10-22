@@ -8,6 +8,7 @@ from django.urls.base import reverse
 import jwt
 import structlog
 import posthoganalytics
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
 from jwt.algorithms import RSAAlgorithm
 from rest_framework import authentication
 from rest_framework.decorators import api_view
@@ -75,11 +76,11 @@ class MultitenantSAMLAuth(SAMLAuth):
                 else OrganizationDomain.objects.verified_domains().get(id=organization_domain_or_id)
             )
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
-            raise AuthFailed("saml", "Authentication request is invalid. Invalid RelayState.")
+            raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
 
         if not organization_domain.organization.is_feature_available(AvailableFeature.SAML):
             raise AuthFailed(
-                "saml",
+                self,
                 "Your organization does not have the required license to use SAML.",
             )
 
@@ -99,12 +100,12 @@ class MultitenantSAMLAuth(SAMLAuth):
         email = self.strategy.request_data().get("email")
 
         if not email:
-            raise AuthMissingParameter("saml", "email")
+            raise AuthMissingParameter(self, "email")
 
         instance = OrganizationDomain.objects.get_verified_for_email_address(email=email)
 
         if not instance or not instance.has_saml:
-            raise AuthFailed("saml", "SAML not configured for this user.")
+            raise AuthFailed(self, "SAML not configured for this user.")
 
         auth = self._create_saml_auth(idp=self.get_idp(instance))
         # Below, return_to sets the RelayState, which contains the ID of
@@ -129,7 +130,7 @@ class MultitenantSAMLAuth(SAMLAuth):
                 break
 
         if not output and not optional:
-            raise AuthMissingParameter("saml", attribute_names[0])
+            raise AuthMissingParameter(self, attribute_names[0])
 
         if isinstance(output, list):
             output = output[0]
@@ -390,9 +391,15 @@ class VercelAuthentication(authentication.BaseAuthentication):
         if not settings.VERCEL_CLIENT_INTEGRATION_ID:
             raise jwt.InvalidTokenError("VERCEL_CLIENT_INTEGRATION_ID not configured")
 
+        public_key: RSAPublicKey | str | bytes
+        if isinstance(key, RSAPrivateKey):
+            public_key = key.public_key()
+        else:
+            public_key = cast(RSAPublicKey, key)
+
         return jwt.decode(
             token,
-            key,
+            public_key,
             algorithms=["RS256"],
             issuer=self.VERCEL_ISSUER,
             audience=settings.VERCEL_CLIENT_INTEGRATION_ID,

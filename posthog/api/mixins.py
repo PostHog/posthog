@@ -1,4 +1,4 @@
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 from rest_framework.exceptions import ParseError
@@ -23,13 +23,15 @@ class PydanticModelMixin:
 class FileSystemViewSetMixin:
     _file_system_view_instance: Any | None = None
 
-    def get_object(self):  # type: ignore[override]
-        instance = super().get_object()
+    def get_object(self) -> Any:
+        parent = cast(Any, super())
+        instance = parent.get_object()
         self._file_system_view_instance = instance
         return instance
 
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:  # type: ignore[override]
-        response = super().retrieve(request, *args, **kwargs)
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        parent = cast(Any, super())
+        response = cast(Response, parent.retrieve(request, *args, **kwargs))
         instance = getattr(self, "_file_system_view_instance", None)
         if instance is not None:
             log_api_file_system_view(request, instance)

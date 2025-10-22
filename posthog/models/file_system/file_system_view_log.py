@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, is_dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import models
 from django.db.models import Count, Max, OuterRef, QuerySet, Subquery, Value
@@ -141,7 +141,7 @@ def _resolve_representation(
         team = getattr(obj, "team", None)
         if team is None:
             return None
-        representation = obj.get_file_system_representation()  # type: ignore[attr-defined]
+        representation = cast(FileSystemRepresentation, obj.get_file_system_representation())
         return team.id, representation
 
     if is_dataclass(obj) and isinstance(obj, FileSystemRepresentation):
