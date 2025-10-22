@@ -6,6 +6,11 @@ pub struct CheckpointConfig {
     /// How often to trigger a checkpoint attempt for all locally-hosted partition stores
     pub checkpoint_interval: Duration,
 
+    /// How many incremental checkpoint attempts to perform between full
+    /// uploads of all checkpoint files. If 0, we allways perform a
+    /// full upload on every attempt
+    pub checkpoint_full_upload_interval: u32,
+
     /// Base directory for local checkpoints
     pub local_checkpoint_dir: String,
 
@@ -39,7 +44,8 @@ impl Default for CheckpointConfig {
         Self {
             // NOTE! production & local dev defaults can be overridden in top-level config.rs
             // or env vars; assume these defaults are only applied as-is in unit tests and CI
-            checkpoint_interval: Duration::from_secs(300), // 5 minutes (TBD)
+            checkpoint_interval: Duration::from_secs(300),
+            checkpoint_full_upload_interval: 10, // create a full checkpoint every 10 attempts per partition
             local_checkpoint_dir: "./checkpoints".to_string(),
             s3_bucket: "".to_string(),
             s3_key_prefix: "deduplication-checkpoints".to_string(),
@@ -47,7 +53,7 @@ impl Default for CheckpointConfig {
             max_concurrent_checkpoints: 3,
             checkpoint_gate_interval: Duration::from_millis(200),
             checkpoint_worker_shutdown_timeout: Duration::from_secs(10),
-            s3_timeout: Duration::from_secs(300), // 5 minutes
+            s3_timeout: Duration::from_secs(300),
         }
     }
 }

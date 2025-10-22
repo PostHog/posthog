@@ -331,10 +331,11 @@ export const parseEncodedSnapshots = async (
                 }
 
                 const length =
-                    (uint8Data[offset] << 24) |
-                    (uint8Data[offset + 1] << 16) |
-                    (uint8Data[offset + 2] << 8) |
-                    uint8Data[offset + 3]
+                    ((uint8Data[offset] << 24) |
+                        (uint8Data[offset + 1] << 16) |
+                        (uint8Data[offset + 2] << 8) |
+                        uint8Data[offset + 3]) >>>
+                    0
                 offset += 4
 
                 // Read compressed block
