@@ -133,7 +133,7 @@ class TestLoginAPI(APIBaseTest):
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
 
-    @patch("posthog.tasks.email.send_email_mfa_link")
+    @patch("posthog.tasks.email.send_email_mfa_link.delay")
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     @patch("posthog.api.authentication.is_email_verification_disabled", return_value=True)
@@ -142,7 +142,7 @@ class TestLoginAPI(APIBaseTest):
         mock_is_verification_disabled,
         mock_send_email_verification,
         mock_is_email_available,
-        mock_send_email_mfa_link,
+        mock_send_email_delay,
     ):
         self.user.is_email_verified = False
         self.user.save()
@@ -163,11 +163,11 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(mock_is_email_available.call_count, 2)
         mock_send_email_verification.assert_not_called()
 
-    @patch("posthog.tasks.email.send_email_mfa_link")
+    @patch("posthog.tasks.email.send_email_mfa_link.delay")
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     def test_email_unverified_null_user_can_log_in_if_email_available(
-        self, mock_send_email_verification, mock_is_email_available, mock_send_email_mfa_link
+        self, mock_send_email_verification, mock_is_email_available, mock_send_email_delay
     ):
         """When email verification was added, existing users were set to is_email_verified=null.
         If someone is null they should still be allowed to log in until we explicitly decide to lock them out."""
@@ -677,13 +677,11 @@ class TestPasswordResetAPI(APIBaseTest):
 
     # Password reset completion
 
+    @patch("posthog.tasks.email.send_email_mfa_link.delay")
     @patch("posthog.api.authentication.is_email_available", return_value=True)
-    @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_can_reset_password(
-        self, mock_capture, mock_identify, mock_send_email_mfa_link, mock_is_email_available
-    ):
+    def test_user_can_reset_password(self, mock_capture, mock_identify, mock_is_email_available, mock_send_email_delay):
         self.client.logout()  # extra precaution to test login
 
         self.user.requested_password_reset_at = datetime.now()
@@ -736,8 +734,9 @@ class TestPasswordResetAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
-        # 4 capture events: password reset, verification email sent, email mfa link sent, user logged in
-        self.assertEqual(mock_capture.call_count, 4)
+        # 3 capture events: password reset, verification email sent, user logged in
+        # Note: "email mfa link sent" is captured inside the Celery task, which doesn't run when mocked
+        self.assertEqual(mock_capture.call_count, 3)
 
     def test_cant_set_short_password(self):
         token = password_reset_token_generator.make_token(self.user)
