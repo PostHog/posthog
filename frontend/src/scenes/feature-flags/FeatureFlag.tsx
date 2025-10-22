@@ -5,7 +5,7 @@ import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { PostHogFeature } from 'posthog-js/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import {
     IconCollapse,
