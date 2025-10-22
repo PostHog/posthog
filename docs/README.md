@@ -137,3 +137,4 @@ A: Use relative paths: `../contributing/index.md` or `./index.md`
 - [PostHog Website](https://github.com/PostHog/posthog.com)
 - [Contributing to PostHog](./published/contributing/index.md)
 - [PostHog Architecture](./published/architecture/index.mdx)
+
