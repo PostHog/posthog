@@ -111,6 +111,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setNewTabSceneDataInclude: (include: NEW_TAB_COMMANDS[]) => ({ include }),
         toggleNewTabSceneDataInclude: (item: NEW_TAB_COMMANDS) => ({ item }),
         triggerSearchForIncludedItems: true,
+        refreshDataAfterToggle: true,
         askAI: (searchTerm: string) => ({ searchTerm }),
     }),
     loaders(({ values }) => ({
@@ -821,13 +822,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                             actions.debouncedPropertyDefinitionSearch(searchTerm)
                         }
                     } else {
-                        // Clear results when search is empty
+                        // Load initial data when no search term
                         if (item === 'persons') {
-                            actions.loadPersonSearchResultsSuccess([])
+                            actions.loadInitialPersons({})
                         } else if (item === 'eventDefinitions') {
-                            actions.loadEventDefinitionSearchResultsSuccess([])
+                            actions.loadInitialEventDefinitions({})
                         } else if (item === 'propertyDefinitions') {
-                            actions.loadPropertyDefinitionSearchResultsSuccess([])
+                            actions.loadInitialPropertyDefinitions({})
                         }
                     }
                 })
@@ -842,27 +843,6 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 if (willBeIncluded) {
                     // When enabling an item, switch to its category
                     actions.setSelectedCategory(item as NEW_TAB_CATEGORY_ITEMS)
-
-                    // Always trigger data loading when enabling an item
-                    if (values.search.trim() !== '') {
-                        // If there's a search term, trigger search
-                        if (item === 'persons') {
-                            actions.debouncedPersonSearch(values.search.trim())
-                        } else if (item === 'eventDefinitions') {
-                            actions.debouncedEventDefinitionSearch(values.search.trim())
-                        } else if (item === 'propertyDefinitions') {
-                            actions.debouncedPropertyDefinitionSearch(values.search.trim())
-                        }
-                    } else {
-                        // Load initial data when no search term
-                        if (item === 'persons') {
-                            actions.loadInitialPersons({})
-                        } else if (item === 'eventDefinitions') {
-                            actions.loadInitialEventDefinitions({})
-                        } else if (item === 'propertyDefinitions') {
-                            actions.loadInitialPropertyDefinitions({})
-                        }
-                    }
                 } else {
                     // When disabling an item, clear its search results and go to 'all'
                     actions.setSelectedCategory('all')
@@ -876,6 +856,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                 }
             }
+        },
+        setNewTabSceneDataInclude: () => {
+            // Trigger data loading when the include array changes
+            actions.triggerSearchForIncludedItems()
+        },
+        refreshDataAfterToggle: () => {
+            // This action triggers after toggle to refresh data
+            actions.triggerSearchForIncludedItems()
         },
         debouncedPersonSearch: async ({ searchTerm }, breakpoint) => {
             // Debounce for 300ms

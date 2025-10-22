@@ -89,7 +89,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
         isSearching,
     } = useValues(newTabSceneLogic({ tabId }))
     const { mobileLayout } = useValues(navigationLogic)
-    const { setSearch, setSelectedCategory, toggleNewTabSceneDataInclude } = useActions(newTabSceneLogic({ tabId }))
+    const { setSearch, setSelectedCategory, toggleNewTabSceneDataInclude, refreshDataAfterToggle } = useActions(
+        newTabSceneLogic({ tabId })
+    )
     const { openSidePanel } = useActions(sidePanelStateLogic({ tabId }))
     const { setQuestion, focusInput: focusMaxInput } = useActions(maxLogic({ tabId: 'sidepanel' }))
     const { showSceneDashboardChoiceModal } = useActions(
@@ -190,6 +192,8 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                     } else {
                                         toggleNewTabSceneDataInclude(command.value as NEW_TAB_COMMANDS)
                                     }
+                                    // Refresh data after toggle
+                                    refreshDataAfterToggle()
                                 }}
                             />
                         )}
@@ -273,6 +277,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                                 variant="outline"
                                                                 onClick={() => {
                                                                     toggleNewTabSceneDataInclude(command)
+                                                                    refreshDataAfterToggle()
                                                                     focusSearchInput()
                                                                 }}
                                                                 className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
@@ -324,6 +329,7 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                                             newTabSceneDataInclude.forEach((command) => {
                                                                 toggleNewTabSceneDataInclude(command)
                                                             })
+                                                            refreshDataAfterToggle()
                                                             focusSearchInput()
                                                         }}
                                                         className="text-xs data-[focused=true]:outline-2 data-[focused=true]:outline-accent"
