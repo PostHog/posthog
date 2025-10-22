@@ -21,7 +21,7 @@ from posthog.schema import PersonsOnEventsMode, RecordingsQuery
 
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Person
@@ -36,12 +36,12 @@ from ee.clickhouse.materialized_columns.columns import get_materialized_columns,
 @freeze_time("2021-01-01T13:46:23")
 class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _print_query(self, query: SelectQuery) -> str:
-        return print_ast(
+        return prepare_and_print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
             pretty=True,
-        )
+        )[0]
 
     def tearDown(self) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
