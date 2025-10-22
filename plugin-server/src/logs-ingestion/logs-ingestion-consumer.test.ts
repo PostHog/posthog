@@ -102,7 +102,7 @@ describe('LogsIngestionConsumer', () => {
     describe('general', () => {
         it('should have the correct config', () => {
             expect(consumer['name']).toEqual('LogsIngestionConsumer')
-            expect(consumer['groupId']).toEqual('logs-ingestion-consumer')
+            expect(consumer['groupId']).toEqual('ingestion-logs')
             expect(consumer['topic']).toEqual('logs_ingestion_test')
             expect(consumer['clickhouseTopic']).toEqual('clickhouse_logs_test')
             expect(consumer['overflowTopic']).toEqual('logs_ingestion_overflow_test')
