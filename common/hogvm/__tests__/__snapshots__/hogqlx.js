@@ -83,10 +83,10 @@ print({"__hx_tag": "hr"});
 let Filter = __lambda((props) => {
     let query = {"__hx_ast": "Constant", "value": true};
     if (__getProperty(props, "name", true)) {
-            query = {"__hx_ast": "And", "exprs": [query, {"__hx_ast": "CompareOperation", "left": {"__hx_ast": "Field", "chain": ["properties", "name"]}, "right": __getProperty(props, "name", true), "op": "=="}]}
+            query = {"__hx_ast": "And", "exprs": [query, {"__hx_ast": "CompareOperation", "left": {"__hx_ast": "Field", "chain": ["properties", "name"], "from_asterisk": false}, "right": __getProperty(props, "name", true), "op": "=="}]}
         }
     if (__getProperty(props, "email", true)) {
-            query = {"__hx_ast": "And", "exprs": [query, {"__hx_ast": "CompareOperation", "left": {"__hx_ast": "Field", "chain": ["properties", "email"]}, "right": __getProperty(props, "email", true), "op": "=="}]}
+            query = {"__hx_ast": "And", "exprs": [query, {"__hx_ast": "CompareOperation", "left": {"__hx_ast": "Field", "chain": ["properties", "email"], "from_asterisk": false}, "right": __getProperty(props, "email", true), "op": "=="}]}
         }
     return query;
 });
@@ -94,8 +94,8 @@ let query1 = Filter({"name": "John", "email": "john@gmail.com"});
 printQ(query1);
 let query2 = {"__hx_ast": "And", "exprs": [{"__hx_ast": "Constant", "value": true}, Filter({"name": {"__hx_ast": "Constant", "value": "John"}, "email": {"__hx_ast": "Constant", "value": "john@gmail.com"}})]};
 printQ(query2);
-let query3a = {"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Alias", "alias": "name", "expr": {"__hx_ast": "Field", "chain": ["properties", "name"]}, "hidden": false}, {"__hx_ast": "Alias", "alias": "email", "expr": {"__hx_ast": "Call", "name": "distinct", "args": [{"__hx_ast": "Field", "chain": ["properties", "email"]}], "distinct": false}, "hidden": false}], "distinct": true, "select_from": {"__hx_ast": "JoinExpr", "table": {"__hx_ast": "Field", "chain": ["events"]}}, "where": Filter({"name": "John", "email": "john@gmail.com"})};
-let query3b = {"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Alias", "alias": "name", "expr": {"__hx_ast": "Field", "chain": ["properties", "name"]}, "hidden": false}, {"__hx_ast": "Alias", "alias": "email", "expr": {"__hx_ast": "Call", "name": "distinct", "args": [{"__hx_ast": "Field", "chain": ["properties", "email"]}], "distinct": false}, "hidden": false}], "distinct": true, "select_from": {"__hx_ast": "JoinExpr", "table": {"__hx_ast": "Field", "chain": ["events"]}}, "where": Filter({"name": {"__hx_ast": "Constant", "value": "John"}, "email": {"__hx_ast": "Constant", "value": "john@gmail.com"}})};
+let query3a = {"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Alias", "alias": "name", "expr": {"__hx_ast": "Field", "chain": ["properties", "name"], "from_asterisk": false}, "hidden": false, "from_asterisk": false}, {"__hx_ast": "Alias", "alias": "email", "expr": {"__hx_ast": "Call", "name": "distinct", "args": [{"__hx_ast": "Field", "chain": ["properties", "email"], "from_asterisk": false}], "distinct": false}, "hidden": false, "from_asterisk": false}], "distinct": true, "select_from": {"__hx_ast": "JoinExpr", "table": {"__hx_ast": "Field", "chain": ["events"], "from_asterisk": false}}, "where": Filter({"name": "John", "email": "john@gmail.com"})};
+let query3b = {"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Alias", "alias": "name", "expr": {"__hx_ast": "Field", "chain": ["properties", "name"], "from_asterisk": false}, "hidden": false, "from_asterisk": false}, {"__hx_ast": "Alias", "alias": "email", "expr": {"__hx_ast": "Call", "name": "distinct", "args": [{"__hx_ast": "Field", "chain": ["properties", "email"], "from_asterisk": false}], "distinct": false}, "hidden": false, "from_asterisk": false}], "distinct": true, "select_from": {"__hx_ast": "JoinExpr", "table": {"__hx_ast": "Field", "chain": ["events"], "from_asterisk": false}}, "where": Filter({"name": {"__hx_ast": "Constant", "value": "John"}, "email": {"__hx_ast": "Constant", "value": "john@gmail.com"}})};
 printQ(query3a);
 printQ(query3b);
 print(((jsonStringify(query3b).includes("HogQLXAttribute")) ? "FAILED" : "PASSED"));
