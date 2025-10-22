@@ -288,7 +288,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                         </p>
                     )}
                     {variants.length > 0 && !areVariantKeysValid && (
-                        <p className="text-danger">All variant must have a key.</p>
+                        <p className="text-danger">All variants must have a key.</p>
                     )}
                     {variants.length > 0 && hasDuplicateKeys && (
                         <p className="text-danger">Variant keys must be unique.</p>
