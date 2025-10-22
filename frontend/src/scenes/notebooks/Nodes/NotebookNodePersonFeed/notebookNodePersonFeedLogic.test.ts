@@ -80,7 +80,7 @@ const mockSessionSummary2: SessionSummary = {
                     event: 'payment failed',
                     event_id: 'e5f6g7h8',
                     confusion: false,
-                    exception: 'Payment processing error',
+                    exception: 'non-blocking',
                     timestamp: '2025-10-01T05:16:30.456000-07:00',
                     window_id: '01994212-ab83-7289-a500-b74ee29f7033',
                     event_type: 'error',
