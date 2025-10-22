@@ -56,6 +56,42 @@ def validate_attribution_mode(mode: str) -> None:
         raise ValidationError(f"attribution_mode must be one of {valid_modes}")
 
 
+def validate_campaign_name_mappings(mappings: dict) -> None:
+    """
+    Validate campaign_name_mappings structure: dict of source_id -> dict of clean_name -> list of raw utm values.
+
+    Structure: {
+        "GoogleAds": {
+            "Spring Sale 2024": ["spring_sale_2024", "spring-sale-2024"],
+            "Black Friday": ["bf_2024", "blackfriday"]
+        },
+        "MetaAds": {...}
+    }
+    """
+    if not isinstance(mappings, dict):
+        raise ValidationError("campaign_name_mappings must be a dictionary")
+
+    for source_id, campaign_mappings in mappings.items():
+        if not isinstance(source_id, str):
+            raise ValidationError(f"Source ID '{source_id}' must be a string")
+
+        if not isinstance(campaign_mappings, dict):
+            raise ValidationError(f"Campaign mappings for source '{source_id}' must be a dictionary")
+
+        for clean_name, raw_values in campaign_mappings.items():
+            if not isinstance(clean_name, str):
+                raise ValidationError(f"Clean campaign name '{clean_name}' in source '{source_id}' must be a string")
+
+            if not isinstance(raw_values, list):
+                raise ValidationError(f"Raw values for campaign '{clean_name}' in source '{source_id}' must be a list")
+
+            for raw_value in raw_values:
+                if not isinstance(raw_value, str):
+                    raise ValidationError(
+                        f"Raw value '{raw_value}' for campaign '{clean_name}' in source '{source_id}' must be a string"
+                    )
+
+
 def validate_conversion_goals(conversion_goals: list) -> None:
     """Validate conversion goals structure: list of dicts with name, event, and properties."""
     if not isinstance(conversion_goals, list):
@@ -143,6 +179,13 @@ class TeamMarketingAnalyticsConfig(models.Model):
     # that are then wrapped by schema-validation getters/setters
     _sources_map = models.JSONField(default=dict, db_column="sources_map", null=False, blank=True)
     _conversion_goals = models.JSONField(default=list, db_column="conversion_goals", null=True, blank=True)
+    _campaign_name_mappings = models.JSONField(
+        default=dict,
+        db_column="campaign_name_mappings",
+        null=False,
+        blank=True,
+        help_text="Maps clean campaign names to lists of raw UTM values per data source",
+    )
 
     def clean(self):
         """Validate model fields"""
@@ -192,6 +235,19 @@ class TeamMarketingAnalyticsConfig(models.Model):
         except ValidationError as e:
             raise ValidationError(f"Invalid conversion goals: {str(e)}")
 
+    @property
+    def campaign_name_mappings(self) -> dict[str, dict[str, list[str]]]:
+        return self._campaign_name_mappings or {}
+
+    @campaign_name_mappings.setter
+    def campaign_name_mappings(self, value: dict) -> None:
+        value = value or {}
+        try:
+            validate_campaign_name_mappings(value)
+            self._campaign_name_mappings = value
+        except ValidationError as e:
+            raise ValidationError(f"Invalid campaign name mappings: {str(e)}")
+
     def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
         """Update or add a single source mapping while preserving existing sources."""
 
@@ -228,12 +284,44 @@ class TeamMarketingAnalyticsConfig(models.Model):
             del current_sources[source_id]
             self.sources_map = current_sources
 
+    def update_campaign_mapping(self, source_id: str, clean_name: str, raw_values: list[str]) -> None:
+        """Update or add a campaign name mapping for a specific source."""
+        current_mappings = self.campaign_name_mappings.copy()
+
+        if source_id not in current_mappings:
+            current_mappings[source_id] = {}
+
+        current_mappings[source_id][clean_name] = raw_values
+        self.campaign_name_mappings = current_mappings
+
+    def remove_campaign_mapping(self, source_id: str, clean_name: str | None = None) -> None:
+        """Remove campaign mapping(s). If clean_name is None, removes all mappings for the source."""
+        current_mappings = self.campaign_name_mappings.copy()
+
+        if source_id not in current_mappings:
+            return
+
+        if clean_name is None:
+            del current_mappings[source_id]
+        else:
+            if clean_name in current_mappings[source_id]:
+                del current_mappings[source_id][clean_name]
+                if not current_mappings[source_id]:
+                    del current_mappings[source_id]
+
+        self.campaign_name_mappings = current_mappings
+
+    def get_campaign_mapping_for_source(self, source_id: str) -> dict[str, list[str]]:
+        """Get all campaign name mappings for a specific source."""
+        return self.campaign_name_mappings.get(source_id, {})
+
     def to_cache_key_dict(self) -> dict:
         return {
             "base_currency": self.team.base_currency,
             "sources_map": self.sources_map,
             "attribution_window_days": self.attribution_window_days,
             "attribution_mode": self.attribution_mode,
+            "campaign_name_mappings": self.campaign_name_mappings,
         }
 
 

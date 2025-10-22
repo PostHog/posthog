@@ -1098,6 +1098,235 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name != "default_campaign_should_be_ignored"
         assert source_name != "default_source_should_be_ignored"
 
+    def test_campaign_name_mapping_single_source(self):
+        """Test campaign name mapping for a single data source"""
+        # Configure campaign name mappings for GoogleAds
+        self.team.marketing_analytics_config.campaign_name_mappings = {
+            "GoogleAds": {
+                "Spring Sale 2024": ["spring_sale_2024", "spring-sale-2024", "SPRING_SALE"],
+                "Black Friday": ["bf_2024", "blackfriday", "BF-PROMO"],
+            }
+        }
+        self.team.marketing_analytics_config.save()
+
+        # Create events with messy UTM campaign names from Google
+        with freeze_time("2023-04-15"):
+            _create_person(distinct_ids=["user1"], team=self.team)
+            _create_event(
+                distinct_id="user1",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "spring_sale_2024", "utm_source": "google"},
+            )
+            flush_persons_and_events_in_batches()
+
+        with freeze_time("2023-05-10"):
+            _create_event(distinct_id="user1", event="purchase", team=self.team, properties={"revenue": 100})
+            flush_persons_and_events_in_batches()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="purchase",
+            conversion_goal_id="campaign_mapping_test",
+            conversion_goal_name="Campaign Mapping Test",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert response is not None
+        assert len(response.results) == 1
+        campaign_name, source_name, conversion_count = (
+            response.results[0][0],
+            response.results[0][1],
+            response.results[0][2],
+        )
+
+        # Should map messy campaign name to clean one
+        assert campaign_name == "Spring Sale 2024"
+        assert source_name == "google"
+        assert conversion_count == 1
+
+    def test_campaign_name_mapping_multiple_sources(self):
+        """Test campaign name mappings across different data sources"""
+        # Configure mappings for multiple sources
+        self.team.marketing_analytics_config.campaign_name_mappings = {
+            "GoogleAds": {"Spring Sale": ["spring_sale_google", "spring-google"]},
+            "MetaAds": {"Spring Sale": ["spring_sale_fb", "SpringSaleFB"]},
+        }
+        self.team.marketing_analytics_config.save()
+
+        # Create events from Google
+        with freeze_time("2023-04-10"):
+            _create_person(distinct_ids=["google_user"], team=self.team)
+            _create_event(
+                distinct_id="google_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "spring_sale_google", "utm_source": "google"},
+            )
+            flush_persons_and_events_in_batches()
+
+        # Create events from Facebook
+        with freeze_time("2023-04-11"):
+            _create_person(distinct_ids=["fb_user"], team=self.team)
+            _create_event(
+                distinct_id="fb_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "spring_sale_fb", "utm_source": "facebook"},
+            )
+            flush_persons_and_events_in_batches()
+
+        # Conversions
+        with freeze_time("2023-05-10"):
+            _create_event(distinct_id="google_user", event="purchase", team=self.team)
+            _create_event(distinct_id="fb_user", event="purchase", team=self.team)
+            flush_persons_and_events_in_batches()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="purchase",
+            conversion_goal_id="multi_source_mapping",
+            conversion_goal_name="Multi Source Mapping",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert response is not None
+        assert len(response.results) == 2
+
+        # Both should map to the same clean campaign name
+        campaigns = {row[0] for row in response.results}
+        assert "Spring Sale" in campaigns
+        assert all(row[0] == "Spring Sale" for row in response.results)
+
+    def test_campaign_name_mapping_no_match_uses_original(self):
+        """Test that unmapped campaign names pass through unchanged"""
+        self.team.marketing_analytics_config.campaign_name_mappings = {
+            "GoogleAds": {"Mapped Campaign": ["mapped_value"]}
+        }
+        self.team.marketing_analytics_config.save()
+
+        with freeze_time("2023-04-15"):
+            _create_person(distinct_ids=["user1"], team=self.team)
+            _create_event(
+                distinct_id="user1",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "unmapped_campaign", "utm_source": "google"},
+            )
+            flush_persons_and_events_in_batches()
+
+        with freeze_time("2023-05-10"):
+            _create_event(distinct_id="user1", event="purchase", team=self.team)
+            flush_persons_and_events_in_batches()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="purchase",
+            conversion_goal_id="no_mapping_test",
+            conversion_goal_name="No Mapping Test",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert response is not None
+        assert len(response.results) == 1
+        campaign_name = response.results[0][0]
+
+        # Should use original campaign name when no mapping exists
+        assert campaign_name == "unmapped_campaign"
+
+    def test_campaign_name_mapping_case_insensitive_source_matching(self):
+        """Test that source matching is case-insensitive"""
+        self.team.marketing_analytics_config.campaign_name_mappings = {
+            "GoogleAds": {"Clean Campaign": ["messy_campaign"]}
+        }
+        self.team.marketing_analytics_config.save()
+
+        # Test with different case variations of Google sources
+        test_cases = ["Google", "YOUTUBE", "gmail", "GmAiL"]
+
+        for i, source in enumerate(test_cases):
+            with freeze_time("2023-04-15"):
+                _create_person(distinct_ids=[f"user{i}"], team=self.team)
+                _create_event(
+                    distinct_id=f"user{i}",
+                    event="$pageview",
+                    team=self.team,
+                    properties={"utm_campaign": "messy_campaign", "utm_source": source},
+                )
+                flush_persons_and_events_in_batches()
+
+            with freeze_time("2023-05-10"):
+                _create_event(distinct_id=f"user{i}", event="purchase", team=self.team)
+                flush_persons_and_events_in_batches()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="purchase",
+            conversion_goal_id="case_test",
+            conversion_goal_name="Case Test",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert response is not None
+        # All Google-related sources should map campaigns correctly regardless of case
+        assert all(row[0] == "Clean Campaign" for row in response.results)
+
     # ================================================================
     # 6. QUERY GENERATION TESTS - CTE, JOIN, SELECT
     # ================================================================

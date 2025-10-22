@@ -4020,6 +4020,7 @@ export interface MarketingAnalyticsConfig {
     conversion_goals?: ConversionGoalFilter[]
     attribution_window_days?: number
     attribution_mode?: AttributionMode
+    campaign_name_mappings?: Record<string, Record<string, string[]>>
 }
 
 export enum MarketingAnalyticsBaseColumns {

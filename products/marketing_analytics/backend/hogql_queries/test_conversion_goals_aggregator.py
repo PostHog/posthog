@@ -459,3 +459,69 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         assert isinstance(cte, ast.CTE)
         assert cte.name == "ucg"
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_campaign_name_mapping_sql_generation(self):
+        """Test that campaign name mappings generate correct SQL with nested CASE statements"""
+        # Configure campaign name mappings for multiple sources
+        self.team.marketing_analytics_config.campaign_name_mappings = {
+            "GoogleAds": {
+                "Spring Sale 2024": ["spring_sale_2024", "spring-sale-2024", "SPRING_SALE"],
+                "Black Friday": ["bf_2024", "blackfriday", "BF-PROMO"],
+            },
+            "MetaAds": {
+                "Spring Sale 2024": ["spring_sale_fb", "SpringSaleFB"],
+                "Summer Campaign": ["summer_2024", "SUMMER_PROMO"],
+            },
+        }
+        self.team.marketing_analytics_config.save()
+
+        goal = self._create_test_conversion_goal("mapping_sql_test", "Mapping SQL Test", "purchase")
+        processor = self._create_test_processor(goal, 0)
+        aggregator = ConversionGoalsAggregator(processors=[processor], config=self.config)
+
+        additional_conditions_getter = self._create_mock_additional_conditions_getter()
+        cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
+
+        # Execute to get the SQL string
+        response = execute_hogql_query(query=cte.expr, team=self.team)
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_campaign_name_mapping_single_source_sql(self):
+        """Test campaign name mapping for a single data source"""
+        self.team.marketing_analytics_config.campaign_name_mappings = {
+            "GoogleAds": {
+                "Clean Campaign Name": ["messy_campaign_1", "messy_campaign_2", "MESSY_CAMPAIGN_3"],
+            }
+        }
+        self.team.marketing_analytics_config.save()
+
+        goal = self._create_test_conversion_goal("single_source_mapping", "Single Source Mapping", "conversion")
+        processor = self._create_test_processor(goal, 0)
+        aggregator = ConversionGoalsAggregator(processors=[processor], config=self.config)
+
+        additional_conditions_getter = self._create_mock_additional_conditions_getter()
+        cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
+
+        response = execute_hogql_query(query=cte.expr, team=self.team)
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_campaign_name_mapping_no_mappings(self):
+        """Test that when no mappings are configured, the query uses original campaign names"""
+        self.team.marketing_analytics_config.campaign_name_mappings = {}
+        self.team.marketing_analytics_config.save()
+
+        goal = self._create_test_conversion_goal("no_mapping_test", "No Mapping Test", "purchase")
+        processor = self._create_test_processor(goal, 0)
+        aggregator = ConversionGoalsAggregator(processors=[processor], config=self.config)
+
+        additional_conditions_getter = self._create_mock_additional_conditions_getter()
+        cte = aggregator.generate_unified_cte(self.date_range, additional_conditions_getter)
+
+        response = execute_hogql_query(query=cte.expr, team=self.team)
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
