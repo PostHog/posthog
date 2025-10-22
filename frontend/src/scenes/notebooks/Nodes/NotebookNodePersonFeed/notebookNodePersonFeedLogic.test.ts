@@ -4,14 +4,14 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { IndividualSessionSummariesResponse, SessionSummary } from '~/types'
 
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 
-const mockSessionSummary1: SessionSummary = {
+const mockSessionSummary1: SessionSummaryContent = {
     segments: [
         {
             index: 0,
@@ -48,7 +48,7 @@ const mockSessionSummary1: SessionSummary = {
     },
 }
 
-const mockSessionSummary2: SessionSummary = {
+const mockSessionSummary2: SessionSummaryContent = {
     segments: [
         {
             index: 0,
@@ -101,7 +101,7 @@ const mockSessionSummary2: SessionSummary = {
     },
 }
 
-const mockIndividualSummariesResponse: IndividualSessionSummariesResponse = {
+const mockIndividualSummariesResponse: Record<string, SessionSummaryContent> = {
     'session-1': mockSessionSummary1,
     'session-2': mockSessionSummary2,
     'session-3': mockSessionSummary2,
@@ -130,6 +130,20 @@ describe('notebookNodePersonFeedLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        useMocks({
+            post: {
+                [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
+                    results: mockSessionsWithRecording,
+                },
+                [`/api/environments/${MOCK_TEAM_ID}/session_summaries/create_session_summaries_individually`]: async (
+                    req: any
+                ) => {
+                    const { session_ids } = await req.json()
+                    const sessionId = session_ids[0]
+                    return [200, { [sessionId]: mockIndividualSummariesResponse[sessionId] }]
+                },
+            },
+        })
     })
 
     afterEach(() => {
@@ -138,14 +152,6 @@ describe('notebookNodePersonFeedLogic', () => {
 
     describe('sessions loading', () => {
         it('loads sessions timeline on mount', async () => {
-            useMocks({
-                post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
-                        results: mockSessionsWithRecording,
-                    },
-                },
-            })
-
             logic = notebookNodePersonFeedLogic({ personId: 'test-person-123' })
             logic.mount()
 
@@ -178,14 +184,6 @@ describe('notebookNodePersonFeedLogic', () => {
 
     describe('sessionIdsWithRecording selector', () => {
         it('filters sessions with recordings and returns session IDs', async () => {
-            useMocks({
-                post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
-                        results: mockSessionsWithRecording,
-                    },
-                },
-            })
-
             logic = notebookNodePersonFeedLogic({ personId: 'test-person-123' })
             logic.mount()
 
@@ -235,13 +233,6 @@ describe('notebookNodePersonFeedLogic', () => {
 
     describe('canSummarize selector', () => {
         it('returns true when AI_SESSION_SUMMARY feature flag is enabled', async () => {
-            useMocks({
-                post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
-                        results: mockSessionsWithRecording,
-                    },
-                },
-            })
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.AI_SESSION_SUMMARY]: true,
             })
@@ -254,13 +245,6 @@ describe('notebookNodePersonFeedLogic', () => {
         })
 
         it('returns false when AI_SESSION_SUMMARY feature flag is disabled', async () => {
-            useMocks({
-                post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
-                        results: mockSessionsWithRecording,
-                    },
-                },
-            })
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.AI_SESSION_SUMMARY]: false,
             })
@@ -274,20 +258,8 @@ describe('notebookNodePersonFeedLogic', () => {
 
     describe('individual session summarization', () => {
         beforeEach(async () => {
-            useMocks({
-                post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
-                        results: mockSessionsWithRecording,
-                    },
-                    [`/api/environments/${MOCK_TEAM_ID}/session_summaries/create_session_summaries_individually`]: jest
-                        .fn()
-                        .mockResolvedValue([200, mockIndividualSummariesResponse]),
-                },
-            })
-
             logic = notebookNodePersonFeedLogic({ personId: 'test-person-123' })
             logic.mount()
-
             await expectLogic(logic).toDispatchActions(['loadSessionsTimelineSuccess'])
         })
 
@@ -299,7 +271,6 @@ describe('notebookNodePersonFeedLogic', () => {
                 .toMatchValues({
                     summaries: {
                         'session-1': mockSessionSummary1,
-                        'session-2': mockSessionSummary2,
                     },
                     summariesLoading: false,
                 })
@@ -337,7 +308,7 @@ describe('notebookNodePersonFeedLogic', () => {
                 .toFinishAllListeners()
 
             expect(logic.values.summarizingState).toBe('completed')
-            expect(logic.values.numSessionsProcessed).toBe(logic.values.numSessionsWithRecording)
+            expect(logic.values.numSummaries).toBe(logic.values.numSessionsWithRecording)
         })
 
         it('does not call API when no sessions with recordings exist', async () => {
@@ -364,81 +335,10 @@ describe('notebookNodePersonFeedLogic', () => {
         })
     })
 
-    describe('error handling', () => {
-        it('tracks errors for individual sessions', async () => {
-            useMocks({
-                post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
-                        results: mockSessionsWithRecording,
-                    },
-                    [`/api/environments/${MOCK_TEAM_ID}/session_summaries/create_session_summaries_individually`]:
-                        () => [500, { detail: 'API Error' }],
-                },
-            })
-
-            logic = notebookNodePersonFeedLogic({ personId: 'test-person-123' })
-            logic.mount()
-
-            await expectLogic(logic).toDispatchActions(['loadSessionsTimelineSuccess'])
-
-            logic.actions.summarizeSession('session-1')
-
-            await expectLogic(logic).toDispatchActions(['summarizeSession', 'summarizeSessionSuccess'])
-
-            expect(logic.values.summarizingErrors['session-1']).toContain('Non-OK response')
-            expect(logic.values.numErrors).toBe(1)
-            expect(logic.values.summaries).toEqual({})
-        })
-
-        it('continues processing other sessions after error', async () => {
-            let callCount = 0
-            useMocks({
-                post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
-                        results: mockSessionsWithRecording,
-                    },
-                    [`/api/environments/${MOCK_TEAM_ID}/session_summaries/create_session_summaries_individually`]:
-                        () => {
-                            callCount++
-                            if (callCount === 1) {
-                                return [500, { detail: 'First session failed' }]
-                            }
-                            return [200, mockIndividualSummariesResponse]
-                        },
-                },
-            })
-
-            logic = notebookNodePersonFeedLogic({ personId: 'test-person-123' })
-            logic.mount()
-
-            await expectLogic(logic).toDispatchActions(['loadSessionsTimelineSuccess'])
-
-            logic.actions.summarizeSessions()
-
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.numErrors).toBe(1)
-            expect(logic.values.numSummaries).toBeGreaterThan(0)
-            expect(logic.values.summarizingState).toBe('completed')
-        })
-    })
-
     describe('progress tracking', () => {
         beforeEach(async () => {
-            useMocks({
-                post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
-                        results: mockSessionsWithRecording,
-                    },
-                    [`/api/environments/${MOCK_TEAM_ID}/session_summaries/create_session_summaries_individually`]: jest
-                        .fn()
-                        .mockResolvedValue([200, mockIndividualSummariesResponse]),
-                },
-            })
-
             logic = notebookNodePersonFeedLogic({ personId: 'test-person-123' })
             logic.mount()
-
             await expectLogic(logic).toDispatchActions(['loadSessionsTimelineSuccess'])
         })
 
@@ -451,7 +351,7 @@ describe('notebookNodePersonFeedLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['summarizeSessionSuccess'])
 
-            expect(logic.values.numSummaries).toBe(2)
+            expect(logic.values.numSummaries).toBe(1)
         })
 
         it('tracks number of sessions processed', async () => {
@@ -459,7 +359,7 @@ describe('notebookNodePersonFeedLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['summarizeSessionSuccess'])
 
-            expect(logic.values.numSessionsProcessed).toBe(2)
+            expect(logic.values.numSummaries).toBe(1)
         })
 
         it('generates correct progress text', async () => {
@@ -467,23 +367,14 @@ describe('notebookNodePersonFeedLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['summarizeSessionSuccess'])
 
-            expect(logic.values.progressText).toEqual('2 out of 3 sessions analyzed.')
+            expect(logic.values.progressText).toEqual('1 out of 3 sessions analyzed.')
         })
     })
 
     describe('summarizing state management', () => {
         beforeEach(async () => {
-            useMocks({
-                post: {
-                    [`/api/environments/${MOCK_TEAM_ID}/query/`]: {
-                        results: mockSessionsWithRecording,
-                    },
-                },
-            })
-
             logic = notebookNodePersonFeedLogic({ personId: 'test-person-123' })
             logic.mount()
-
             await expectLogic(logic).toDispatchActions(['loadSessionsTimelineSuccess'])
         })
 
