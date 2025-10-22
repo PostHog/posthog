@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment, FeatureFlagFilters } from '~/types'
 import { ProductKey } from '~/types'
 
@@ -54,6 +55,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         setExperiment: (experiment: Experiment) => ({ experiment }),
         createExperiment: () => ({}),
         createExperimentSuccess: true,
+        setSharedMetrics: (sharedMetrics: { primary: ExperimentMetric[]; secondary: ExperimentMetric[] }) => ({
+            sharedMetrics,
+        }),
     })),
     reducers(({ props }) => ({
         experiment: [
@@ -62,6 +66,12 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 setExperiment: (_, { experiment }) => experiment,
                 updateFeatureFlagKey: (state, { key }) => ({ ...state, feature_flag_key: key }),
                 resetExperiment: () => props.experiment ?? { ...NEW_EXPERIMENT },
+            },
+        ],
+        sharedMetrics: [
+            { primary: [], secondary: [] } as { primary: ExperimentMetric[]; secondary: ExperimentMetric[] },
+            {
+                setSharedMetrics: (_, { sharedMetrics }) => sharedMetrics,
             },
         ],
     })),

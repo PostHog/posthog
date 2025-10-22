@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
 import { IconArrowLeft, IconChevronLeft, IconClockRewind, IconExternal, IconPlus, IconSidePanel } from '@posthog/icons'
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -41,7 +41,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
-    const { conversationId: tabConversationId, chatTitle } = useValues(maxLogic({ tabId: tabId || '' }))
+    const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
 
     if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
@@ -51,11 +51,11 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
             <SceneContent className="px-4 py-4">
-                <SceneTitleSection name={chatTitle || 'Max AI'} resourceType={{ type: 'chat' }} />
+                <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
                 <SceneDivider />
                 <div className="flex flex-col items-center justify-center w-full grow">
                     <IconSidePanel className="text-3xl text-muted mb-2" />
-                    <h3 className="text-xl font-bold mb-1">This Max chat is currently in the sidebar</h3>
+                    <h3 className="text-xl font-bold mb-1">This chat is currently in the sidebar</h3>
                     <p className="text-sm text-muted mb-2">You can navigate freely around the app, or…</p>
                     <LemonButton
                         type="secondary"
@@ -108,9 +108,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         {
                             // Max has larger border radiuses than rest of the app, for a friendlier, rounder AI vibe
                             display: 'contents',
-                            '--radius': '0.5rem',
-                            '--radius-sm': '0.375rem',
-                            '--radius-lg': '0.75rem',
                         } as React.CSSProperties
                     }
                 >
@@ -124,7 +121,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                             className={
                                 sidePanel
                                     ? '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow'
-                                    : '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
+                                    : '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow'
                             }
                         >
                             <div className="flex-1 items-center justify-center flex flex-col gap-3">
@@ -160,25 +157,20 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                                 disabledReason={backButtonDisabled ? 'You are already at home' : undefined}
                             />
                         </AnimatedBackButton>
-                        {chatTitle ? (
-                            <h3
-                                className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
-                                title={chatTitle !== 'Max AI' ? chatTitle : undefined}
-                            >
-                                {chatTitle !== 'Max AI' ? (
-                                    chatTitle
-                                ) : (
-                                    <>
-                                        Max AI
-                                        <LemonTag size="small" type="warning" className="ml-2">
-                                            BETA
-                                        </LemonTag>
-                                    </>
-                                )}
-                            </h3>
-                        ) : (
-                            <LemonSkeleton className="h-5 w-48 ml-1" />
-                        )}
+
+                        <h3
+                            className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1 leading-[1.1]"
+                            title={chatTitle || undefined}
+                        >
+                            {chatTitle || (
+                                <>
+                                    PostHog AI
+                                    <LemonTag size="small" type="warning" className="ml-2">
+                                        BETA
+                                    </LemonTag>
+                                </>
+                            )}
+                        </h3>
                     </div>
                     {!conversationHistoryVisible && !threadVisible && (
                         <LemonButton
@@ -206,12 +198,10 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
             {content}
         </>
     ) : (
-        <SceneContent className="px-4 py-4">
+        <SceneContent className="px-4 py-4" fullHeight>
             <SceneTitleSection
-                name={conversationHistoryVisible ? 'Chat history' : chatTitle}
-                resourceType={{
-                    type: 'chat',
-                }}
+                name={null}
+                resourceType={{ type: 'chat' }}
                 actions={
                     conversationId && tabId ? (
                         <LemonButton

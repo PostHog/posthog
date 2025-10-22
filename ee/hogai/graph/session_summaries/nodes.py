@@ -496,7 +496,7 @@ class _SessionSummarizer:
                     notebook=notebook, summary_content=summary_content, session_ids=session_ids
                 )
                 # Return the summary to Max to generate inline summary of the full summary
-                # TODO: Add some minifier logic as something summary (if too many sessions) blows up the Max's root context
+                # TODO: Add some minifier logic as something summary (if too many sessions) blows up the root node's context
                 return summary.model_dump_json(exclude_none=True)
             else:
                 raise ValueError(

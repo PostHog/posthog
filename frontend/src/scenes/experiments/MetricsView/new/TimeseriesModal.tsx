@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { LemonButton, LemonDialog, LemonDivider, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -12,6 +13,7 @@ import { VariantTag } from '../../ExperimentView/components'
 import { experimentTimeseriesLogic } from '../../experimentTimeseriesLogic'
 import { MetricTitle } from '../shared/MetricTitle'
 import { ExperimentVariantResult } from '../shared/utils'
+import { ElapsedTime } from './ElapsedTime'
 import { VariantTimeseriesChart } from './VariantTimeseriesChart'
 
 interface TimeseriesModalProps {
@@ -30,10 +32,13 @@ export function TimeseriesModal({
     experiment,
 }: TimeseriesModalProps): JSX.Element {
     const logic = experimentTimeseriesLogic({ experimentId: experiment.id, metric: isOpen ? metric : undefined })
-    const { chartData, progressMessage, hasTimeseriesData, timeseriesLoading } = useValues(logic)
-    const { recalculateTimeseries } = useActions(logic)
+    const { chartData, progressMessage, hasTimeseriesData, timeseriesLoading, isRecalculating, timeseries } =
+        useValues(logic)
+    const { recalculateTimeseries, loadTimeseries } = useActions(logic)
 
-    const processedChartData = chartData(variantResult.key)
+    const processedChartData = useMemo(() => {
+        return chartData(variantResult.key)
+    }, [chartData, variantResult.key])
 
     const handleRecalculate = (): void => {
         LemonDialog.open({
@@ -94,6 +99,23 @@ export function TimeseriesModal({
                     </div>
                 ) : (
                     <div>
+                        {isRecalculating && (
+                            <div className="mb-4">
+                                <LemonBanner type="info">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Spinner className="text-sm" />
+                                            <span>
+                                                Recalculating •{' '}
+                                                <ElapsedTime startTime={timeseries?.recalculation_created_at} /> elapsed
+                                                •
+                                            </span>
+                                            <Link onClick={() => loadTimeseries({ metric })}>Refresh</Link>
+                                        </div>
+                                    </div>
+                                </LemonBanner>
+                            </div>
+                        )}
                         <div className="flex justify-between items-center mt-2 mb-4">
                             <div className="text-xs text-muted">{progressMessage || ''}</div>
                             <More

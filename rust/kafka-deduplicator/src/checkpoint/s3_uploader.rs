@@ -71,10 +71,10 @@ impl CheckpointUploader for S3Uploader {
         let upload_futures: Vec<_> = plan
             .files_to_upload
             .iter()
-            .map(|(filename, local_path)| {
+            .map(|local_file| {
                 let bucket: String = self.config.s3_bucket.clone();
-                let src = Path::new(local_path).to_path_buf();
-                let dest: String = plan.info.get_file_key(filename);
+                let src = local_file.local_path.to_path_buf();
+                let dest: String = plan.info.get_file_key(&local_file.filename);
 
                 async move {
                     self.upload_file(&src, &dest).await.with_context(|| {
