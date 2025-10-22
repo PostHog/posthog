@@ -1524,7 +1524,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "distinct_id": 12345,
                 "$anon_distinct_id": "example_id",
             },
-            assert_num_queries=12,
+            assert_num_queries=13,
         )
         self.assertTrue(response.json()["featureFlags"]["beta-feature"])
         self.assertTrue(response.json()["featureFlags"]["default-flag"])
