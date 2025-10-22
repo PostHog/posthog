@@ -26,9 +26,7 @@ class ExperimentSummaryArgs(BaseModel):
 class ExperimentSummaryOutput(BaseModel):
     """Structured output for experiment summary"""
 
-    key_metrics: list[str] = Field(
-        description="Summary of key metric performance using Bayesian terminology", max_length=3
-    )
+    key_metrics: list[str] = Field(description="Summary of key metric performance", max_length=3)
 
 
 class ExperimentSummaryTool(MaxTool):
