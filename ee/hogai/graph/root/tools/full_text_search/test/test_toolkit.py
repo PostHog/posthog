@@ -100,7 +100,7 @@ class TestEntitySearchToolkit:
     @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.search_entities")
     @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.database_sync_to_async")
     async def test_search_no_entity_types(self, mock_db_sync, mock_search_entities):
-        all_results = [
+        all_results: list[dict] = [
             {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
             {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}, "rank": 0.90},
             {"type": "action", "result_id": "101", "extra_fields": {"name": "Test Action"}, "rank": 0.80},
@@ -128,7 +128,7 @@ class TestEntitySearchToolkit:
     @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.search_entities")
     @patch("ee.hogai.graph.root.tools.full_text_search.toolkit.database_sync_to_async")
     async def test_arun_with_results(self, mock_db_sync, mock_search_entities):
-        all_results = [
+        all_results: list[dict] = [
             {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
             {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}, "rank": 0.90},
             {"type": "action", "result_id": "101", "extra_fields": {"name": "Test Action"}, "rank": 0.80},

@@ -66,8 +66,8 @@ The supported PostHog entity types are:
 
 """.format(fts_entities="\n".join([f"- {entity_name}" for entity_name in ENTITY_MAP.keys()])).strip()
 
-FTS_ENTITIES = [f"{entity}_fts" for entity in [EntityType.ALL, *ENTITY_MAP.keys()]]
-SearchKind = Literal["insights", "docs", *FTS_ENTITIES]
+FTS_ENTITIES: list[str] = [f"{entity}_fts" for entity in [EntityType.ALL, *ENTITY_MAP.keys()]]
+SearchKind = Literal["insights", "docs", *FTS_ENTITIES]  # type: ignore
 
 
 class SearchToolArgs(BaseModel):
