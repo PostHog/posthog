@@ -16,6 +16,12 @@ pub struct ProcessArgs {
     #[arg(short, long)]
     pub directory: PathBuf,
 
+    /// If your bundler adds a public path prefix to sourcemap URLs,
+    /// we need to ignore it while searching for them
+    /// For use alongside e.g. esbuilds "publicPath" config setting.
+    #[arg(short, long)]
+    pub public_path_prefix: Option<String>,
+
     /// One or more directory glob patterns to ignore
     #[arg(short, long)]
     pub ignore: Vec<String>,
@@ -63,6 +69,7 @@ impl From<ProcessArgs> for (InjectArgs, UploadArgs) {
             ignore: args.ignore.clone(),
             project: args.project,
             version: args.version,
+            public_path_prefix: args.public_path_prefix.clone(),
         };
 
         let upload_args = UploadArgs {
@@ -73,6 +80,7 @@ impl From<ProcessArgs> for (InjectArgs, UploadArgs) {
             batch_size: args.batch_size,
             project: None,
             version: None,
+            public_path_prefix: args.public_path_prefix,
         };
 
         (inject_args, upload_args)

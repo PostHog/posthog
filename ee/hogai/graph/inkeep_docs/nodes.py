@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -108,7 +108,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
     def _convert_to_langchain_messages(
         self,
         conversation_window: Sequence[AssistantMessageUnion],
-        tool_result_messages: dict[str, AssistantToolCallMessage],
+        tool_result_messages: Mapping[str, AssistantToolCallMessage],
     ) -> list[BaseMessage]:
         # Original node has Anthropic messages, but Inkeep expects OpenAI messages
         return convert_to_openai_messages(conversation_window, tool_result_messages)

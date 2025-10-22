@@ -81,10 +81,14 @@ def get_subscription_success_metric(destination: str, execution_path: str) -> Me
     )
 
 
-def get_subscription_failure_metric(destination: str, execution_path: str) -> MetricCounter:
+def get_subscription_failure_metric(
+    destination: str, execution_path: str, failure_type: str = "complete"
+) -> MetricCounter:
     return (
         get_metric_meter()
-        .with_additional_attributes({"destination": destination, "execution_path": execution_path})
+        .with_additional_attributes(
+            {"destination": destination, "execution_path": execution_path, "failure_type": failure_type}
+        )
         .create_counter(
             "subscription_send_failure",
             "A subscription failed to send",
@@ -198,20 +202,31 @@ async def deliver_subscription_report_async(
                 return
 
             logger.info("deliver_subscription_report_async.sending_slack_message", subscription_id=subscription_id)
-            await send_slack_message_with_integration_async(
+            delivery_result = await send_slack_message_with_integration_async(
                 integration,
                 subscription,
                 assets,
                 total_asset_count=len(insights),
                 is_new_subscription=is_new_subscription_target,
             )
-            logger.info("deliver_subscription_report_async.slack_sent", subscription_id=subscription_id)
-            get_subscription_success_metric("slack", "temporal").add(1)
+
+            if delivery_result.is_complete_success:
+                logger.info("deliver_subscription_report_async.slack_sent", subscription_id=subscription_id)
+                get_subscription_success_metric("slack", "temporal").add(1)
+            elif delivery_result.is_partial_failure:
+                logger.warning(
+                    "deliver_subscription_report_async.slack_partial_failure",
+                    subscription_id=subscription_id,
+                    failed_thread_count=len(delivery_result.failed_thread_message_indices),
+                    total_thread_count=delivery_result.total_thread_messages,
+                )
+                get_subscription_failure_metric("slack", "temporal", failure_type="partial").add(1)
+
         except Exception as e:
             is_user_config_error = isinstance(e, SlackApiError) and e.response.get("error") in SLACK_USER_CONFIG_ERRORS
 
             if not is_user_config_error:
-                get_subscription_failure_metric("slack", "temporal").add(1)
+                get_subscription_failure_metric("slack", "temporal", failure_type="complete").add(1)
 
             logger.error(
                 "deliver_subscription_report_async.slack_failed",

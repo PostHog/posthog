@@ -309,7 +309,6 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
     table_name: str
     use_variant_type: bool = True
     use_automatic_schema_evolution: bool = True
-    table_partition_field: str | None = None
 
 
 @dataclass(kw_only=True)
