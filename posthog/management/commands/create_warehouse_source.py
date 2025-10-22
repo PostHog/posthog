@@ -9,6 +9,9 @@ import textcase
 from git import Repo
 from structlog import get_logger
 
+os.environ["DEBUG"] = "1"
+os.environ["SKIP_ASYNC_MIGRATIONS_SETUP"] = "1"
+
 SOURCE_TEMPLATE = """\
 from typing import cast
 
@@ -108,7 +111,7 @@ class Command(BaseCommand):
                 )
             )
         else:
-            call_command("makemigrations")  # TODO: figure out how to only migrate the relevant tables
+            call_command("makemigrations")
 
     def _split_file_by_regex(self, file: str, regex: str) -> tuple[str, str]:
         """Returns file contents pre and post a regex match (pre is inclusive of the regex match)"""
