@@ -1,6 +1,6 @@
 from posthog.schema import (
     ActionsNode,
-    EventsNode,
+    ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
@@ -16,6 +16,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
     conversion_window_to_seconds,
+    data_warehouse_node_to_filter,
     event_or_action_to_filter,
     funnel_evaluation_expr,
     funnel_steps_to_filter,
@@ -359,7 +360,7 @@ class ExperimentQueryBuilder:
         Builds query for ratio metrics.
 
         Structure:
-        - exposures: all exposures with variant assignment
+        - exposures: all exposures with variant assignment (with exposure_identifier for data warehouse)
         - numerator_events: events for numerator metric with value
         - denominator_events: events for denominator metric with value
         - numerator_aggregated: numerator aggregated per entity
@@ -369,7 +370,50 @@ class ExperimentQueryBuilder:
         """
         assert isinstance(self.metric, ExperimentRatioMetric)
 
-        # Get common CTE structure parts
+        # Check if we're dealing with data warehouse sources
+        num_is_dw = isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
+        denom_is_dw = isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
+
+        # Build numerator events CTE
+        num_table = self.metric.numerator.table_name if num_is_dw else "events"
+        num_entity_field = f"{self.metric.numerator.data_warehouse_join_key}" if num_is_dw else self.entity_key
+        num_timestamp_field = (
+            f"{num_table}.{self.metric.numerator.timestamp_field}" if num_is_dw else f"{num_table}.timestamp"
+        )
+
+        # Build denominator events CTE
+        denom_table = self.metric.denominator.table_name if denom_is_dw else "events"
+        denom_entity_field = f"{self.metric.denominator.data_warehouse_join_key}" if denom_is_dw else self.entity_key
+        denom_timestamp_field = (
+            f"{denom_table}.{self.metric.denominator.timestamp_field}" if denom_is_dw else f"{denom_table}.timestamp"
+        )
+
+        # Build exposure query with conditional exposure_identifier
+        exposure_query = self._build_exposure_select_query()
+        if num_is_dw or denom_is_dw:
+            # Add exposure_identifier for data warehouse joins
+            dw_source = self.metric.numerator if num_is_dw else self.metric.denominator
+            exposure_query.select.append(
+                ast.Alias(
+                    alias="exposure_identifier",
+                    expr=ast.Field(chain=dw_source.events_join_key.split(".")),
+                )
+            )
+            if exposure_query.group_by:
+                exposure_query.group_by.append(ast.Field(chain=dw_source.events_join_key.split(".")))
+
+        # Build join conditions
+        num_join_cond = (
+            "toString(exposures.exposure_identifier) = toString(numerator_events.entity_id)"
+            if num_is_dw
+            else "exposures.entity_id = numerator_events.entity_id"
+        )
+        denom_join_cond = (
+            "toString(exposures.exposure_identifier) = toString(denominator_events.entity_id)"
+            if denom_is_dw
+            else "exposures.entity_id = denominator_events.entity_id"
+        )
+
         common_ctes = f"""
             exposures AS (
                 {{exposure_select_query}}
@@ -377,19 +421,19 @@ class ExperimentQueryBuilder:
 
             numerator_events AS (
                 SELECT
-                    {{entity_key}} AS entity_id,
-                    timestamp,
+                    {{num_entity_key}} AS entity_id,
+                    {num_timestamp_field} AS timestamp,
                     {{numerator_value_expr}} AS value
-                FROM events
+                FROM {num_table}
                 WHERE {{numerator_predicate}}
             ),
 
             denominator_events AS (
                 SELECT
-                    {{entity_key}} AS entity_id,
-                    timestamp,
+                    {{denom_entity_key}} AS entity_id,
+                    {denom_timestamp_field} AS timestamp,
                     {{denominator_value_expr}} AS value
-                FROM events
+                FROM {denom_table}
                 WHERE {{denominator_predicate}}
             ),
 
@@ -399,7 +443,7 @@ class ExperimentQueryBuilder:
                     exposures.variant AS variant,
                     {{numerator_agg}} AS numerator_value
                 FROM exposures
-                LEFT JOIN numerator_events ON exposures.entity_id = numerator_events.entity_id
+                LEFT JOIN numerator_events ON {num_join_cond}
                     AND {{numerator_conversion_window_predicate}}
                 GROUP BY exposures.entity_id, exposures.variant
             ),
@@ -410,7 +454,7 @@ class ExperimentQueryBuilder:
                     exposures.variant AS variant,
                     {{denominator_agg}} AS denominator_value
                 FROM exposures
-                LEFT JOIN denominator_events ON exposures.entity_id = denominator_events.entity_id
+                LEFT JOIN denominator_events ON {denom_join_cond}
                     AND {{denominator_conversion_window_predicate}}
                 GROUP BY exposures.entity_id, exposures.variant
             ),
@@ -444,9 +488,12 @@ class ExperimentQueryBuilder:
             GROUP BY entity_metrics.variant
             """,
             placeholders={
-                "exposure_select_query": self._build_exposure_select_query(),
-                "entity_key": parse_expr(self.entity_key),
-                "numerator_predicate": self._build_metric_predicate(source=self.metric.numerator),
+                "exposure_select_query": exposure_query,
+                "num_entity_key": parse_expr(num_entity_field),
+                "denom_entity_key": parse_expr(denom_entity_field),
+                "numerator_predicate": self._build_metric_predicate(
+                    source=self.metric.numerator, table_alias=num_table
+                ),
                 "numerator_value_expr": self._build_value_expr(source=self.metric.numerator),
                 "numerator_agg": self._build_value_aggregation_expr(
                     source=self.metric.numerator, events_alias="numerator_events"
@@ -454,7 +501,9 @@ class ExperimentQueryBuilder:
                 "numerator_conversion_window_predicate": self._build_conversion_window_predicate_for_events(
                     "numerator_events"
                 ),
-                "denominator_predicate": self._build_metric_predicate(source=self.metric.denominator),
+                "denominator_predicate": self._build_metric_predicate(
+                    source=self.metric.denominator, table_alias=denom_table
+                ),
                 "denominator_value_expr": self._build_value_expr(source=self.metric.denominator),
                 "denominator_agg": self._build_value_aggregation_expr(
                     source=self.metric.denominator, events_alias="denominator_events"
@@ -494,30 +543,34 @@ class ExperimentQueryBuilder:
         else:
             return parse_expr(f"{events_alias}.timestamp >= exposures.first_exposure_time")
 
-    def _build_metric_predicate(self, source=None) -> ast.Expr:
+    def _build_metric_predicate(self, source=None, table_alias: str = "events") -> ast.Expr:
         """
         Builds the metric predicate as an AST expression.
-        For ratio metrics, pass the specific source (numerator or denominator).
-        For mean metrics, uses self.metric.source by default.
+        For ratio metrics, pass the specific source (numerator or denominator) and table_alias.
+        For mean metrics, uses self.metric.source by default with "events" alias.
         """
         if source is None:
             assert isinstance(self.metric, ExperimentMeanMetric)
             source = self.metric.source
 
-        # TODO: Implement support for DatawarehouseNode
-        assert isinstance(source, EventsNode | ActionsNode)
-
-        metric_event_filter = event_or_action_to_filter(self.team, source)
+        # Data warehouse sources use different table and predicate logic
+        if isinstance(source, ExperimentDataWarehouseNode):
+            timestamp_field_chain = [table_alias, source.timestamp_field]
+            metric_event_filter = data_warehouse_node_to_filter(self.team, source)
+        else:
+            timestamp_field_chain = [table_alias, "timestamp"]
+            metric_event_filter = event_or_action_to_filter(self.team, source)
 
         conversion_window_seconds = self._get_conversion_window_seconds()
 
         return parse_expr(
             """
-            timestamp >= {date_from}
-            AND timestamp < {date_to} + toIntervalSecond({conversion_window_seconds})
+            {timestamp_field} >= {date_from}
+            AND {timestamp_field} < {date_to} + toIntervalSecond({conversion_window_seconds})
             AND {metric_event_filter}
             """,
             placeholders={
+                "timestamp_field": ast.Field(chain=timestamp_field_chain),
                 "date_from": self.date_range_query.date_from_as_hogql(),
                 "date_to": self.date_range_query.date_to_as_hogql(),
                 "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
