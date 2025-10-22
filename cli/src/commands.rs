@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use tracing::error;
 
 use crate::{
     error::CapturedError,
@@ -65,11 +66,22 @@ impl Cli {
     pub fn run() -> Result<(), CapturedError> {
         let command = Cli::parse();
         let no_fail = command.no_fail;
-        let res = command.run_impl();
-        if no_fail {
-            return Ok(());
+
+        match command.run_impl() {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                let msg = match &e.exception_id {
+                    Some(id) => format!("Oops! {} (ID: {})", e.inner, id),
+                    None => format!("Oops! {:?}", e.inner),
+                };
+                error!(msg);
+                if no_fail {
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            }
         }
-        res
     }
 
     fn run_impl(self) -> Result<(), CapturedError> {
