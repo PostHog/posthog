@@ -84,8 +84,8 @@ export function ExposureCriteriaPanel({ experiment, onChange }: ExposureCriteria
                                     properties: [],
                                 } as ExperimentEventExposureConfig)
                         )}
-                        setFilters={({ events }: Partial<FilterType>): void => {
-                            const entity = events?.[0]
+                        setFilters={({ events, actions }: Partial<FilterType>): void => {
+                            const entity = events?.[0] || actions?.[0]
                             if (entity) {
                                 onChange({
                                     exposure_config: filterToExposureConfig(entity),
@@ -99,7 +99,7 @@ export function ExposureCriteriaPanel({ experiment, onChange }: ExposureCriteria
                         entitiesLimit={1}
                         mathAvailability={MathAvailability.None}
                         showNumericalPropsOnly={false}
-                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                         propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 </div>
