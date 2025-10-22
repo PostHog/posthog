@@ -90,7 +90,9 @@ async function eachBatchEvaluationScheduler(
 
     logger.debug('Processing batch', { partition: batch.partition, messageCount: batch.messages.length })
 
+    // OPTIMIZATION: Filter by event header before deserializing the full message
     const aiGenerationEvents = batch.messages
+        .filter((message) => message.headers?.event?.toString('utf8') === '$ai_generation')
         .map((message) => {
             try {
                 return parseJSON(message.value!.toString()) as RawKafkaEvent
@@ -99,7 +101,7 @@ async function eachBatchEvaluationScheduler(
                 return null
             }
         })
-        .filter((event): event is RawKafkaEvent => event !== null && event.event === '$ai_generation')
+        .filter((event) => event !== null)
 
     if (aiGenerationEvents.length === 0) {
         resolveOffset(batch.messages[batch.messages.length - 1].offset)
