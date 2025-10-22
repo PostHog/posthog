@@ -151,7 +151,9 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], self.user.email)
 
         mock_is_verification_disabled.assert_called_once()
-        mock_is_email_available.assert_called_once()
+        mock_is_email_available.assert_called()
+        # Once for the login check, once for the email MFA check
+        self.assertEqual(mock_is_email_available.call_count, 2)
         mock_send_email_verification.assert_not_called()
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
@@ -170,7 +172,9 @@ class TestLoginAPI(APIBaseTest):
         # Test that we are logged in
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_is_email_available.assert_called_once()
+        mock_is_email_available.assert_called()
+        # Once for the login check, once for the email MFA check
+        self.assertEqual(mock_is_email_available.call_count, 2)
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
 
