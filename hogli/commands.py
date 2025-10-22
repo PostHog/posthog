@@ -41,26 +41,30 @@ def _format_command_help(cmd_name: str, cmd_config: dict, underlying_cmd: str) -
     - Original description
     - Service info if available
     - Underlying command being executed
+
+    Note: Click will rewrap long lines, but we add paragraph breaks between
+    services for better readability.
     """
-    lines = []
+    parts = []
 
     # Add main description
     if description := cmd_config.get("description", ""):
-        lines.append(description)
+        parts.append(description)
 
     # Add service context if available
     services = get_services_for_command(cmd_name, cmd_config)
     if services:
-        lines.append("")
-        lines.extend(f"{svc_name}: {about}" for svc_name, about in services)
+        parts.append("Uses:")
+        # Add each service as a separate paragraph to force line breaks
+        for svc_name, about in services:
+            parts.append(f"• {svc_name}: {about}")
 
     # Add underlying command
     if underlying_cmd:
-        lines.append("")
-        cmd_prefix = "Runs" if " && " in underlying_cmd else "Command"
-        lines.append(f"{cmd_prefix}: {underlying_cmd}")
+        parts.append(f"Executes: {underlying_cmd}")
 
-    return "\n".join(lines)
+    # Join with double newlines to create paragraph breaks
+    return "\n\n".join(parts)
 
 
 class Command:
