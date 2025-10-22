@@ -5,8 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import models
-from django.db.models import Count, Max, OuterRef, Q, QuerySet, Subquery, Value
-from django.db.models.functions import Coalesce
+from django.db.models import Max, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 from posthog.models.file_system.file_system import FileSystem
@@ -75,15 +74,12 @@ def annotate_file_system_with_view_logs(
         ref=OuterRef("ref"),
     )
 
-    last_viewed_subquery = view_logs.order_by("-viewed_at").values("viewed_at")[:1]
-    view_count_subquery = view_logs.values("type", "ref").annotate(count=Count("id")).values("count")
+    last_viewed_subquery = (
+        view_logs.order_by().values("team_id").annotate(last_viewed_at=Max("viewed_at")).values("last_viewed_at")[:1]
+    )
 
     return base_qs.annotate(
         last_viewed_at=Subquery(last_viewed_subquery),
-        view_count=Coalesce(
-            Subquery(view_count_subquery),
-            Value(0, output_field=models.IntegerField()),
-        ),
     )
 
 

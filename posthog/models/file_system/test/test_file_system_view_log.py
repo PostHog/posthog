@@ -14,9 +14,8 @@ from posthog.models.file_system.file_system_view_log import (
 )
 
 
-class FileSystemWithViewStats(Protocol):
+class FileSystemWithLastViewed(Protocol):
     ref: str
-    view_count: int
     last_viewed_at: datetime | None
 
 
@@ -46,13 +45,12 @@ class TestFileSystemViewLog(TestCase):
             log_file_system_view(user=self.user, obj=dashboard)
 
         view_order = [
-            cast(FileSystemWithViewStats, item)
+            cast(FileSystemWithLastViewed, item)
             for item in get_recent_file_system_items(team_id=self.team.id, user_id=self.user.id)
         ]
 
         self.assertGreaterEqual(len(view_order), 2)
         self.assertEqual([item.ref for item in view_order[:2]], [str(dashboard.id), insight.short_id])
-        self.assertEqual([item.view_count for item in view_order[:2]], [2, 1])
         self.assertEqual(
             view_order[0].last_viewed_at,
             datetime(2024, 1, 3, 10, 0, 0, tzinfo=UTC),
