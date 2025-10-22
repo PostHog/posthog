@@ -15,6 +15,7 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
         loadSavedHeatmaps: true,
         setSavedHeatmaps: (items: HeatmapScreenshotType[]) => ({ items }),
         setLoading: (loading: boolean) => ({ loading }),
+        deleteHeatmap: (short_id: string) => ({ short_id }),
     }),
     reducers({
         savedHeatmaps: [
@@ -53,6 +54,14 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
                 actions.setSavedHeatmaps(response.results || [])
             } finally {
                 actions.setLoading(false)
+            }
+        },
+        deleteHeatmap: async ({ short_id }) => {
+            try {
+                await api.heatmapSaved.delete(short_id)
+                actions.loadSavedHeatmaps()
+            } catch (error) {
+                console.error(error)
             }
         },
     })),

@@ -1,9 +1,11 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumn, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Warnings } from 'scenes/heatmaps/components/HeatmapsBrowser'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -24,7 +26,8 @@ export const scene: SceneExport = {
 }
 
 export function HeatmapsScene(): JSX.Element {
-    const { savedHeatmaps, savedHeatmapsLoading } = useValues(heatmapsSceneLogic())
+    const { savedHeatmaps, savedHeatmapsLoading } = useValues(heatmapsSceneLogic)
+    const { deleteHeatmap } = useActions(heatmapsSceneLogic)
 
     const columns: LemonTableColumns<HeatmapScreenshotType> = [
         {
@@ -62,7 +65,9 @@ export function HeatmapsScene(): JSX.Element {
         {
             title: 'Created',
             dataIndex: 'created_at',
-            render: (_, row) => new Date(row.created_at).toLocaleString(),
+            render: function Render(created_at) {
+                return <div>{created_at && typeof created_at === 'string' && <TZLabel time={created_at} />}</div>
+            },
         },
         {
             ...(createdByColumn<HeatmapScreenshotType>() as LemonTableColumn<
@@ -70,6 +75,27 @@ export function HeatmapsScene(): JSX.Element {
                 keyof HeatmapScreenshotType | undefined
             >),
             width: 0,
+        },
+        {
+            width: 0,
+            render: function Render(_, row) {
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => deleteHeatmap(row.short_id)}
+                                    fullWidth
+                                    loading={savedHeatmapsLoading}
+                                >
+                                    Delete
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
+            },
         },
     ]
 
