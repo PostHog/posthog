@@ -18,7 +18,7 @@ from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import OrganizationMemberPermissions, UserCanInvitePermission
+from posthog.permissions import OrganizationMemberPermissions, TimeSensitiveActionPermission, UserCanInvitePermission
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.tasks.email import send_invite
 
@@ -304,7 +304,12 @@ class OrganizationInviteViewSet(
         if self.action in ["create", "bulk"]:
             write_permissions = [
                 permission()
-                for permission in [permissions.IsAuthenticated, OrganizationMemberPermissions, UserCanInvitePermission]
+                for permission in [
+                    permissions.IsAuthenticated,
+                    OrganizationMemberPermissions,
+                    UserCanInvitePermission,
+                    TimeSensitiveActionPermission,
+                ]
             ]
             return write_permissions
 
@@ -318,6 +323,7 @@ class OrganizationInviteViewSet(
                     permissions.IsAuthenticated,
                     OrganizationMemberPermissions,
                     OrganizationAdminWritePermissions,
+                    TimeSensitiveActionPermission,
                 ]
             ]
             return delete_permissions
