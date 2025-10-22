@@ -160,3 +160,21 @@ def get_unique_survey_event_uuids_sql_subquery(
     group_by_clause = ", ".join([*group_by_prefix_expressions, deduplication_group_by_key])
 
     return f"(SELECT argMax(uuid, timestamp) FROM events WHERE {where_clause} GROUP BY {group_by_clause})"
+
+
+def build_archived_responses_filter(survey, include_archived: bool = False) -> str:
+    """
+    Generate SQL filter to exclude archived survey responses from queries.
+
+    Args:
+        survey: Survey model instance
+        include_archived: If True, don't filter out archived responses
+
+    Returns:
+        SQL filter string to be added to WHERE clause (empty string if no filtering needed)
+    """
+    if include_archived or not survey.archived_response_uuids:
+        return ""
+
+    uuid_list = ", ".join(f"'{uuid}'" for uuid in survey.archived_response_uuids)
+    return f"AND uuid NOT IN ({uuid_list})"

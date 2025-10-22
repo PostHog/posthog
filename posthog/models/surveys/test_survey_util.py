@@ -1,9 +1,13 @@
+from uuid import uuid4
+
 from unittest import TestCase
+from unittest.mock import Mock
 
 from posthog.models.surveys.util import (
     _build_coalesce_query,
     _build_id_based_key,
     _build_index_based_key,
+    build_archived_responses_filter,
     get_survey_response_clickhouse_query,
 )
 
@@ -68,3 +72,64 @@ class TestSurveyResponseFunctions(TestCase):
         JSONExtractArrayRaw(properties, '$survey_response_1')
     )"""
         self.assertEqual(query, expected)
+
+
+class TestBuildArchivedResponsesFilter(TestCase):
+    def test_returns_empty_string_when_include_archived_is_true(self):
+        """Test that filter is not applied when include_archived=True"""
+        survey = Mock()
+        survey.archived_response_uuids = [uuid4(), uuid4()]
+
+        result = build_archived_responses_filter(survey, include_archived=True)
+
+        self.assertEqual(result, "")
+
+    def test_returns_empty_string_when_no_archived_uuids(self):
+        """Test that filter is not applied when archived_response_uuids is empty"""
+        survey = Mock()
+        survey.archived_response_uuids = []
+
+        result = build_archived_responses_filter(survey, include_archived=False)
+
+        self.assertEqual(result, "")
+
+    def test_returns_empty_string_when_archived_uuids_is_none(self):
+        """Test that filter is not applied when archived_response_uuids is None"""
+        survey = Mock()
+        survey.archived_response_uuids = None
+
+        result = build_archived_responses_filter(survey, include_archived=False)
+
+        self.assertEqual(result, "")
+
+    def test_builds_filter_with_single_uuid(self):
+        """Test building filter with a single archived UUID"""
+        uuid = uuid4()
+        survey = Mock()
+        survey.archived_response_uuids = [uuid]
+
+        result = build_archived_responses_filter(survey, include_archived=False)
+
+        self.assertEqual(result, f"AND uuid NOT IN ('{uuid}')")
+
+    def test_builds_filter_with_multiple_uuids(self):
+        """Test building filter with multiple archived UUIDs"""
+        uuid1 = uuid4()
+        uuid2 = uuid4()
+        uuid3 = uuid4()
+        survey = Mock()
+        survey.archived_response_uuids = [uuid1, uuid2, uuid3]
+
+        result = build_archived_responses_filter(survey, include_archived=False)
+
+        self.assertEqual(result, f"AND uuid NOT IN ('{uuid1}', '{uuid2}', '{uuid3}')")
+
+    def test_default_include_archived_is_false(self):
+        """Test that default behavior is to exclude archived responses"""
+        uuid = uuid4()
+        survey = Mock()
+        survey.archived_response_uuids = [uuid]
+
+        result = build_archived_responses_filter(survey)
+
+        self.assertEqual(result, f"AND uuid NOT IN ('{uuid}')")
