@@ -8,7 +8,7 @@ import pytest
 
 from google.cloud import bigquery, exceptions
 
-from products.batch_exports.backend.api.destination_tests import (
+from products.batch_exports.backend.api.destination_tests.bigquery import (
     BigQueryDatasetTestStep,
     BigQueryProjectTestStep,
     BigQueryTableTestStep,

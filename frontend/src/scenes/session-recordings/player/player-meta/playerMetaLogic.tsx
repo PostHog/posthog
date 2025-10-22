@@ -5,7 +5,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
+import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
 
 import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -32,31 +32,13 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
-import { calculateTTL } from '../utils/ttlUtils'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { SessionSummaryContent } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
-const ALLOW_LISTED_PERSON_PROPERTIES = [
-    '$os_name',
-    '$os',
-    '$browser_name',
-    '$browser',
-    '$device_type',
-    '$referrer',
-    '$geoip_country_code',
-    '$geoip_subdivision_1_name',
-    '$geoip_city_name',
-]
-
-function allowListedPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
-    const personProperties = sessionPlayerMetaData?.person?.properties ?? {}
-    return Object.fromEntries(
-        Object.entries(personProperties).filter(([key]) => {
-            return ALLOW_LISTED_PERSON_PROPERTIES.includes(key)
-        })
-    )
+function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
+    return sessionPlayerMetaData?.person?.properties ?? {}
 }
 
 function canRenderDirectly(value: any): boolean {
@@ -79,6 +61,44 @@ export function countryTitleFrom(
     const city = props['$geoip_city_name']
 
     return [city, subdivision, country].filter(Boolean).join(', ')
+}
+
+/**
+ * Get human-readable property label and type information
+ * @param property - The property key (e.g., '$browser', 'email')
+ * @param recordingProperties - Recording properties to determine if it's an event property
+ * @returns Object with label, originalKey, and type information
+ */
+export function getPropertyDisplayInfo(
+    property: string,
+    recordingProperties?: Record<string, any>
+): {
+    label: string
+    originalKey: string
+    type: TaxonomicFilterGroupType
+    propertyFilterType?: PropertyFilterType
+} {
+    const propertyType = recordingProperties?.[property]
+        ? // HogQL query can return multiple types, so we need to check
+          // but if it doesn't match a core definition it must be an event property
+          getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
+        : TaxonomicFilterGroupType.PersonProperties
+
+    const propertyFilterType: PropertyFilterType | undefined =
+        propertyType === TaxonomicFilterGroupType.EventProperties
+            ? PropertyFilterType.Event
+            : propertyType === TaxonomicFilterGroupType.SessionProperties
+              ? PropertyFilterType.Session
+              : PropertyFilterType.Person
+
+    const label = getCoreFilterDefinition(property, propertyType)?.label ?? property
+
+    return {
+        label,
+        originalKey: property,
+        type: propertyType,
+        propertyFilterType,
+    }
 }
 
 export const playerMetaLogic = kea<playerMetaLogicType>([
@@ -106,6 +126,9 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
         summarizeSession: () => ({}),
         setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
+        setPinnedProperties: (properties: string[]) => ({ properties }),
+        togglePropertyPin: (propertyKey: string) => ({ propertyKey }),
+        setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
@@ -128,6 +151,40 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 setSessionSummaryLoading: (_, { isLoading }) => isLoading,
             },
         ],
+        pinnedProperties: [
+            [
+                'Start',
+                'Clicks',
+                'Duration',
+                'TTL',
+                'console_error_count',
+                'click_count',
+                'key_press_count',
+                '$referrer',
+                '$geoip_country_code',
+                '$geoip_city_name',
+            ] as string[],
+            { persist: true },
+            {
+                setPinnedProperties: (_, { properties }) => properties,
+            },
+        ],
+        isPropertyPopoverOpen: [
+            false,
+            {
+                setIsPropertyPopoverOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+    })),
+    listeners(({ actions, values }) => ({
+        togglePropertyPin: ({ propertyKey }) => {
+            const currentPinned = values.pinnedProperties
+            if (currentPinned.includes(propertyKey)) {
+                actions.setPinnedProperties(currentPinned.filter((k) => k !== propertyKey))
+            } else {
+                actions.setPinnedProperties([...currentPinned, propertyKey])
+            }
+        },
     })),
     selectors(() => ({
         loading: [
@@ -162,14 +219,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return sessionPlayerData.start ?? null
             },
         ],
-
         endTime: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData) => {
                 return sessionPlayerData.end ?? null
             },
         ],
-
         currentWindowIndex: [
             (s) => [s.windowIds, s.currentSegment],
             (windowIds, currentSegment) => {
@@ -200,23 +255,15 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
             },
         ],
-        sessionTTLDays: [
-            (s) => [s.sessionPlayerMetaData],
-            (sessionPlayerMetaData) => {
-                if (sessionPlayerMetaData?.retention_period_days && sessionPlayerMetaData?.start_time) {
-                    return calculateTTL(sessionPlayerMetaData.start_time, sessionPlayerMetaData.retention_period_days)
-                }
-
-                return null
-            },
-        ],
-        overviewItems: [
-            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById, s.sessionTTLDays],
-            (sessionPlayerMetaData, startTime, recordingPropertiesById, sessionTTLDays) => {
+        allOverviewItems: [
+            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
+            (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
                 const items: OverviewItem[] = []
+
                 if (startTime) {
                     items.push({
                         label: 'Start',
+                        icon: <IconClock />,
                         value: (
                             <SimpleTimeLabel
                                 muted={false}
@@ -231,23 +278,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 if (sessionPlayerMetaData?.recording_duration) {
                     items.push({
                         label: 'Duration',
+                        icon: <IconHourglass />,
                         value: humanFriendlyDuration(sessionPlayerMetaData.recording_duration),
                         type: 'text',
                     })
                 }
-                if (sessionPlayerMetaData?.retention_period_days) {
-                    items.push({
-                        label: 'Retention Period',
-                        value: `${sessionPlayerMetaData.retention_period_days}d`,
-                        type: 'text',
-                        keyTooltip: 'The total number of days this recording will be retained',
-                    })
-                }
-                if (sessionTTLDays !== null) {
+                if (sessionPlayerMetaData?.retention_period_days && sessionPlayerMetaData?.recording_ttl) {
                     items.push({
                         icon: <IconHourglass />,
                         label: 'TTL',
-                        value: `${sessionTTLDays}d`,
+                        value: `${sessionPlayerMetaData.recording_ttl}d / ${sessionPlayerMetaData.retention_period_days}d`,
                         type: 'text',
                         keyTooltip: 'The number of days left before this recording expires',
                     })
@@ -275,49 +315,37 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 const recordingProperties = sessionPlayerMetaData?.id
                     ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
                     : {}
-                const personProperties = allowListedPersonProperties(sessionPlayerMetaData)
+                const personProperties = getAllPersonProperties(sessionPlayerMetaData)
 
-                const shouldUsePersonProperties = Object.keys(recordingProperties).length === 0
-                const propertiesToUse = shouldUsePersonProperties ? personProperties : recordingProperties
-                if (propertiesToUse['$os_name'] && propertiesToUse['$os']) {
+                // Combine both recording and person properties
+                const allProperties = { ...recordingProperties, ...personProperties }
+                if (allProperties['$os_name'] && allProperties['$os']) {
                     // we don't need both, prefer $os_name in case mobile sends better value in that field
-                    delete propertiesToUse['$os']
+                    delete allProperties['$os']
                 }
-                Object.entries(propertiesToUse).forEach(([property, value]) => {
-                    if (value == null) {
-                        return
-                    }
+                Object.entries(allProperties).forEach(([property, value]) => {
                     if (property === '$geoip_subdivision_1_name' || property === '$geoip_city_name') {
                         // they're just shown in the title for Country
                         return
                     }
 
-                    const propertyType = recordingProperties[property]
-                        ? // HogQL query can return multiple types, so we need to check
-                          // but if it doesn't match a core definition it must be an event property
-                          getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
-                        : TaxonomicFilterGroupType.PersonProperties
+                    const propertyInfo = getPropertyDisplayInfo(property, recordingProperties)
 
                     const safeValue =
-                        typeof value === 'string'
-                            ? value
-                            : typeof value === 'number'
-                              ? value.toString()
-                              : JSON.stringify(value, null, 2)
+                        value == null
+                            ? '-'
+                            : typeof value === 'string'
+                              ? value
+                              : typeof value === 'number'
+                                ? value.toString()
+                                : JSON.stringify(value, null, 2)
 
-                    const calculatedPropertyType: PropertyFilterType | undefined = shouldUsePersonProperties
-                        ? PropertyFilterType.Person
-                        : propertyType === TaxonomicFilterGroupType.EventProperties
-                          ? PropertyFilterType.Event
-                          : TaxonomicFilterGroupType.SessionProperties
-                            ? PropertyFilterType.Session
-                            : PropertyFilterType.Person
                     items.push({
-                        icon: <PropertyFilterIcon type={calculatedPropertyType} />,
-                        label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
+                        icon: <PropertyFilterIcon type={propertyInfo.propertyFilterType} />,
+                        label: propertyInfo.label,
                         value: safeValue,
-                        keyTooltip: calculatedPropertyType
-                            ? `${capitalizeFirstLetter(calculatedPropertyType)} property`
+                        keyTooltip: propertyInfo.propertyFilterType
+                            ? `${capitalizeFirstLetter(propertyInfo.propertyFilterType)} property`
                             : undefined,
                         valueTooltip:
                             property === '$geoip_country_code' && safeValue in COUNTRY_CODE_TO_LONG_NAME
@@ -332,6 +360,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 })
 
                 return items
+            },
+        ],
+        displayOverviewItems: [
+            (s) => [s.allOverviewItems, s.pinnedProperties],
+            (allOverviewItems, pinnedProperties) => {
+                // Filter to show only pinned properties
+                return allOverviewItems.filter((item) => {
+                    const key = item.type === 'property' ? item.property : item.label
+                    return pinnedProperties.includes(String(key))
+                })
             },
         ],
     })),

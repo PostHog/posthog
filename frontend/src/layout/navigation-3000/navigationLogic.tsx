@@ -10,10 +10,10 @@ import {
     IconCursorClick,
     IconDashboard,
     IconDatabase,
+    IconDecisionTree,
     IconGraph,
     IconHome,
     IconLive,
-    IconMegaphone,
     IconMessage,
     IconNotebook,
     IconPeople,
@@ -76,7 +76,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             organizationLogic,
             ['isCurrentOrganizationUnavailable'],
         ],
-        actions: [navigationLogic, ['closeAccountPopover'], sceneLogic, ['setScene']],
+        actions: [sceneLogic, ['setScene']],
     })),
     actions({
         hideSidebar: true,
@@ -148,7 +148,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             {
                 showNavOnMobile: () => true,
                 hideNavOnMobile: () => false,
-                closeAccountPopover: () => false,
             },
         ],
         isSidebarKeyboardShortcutAcknowledged: [
@@ -561,7 +560,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.llmAnalyticsDashboard(),
                             tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
                         },
-                        featureFlags[FEATURE_FLAGS.LOGS]
+                        featureFlags[FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS]
                             ? {
                                   identifier: 'Logs',
                                   label: 'Logs',
@@ -610,12 +609,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.MESSAGING]
+                        featureFlags[FEATURE_FLAGS.WORKFLOWS]
                             ? {
-                                  identifier: Scene.Messaging,
-                                  label: 'Messaging',
-                                  icon: <IconMegaphone />,
-                                  to: urls.messaging(),
+                                  identifier: Scene.Workflows,
+                                  label: 'Workflows',
+                                  icon: <IconDecisionTree />,
+                                  to: urls.workflows(),
                                   tag: 'alpha' as const,
                               }
                             : null,

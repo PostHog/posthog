@@ -12,9 +12,8 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     code_language="javascript",
     code="""
 export function onLoad({ inputs, posthog }) {
-    console.log("Enabling PostHog.js debugging", posthog)
-
     if (inputs.enable_debugging) {
+        console.log("[PostHog JS debugger site app] Enabling PostHog.js debugging", posthog)
         posthog.debug(true)
     }
 

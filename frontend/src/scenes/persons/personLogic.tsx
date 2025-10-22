@@ -1,12 +1,14 @@
-import { actions, kea, key, path, props } from 'kea'
+import { actions, kea, key, path, props, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 
 import { hogqlQuery } from '~/queries/query'
 import { hogql } from '~/queries/utils'
-import { PersonType } from '~/types'
+import { Breadcrumb, PersonType } from '~/types'
 
 import { getHogqlQueryStringForPersonId } from './person-utils'
 import type { personLogicType } from './personLogicType'
@@ -30,6 +32,22 @@ export const personLogic = kea<personLogicType>([
         loadPerson: true,
         loadInfo: true,
     }),
+    selectors(() => ({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                const breadcrumbs: Breadcrumb[] = [
+                    {
+                        key: Scene.Person,
+                        name: sceneConfigurations[Scene.Person].name,
+                        iconType: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
+                    },
+                ]
+
+                return breadcrumbs
+            },
+        ],
+    })),
     lazyLoaders(({ props }) => ({
         person: [
             null as PersonType | null,

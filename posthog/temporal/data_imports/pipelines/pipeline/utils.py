@@ -582,6 +582,13 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
 
+def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.dtype[Any]]):
+    if isinstance(column_data, pa.ChunkedArray):
+        return column_data.combine_chunks().tolist()
+
+    return column_data.tolist()
+
+
 def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
     # Support both given schemas and inferred schemas
     if schema is None or len(schema.names) == 0:
@@ -617,7 +624,9 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
     for field_name in columnar_table_data.keys():
         py_type: type = type(None)
-        unique_types_in_column = {type(item) for item in columnar_table_data[field_name].tolist() if item is not None}
+        unique_types_in_column = {
+            type(item) for item in _to_list_array(columnar_table_data[field_name]) if item is not None
+        }
 
         for row in table_data:
             val = row.get(field_name, None)
@@ -645,7 +654,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             # cast string timestamps to datetime objects
             if pa.types.is_timestamp(field.type) and issubclass(py_type, str):
                 timestamp_array = pa.array(
-                    [safe_parse_datetime(s) for s in columnar_table_data[field_name].tolist()], type=field.type
+                    [safe_parse_datetime(s) for s in _to_list_array(columnar_table_data[field_name])], type=field.type
                 )
                 columnar_table_data[field_name] = timestamp_array
                 has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
@@ -656,7 +665,10 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             # Upscale second timestamps to microsecond
             if pa.types.is_timestamp(field.type) and issubclass(py_type, int) and field.type.unit == "s":
                 timestamp_array = pa.array(
-                    [(s * 1_000_000) if s is not None else None for s in columnar_table_data[field_name].tolist()],
+                    [
+                        (s * 1_000_000) if s is not None else None
+                        for s in _to_list_array(columnar_table_data[field_name])
+                    ],
                     type=pa.timestamp("us"),
                 )
                 columnar_table_data[field_name] = timestamp_array
@@ -667,7 +679,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             # Upscale millisecond timestamps to microsecond
             if pa.types.is_timestamp(field.type) and issubclass(py_type, int) and field.type.unit == "ms":
                 timestamp_array = pa.array(
-                    [(s * 1000) if s is not None else None for s in columnar_table_data[field_name].tolist()],
+                    [(s * 1000) if s is not None else None for s in _to_list_array(columnar_table_data[field_name])],
                     type=pa.timestamp("us"),
                 )
                 columnar_table_data[field_name] = timestamp_array
@@ -690,7 +702,9 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
         # Convert UUIDs to strings
         if issubclass(py_type, uuid.UUID):
-            uuid_str_array = pa.array([None if s is None else str(s) for s in columnar_table_data[field_name].tolist()])
+            uuid_str_array = pa.array(
+                [None if s is None else str(s) for s in _to_list_array(columnar_table_data[field_name])]
+            )
             columnar_table_data[field_name] = uuid_str_array
             py_type = str
             if arrow_schema:
@@ -724,7 +738,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
                 return x
 
-            all_values = columnar_table_data[field_name].tolist()
+            all_values = _to_list_array(columnar_table_data[field_name])
 
             if len(unique_types_in_column) > 1 or issubclass(py_type, decimal.Decimal):
                 # Mixed types: convert all to decimals
@@ -768,7 +782,9 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
         # If one type is a list, then make everything into a list
         if len(unique_types_in_column) > 1 and list in unique_types_in_column:
-            list_array = pa.array([s if isinstance(s, list) else [s] for s in columnar_table_data[field_name].tolist()])
+            list_array = pa.array(
+                [s if isinstance(s, list) else [s] for s in _to_list_array(columnar_table_data[field_name])]
+            )
             columnar_table_data[field_name] = list_array
             py_type = list
             unique_types_in_column = {list}
@@ -780,7 +796,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             json_array = pa.array(
                 [
                     None if s is None else _json_dumps(s) if isinstance(s, dict | list) else s
-                    for s in columnar_table_data[field_name].tolist()
+                    for s in _to_list_array(columnar_table_data[field_name])
                 ]
             )
             columnar_table_data[field_name] = json_array
@@ -792,7 +808,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
         # If there are multiple types that aren't a list, then JSON stringify everything
         if len(unique_types_in_column) > 1:
             json_array = pa.array(
-                [None if s is None else _json_dumps(s) for s in columnar_table_data[field_name].tolist()]
+                [None if s is None else _json_dumps(s) for s in _to_list_array(columnar_table_data[field_name])]
             )
             columnar_table_data[field_name] = json_array
             py_type = str
@@ -803,7 +819,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
         # Convert any dict/lists to json strings to avoid schema mismatches in nested objects
         if issubclass(py_type, dict | list):
             json_str_array = pa.array(
-                [None if s is None else _json_dumps(s) for s in columnar_table_data[field_name].tolist()]
+                [None if s is None else _json_dumps(s) for s in _to_list_array(columnar_table_data[field_name])]
             )
             columnar_table_data[field_name] = json_str_array
             py_type = str
@@ -812,7 +828,9 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
         # Convert IP types to string
         if issubclass(py_type, IPv4Address | IPv6Address):
-            str_array = pa.array([None if s is None else str(s) for s in columnar_table_data[field_name].tolist()])
+            str_array = pa.array(
+                [None if s is None else str(s) for s in _to_list_array(columnar_table_data[field_name])]
+            )
             columnar_table_data[field_name] = str_array
             py_type = str
             if arrow_schema:

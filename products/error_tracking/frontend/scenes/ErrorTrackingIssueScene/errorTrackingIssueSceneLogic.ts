@@ -32,6 +32,10 @@ export interface ErrorTrackingIssueSceneLogicProps {
 }
 
 export type ErrorTrackingIssueStatus = ErrorTrackingIssue['status']
+export type ErrorTrackingIssueSceneCategory = 'exceptions' | 'breakdowns'
+export type ErrorTrackingIssueSceneExceptionsCategory = 'all' | 'exception'
+
+export const ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY = 'ErrorTrackingIssueScene'
 
 export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType>([
     path((key) => [
@@ -46,9 +50,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     key((props) => props.id),
 
     connect(() => ({
-        values: [issueFiltersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
+        values: [
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
+            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
+        ],
         actions: [
-            issueFiltersLogic,
+            issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
             ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
             issueActionsLogic,
             ['updateIssueAssignee', 'updateIssueStatus', 'updateIssueName', 'updateIssueDescription'],
@@ -73,6 +80,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
         updateName: (name: string) => ({ name }),
         updateDescription: (description: string) => ({ description }),
+        setCategory: (category: ErrorTrackingIssueSceneCategory) => ({ category }),
+        setExceptionsCategory: (category: ErrorTrackingIssueSceneExceptionsCategory) => ({ category }),
     }),
 
     defaults({
@@ -84,6 +93,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         selectedEvent: null as ErrorEventType | null,
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
+        category: 'exceptions' as ErrorTrackingIssueSceneCategory,
+        exceptionsCategory: 'exception' as ErrorTrackingIssueSceneExceptionsCategory,
     }),
 
     reducers(({ values }) => ({
@@ -112,6 +123,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return event
             },
+        },
+        category: {
+            setCategory: (_, { category }) => category,
+        },
+        exceptionsCategory: {
+            setExceptionsCategory: (_, { category }) => category,
         },
     })),
 
