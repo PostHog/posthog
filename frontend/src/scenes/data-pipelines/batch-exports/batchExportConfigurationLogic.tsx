@@ -729,8 +729,48 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         filters,
                         json_config_file,
                         integration_id,
+                        // Redshift COPY configuration
+                        mode,
+                        authorization_mode,
+                        redshift_s3_bucket,
+                        redshift_s3_key_prefix,
+                        redshift_s3_bucket_region_name,
+                        redshift_s3_bucket_aws_access_key_id,
+                        redshift_s3_bucket_aws_secret_access_key,
+                        redshift_iam_role,
+                        redshift_aws_access_key_id,
+                        redshift_aws_secret_access_key,
                         ...config
                     } = values.configuration
+
+                    if (destination === 'Redshift') {
+                        if (mode === 'COPY') {
+                            const copyInputs: Record<string, any> = {
+                                s3_bucket: redshift_s3_bucket,
+                                s3_key_prefix: redshift_s3_key_prefix,
+                                region_name: redshift_s3_bucket_region_name,
+                            }
+
+                            if (redshift_iam_role) {
+                                copyInputs.authorization = redshift_iam_role
+                            } else if (redshift_aws_access_key_id && redshift_aws_secret_access_key) {
+                                copyInputs.authorization = {
+                                    aws_access_key_id: redshift_aws_access_key_id,
+                                    aws_secret_access_key: redshift_aws_secret_access_key,
+                                }
+                            }
+
+                            if (redshift_s3_bucket_aws_access_key_id && redshift_s3_bucket_aws_secret_access_key) {
+                                copyInputs.bucket_credentials = {
+                                    aws_access_key_id: redshift_s3_bucket_aws_access_key_id,
+                                    aws_secret_access_key: redshift_s3_bucket_aws_secret_access_key,
+                                }
+                            }
+
+                            config.copy_inputs = copyInputs
+                        }
+                        config.mode = mode
+                    }
 
                     const destinationObj = {
                         type: destination,

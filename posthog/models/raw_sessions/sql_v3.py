@@ -40,8 +40,9 @@ def TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3():
     return f"TRUNCATE TABLE IF EXISTS {SHARDED_RAW_SESSIONS_TABLE_V3()}"
 
 
-def DROP_RAW_SESSION_TABLE_SQL_V3():
-    return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_TABLE_V3()}"
+def DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3():
+    # sync is added when dropping the sharded table, see https://posthog.slack.com/archives/C076R4753Q8/p1760696004214289?thread_ts=1760695175.656789&cid=C076R4753Q8
+    return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_TABLE_V3()} SYNC"
 
 
 def DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3():
@@ -151,11 +152,11 @@ CREATE TABLE IF NOT EXISTS {table_name}
 """
 
 
-def RAW_SESSIONS_DATA_TABLE_ENGINE_V3():
+def SHARDED_RAW_SESSIONS_DATA_TABLE_ENGINE_V3():
     return AggregatingMergeTree(TABLE_BASE_NAME_V3, replication_scheme=ReplicationScheme.SHARDED)
 
 
-def RAW_SESSIONS_TABLE_SQL_V3():
+def SHARDED_RAW_SESSIONS_TABLE_SQL_V3():
     return (
         RAW_SESSIONS_TABLE_BASE_SQL_V3
         + """
@@ -168,7 +169,7 @@ ORDER BY (
 """
     ).format(
         table_name=SHARDED_RAW_SESSIONS_TABLE_V3(),
-        engine=RAW_SESSIONS_DATA_TABLE_ENGINE_V3(),
+        engine=SHARDED_RAW_SESSIONS_DATA_TABLE_ENGINE_V3(),
     )
 
 
@@ -350,7 +351,7 @@ FROM parsed_events
     )
 
 
-def RAW_SESSIONS_TABLE_MV_SQL_V3(where=True):
+def RAW_SESSIONS_TABLE_MV_SQL_V3(where="TRUE"):
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}
 TO {database}.{target_table}

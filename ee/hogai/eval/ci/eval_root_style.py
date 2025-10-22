@@ -14,7 +14,7 @@ from .conftest import EVAL_USER_FULL_NAME
 
 
 class StyleChecker(LLMClassifier):
-    """LLM-as-judge scorer for evaluating Max's communication style."""
+    """LLM-as-judge scorer for evaluating communication style."""
 
     def __init__(self, **kwargs):
         super().__init__(

@@ -1,4 +1,5 @@
-import { Logomark } from '~/toolbar/assets/Logomark'
+import { Logomark } from 'lib/brand/Logomark'
+
 import { SDK, SDKKey, SDKTag } from '~/types'
 
 import androidImage from './logos/android.svg'
