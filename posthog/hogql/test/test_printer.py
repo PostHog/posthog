@@ -1850,6 +1850,7 @@ class TestPrinter(BaseTest):
             sql,
         )
 
+    @patch("posthog.hogql.printer.get_materialized_column_for_property")
     def test_ai_session_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_session_id gets special treatment for bloom filter index optimization"""
 
