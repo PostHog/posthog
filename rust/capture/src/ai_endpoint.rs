@@ -145,7 +145,9 @@ pub async fn ai_handler(
 
     // Step 3: Build Kafka event
     // Extract IP address, defaulting to 127.0.0.1 if not available (e.g., in tests)
-    let client_ip = ip.map(|InsecureClientIp(addr)| addr.to_string()).unwrap_or_else(|| "127.0.0.1".to_string());
+    let client_ip = ip
+        .map(|InsecureClientIp(addr)| addr.to_string())
+        .unwrap_or_else(|| "127.0.0.1".to_string());
     let (accepted_parts, processed_event) = build_kafka_event(parsed, token, &client_ip, &state)?;
 
     // Step 4: Send event to Kafka
@@ -213,9 +215,9 @@ fn build_kafka_event(
 
     // Convert sent_at to chrono DateTime for timestamp computation
     // If conversion fails, treat it as if sent_at wasn't provided (rather than using epoch)
-    let sent_at_utc = parsed.sent_at.and_then(|sa| {
-        chrono::DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond())
-    });
+    let sent_at_utc = parsed
+        .sent_at
+        .and_then(|sa| chrono::DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond()));
 
     // Extract $ignore_sent_at from event properties
     let ignore_sent_at = parsed
