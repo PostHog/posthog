@@ -1,5 +1,3 @@
-import { IconGitLab } from '@posthog/icons'
-
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { IntegrationKind } from '~/types'
@@ -7,6 +5,7 @@ import { IntegrationKind } from '~/types'
 import IconClickUp from 'public/services/clickup.svg'
 import IconDatabricks from 'public/services/databricks.png'
 import IconGitHub from 'public/services/github.png'
+import IconGitLab from 'public/services/gitlab.png'
 import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconGoogleCloud from 'public/services/google-cloud.png'

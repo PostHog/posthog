@@ -59,7 +59,7 @@ export const GitLabSetupModal = (props: GitLabSetupModalLogicProps): JSX.Element
                         }
                     >
                         <LemonInput
-                            type="text"
+                            type="password"
                             placeholder="xxxxx-x_xxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxx.xx.xxxxxxxxx"
                         />
                     </LemonField>

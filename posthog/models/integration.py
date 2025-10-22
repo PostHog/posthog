@@ -1808,7 +1808,7 @@ class GitLabIntegration:
 
         hostname = self.integration.config.get("hostname")
         project_id = self.integration.config.get("project_id")
-        access_token = self.integration.sensitive_config.get("project_access_token")
+        access_token = self.integration.sensitive_config.get("access_token")
 
         issue = GitLabIntegration.post(
             hostname,
