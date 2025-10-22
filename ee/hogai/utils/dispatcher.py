@@ -1,11 +1,5 @@
-"""
-Message dispatcher for the AI assistant.
-
-This module implements the dispatch/reducer pattern for managing assistant message updates.
-"""
-
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from langgraph.types import StreamWriter
 
@@ -18,7 +12,9 @@ from ee.hogai.utils.types.base import (
     MessageAction,
     NodeStartAction,
 )
-from ee.hogai.utils.types.composed import MaxNodeName
+
+if TYPE_CHECKING:
+    from ee.hogai.utils.types.composed import MaxNodeName
 
 
 class AssistantDispatcher:
@@ -35,7 +31,7 @@ class AssistantDispatcher:
     def __init__(
         self,
         writer: StreamWriter | Callable[[Any], None],
-        node_name: MaxNodeName,
+        node_name: "MaxNodeName",
         parent_tool_call_id: str | None = None,
     ):
         """
