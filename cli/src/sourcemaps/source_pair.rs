@@ -308,7 +308,7 @@ impl MinifiedSourceFile {
                         self.inner
                             .path
                             .parent()
-                            .map(|p| p.join(&filename))
+                            .map(|p| p.join(filename))
                             .unwrap_or_else(|| PathBuf::from(&filename)),
                     );
                 }
@@ -318,7 +318,7 @@ impl MinifiedSourceFile {
                         self.inner
                             .path
                             .parent()
-                            .map(|p| p.join(&filename))
+                            .map(|p| p.join(filename))
                             .unwrap_or_else(|| PathBuf::from(&filename)),
                     );
                 }
