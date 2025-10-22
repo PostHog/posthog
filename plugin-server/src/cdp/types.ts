@@ -312,6 +312,7 @@ export type HogFlowInvocationContext = {
         startedAtTimestamp: number
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
     }
+    variables: Record<string, any>
 }
 
 // Mostly copied from frontend types

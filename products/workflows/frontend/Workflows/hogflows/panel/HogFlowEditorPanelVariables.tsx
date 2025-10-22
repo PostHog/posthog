@@ -11,6 +11,47 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
     const { workflow } = useValues(hogFlowEditorLogic)
     const { setWorkflowInfo } = useActions(hogFlowEditorLogic)
 
+    const addNewVariable = (): void => {
+        const newVariableName = `VARIABLE_${(workflow?.variables?.length || 0) + 1}`
+        const updatedVariables = [...(workflow?.variables || []), { key: newVariableName, default_value: '' }]
+        setWorkflowInfo({
+            variables: updatedVariables,
+        })
+    }
+
+    const editVariableKey = (idx: number, key: string): void => {
+        const updatedVariables = [...(workflow?.variables || [])]
+        updatedVariables[idx].key = key
+        setWorkflowInfo({
+            variables: updatedVariables,
+        })
+    }
+
+    const editVariableDefaultValue = (idx: number, defaultValue: string): void => {
+        const updatedVariables = [...(workflow?.variables || [])]
+        updatedVariables[idx].default_value = defaultValue
+        setWorkflowInfo({
+            variables: updatedVariables,
+        })
+    }
+
+    const deleteVariable = (idx: number): void => {
+        LemonDialog.open({
+            title: 'Delete variable',
+            description: `Are you sure you want to delete the variable "${workflow.variables?.[idx]?.key}"?`,
+            primaryButton: {
+                children: 'Delete',
+                status: 'danger',
+                onClick: () => {
+                    const newVariables = [...(workflow?.variables || [])]
+                    newVariables.splice(idx, 1)
+                    setWorkflowInfo({ variables: newVariables })
+                },
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
     return (
         <div className="flex flex-col items-start m-2 gap-2">
             <LemonLabel
@@ -36,11 +77,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                             value={variable.key}
                             placeholder="Unique name"
                             onChange={(key) => {
-                                const updatedVariables = [...(workflow?.variables || [])]
-                                updatedVariables[idx].key = key
-                                setWorkflowInfo({
-                                    variables: updatedVariables,
-                                })
+                                editVariableKey(idx, key)
                             }}
                         />
                     </LemonField.Pure>
@@ -50,11 +87,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                             value={workflow?.variables?.[idx]?.default_value || ''}
                             placeholder="Default value"
                             onChange={(defaultValue) => {
-                                const updatedVariables = [...(workflow?.variables || [])]
-                                updatedVariables[idx].default_value = defaultValue
-                                setWorkflowInfo({
-                                    variables: updatedVariables,
-                                })
+                                editVariableDefaultValue(idx, defaultValue)
                             }}
                         />
                     </LemonField.Pure>
@@ -68,39 +101,12 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                         type="secondary"
                         status="danger"
                         onClick={() => {
-                            LemonDialog.open({
-                                title: 'Delete variable',
-                                description: `Are you sure you want to delete the variable "${variable.key}"?`,
-                                primaryButton: {
-                                    children: 'Delete',
-                                    status: 'danger',
-                                    onClick: () => {
-                                        const newVariables = [...(workflow?.variables || [])]
-                                        newVariables.splice(idx, 1)
-                                        setWorkflowInfo({ variables: newVariables })
-                                    },
-                                },
-                                secondaryButton: { children: 'Cancel' },
-                            })
+                            deleteVariable(idx)
                         }}
                     />
                 </div>
             ))}
-            <LemonButton
-                icon={<IconPlus />}
-                type="secondary"
-                size="small"
-                onClick={() => {
-                    const newVariableName = `VARIABLE_${(workflow?.variables?.length || 0) + 1}`
-                    const updatedVariables = [
-                        ...(workflow?.variables || []),
-                        { key: newVariableName, default_value: '' },
-                    ]
-                    setWorkflowInfo({
-                        variables: updatedVariables,
-                    })
-                }}
-            >
+            <LemonButton icon={<IconPlus />} type="secondary" size="small" onClick={addNewVariable}>
                 Add variable
             </LemonButton>
         </div>

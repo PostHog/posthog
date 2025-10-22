@@ -41,7 +41,16 @@ export function createHogFlowInvocation(
         state: {
             event: globals.event,
             actionStepCount: 0,
-            variables: {},
+            variables: {
+                // Spread in any existing variables from hogflow
+                ...hogFlow.variables?.reduce(
+                    (acc, variable) => {
+                        acc[variable.key] = variable.default_value || null
+                        return acc
+                    },
+                    {} as Record<string, any>
+                ),
+            },
         },
         teamId: hogFlow.team_id,
         functionId: hogFlow.id, // TODO: Include version?
@@ -483,32 +492,28 @@ export class HogFlowExecutorService {
         action: HogFlowAction,
         output: object | Error
     ): void {
-        if (!result.invocation.state.globals.actions) {
-            // This will only happen with in-progress invocations right after this change goes out initially
-            result.invocation.state.globals.actions = {}
-        }
+        if (action.output_variable) {
+            result.invocation.state.variables[action.output_variable] = output
 
-        // Check that result to be stored is below 1kb
-        const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
-        if (resultSize > 1024) {
+            // Check that result to be stored is below 1kb
+            const resultSize = Buffer.byteLength(JSON.stringify(result.invocation.state.variables), 'utf8')
+            if (resultSize > 1024) {
+                this.log(
+                    result,
+                    'warn',
+                    `Total variable size after updating '${action.output_variable}' is larger than 1KB, this result will not be stored and won't be available in subsequent actions.`
+                )
+                delete result.invocation.state.variables[action.output_variable]
+                return
+            }
+
             this.log(
                 result,
-                'warn',
-                `Action result for $action/${action.id} is larger than 1KB, this result will not be stored and won't be available in subsequent actions.`
+                'debug',
+                `Stored action result in variable '${action.output_variable}': ${JSON.stringify({
+                    result: output,
+                })}`
             )
-            return
         }
-
-        result.invocation.state.globals.actions[`$action/${action.id}`] = {
-            result: output,
-            error: output instanceof Error,
-        }
-        this.log(
-            result,
-            'debug',
-            `Stored action result in $action/${action.id} global variable: ${JSON.stringify({
-                result: output,
-            })}`
-        )
     }
 }
