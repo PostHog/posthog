@@ -91,7 +91,7 @@ class TestLoginAPI(APIBaseTest):
         self.user.save()
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-            response = self.complete_email_mfa(self.CONFIG_EMAIL, self.user)
+            response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Test that we're actually logged in
@@ -142,7 +142,7 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(self.user.is_email_verified, False)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-            response = self.complete_email_mfa(self.CONFIG_EMAIL, self.user)
+            response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Test that we're actually logged in
@@ -164,7 +164,7 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(self.user.is_email_verified, None)
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-            response = self.complete_email_mfa(self.CONFIG_EMAIL, self.user)
+            response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Test that we are logged in
@@ -696,7 +696,7 @@ class TestPasswordResetAPI(APIBaseTest):
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": VALID_TEST_PASSWORD})
 
         if response.status_code == 400 and response.json().get("code") == "email_mfa_required":
-            response = self.complete_email_mfa(self.CONFIG_EMAIL, self.user)
+            response = self.complete_email_mfa(str(self.CONFIG_EMAIL), self.user)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # assert events were captured
