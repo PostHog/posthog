@@ -9,9 +9,10 @@ import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWare
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
+import { ExternalDataSchemaStatus } from '~/types'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
-import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
+import { ExternalTable, MarketingSourceStatus, SourceStatus } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { MAX_ITEMS_TO_SHOW } from '../../logic/utils'
 import { AddSourceDropdown } from './AddSourceDropdown'
@@ -50,8 +51,8 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const [editingTable, setEditingTable] = useState<ExternalTable | null>(null)
 
-    const isTableFullyConfigured = (table: ExternalTable & { status?: string }): boolean => {
-        return table.status === 'Completed'
+    const isTableFullyConfigured = (table: ExternalTable & { status?: SourceStatus }): boolean => {
+        return table.status === ExternalDataSchemaStatus.Completed
     }
 
     const {
@@ -103,15 +104,19 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
                         key: 'source_icon',
                         title: '',
                         width: 0,
-                        render: (_, item: ExternalTable & { status?: string; statusMessage?: string }): JSX.Element => (
-                            <DataWarehouseSourceIcon type={item.source_type} />
-                        ),
+                        render: (
+                            _,
+                            item: ExternalTable & { status?: SourceStatus; statusMessage?: string }
+                        ): JSX.Element => <DataWarehouseSourceIcon type={item.source_type} />,
                     },
                     {
                         key: 'source',
                         title: 'Source',
                         width: 0,
-                        render: (_, item: ExternalTable & { status?: string; statusMessage?: string }): JSX.Element => {
+                        render: (
+                            _,
+                            item: ExternalTable & { status?: SourceStatus; statusMessage?: string }
+                        ): JSX.Element => {
                             return item.sourceUrl ? (
                                 <Link to={item.sourceUrl}>
                                     {item.source_type} {item.source_prefix}
@@ -126,17 +131,20 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
                     {
                         key: 'prefix',
                         title: 'Table',
-                        render: (_, item: ExternalTable & { status?: string; statusMessage?: string }): string =>
+                        render: (_, item: ExternalTable & { status?: SourceStatus; statusMessage?: string }): string =>
                             item.name,
                     },
                     {
                         key: 'status',
                         title: 'Status',
                         width: 80,
-                        render: (_, item: ExternalTable & { status?: string; statusMessage?: string }): JSX.Element => {
+                        render: (
+                            _,
+                            item: ExternalTable & { status?: SourceStatus; statusMessage?: string }
+                        ): JSX.Element => {
                             return (
                                 <StatusIcon
-                                    status={item.status || 'error'}
+                                    status={item.status || MarketingSourceStatus.Error}
                                     message={item.statusMessage || 'Unknown status'}
                                 />
                             )
@@ -146,7 +154,10 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
                         key: 'actions',
                         width: 0,
                         title: 'Actions',
-                        render: (_, item: ExternalTable & { status?: string; statusMessage?: string }): JSX.Element => {
+                        render: (
+                            _,
+                            item: ExternalTable & { status?: SourceStatus; statusMessage?: string }
+                        ): JSX.Element => {
                             const tableHasMapping = hasAnyMapping(item)
                             return (
                                 <div className="flex gap-1">

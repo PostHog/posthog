@@ -21,7 +21,7 @@ import {
     SourceMap,
 } from '~/queries/schema/schema-general'
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
-import { DataWarehouseSettingsTab, ExternalDataSource, IntervalType } from '~/types'
+import { DataWarehouseSettingsTab, ExternalDataSchemaStatus, ExternalDataSource, IntervalType } from '~/types'
 import { ChartDisplayType } from '~/types'
 
 import { defaultConversionGoalFilter } from '../components/settings/constants'
@@ -37,11 +37,19 @@ import {
     validColumnsForTiles,
 } from './utils'
 
+export enum MarketingSourceStatus {
+    Warning = 'Warning',
+    Error = 'Error',
+    Success = 'Success',
+}
+
+export type SourceStatus = ExternalDataSchemaStatus | MarketingSourceStatus
+
 function getSourceStatus(
     source: { id: string; name: string; type: string; prefix?: string },
     nativeSources: ExternalDataSource[],
     validExternalTables: ExternalTable[]
-): { status: 'Completed' | 'Failed' | 'Running' | 'warning' | 'error'; message: string } {
+): { status: SourceStatus; message: string } {
     const nativeSource = nativeSources.find((s) => s.id === source.id)
     if (nativeSource) {
         const requiredFields =
@@ -55,36 +63,78 @@ function getSourceStatus(
             })
             .filter(Boolean)
 
-        if (schemaStatuses.includes('Failed')) {
-            return { status: 'Failed', message: 'One or more required tables failed to sync' }
+        if (schemaStatuses.includes(ExternalDataSchemaStatus.Failed)) {
+            return { status: ExternalDataSchemaStatus.Failed, message: 'One or more required tables failed to sync' }
         }
-        if (schemaStatuses.includes('Running')) {
-            return { status: 'Running', message: 'One or more required tables are still syncing' }
+        if (schemaStatuses.includes(ExternalDataSchemaStatus.Running)) {
+            return {
+                status: ExternalDataSchemaStatus.Running,
+                message: 'One or more required tables are still syncing',
+            }
+        }
+        if (schemaStatuses.includes(ExternalDataSchemaStatus.Paused)) {
+            return { status: ExternalDataSchemaStatus.Paused, message: 'One or more required tables sync is paused' }
+        }
+        if (schemaStatuses.includes(ExternalDataSchemaStatus.Cancelled)) {
+            return {
+                status: ExternalDataSchemaStatus.Cancelled,
+                message: 'One or more required tables sync is cancelled',
+            }
         }
         if (
             schemaStatuses.length === requiredFields.length &&
-            schemaStatuses.every((status) => status === 'Completed')
+            schemaStatuses.every((status) => status === ExternalDataSchemaStatus.Completed)
         ) {
-            return { status: 'Completed', message: 'Ready to use! All required fields have synced.' }
+            return {
+                status: ExternalDataSchemaStatus.Completed,
+                message: 'Ready to use! All required fields have synced.',
+            }
         }
-        return { status: 'warning', message: 'Some required tables need to be synced' }
+        return { status: MarketingSourceStatus.Warning, message: 'Some required tables need to be synced' }
     }
 
     const externalTable = validExternalTables.find((t) => t.source_map_id === source.id)
     if (externalTable) {
-        if (externalTable.schema_status === 'Completed') {
-            return { status: 'Completed', message: 'Table sync completed' }
+        if (externalTable.schema_status === ExternalDataSchemaStatus.Completed) {
+            return { status: ExternalDataSchemaStatus.Completed, message: 'Table sync completed' }
         }
-        if (externalTable.schema_status === 'Failed') {
-            return { status: 'Failed', message: 'Table sync failed' }
+        if (externalTable.schema_status === ExternalDataSchemaStatus.Failed) {
+            return { status: ExternalDataSchemaStatus.Failed, message: 'Table sync failed' }
         }
-        if (externalTable.schema_status === 'Running') {
-            return { status: 'Running', message: 'Table is syncing' }
+        if (externalTable.schema_status === ExternalDataSchemaStatus.Running) {
+            return { status: ExternalDataSchemaStatus.Running, message: 'Table is syncing' }
         }
-        return { status: 'warning', message: 'Table needs configuration' }
+        if (externalTable.schema_status === ExternalDataSchemaStatus.Paused) {
+            return { status: ExternalDataSchemaStatus.Paused, message: 'Table sync is paused' }
+        }
+        if (externalTable.schema_status === ExternalDataSchemaStatus.Cancelled) {
+            return { status: ExternalDataSchemaStatus.Cancelled, message: 'Table sync is cancelled' }
+        }
+
+        // Check if table has required source mapping configuration
+        if (externalTable.source_map) {
+            const currentSourceMap = externalTable.source_map ?? {}
+            const requiredColumns = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
+                (column_name: MarketingAnalyticsColumnsSchemaNames) => MARKETING_ANALYTICS_SCHEMA[column_name].required
+            )
+
+            // Check if all required columns have valid mappings
+            const hasAllRequiredMappings = requiredColumns.every(
+                (column_name: MarketingAnalyticsColumnsSchemaNames) => {
+                    const mapping = currentSourceMap?.[column_name]
+                    return mapping && typeof mapping === 'string' && mapping.trim() !== ''
+                }
+            )
+
+            if (hasAllRequiredMappings) {
+                return { status: MarketingSourceStatus.Success, message: 'Table is configured and ready to use' }
+            }
+        }
+
+        return { status: MarketingSourceStatus.Warning, message: 'Table needs configuration' }
     }
 
-    return { status: 'error', message: 'Unknown source status' }
+    return { status: MarketingSourceStatus.Error, message: 'Unknown source status' }
 }
 
 export type ExternalTable = {
@@ -459,9 +509,9 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
         externalTablesWithStatus: [
-            (s) => [s.validExternalTables],
-            (validExternalTables) => {
-                return validExternalTables.map((table) => {
+            (s) => [s.externalTables],
+            (externalTables) => {
+                return externalTables.map((table) => {
                     const status = getSourceStatus(
                         {
                             id: table.source_map_id,
@@ -470,7 +520,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             prefix: table.source_prefix,
                         },
                         [],
-                        validExternalTables
+                        externalTables
                     )
                     return {
                         ...table,

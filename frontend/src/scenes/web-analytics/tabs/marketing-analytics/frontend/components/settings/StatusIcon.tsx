@@ -1,13 +1,11 @@
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-export const StatusIcon = ({
-    status,
-    message,
-}: {
-    status: 'success' | 'warning' | 'error' | 'Completed' | 'Failed' | 'Running'
-    message: string
-}): JSX.Element => {
+import { ExternalDataSchemaStatus } from '~/types'
+
+import { MarketingSourceStatus, SourceStatus } from '../../logic/marketingAnalyticsLogic'
+
+export const StatusIcon = ({ status, message }: { status: SourceStatus; message: string }): JSX.Element => {
     const { tagType, icon } = getStatusDisplay(status)
 
     return (
@@ -20,23 +18,27 @@ export const StatusIcon = ({
     )
 }
 
-function getStatusDisplay(status: 'success' | 'warning' | 'error' | 'Completed' | 'Failed' | 'Running'): {
+function getStatusDisplay(status: SourceStatus): {
     tagType?: 'success' | 'danger' | 'primary'
     icon?: JSX.Element
 } {
     switch (status) {
-        case 'Completed':
+        case ExternalDataSchemaStatus.Completed:
             return { tagType: 'success' }
-        case 'Failed':
+        case ExternalDataSchemaStatus.Failed:
             return { tagType: 'danger' }
-        case 'Running':
+        case ExternalDataSchemaStatus.Running:
             return { tagType: 'primary' }
-        case 'success':
-            return { icon: <IconCheck className="text-success" /> }
-        case 'warning':
+        case ExternalDataSchemaStatus.Paused:
+            return { tagType: 'danger' }
+        case ExternalDataSchemaStatus.Cancelled:
+            return { tagType: 'danger' }
+        case MarketingSourceStatus.Warning:
             return { icon: <IconWarning className="text-warning" /> }
-        case 'error':
+        case MarketingSourceStatus.Error:
             return { icon: <IconX className="text-muted" /> }
+        case MarketingSourceStatus.Success:
+            return { icon: <IconCheck className="text-success" /> }
         default:
             throw new Error(`Unknown status: ${status}`)
     }

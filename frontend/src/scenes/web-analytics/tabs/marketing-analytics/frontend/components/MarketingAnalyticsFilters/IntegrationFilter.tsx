@@ -6,7 +6,9 @@ import { LemonButton, LemonCheckbox, LemonDropdown } from '@posthog/lemon-ui'
 
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
-import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { ExternalDataSchemaStatus } from '~/types'
+
+import { MarketingSourceStatus, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { StatusIcon } from '../settings/StatusIcon'
 
 export function IntegrationFilter(): JSX.Element {
@@ -90,9 +92,12 @@ export function IntegrationFilter(): JSX.Element {
                                 <DataWarehouseSourceIcon type={source.name} size="xsmall" disableTooltip />
                                 <span className="flex-1">{formatSourceLabel(source)}</span>
                                 {/* We don't show the status icon for Completed sources because it would be too many statuses */}
-                                {source.status && source.statusMessage && source.status !== 'Completed' && (
-                                    <StatusIcon status={source.status} message={source.statusMessage} />
-                                )}
+                                {source.status &&
+                                    source.statusMessage &&
+                                    source.status !==
+                                        (ExternalDataSchemaStatus.Completed || MarketingSourceStatus.Success) && (
+                                        <StatusIcon status={source.status} message={source.statusMessage} />
+                                    )}
                             </span>
                         </LemonButton>
                     ))}
