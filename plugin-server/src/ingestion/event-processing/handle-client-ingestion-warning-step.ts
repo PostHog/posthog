@@ -1,16 +1,21 @@
-import { EventPipelineResult } from '~/worker/ingestion/event-pipeline/runner'
-
-import { PipelineEvent } from '../../types'
+import { PipelineEvent, RawKafkaEvent } from '../../types'
 import { PipelineResult, dlq, drop } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-export function createHandleClientIngestionWarningStep<TInput extends { event: PipelineEvent }>(): ProcessingStep<
-    TInput,
-    EventPipelineResult
-> {
+export interface HandleClientIngestionWarningStepInput {
+    event: PipelineEvent
+}
+
+export interface HandleClientIngestionWarningStepResult {
+    eventToEmit?: RawKafkaEvent
+}
+
+export function createHandleClientIngestionWarningStep<
+    TInput extends HandleClientIngestionWarningStepInput,
+>(): ProcessingStep<TInput, HandleClientIngestionWarningStepResult> {
     return async function handleClientIngestionWarningStep(
         input: TInput
-    ): Promise<PipelineResult<EventPipelineResult>> {
+    ): Promise<PipelineResult<HandleClientIngestionWarningStepResult>> {
         const event = input.event
 
         if (event.event !== '$$client_ingestion_warning') {

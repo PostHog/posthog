@@ -5,7 +5,7 @@ import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { EventHeaders, Hub, PipelineEvent, ProjectId, RawKafkaEvent, Team, TimestampFormat } from '../../types'
 import { castTimestampOrNow } from '../../utils/utils'
-import { EventPipelineResult, EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
+import { EventPipelineHeatmapResult, EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResultType, dlq, drop, ok } from '../pipelines/results'
@@ -111,7 +111,8 @@ describe('event-pipeline-runner-heatmap-step', () => {
 
     it('should create EventPipelineRunner and call runHeatmapPipeline', async () => {
         const mockTimestamp = DateTime.now()
-        const mockResult = ok({ lastStep: 'extractHeatmapDataStep', eventToEmit: createTestRawKafkaEvent() })
+        const mockRawEvent = createTestRawKafkaEvent()
+        const mockResult = ok({ lastStep: 'extractHeatmapDataStep', eventToEmit: mockRawEvent })
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
         const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer, mockPersonsStore)
@@ -135,13 +136,16 @@ describe('event-pipeline-runner-heatmap-step', () => {
             mockHeaders
         )
         expect(mockEventPipelineRunner.runHeatmapPipeline).toHaveBeenCalledWith(mockEvent, mockTimestamp, mockTeam)
-        expect(result).toEqual(mockResult)
+        // Result is transformed to EmitEventStepInput
         expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value).toEqual({ eventToEmit: mockRawEvent, lastStep: 'extractHeatmapDataStep' })
+        }
     })
 
     it('should pass through drop results from runHeatmapPipeline', async () => {
         const mockTimestamp = DateTime.now()
-        const mockResult = drop<EventPipelineResult>('heatmap_processing_failed')
+        const mockResult = drop<EventPipelineHeatmapResult>('heatmap_processing_failed')
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
         const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer, mockPersonsStore)
@@ -163,7 +167,7 @@ describe('event-pipeline-runner-heatmap-step', () => {
     it('should pass through DLQ results from runHeatmapPipeline', async () => {
         const mockTimestamp = DateTime.now()
         const mockError = new Error('Heatmap processing error')
-        const mockResult = dlq<EventPipelineResult>('heatmap_error', mockError)
+        const mockResult = dlq<EventPipelineHeatmapResult>('heatmap_error', mockError)
         mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
 
         const step = createEventPipelineRunnerHeatmapStep(mockHub, mockHogTransformer, mockPersonsStore)

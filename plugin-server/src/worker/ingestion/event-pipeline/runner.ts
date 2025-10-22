@@ -16,7 +16,6 @@ import { PersonMergeLimitExceededError } from '../persons/person-merge-types'
 import { MergeMode, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStore } from '../persons/persons-store'
 import { EventsProcessor } from '../process-event'
-import { createEventStep } from './createEventStep'
 import { dropOldEventsStep } from './dropOldEventsStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
@@ -32,17 +31,25 @@ import { processPersonlessStep } from './processPersonlessStep'
 import { processPersonsStep } from './processPersonsStep'
 import { transformEventStep } from './transformEventStep'
 
-export type EventPipelineResult = {
+export type RunnerResult<T = object> = T & {
     // Only used in tests
-    // TODO: update to test for side-effects of running the pipeline rather than
-    // this return type.
     lastStep: string
-    eventToEmit?: RawKafkaEvent
     error?: string
     // For ingestion lag metric
     inputHeaders?: EventHeaders
     inputMessage?: Message
 }
+
+export type EventPipelineResult = RunnerResult<{
+    person: Person
+    preparedEvent: PreIngestionEvent
+    processPerson: boolean
+    historicalMigration: boolean
+}>
+
+export type EventPipelineHeatmapResult = RunnerResult<{
+    eventToEmit?: RawKafkaEvent
+}>
 
 export type EventPipelinePipelineResult = PipelineResult<EventPipelineResult>
 
@@ -96,7 +103,7 @@ export class EventPipelineRunner {
         team: Team,
         kafkaAcks: Promise<unknown>[],
         warnings: PipelineWarning[]
-    ): Promise<EventPipelinePipelineResult> {
+    ): Promise<PipelineResult<EventPipelineHeatmapResult>> {
         const processPerson = false
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
@@ -131,7 +138,9 @@ export class EventPipelineRunner {
             heatmapKafkaAcks.forEach((ack) => kafkaAcks.push(ack))
         }
 
-        const result = this.registerLastStep('extractHeatmapDataStep')
+        const result = this.registerLastStep('extractHeatmapDataStep', {
+            eventToEmit: undefined,
+        })
         return ok(result, kafkaAcks, warnings)
     }
 
@@ -139,7 +148,7 @@ export class EventPipelineRunner {
         normalizedEvent: PipelineEvent,
         timestamp: DateTime,
         team: Team
-    ): Promise<EventPipelinePipelineResult> {
+    ): Promise<PipelineResult<EventPipelineHeatmapResult>> {
         this.originalEvent = normalizedEvent
 
         try {
@@ -303,26 +312,14 @@ export class EventPipelineRunner {
         }
 
         const historicalMigration = this.headers?.historical_migration ?? false
-        const createResult = await this.runStep<RawKafkaEvent, typeof createEventStep>(
-            createEventStep,
-            [preparedEventWithoutHeatmaps, person, processPerson, historicalMigration],
-            event.team_id,
-            true,
-            kafkaAcks,
-            warnings
-        )
-        if (!isOkResult(createResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return createResult
-        }
-        const rawEvent = createResult.value
+        const result = this.registerLastStep('extractHeatmapDataStep', {
+            person,
+            preparedEvent: preparedEventWithoutHeatmaps,
+            processPerson,
+            historicalMigration,
+        })
 
-        const successResult: EventPipelineResult = {
-            lastStep: 'createEventStep',
-            eventToEmit: rawEvent,
-        }
-
-        return ok(successResult, kafkaAcks, warnings)
+        return ok(result, kafkaAcks, warnings)
     }
 
     private async processPersonForEvent(
@@ -393,11 +390,11 @@ export class EventPipelineRunner {
         return ok({ event: postPersonEvent, person: person!, kafkaAck: personKafkaAck })
     }
 
-    registerLastStep(stepName: string, eventToEmit?: RawKafkaEvent): EventPipelineResult {
+    registerLastStep<T extends object>(stepName: string, result: T): RunnerResult<T> {
         pipelineLastStepCounter.labels(stepName).inc()
         return {
+            ...result,
             lastStep: stepName,
-            eventToEmit,
         }
     }
 
