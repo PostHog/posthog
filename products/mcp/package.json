@@ -3,7 +3,6 @@
     "version": "0.0.0",
     "private": true,
     "scripts": {
-        "prepare": "husky",
         "dev": "cd typescript && pnpm dev",
         "build": "cd typescript && pnpm build",
         "inspector": "cd typescript && pnpm inspector",
@@ -24,7 +23,6 @@
         "docker:inspector": "npx @modelcontextprotocol/inspector docker run -i --rm --env POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER} --env POSTHOG_REMOTE_MCP_URL=${POSTHOG_REMOTE_MCP_URL:-https://mcp.posthog.com/mcp} posthog-mcp"
     },
     "devDependencies": {
-        "husky": "^9.1.7",
         "oxlint": "^1.8.0",
         "prettier": "^3.4.2",
         "tsx": "^4.20.3"

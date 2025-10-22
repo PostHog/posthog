@@ -2,7 +2,6 @@ import './PropertyDefinitionsTable.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { IconApps } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -14,6 +13,8 @@ import { cn } from 'lib/utils/css-classes'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -78,11 +79,10 @@ export function PropertyDefinitionsTable(): JSX.Element {
     return (
         <SceneContent data-attr="manage-events-table">
             <SceneTitleSection
-                name="Properties"
-                description="Properties are additional fields you can configure to be sent along with an event capture."
+                name={sceneConfigurations[Scene.PropertyDefinition].name}
+                description={sceneConfigurations[Scene.PropertyDefinition].description}
                 resourceType={{
-                    type: 'property',
-                    forceIcon: <IconApps />,
+                    type: sceneConfigurations[Scene.PropertyDefinition].iconType || 'default_icon_type',
                 }}
             />
             <SceneDivider />

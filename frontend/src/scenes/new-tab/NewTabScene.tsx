@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconEllipsis, IconFeatures, IconSearch } from '@posthog/icons'
+import { IconEllipsis, IconSearch } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
@@ -26,6 +26,7 @@ import { NEW_TAB_CATEGORY_ITEMS, NewTabTreeDataItem, newTabSceneLogic } from 'sc
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -130,10 +131,9 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                         size="xxs"
                                         onClick={() => router.actions.push(urls.max(undefined, search))}
                                         className="text-xs"
-                                        tooltip="Hit enter to open Max!"
                                     >
-                                        Ask Max!
-                                        <IconFeatures />
+                                        Run in PostHog AI
+                                        <KeyboardShortcut enter />
                                     </ButtonPrimitive>
                                 </ListBox.Item>
                             </span>
@@ -200,16 +200,16 @@ export function NewTabScene({ tabId, source }: { tabId?: string; source?: 'homep
                                 </div>
                             ) : (
                                 <div className="flex gap-1 items-center">
-                                    No results found,{' '}
+                                    No results found:{' '}
                                     <ListBox.Item asChild className="list-none">
                                         <ButtonPrimitive size="sm" onClick={() => setSearch('')}>
                                             Clear search
-                                        </ButtonPrimitive>{' '}
+                                        </ButtonPrimitive>
                                     </ListBox.Item>
-                                    or{' '}
+                                    <em>or</em>
                                     <ListBox.Item asChild>
                                         <ButtonPrimitive size="sm" onClick={() => openSidePanel(SidePanelTab.Max)}>
-                                            Ask Max!
+                                            Run in PostHog AI
                                         </ButtonPrimitive>
                                     </ListBox.Item>
                                 </div>
