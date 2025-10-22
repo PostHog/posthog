@@ -20,7 +20,14 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         experiment: Experiment
     },
     connect: {
-        values: [featureFlagsLogic, ['featureFlags'], experimentsLogic, ['experiments']],
+        values: [
+            featureFlagsLogic,
+            ['featureFlags'],
+            experimentsLogic,
+            ['experiments'],
+            createExperimentLogic,
+            ['experiment'],
+        ],
         actions: [createExperimentLogic, ['setExperimentValue', 'setFeatureFlagConfig']],
     },
     actions: {
@@ -58,7 +65,6 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
             null as FeatureFlagType | null,
             {
                 setLinkedFeatureFlag: (_, { flag }) => flag,
-                setMode: () => null, // Reset linked flag when switching modes
             },
         ],
     },
@@ -180,10 +186,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                 ])
             },
         ],
-        featureFlagKey: [
-            (_, props) => [props.experiment],
-            (experiment: Experiment): string => experiment.feature_flag_key || '',
-        ],
+        featureFlagKey: [(s) => [s.experiment], (experiment: Experiment): string => experiment.feature_flag_key || ''],
     },
     listeners: ({ values, actions }) => ({
         [createExperimentLogic.actionTypes.setExperimentValue]: ({ name, value }) => {
@@ -195,6 +198,24 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
             if (generatedKey) {
                 actions.setFeatureFlagConfig({ feature_flag_key: generatedKey })
                 actions.validateFeatureFlagKey(generatedKey)
+            }
+        },
+        setMode: ({ mode }) => {
+            // When switching from link to create, validate the current key to show it's taken
+            // Note: We use values.experiment (from createExperimentLogic connection) instead of props.experiment
+            // because props are captured at mount time and don't update when the parent logic changes state
+            if (mode === 'create' && values.experiment.feature_flag_key) {
+                actions.validateFeatureFlagKey(values.experiment.feature_flag_key)
+            }
+
+            // When switching to link mode, restore the linked flag's key/variants to experiment state
+            if (mode === 'link' && values.linkedFeatureFlag) {
+                actions.setFeatureFlagConfig({
+                    feature_flag_key: values.linkedFeatureFlag.key,
+                    parameters: {
+                        feature_flag_variants: values.linkedFeatureFlag.filters?.multivariate?.variants || [],
+                    },
+                })
             }
         },
     }),

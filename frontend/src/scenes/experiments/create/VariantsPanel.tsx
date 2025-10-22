@@ -65,6 +65,13 @@ export function VariantsPanel({ experiment, updateFeatureFlag }: VariantsPanelPr
                 onClose={() => closeSelectExistingFeatureFlagModal()}
                 onSelect={(flag: FeatureFlagType) => {
                     setLinkedFeatureFlag(flag)
+                    // Update experiment with linked flag's key and variants
+                    updateFeatureFlag({
+                        feature_flag_key: flag.key,
+                        parameters: {
+                            feature_flag_variants: flag.filters?.multivariate?.variants || [],
+                        },
+                    })
                     closeSelectExistingFeatureFlagModal()
                 }}
             />

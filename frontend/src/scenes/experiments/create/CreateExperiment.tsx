@@ -50,9 +50,8 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
     const { experiment, experimentErrors, sharedMetrics } = useValues(
         createExperimentLogic({ experiment: draftExperiment })
     )
-    const { setExperimentValue, setExperiment, setSharedMetrics, setExposureCriteria } = useActions(
-        createExperimentLogic({ experiment: draftExperiment })
-    )
+    const { setExperimentValue, setExperiment, setSharedMetrics, setExposureCriteria, setFeatureFlagConfig } =
+        useActions(createExperimentLogic({ experiment: draftExperiment }))
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
 
@@ -145,20 +144,7 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
                                 key: 'experiment-variants',
                                 header: <VariantsPanelHeader experiment={experiment} />,
                                 content: (
-                                    <VariantsPanel
-                                        experiment={experiment}
-                                        updateFeatureFlag={(updates) => {
-                                            if (updates.feature_flag_key !== undefined) {
-                                                setExperimentValue('feature_flag_key', updates.feature_flag_key)
-                                            }
-                                            if (updates.parameters) {
-                                                setExperimentValue('parameters', {
-                                                    ...experiment.parameters,
-                                                    ...updates.parameters,
-                                                })
-                                            }
-                                        }}
-                                    />
+                                    <VariantsPanel experiment={experiment} updateFeatureFlag={setFeatureFlagConfig} />
                                 ),
                             },
                             ...(SHOW_TARGETING_PANEL
