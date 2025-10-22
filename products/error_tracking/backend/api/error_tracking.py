@@ -855,8 +855,8 @@ class SymbolSetUpload:
 
 class ErrorTrackingSymbolSetUploadSerializer(serializers.Serializer):
     chunk_id = serializers.CharField()
-    release_id = serializers.CharField()
-    content_hash = serializers.CharField()
+    release_id = serializers.CharField(allow_null=True, default=None)
+    content_hash = serializers.CharField(allow_null=True, default=None)
 
 
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -1016,6 +1016,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_start_upload(self, request, **kwargs):
+        if request.user.pk:
+            posthoganalytics.identify_context(request.user.pk)
         # Earlier ones send a list of chunk IDs, all associated with one release
         # Extract a list of chunk IDs from the request json
         chunk_ids: list[str] = request.data.get("chunk_ids") or []
@@ -1024,7 +1026,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         posthoganalytics.capture(
             "error_tracking_symbol_set_upload_started",
-            distinct_id=request.user.pk,
             properties={"team_id": self.team.id, "endpoint": "bulk_start_upload"},
             groups=groups(self.team.organization, self.team),
         )
@@ -1049,6 +1050,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_finish_upload(self, request, **kwargs):
+        if request.user.pk:
+            posthoganalytics.identify_context(request.user.pk)
         # Get the map of symbol_set_id:content_hashes
         content_hashes = request.data.get("content_hashes", {})
         if content_hashes is None:
@@ -1107,7 +1110,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         posthoganalytics.capture(
             "error_tracking_symbol_set_uploaded",
-            distinct_id=request.user.pk,
             groups=groups(self.team.organization, self.team),
         )
 
@@ -1353,6 +1355,7 @@ def create_symbol_set(
         return symbol_set
 
 
+@posthoganalytics.scoped()
 def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,

@@ -39,9 +39,7 @@ class retrieve_entity_properties(BaseModel):
     - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
     """
 
-    entity: Literal["person", "session"] = Field(
-        ..., description="The type of the entity that you want to retrieve properties for."
-    )
+    entity: str = Field(..., description="The type of the entity that you want to retrieve properties for.")
 
 
 class retrieve_event_property_values(BaseModel):
@@ -67,9 +65,7 @@ class retrieve_entity_property_values(BaseModel):
     Use this tool to retrieve property values for a property name. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
     """
 
-    entity: Literal["person", "session"] = Field(
-        ..., description="The type of the entity that you want to retrieve properties for."
-    )
+    entity: str = Field(..., description="The type of the entity that you want to retrieve properties for.")
     property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
 
 

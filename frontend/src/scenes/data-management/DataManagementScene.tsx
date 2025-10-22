@@ -30,18 +30,22 @@ import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/se
 import type { dataManagementSceneLogicType } from './DataManagementSceneType'
 import { EventDefinitionsTable } from './events/EventDefinitionsTable'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
+import { DataWarehouseManagedViewsetsScene } from './managed-viewsets/DataWarehouseManagedViewsetsScene'
 import { PropertyDefinitionsTable } from './properties/PropertyDefinitionsTable'
+import { SchemaManagement } from './schema/SchemaManagement'
 
 export enum DataManagementTab {
     Actions = 'actions',
     EventDefinitions = 'events',
     PropertyDefinitions = 'properties',
+    SchemaManagement = 'schema',
     Annotations = 'annotations',
     Comments = 'comments',
     History = 'history',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
     MarketingAnalytics = 'marketing-analytics',
+    DataWarehouseManagedViewsets = 'data-warehouse-managed-viewsets',
 }
 
 type TabConfig = {
@@ -97,6 +101,12 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         ),
         content: <PropertyDefinitionsTable />,
         tooltipDocLink: 'https://posthog.com/docs/new-to-posthog/understand-posthog#properties',
+    },
+    [DataManagementTab.SchemaManagement]: {
+        url: urls.schemaManagement(),
+        label: 'Property Groups',
+        content: <SchemaManagement />,
+        flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
     },
     [DataManagementTab.Annotations]: {
         url: urls.annotations(),
@@ -157,6 +167,12 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         ),
         content: <MarketingAnalyticsSettings />,
         flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
+    },
+    [DataManagementTab.DataWarehouseManagedViewsets]: {
+        url: urls.dataWarehouseManagedViewsets(),
+        label: 'Managed viewsets',
+        content: <DataWarehouseManagedViewsetsScene />,
+        flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
     },
 }
 

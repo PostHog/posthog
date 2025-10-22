@@ -56,3 +56,7 @@ pub const FLAG_READER_TIMEOUT_WITH_WRITER_STATE_COUNTER: &str =
     "flags_reader_timeout_with_writer_state_total";
 pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
     "flags_experience_continuity_requests_total";
+
+// Flag definitions rate limiting
+pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
+pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
