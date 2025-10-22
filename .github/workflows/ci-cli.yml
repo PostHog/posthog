@@ -76,7 +76,6 @@ jobs:
                   PAYLOAD='{
                     "name": "posthog-com",
                     "project": "'"$VERCEL_PROJECT_ID"'",
-                    "target": "preview",
                     "gitSource": {
                       "type": "github",
                       "repoId": "260550412",
