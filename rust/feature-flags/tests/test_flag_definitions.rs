@@ -72,7 +72,7 @@ async fn test_hypercache_config_generation() {
 }
 
 #[tokio::test]
-async fn test_local_evaluation_endpoint_exists() {
+async fn test_flag_definitions_endpoint_exists() {
     use feature_flags::config::Config;
     use reqwest;
 
@@ -499,7 +499,7 @@ async fn test_personal_api_key_with_scoped_teams_allowed() {
     let redis_client =
         feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
     context
-        .populate_local_evaluation_cache(redis_client, team.id)
+        .populate_flag_definitions_cache(redis_client, team.id)
         .await
         .unwrap();
 
@@ -611,7 +611,7 @@ async fn test_personal_api_key_with_scoped_organizations_allowed() {
     let redis_client =
         feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
     context
-        .populate_local_evaluation_cache(redis_client, team.id)
+        .populate_flag_definitions_cache(redis_client, team.id)
         .await
         .unwrap();
 
@@ -782,7 +782,7 @@ async fn test_personal_api_key_with_all_access_scopes() {
     let redis_client =
         feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
     context
-        .populate_local_evaluation_cache(redis_client, team.id)
+        .populate_flag_definitions_cache(redis_client, team.id)
         .await
         .unwrap();
 
@@ -847,7 +847,7 @@ async fn test_personal_api_key_with_feature_flag_write_scope() {
     let redis_client =
         feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
     context
-        .populate_local_evaluation_cache(redis_client, team.id)
+        .populate_flag_definitions_cache(redis_client, team.id)
         .await
         .unwrap();
 
@@ -892,7 +892,7 @@ async fn test_backup_secret_api_token_authentication() {
     let redis_client =
         feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
     context
-        .populate_local_evaluation_cache(redis_client, team.id)
+        .populate_flag_definitions_cache(redis_client, team.id)
         .await
         .unwrap();
 
@@ -1002,7 +1002,7 @@ async fn test_secret_token_takes_priority_over_personal_api_key() {
     let redis_client =
         feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
     context
-        .populate_local_evaluation_cache(redis_client, team1.id)
+        .populate_flag_definitions_cache(redis_client, team1.id)
         .await
         .unwrap();
 
@@ -1030,5 +1030,250 @@ async fn test_secret_token_takes_priority_over_personal_api_key() {
         200,
         "Should authenticate with secret token when both auth methods provided. Response body: {}",
         response.text().await.unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_flag_definitions_rate_limit_enforced() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let context = TestContext::new(None).await;
+
+    // Create team with secret token
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Create config with very low rate limit for this specific team (1 request per second)
+    let mut config = Config::default_test_config();
+    config.flag_definitions_rate_limits =
+        format!(r#"{{"{}": "1/second"}}"#, team.id).parse().unwrap();
+
+    // Populate cache to avoid 503 errors
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    context
+        .populate_flag_definitions_cache(redis_client, team.id)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // First request should succeed (within rate limit)
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "First request should succeed. Response body: {}",
+        response.text().await.unwrap()
+    );
+
+    // Second request immediately after should be rate limited (429)
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let body = response.text().await.unwrap();
+
+    assert_eq!(
+        status, 429,
+        "Second request should be rate limited. Response body: {body}"
+    );
+    assert!(
+        body.contains("Rate limit exceeded"),
+        "Response should mention rate limit. Got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn test_flag_definitions_custom_rate_limit_overrides_default() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+    use tokio::time::{sleep, Duration};
+
+    let context = TestContext::new(None).await;
+
+    // Create teams with secret tokens
+    let (custom_team, custom_secret, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    let (default_team, default_secret, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Create config with custom rate limit for custom_team (2 requests per second)
+    // Default is 600/minute (10/second), so custom should be more restrictive
+    let mut config = Config::default_test_config();
+    config.flag_definitions_rate_limits = format!(r#"{{"{}": "2/second"}}"#, custom_team.id)
+        .parse()
+        .unwrap();
+
+    // Populate cache for both teams
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    context
+        .populate_flag_definitions_cache(redis_client.clone(), custom_team.id)
+        .await
+        .unwrap();
+    context
+        .populate_flag_definitions_cache(redis_client, default_team.id)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // Test custom rate limit (2/second)
+    let mut success_count = 0;
+    for _ in 0..3 {
+        let response = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, custom_team.api_token
+            ))
+            .header("Authorization", format!("Bearer {custom_secret}"))
+            .send()
+            .await
+            .unwrap();
+
+        if response.status() == 200 {
+            success_count += 1;
+        }
+    }
+
+    assert_eq!(
+        success_count, 2,
+        "Should allow exactly 2 requests per second for custom team"
+    );
+
+    // Wait for rate limit to reset
+    sleep(Duration::from_millis(1100)).await;
+
+    // Test default rate limit (600/minute = 10/second)
+    // Should allow more requests than custom limit
+    let mut default_success_count = 0;
+    for _ in 0..5 {
+        let response = client
+            .get(format!(
+                "http://{}/flags/definitions?token={}",
+                server.addr, default_team.api_token
+            ))
+            .header("Authorization", format!("Bearer {default_secret}"))
+            .send()
+            .await
+            .unwrap();
+
+        if response.status() == 200 {
+            default_success_count += 1;
+        }
+    }
+
+    assert!(
+        default_success_count > 2,
+        "Default team should allow more than 2 requests per second. Got: {default_success_count}"
+    );
+}
+
+#[tokio::test]
+async fn test_flag_definitions_rate_limit_metrics_incremented() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let context = TestContext::new(None).await;
+
+    // Create team with secret token
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Create config with very low rate limit for this specific team
+    let mut config = Config::default_test_config();
+    config.flag_definitions_rate_limits =
+        format!(r#"{{"{}": "1/second"}}"#, team.id).parse().unwrap();
+    config.enable_metrics = true; // Enable metrics collection
+
+    // Populate cache
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    context
+        .populate_flag_definitions_cache(redis_client, team.id)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // Make first request (should succeed)
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+
+    // Make second request (should be rate limited)
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 429);
+
+    // Fetch metrics from /metrics endpoint
+    let metrics_response = client
+        .get(format!("http://{}/metrics", server.addr))
+        .send()
+        .await
+        .unwrap();
+
+    let metrics_text = metrics_response.text().await.unwrap();
+
+    // Verify that rate limit metrics are present
+    assert!(
+        metrics_text.contains("flags_flag_definitions_requests_total"),
+        "Metrics should include request counter"
+    );
+    assert!(
+        metrics_text.contains("flags_flag_definitions_rate_limited_total"),
+        "Metrics should include rate limited counter"
+    );
+
+    // Verify key label is present in metrics (key is the generic label for team_id)
+    let key_label = format!("key=\"{}\"", team.id);
+    assert!(
+        metrics_text.contains(&key_label),
+        "Metrics should include key label. Metrics: {metrics_text}"
     );
 }
