@@ -2,6 +2,7 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Json;
+use axum_client_ip::InsecureClientIp;
 use common_types::CapturedEvent;
 use flate2::read::GzDecoder;
 use futures::stream;
@@ -66,6 +67,7 @@ struct ParsedMultipartData {
 
 pub async fn ai_handler(
     State(state): State<AppState>,
+    ip: Option<InsecureClientIp>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<AIEndpointResponse>, CaptureError> {
@@ -142,7 +144,9 @@ pub async fn ai_handler(
     let parsed = parse_multipart_data(parts)?;
 
     // Step 3: Build Kafka event
-    let (accepted_parts, processed_event) = build_kafka_event(parsed, token, &state)?;
+    // Extract IP address, defaulting to 127.0.0.1 if not available (e.g., in tests)
+    let client_ip = ip.map(|InsecureClientIp(addr)| addr.to_string()).unwrap_or_else(|| "127.0.0.1".to_string());
+    let (accepted_parts, processed_event) = build_kafka_event(parsed, token, &client_ip, &state)?;
 
     // Step 4: Send event to Kafka
     state.sink.send(processed_event).await.map_err(|e| {
@@ -201,6 +205,7 @@ fn is_valid_blob_content_type(content_type: &str) -> bool {
 fn build_kafka_event(
     parsed: ParsedMultipartData,
     token: &str,
+    client_ip: &str,
     state: &AppState,
 ) -> Result<(Vec<PartInfo>, ProcessedEvent), CaptureError> {
     // Get current time
@@ -236,11 +241,25 @@ fn build_kafka_event(
         CaptureError::NonRetryableSinkError
     })?;
 
+    // Redact the IP address of internally-generated events when tagged as such
+    let resolved_ip = if parsed
+        .event_with_placeholders
+        .as_object()
+        .and_then(|obj| obj.get("properties"))
+        .and_then(|props| props.as_object())
+        .map(|props| props.contains_key("capture_internal"))
+        .unwrap_or(false)
+    {
+        "127.0.0.1".to_string()
+    } else {
+        client_ip.to_string()
+    };
+
     // Create CapturedEvent
     let captured_event = CapturedEvent {
         uuid: parsed.event_uuid,
         distinct_id: parsed.distinct_id.clone(),
-        ip: "127.0.0.1".to_string(), // AI events don't have meaningful IP addresses
+        ip: resolved_ip,
         data,
         now: now.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
         sent_at: parsed.sent_at,

@@ -2030,3 +2030,111 @@ async fn test_ai_event_without_ignore_sent_at_defaults_to_false() {
         "Without $ignore_sent_at property, clock skew correction should be applied (default behavior)"
     );
 }
+
+// ----------------------------------------------------------------------------
+// IP Address Extraction and Redaction Tests
+// ----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_ai_event_ip_defaults_to_localhost_in_tests() {
+    let (router, sink) = setup_ai_test_router_with_capturing_sink();
+    let test_client = TestClient::new(router);
+
+    let event_uuid = "c50e8400-e29b-41d4-a716-446655440007";
+    let event_data = json!({
+        "uuid": event_uuid,
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify IP address defaults to 127.0.0.1 in test environment
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+
+    let event = &events[0];
+    assert_eq!(
+        event.event.ip, "127.0.0.1",
+        "IP address should default to 127.0.0.1 when ConnectInfo is not available"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_event_ip_redacted_for_internal_events() {
+    let (router, sink) = setup_ai_test_router_with_capturing_sink();
+    let test_client = TestClient::new(router);
+
+    let event_uuid = "d50e8400-e29b-41d4-a716-446655440008";
+    let event_data = json!({
+        "uuid": event_uuid,
+        "event": "$ai_generation",
+        "distinct_id": "test_user"
+    });
+
+    let properties = json!({
+        "$ai_model": "gpt-4",
+        "capture_internal": true  // Mark as internal event - IP should be redacted
+    });
+
+    let form = Form::new()
+        .part(
+            "event",
+            Part::bytes(serde_json::to_vec(&event_data).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        )
+        .part(
+            "event.properties",
+            Part::bytes(serde_json::to_vec(&properties).unwrap())
+                .mime_str("application/json")
+                .unwrap(),
+        );
+
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify IP address is redacted to 127.0.0.1 for internal events
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+
+    let event = &events[0];
+    assert_eq!(
+        event.event.ip, "127.0.0.1",
+        "IP address should be redacted to 127.0.0.1 for events with capture_internal property"
+    );
+
+    // Verify the capture_internal property is preserved
+    let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
+    let props = event_json["properties"].as_object().unwrap();
+    assert_eq!(props["capture_internal"], true);
+}
