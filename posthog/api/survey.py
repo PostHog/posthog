@@ -173,6 +173,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "archived_response_uuids",
             "user_access_level",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
@@ -239,6 +240,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "archived_response_uuids",
             "_create_in_folder",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]

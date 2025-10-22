@@ -236,6 +236,13 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     )
 
     actions = models.ManyToManyField(Action)
+    archived_response_uuids = ArrayField(
+        base_field=models.UUIDField(),
+        blank=True,
+        default=list,
+        null=True,
+        help_text="UUIDs of survey response events that have been archived",
+    )
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Survey"]:
