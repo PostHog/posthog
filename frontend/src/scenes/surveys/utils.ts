@@ -479,6 +479,22 @@ export function buildPartialResponsesFilter(survey: Survey): string {
     ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
 }
 
+export function buildArchivedResponsesFilter(survey: Survey, includeArchived: boolean = false): string {
+    /**
+     * Generate SQL filter to exclude archived survey responses from queries.
+     *
+     * @param survey - Survey model instance
+     * @param includeArchived - If true, don't filter out archived responses
+     * @returns SQL filter string to be added to WHERE clause (empty string if no filtering needed)
+     */
+    if (includeArchived || !survey.archived_response_uuids?.length) {
+        return ''
+    }
+
+    const uuidList = survey.archived_response_uuids.map((uuid) => `'${uuid}'`).join(', ')
+    return `AND uuid NOT IN (${uuidList})`
+}
+
 interface SanitizeSurveyOptions {
     keepEmptyConditions?: boolean
 }
