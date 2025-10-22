@@ -436,7 +436,7 @@ describe('VariantsPanel', () => {
             render(<VariantsPanel experiment={experimentWithEmptyKey} updateFeatureFlag={mockUpdateFeatureFlag} />)
 
             // Should show error message
-            expect(screen.getByText('All variant must have a key.')).toBeInTheDocument()
+            expect(screen.getByText('All variants must have a key.')).toBeInTheDocument()
         })
 
         it('shows error when variant keys are duplicated', async () => {
