@@ -314,7 +314,7 @@ export function SidePanelSupport(): JSX.Element {
                                             targetBlank={false}
                                             className="mt-2"
                                         >
-                                            Chat with Max AI
+                                            Chat with PostHog AI
                                         </LemonButton>
                                     </div>
                                 </Section>
@@ -322,7 +322,7 @@ export function SidePanelSupport(): JSX.Element {
 
                             {showEmailSupport && isBillingLoaded && (
                                 <Section title="Contact us">
-                                    <p>Can't find what you need and Max unable to help?</p>
+                                    <p>Can't find what you need and PostHog AI unable to help?</p>
                                     <LemonButton
                                         type="secondary"
                                         fullWidth
