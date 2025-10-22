@@ -100,7 +100,7 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], self.user.email)
 
         # Assert the event was captured.
-        mock_capture.assert_called_once_with(
+        mock_capture.assert_any_call(
             distinct_id=self.user.distinct_id,
             event="user logged in",
             properties={"social_provider": ""},
@@ -110,6 +110,8 @@ class TestLoginAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
+        # Email MFA flow adds an extra capture call, so expect 2 total
+        self.assertEqual(mock_capture.call_count, 2)
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
@@ -675,9 +677,13 @@ class TestPasswordResetAPI(APIBaseTest):
 
     # Password reset completion
 
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_can_reset_password(self, mock_capture, mock_identify):
+    def test_user_can_reset_password(
+        self, mock_capture, mock_identify, mock_send_email_mfa_link, mock_is_email_available
+    ):
         self.client.logout()  # extra precaution to test login
 
         self.user.requested_password_reset_at = datetime.now()
@@ -701,6 +707,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.client.logout()
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("code"), "invalid_credentials")
 
         # new password can be used immediately
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": VALID_TEST_PASSWORD})
@@ -729,8 +736,8 @@ class TestPasswordResetAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
-        # Email MFA flow adds an extra "user logged in" event, so expect 3 total
-        self.assertEqual(mock_capture.call_count, 3)
+        # 4 capture events: password reset, verification email sent, email mfa link sent, user logged in
+        self.assertEqual(mock_capture.call_count, 4)
 
     def test_cant_set_short_password(self):
         token = password_reset_token_generator.make_token(self.user)
