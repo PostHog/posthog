@@ -12,7 +12,7 @@ class TestEmailMFAAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
     @patch("posthog.tasks.email.send_email_mfa_link.delay")
-    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.email.is_email_available", return_value=True)
     def test_login_without_totp_triggers_email_mfa(self, mock_is_email_available, mock_send_email_delay):
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -31,7 +31,7 @@ class TestEmailMFAAPI(APIBaseTest):
         self.assertIsNotNone(call_args[0][1])  # Token should be present
 
     @patch("posthog.tasks.email.send_email_mfa_link.delay")
-    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.email.is_email_available", return_value=True)
     def test_email_mfa_verification_success_and_always_remembers_device(
         self, mock_is_email_available, mock_send_email_delay
     ):
@@ -70,7 +70,7 @@ class TestEmailMFAAPI(APIBaseTest):
         self.assertEqual(response.json(), {"success": True})
 
     @patch("posthog.tasks.email.send_email_mfa_link.delay")
-    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.email.is_email_available", return_value=True)
     def test_email_mfa_verification_with_invalid_token(self, mock_is_email_available, mock_send_email_delay):
         # Trigger email MFA
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -92,7 +92,7 @@ class TestEmailMFAAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("posthog.tasks.email.send_email_mfa_link.delay")
-    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.email.is_email_available", return_value=True)
     def test_email_mfa_token_expires_after_10_minutes(self, mock_is_email_available, mock_send_email_delay):
         with freeze_time("2023-01-01T10:00:00"):
             # Trigger email MFA
@@ -114,7 +114,7 @@ class TestEmailMFAAPI(APIBaseTest):
                 self.assertIn("invalid or has expired", response_data["detail"])
 
     @patch("posthog.tasks.email.send_email_mfa_link.delay")
-    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.email.is_email_available", return_value=True)
     def test_email_mfa_token_invalidated_after_use(self, mock_is_email_available, mock_send_email_delay):
         # Trigger email MFA
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -159,7 +159,7 @@ class TestEmailMFAAPI(APIBaseTest):
             self.assertIn("invalid or has expired", response_data["detail"])
 
     @patch("posthog.tasks.email.send_email_mfa_link.delay")
-    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.email.is_email_available", return_value=True)
     def test_login_with_totp_does_not_trigger_email_mfa(self, mock_is_email_available, mock_send_email_delay):
         # Create TOTP device for user
         TOTPDevice.objects.create(user=self.user, name="default")
@@ -173,12 +173,12 @@ class TestEmailMFAAPI(APIBaseTest):
         # Email task should not have been called
         mock_send_email_delay.assert_not_called()
 
+    @patch("posthog.email.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link.delay")
-    @patch("posthog.api.authentication.is_email_available", return_value=True)
     def test_email_mfa_resend_success(
         self,
-        mock_is_email_available,
         mock_send_email_delay,
+        mock_is_email_available,
     ):
         with freeze_time("2023-01-01T10:00:00"):
             # Trigger email MFA
@@ -195,7 +195,7 @@ class TestEmailMFAAPI(APIBaseTest):
             self.assertEqual(mock_send_email_delay.call_count, 2)
 
     @patch("posthog.tasks.email.send_email_mfa_link.delay")
-    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.email.is_email_available", return_value=True)
     def test_email_mfa_resend_throttle(self, mock_is_email_available, mock_send_email_delay):
         # Trigger email MFA
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
