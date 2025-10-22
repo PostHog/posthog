@@ -180,6 +180,27 @@ function TraceMetadata({
                     <PersonDisplay withIcon="sm" person={trace.person} />
                 </Chip>
             )}
+            {trace.aiSessionId && (
+                <Link
+                    to={
+                        urls.llmAnalyticsTraces() +
+                        `?filters=${encodeURIComponent(
+                            JSON.stringify([
+                                {
+                                    key: '$ai_session_id',
+                                    value: [trace.aiSessionId],
+                                    operator: 'exact',
+                                    type: 'event',
+                                },
+                            ])
+                        )}`
+                    }
+                >
+                    <Chip title="AI Session ID - Click to filter traces by this session">
+                        <span className="font-mono">{trace.aiSessionId.slice(0, 8)}...</span>
+                    </Chip>
+                </Link>
+            )}
             <UsageChip event={trace} />
             {typeof trace.inputCost === 'number' && (
                 <Chip title="Input cost" icon={<IconArrowUp />}>
