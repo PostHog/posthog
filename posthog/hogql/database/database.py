@@ -1097,7 +1097,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
                 poe.fields[field_name] = ast.FieldTraverser(chain=chain)
 
 
-def constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> DatabaseSerializedFieldType | None:
+def _constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> DatabaseSerializedFieldType | None:
     if isinstance(constant_type, ast.StringType):
         return DatabaseSerializedFieldType.STRING
     if isinstance(constant_type, ast.BooleanType):
@@ -1255,7 +1255,7 @@ def serialize_fields(
                 assert field_expr.type is not None
                 constant_type = field_expr.type.resolve_constant_type(context)
 
-                field_type = constant_type_to_serialized_field_type(constant_type)
+                field_type = _constant_type_to_serialized_field_type(constant_type)
                 if field_type is None:
                     field_type = DatabaseSerializedFieldType.EXPRESSION
 
