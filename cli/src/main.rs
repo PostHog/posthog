@@ -1,6 +1,6 @@
 use posthog_cli::cmd;
 use rayon::ThreadPoolBuilder;
-use tracing::{error, info};
+use tracing::info;
 
 fn main() {
     let subscriber = tracing_subscriber::fmt()
@@ -21,12 +21,7 @@ fn main() {
 
     match cmd::Cli::run() {
         Ok(_) => info!("All done, happy hogging!"),
-        Err(e) => {
-            let msg = match e.exception_id {
-                Some(id) => format!("Oops! {} (ID: {})", e.inner, id),
-                None => format!("Oops! {:?}", e.inner),
-            };
-            error!(msg);
+        Err(_) => {
             std::process::exit(1);
         }
     }

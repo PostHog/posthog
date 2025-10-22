@@ -21,7 +21,7 @@ from posthog.models.person.sql import (
     PERSONS_TABLE_SQL,
 )
 from posthog.models.person_overrides.sql import PERSON_OVERRIDES_CREATE_TABLE_SQL
-from posthog.models.raw_sessions.sql import DISTRIBUTED_RAW_SESSIONS_TABLE_SQL
+from posthog.models.raw_sessions.sessions_v2 import DISTRIBUTED_RAW_SESSIONS_TABLE_SQL
 from posthog.models.sessions.sql import DISTRIBUTED_SESSIONS_TABLE_SQL
 from posthog.session_recordings.sql.session_recording_event_sql import DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL
 from posthog.session_recordings.sql.session_replay_embeddings_sql import DISTRIBUTED_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL
