@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Literal, Optional, Union, cast
 from uuid import uuid4
 
@@ -409,12 +410,15 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         if self.should_run_onboarding_at_start(state) != "continue":
             return None
 
+        # Check if an interrupt had an unhandled tool, so it should go to tools first.
+        node_messages = state.memory_collection_messages or []
+        if not self._check_tool_messages_are_valid(node_messages):
+            return None
+
         # Check if the last message is a /remember command
         remember_command_result = self._handle_remember_command(state)
         if remember_command_result:
             return PartialAssistantState(memory_collection_messages=[remember_command_result])
-
-        node_messages = state.memory_collection_messages or []
 
         prompt = ChatPromptTemplate.from_messages(
             [("system", MEMORY_COLLECTOR_PROMPT)], template_format="mustache"
@@ -493,6 +497,15 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
             )
         else:
             return LangchainAIMessage(content="There's nothing to remember!", id=str(uuid4()))
+
+    def _check_tool_messages_are_valid(self, messages: Sequence[BaseMessage]) -> bool:
+        """Validates that all AIMessages have associated ToolCall messages."""
+        mapping = {message.tool_call_id: message for message in messages if isinstance(message, LangchainToolMessage)}
+        tool_ids: set[str] = set()
+        for message in messages:
+            if isinstance(message, LangchainAIMessage):
+                tool_ids.update(tool["id"] for tool in message.tool_calls if tool["id"] is not None)
+        return set(mapping.keys()) == tool_ids
 
 
 class MemoryCollectorToolsNode(AssistantNode):
