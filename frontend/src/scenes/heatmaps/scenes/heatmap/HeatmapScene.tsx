@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconBrowser } from '@posthog/icons'
@@ -21,7 +22,9 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
     const logic = heatmapLogic(logicProps)
 
     const { name, loading, type, displayUrl, widthOverride, screenshotUrl, generatingScreenshot } = useValues(logic)
-    const { setName, updateHeatmap, onIframeLoad, loadHeatmap } = useActions(logic)
+    const { setName, updateHeatmap, onIframeLoad } = useActions(logic)
+
+    const [showHeatmap, setShowHeatmap] = useState(false)
 
     const debouncedOnNameChange = useDebouncedCallback((name: string) => {
         setName(name)
@@ -72,22 +75,23 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                             className="relative flex w-full justify-center flex-1"
                             style={{ width: widthOverride ?? '100%' }}
                         >
-                            {generatingScreenshot && (
+                            {generatingScreenshot ? (
                                 <div className="flex-1 flex items-center justify-center min-h-96">
                                     <div className="text-sm text-muted">
                                         Generating screenshots...
                                         <Spinner />
                                     </div>
                                 </div>
-                            )}
-                            {screenshotUrl && (
+                            ) : screenshotUrl ? (
                                 <>
-                                    <HeatmapCanvas
-                                        key={widthOverride ?? 'auto'}
-                                        positioning="absolute"
-                                        widthOverride={widthOverride}
-                                        context="in-app"
-                                    />
+                                    {showHeatmap && (
+                                        <HeatmapCanvas
+                                            key={widthOverride ?? 'auto'}
+                                            positioning="absolute"
+                                            widthOverride={widthOverride}
+                                            context="in-app"
+                                        />
+                                    )}
                                     <img
                                         id="heatmap-screenshot"
                                         src={screenshotUrl}
@@ -96,14 +100,16 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                             height: 'auto',
                                             display: 'block',
                                         }}
-                                        onLoad={loadHeatmap}
+                                        onLoad={() => {
+                                            setShowHeatmap(true)
+                                        }}
                                         className="rounded-b-lg"
                                         onError={() => {
                                             console.error('Failed to load screenshot')
                                         }}
                                     />
                                 </>
-                            )}
+                            ) : null}
                         </div>
                     ) : (
                         <div className="relative min-h-screen">

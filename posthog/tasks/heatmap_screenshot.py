@@ -1,19 +1,15 @@
-import io
-import os
-import uuid
-from typing import Optional
-
 from django.db import transaction
 
 import structlog
 import posthoganalytics
 from celery import shared_task
-from PIL import Image
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.heatmap_screenshot import HeatmapScreenshot, HeatmapSnapshot
-from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET, get_driver
+from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
 from posthog.tasks.utils import CeleryQueue
+
+from playwright.sync_api import sync_playwright
 
 logger = structlog.get_logger(__name__)
 
@@ -83,9 +79,7 @@ def generate_heatmap_screenshot(screenshot_id: str) -> None:
 
 
 def _generate_screenshots(screenshot: HeatmapScreenshot) -> None:
-    """Generate screenshots for multiple widths using a single Selenium WebDriver session."""
-    driver: Optional = None
-    temp_files: list[str] = []
+    """Generate screenshots for multiple widths using Playwright in one browser session."""
 
     # Determine target widths
     target_widths = screenshot.target_widths or [320, 375, 425, 768, 1024, 1440, 1920]
@@ -100,76 +94,60 @@ def _generate_screenshots(screenshot: HeatmapScreenshot) -> None:
     if not widths:
         widths = [1024]
 
+    # Collect screenshots in-memory first to avoid Django ORM calls inside Playwright's async context
+    snapshot_bytes: list[tuple[int, bytes]] = []
     try:
-        if not os.path.exists(TMP_DIR):
-            os.makedirs(TMP_DIR)
-
-        driver = get_driver()
-
-        # Navigate once
-        driver.set_window_size(1024, 800)
-        driver.get(screenshot.url)
-        posthoganalytics.tag("url", screenshot.url)
-        driver.implicitly_wait(1000)
-
-        for w in widths:
-            image_id = str(uuid.uuid4())
-            image_path = os.path.join(TMP_DIR, f"heatmap_screenshot_{image_id}_{w}.png")
-            temp_files.append(image_path)
-
-            # Set window to width and initial height
-            driver.set_window_size(w, 800)
-
-            # Compute full page height
-            total_height = driver.execute_script(
-                "return Math.max(document.body.scrollHeight, document.body.offsetHeight, "
-                "document.documentElement.clientHeight, document.documentElement.scrollHeight, "
-                "document.documentElement.offsetHeight);"
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--force-device-scale-factor=1",
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                    "--disable-gpu",
+                ],
             )
+            try:
+                for w in widths:
+                    ctx = browser.new_context(
+                        viewport={"width": int(w), "height": 800},
+                        device_scale_factor=1,  # keep 1:1 CSS px -> bitmap px
+                        is_mobile=(w < 500),  # trigger mobile layout on small widths
+                        has_touch=(w < 500),  # some sites key on touch capability
+                        user_agent=(
+                            "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) "
+                            "AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/115.0.0.0 "
+                            "Mobile/15E148 Safari/604.1"
+                            if w < 500
+                            else None
+                        ),
+                    )
+                    page = ctx.new_page()
+                    page.goto(screenshot.url, wait_until="load", timeout=120_000)
 
-            # Resize to full height for capture
-            driver.set_window_size(w, total_height + HEIGHT_OFFSET)
-            driver.execute_script("return new Promise(resolve => setTimeout(resolve, 1000))")
+                    total_height = page.evaluate("""() => Math.max(
+                        document.body.scrollHeight,
+                        document.body.offsetHeight,
+                        document.documentElement.clientHeight,
+                        document.documentElement.scrollHeight,
+                        document.documentElement.offsetHeight
+                    )""")
 
-            # Take screenshot
-            driver.save_screenshot(image_path)
+                    page.set_viewport_size({"width": int(w), "height": int(total_height + HEIGHT_OFFSET)})
+                    page.wait_for_timeout(1000)
 
-            # Process and compress to JPEG (keep exact width; no downscale)
-            with Image.open(image_path) as img:
-                if img.mode in ("RGBA", "LA", "P"):
-                    rgb_img = Image.new("RGB", img.size, (255, 255, 255))
-                    if img.mode == "P":
-                        img = img.convert("RGBA")
-                    rgb_img.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
-                    img = rgb_img
+                    image_data: bytes = page.screenshot(full_page=True, type="jpeg", quality=70)
+                    snapshot_bytes.append((w, image_data))
 
-                buffer = io.BytesIO()
-                img.save(buffer, format="JPEG", quality=70, optimize=True)
-                image_data = buffer.getvalue()
-
-            # Upsert snapshot for this width
-            snapshot, _ = HeatmapSnapshot.objects.get_or_create(heatmap=screenshot, width=w)
-            snapshot.content = image_data
-            snapshot.content_location = None
-            snapshot.save()
-
+                    ctx.close()
+            finally:
+                browser.close()
     except Exception:
-        # Attempt to capture an error screenshot path for diagnostics
-        if driver:
-            try:
-                err_path = os.path.join(TMP_DIR, f"heatmap_error_{uuid.uuid4()}.png")
-                driver.save_screenshot(err_path)
-                posthoganalytics.tag("error_screenshot_path", err_path)
-            except Exception:
-                pass
         raise
-    finally:
-        # Cleanup temp files and driver
-        for f in temp_files:
-            try:
-                if os.path.exists(f):
-                    os.remove(f)
-            except Exception:
-                pass
-        if driver:
-            driver.quit()
+
+    # Persist captured images with ORM after Playwright context (back in pure sync context)
+    for w, image_data in snapshot_bytes:
+        snapshot, _ = HeatmapSnapshot.objects.get_or_create(heatmap=screenshot, width=w)
+        snapshot.content = image_data
+        snapshot.content_location = None
+        snapshot.save()

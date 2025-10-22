@@ -37,6 +37,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setScreenshotError: (error: string | null) => ({ error }),
         setGeneratingScreenshot: (generating: boolean) => ({ generating }),
         pollScreenshotStatus: (id: number, width?: number) => ({ id, width }),
+        setHeatmapId: (id: number | null) => ({ id }),
     }),
     reducers({
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
@@ -49,6 +50,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         generatingScreenshot: [false, { setGeneratingScreenshot: (_, { generating }) => generating }],
         // expose a screenshotLoading alias for UI compatibility
         screenshotLoading: [false as boolean, { setScreenshotUrl: () => false }],
+        heatmapId: [null as number | null, { setHeatmapId: (_, { id }) => id }],
     }),
     listeners(({ actions, values, props }) => ({
         load: async () => {
@@ -58,6 +60,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.setLoading(true)
             try {
                 const item = await api.heatmapSaved.get(props.id)
+                actions.setHeatmapId(item.id)
                 actions.setName(item.name)
                 actions.setDisplayUrl(item.url)
                 actions.setDataUrl(item.data_url)
@@ -81,12 +84,24 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.setLoading(false)
             }
         },
+        // React to viewport width changes by updating the image URL directly
+        setIframeWidth: async ({ width }) => {
+            if (values.type !== 'screenshot' || !values.heatmapId) {
+                return
+            }
+            const w = width ?? values.widthOverride ?? 1024
+            actions.setScreenshotError(null)
+            actions.setScreenshotUrl(
+                `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${values.heatmapId}/content/?width=${w}`
+            )
+            actions.loadHeatmap()
+        },
         pollScreenshotStatus: async ({ id, width }, breakpoint) => {
             let attempts = 0
             actions.setGeneratingScreenshot(true)
             const maxAttempts = 60
             while (attempts < maxAttempts) {
-                await breakpoint(1000)
+                await breakpoint(2000)
                 try {
                     const contentResponse = await api.heatmapScreenshots.getContent(id)
                     if (contentResponse.success) {
@@ -95,6 +110,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                             `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${id}/content/?width=${w}`
                         )
                         actions.loadHeatmap()
+                        actions.setGeneratingScreenshot(false)
                         break
                     } else {
                         const screenshot = contentResponse.data
@@ -104,11 +120,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                 `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${screenshot.id}/content/?width=${w}`
                             )
                             actions.loadHeatmap()
+                            actions.setGeneratingScreenshot(false)
                             break
                         } else if (screenshot.status === 'failed') {
                             actions.setScreenshotError(
                                 screenshot.exception || (screenshot as any).error || 'Screenshot generation failed'
                             )
+                            actions.setGeneratingScreenshot(false)
                             break
                         }
                     }
@@ -117,8 +135,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     actions.setScreenshotError('Failed to check screenshot status')
                     console.error(e)
                     break
-                } finally {
-                    actions.setGeneratingScreenshot(false)
                 }
             }
 
