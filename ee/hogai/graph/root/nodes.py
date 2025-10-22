@@ -15,6 +15,7 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
+from langgraph.types import Send
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
@@ -181,6 +182,15 @@ class RootNode(AssistantNode):
         if self.context_manager.has_awaitable_context(input):
             return ReasoningMessage(content="Calculating context")
         return None
+
+    def router(self, state: AssistantState):
+        last_message = state.messages[-1]
+        if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
+            return "end"
+        return [
+            Send(AssistantNodeName.ROOT_TOOLS, state.model_copy(update={"root_tool_call_id": tool_call.id}))
+            for tool_call in last_message.tool_calls
+        ]
 
     @property
     def node_name(self) -> MaxNodeName:
@@ -393,18 +403,21 @@ class RootNodeTools(AssistantNode):
 
         return ReasoningMessage(content=content) if content else None
 
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         last_message = state.messages[-1]
-        if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
-            # Reset tools.
-            return PartialAssistantState(root_tool_calls_count=0)
-
         tool_call_count = state.root_tool_calls_count or 0
 
-        tools_calls = last_message.tool_calls
-        if len(tools_calls) != 1:
-            raise ValueError("Expected exactly one tool call.")
-        tool_call = tools_calls[0]
+        reset_state = PartialAssistantState(root_tool_call_id=None, root_tool_calls_count=None)
+        # Should never happen, but just in case.
+        if not isinstance(last_message, AssistantMessage) or not state.root_tool_call_id:
+            return reset_state
+
+        # Find the current tool call in the last message.
+        tool_call = next(
+            (tool_call for tool_call in last_message.tool_calls or [] if tool_call.id == state.root_tool_call_id), None
+        )
+        if not tool_call:
+            return reset_state
 
         from ee.hogai.tool import get_contextual_tool_class
 
