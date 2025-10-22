@@ -8,30 +8,6 @@ import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { HealthCheckResult, Hub, LogsIngestionConsumerConfig, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 
-// export const counterParseError = new Counter({
-//     name: 'cdp_function_parse_error',
-//     help: 'A function invocation was parsed with an error',
-//     labelNames: ['error'],
-// })
-
-// const counterQuotaLimited = new Counter({
-//     name: 'cdp_function_quota_limited',
-//     help: 'A function invocation was quota limited',
-//     labelNames: ['team_id'],
-// })
-
-// const counterRateLimited = new Counter({
-//     name: 'cdp_function_rate_limited',
-//     help: 'A function invocation was rate limited',
-//     labelNames: ['kind'],
-// })
-
-// const counterHogFunctionStateOnEvent = new Counter({
-//     name: 'cdp_hog_function_state_on_event',
-//     help: 'Metric the state of a hog function that matched an event',
-//     labelNames: ['state', 'kind'],
-// })
-
 export const logMessageDroppedCounter = new Counter({
     name: 'logs_ingestion_message_dropped_count',
     help: 'The number of logs ingestion messages dropped',
