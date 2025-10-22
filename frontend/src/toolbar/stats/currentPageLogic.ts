@@ -1,5 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 
+import { makeNavigateWrapper } from '~/toolbar/utils'
+
 import type { currentPageLogicType } from './currentPageLogicType'
 
 const replaceWithWildcard = (part: string): string => {
@@ -92,13 +94,13 @@ export const currentPageLogic = kea<currentPageLogicType>([
     afterMount(({ actions, values, cache }) => {
         actions.setHref(withoutPostHogInit(values.href))
 
-        cache.disposables.add(() => {
-            const interval = window.setInterval(() => {
+        cache.disposables.add(
+            makeNavigateWrapper((): void => {
                 if (window.location.href !== values.href) {
                     actions.setHref(withoutPostHogInit(window.location.href))
                 }
-            }, 500)
-            return () => window.clearInterval(interval)
-        }, 'urlChangeInterval')
+            }, '__ph_current_page_logic_wrapped__'),
+            'historyProxy'
+        )
     }),
 ])

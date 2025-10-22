@@ -630,6 +630,7 @@ def postgres_source(
     should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
+    chunk_size_override: Optional[int] = None,
     team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
@@ -687,7 +688,11 @@ def postgres_source(
                     logger.debug("Getting primary keys...")
                     primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                     logger.debug("Getting table chunk size...")
-                    chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                    if chunk_size_override is not None:
+                        chunk_size = chunk_size_override
+                        logger.debug(f"Using chunk_size_override: {chunk_size_override}")
+                    else:
+                        chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                     logger.debug("Getting rows to sync...")
                     rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
                     logger.debug("Getting partition settings...")

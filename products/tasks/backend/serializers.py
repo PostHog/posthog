@@ -5,6 +5,7 @@ from rest_framework import serializers
 from posthog.models.integration import Integration
 
 from .models import Task, TaskRun
+from .services.title_generator import generate_task_title
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -12,6 +13,8 @@ class TaskSerializer(serializers.ModelSerializer):
     repository_list = serializers.SerializerMethodField()
     primary_repository = serializers.SerializerMethodField()
     latest_run = serializers.SerializerMethodField()
+
+    title = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
     class Meta:
         model = Task
@@ -93,6 +96,11 @@ class TaskSerializer(serializers.ModelSerializer):
             default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()
             if default_integration:
                 validated_data["github_integration"] = default_integration
+
+        # Auto-generate title from description if not provided or empty
+        title = validated_data.get("title", "").strip()
+        if not title and validated_data.get("description"):
+            validated_data["title"] = generate_task_title(validated_data["description"])
 
         return super().create(validated_data)
 
