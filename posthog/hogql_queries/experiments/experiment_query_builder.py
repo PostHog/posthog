@@ -1,8 +1,10 @@
 from posthog.schema import (
     ActionsNode,
+    EventsNode,
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentMetricMathType,
     MultipleVariantHandling,
 )
 
@@ -12,11 +14,14 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
+    conversion_window_to_seconds,
     event_or_action_to_filter,
     funnel_evaluation_expr,
     funnel_steps_to_filter,
+    get_source_value_expr,
 )
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Experiment
 from posthog.models.team.team import Team
@@ -77,8 +82,22 @@ class ExperimentQueryBuilder:
         match self.metric:
             case ExperimentFunnelMetric():
                 return self._build_funnel_query()
+            case ExperimentMeanMetric():
+                return self._build_mean_query()
             case _:
-                raise NotImplementedError(f"Only funnel metrics are supported. Got {type(self.metric)}")
+                raise NotImplementedError(f"Only funnel and mean metrics are supported. Got {type(self.metric)}")
+
+    def _get_conversion_window_seconds(self) -> int:
+        """
+        Returns the conversion window in seconds for the current metric.
+        Returns 0 if no conversion window is configured.
+        """
+        if self.metric.conversion_window and self.metric.conversion_window_unit:
+            return conversion_window_to_seconds(
+                self.metric.conversion_window,
+                self.metric.conversion_window_unit,
+            )
+        return 0
 
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
@@ -180,6 +199,250 @@ class ExperimentQueryBuilder:
 
         return query
 
+    def _get_mean_query_common_ctes(self) -> str:
+        """
+        Returns the common CTEs used by both regular and winsorized mean queries.
+        """
+        return """
+            exposures AS (
+                {exposure_select_query}
+            ),
+
+            metric_events AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    timestamp,
+                    {value_expr} AS value
+                FROM events
+                WHERE {metric_predicate}
+            ),
+
+            entity_metrics AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    {value_agg} AS value
+                FROM exposures
+                LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
+                    AND {conversion_window_predicate}
+                GROUP BY exposures.entity_id, exposures.variant
+            )
+        """
+
+    def _get_mean_query_common_placeholders(self) -> dict:
+        """
+        Returns the common placeholders used by both regular and winsorized mean queries.
+        """
+        return {
+            "exposure_select_query": self._build_exposure_select_query(),
+            "entity_key": parse_expr(self.entity_key),
+            "metric_predicate": self._build_metric_predicate(),
+            "value_expr": self._build_value_expr(),
+            "value_agg": self._build_value_aggregation_expr(),
+            "conversion_window_predicate": self._build_conversion_window_predicate(),
+        }
+
+    def _build_mean_query(self) -> ast.SelectQuery:
+        """
+        Builds query for mean metrics (count, sum, avg, etc.)
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # Check if we need to apply winsorization (outlier handling)
+        needs_winsorization = (
+            self.metric.lower_bound_percentile is not None or self.metric.upper_bound_percentile is not None
+        )
+
+        if needs_winsorization:
+            return self._build_mean_query_with_winsorization()
+
+        common_ctes = self._get_mean_query_common_ctes()
+
+        query = parse_select(
+            f"""
+            WITH {common_ctes}
+
+            SELECT
+                entity_metrics.variant AS variant,
+                count(entity_metrics.entity_id) AS num_users,
+                sum(entity_metrics.value) AS total_sum,
+                sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+            FROM entity_metrics
+            GROUP BY entity_metrics.variant
+            """,
+            placeholders=self._get_mean_query_common_placeholders(),
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _build_mean_query_with_winsorization(self) -> ast.SelectQuery:
+        """
+        Builds query for mean metrics with winsorization (outlier handling).
+        This clamps entity-level values to percentile-based bounds.
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # Build lower bound expression
+        if self.metric.lower_bound_percentile is not None:
+            lower_bound_expr = parse_expr(
+                "quantile({level})(entity_metrics.value)",
+                placeholders={"level": ast.Constant(value=self.metric.lower_bound_percentile)},
+            )
+        else:
+            lower_bound_expr = parse_expr("min(entity_metrics.value)")
+
+        # Build upper bound expression
+        if self.metric.upper_bound_percentile is not None:
+            # Handle ignore_zeros flag for upper bound calculation
+            if getattr(self.metric, "ignore_zeros", False):
+                upper_bound_expr = parse_expr(
+                    "quantile({level})(if(entity_metrics.value != 0, entity_metrics.value, null))",
+                    placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
+                )
+            else:
+                upper_bound_expr = parse_expr(
+                    "quantile({level})(entity_metrics.value)",
+                    placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
+                )
+        else:
+            upper_bound_expr = parse_expr("max(entity_metrics.value)")
+
+        common_ctes = self._get_mean_query_common_ctes()
+        placeholders = self._get_mean_query_common_placeholders()
+
+        # Add winsorization-specific placeholders
+        placeholders["lower_bound"] = lower_bound_expr
+        placeholders["upper_bound"] = upper_bound_expr
+
+        query = parse_select(
+            f"""
+            WITH {common_ctes},
+
+            percentiles AS (
+                SELECT
+                    {{lower_bound}} AS lower_bound,
+                    {{upper_bound}} AS upper_bound
+                FROM entity_metrics
+            ),
+
+            winsorized_entity_metrics AS (
+                SELECT
+                    entity_metrics.entity_id AS entity_id,
+                    entity_metrics.variant AS variant,
+                    least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
+                FROM entity_metrics
+                CROSS JOIN percentiles
+            )
+
+            SELECT
+                winsorized_entity_metrics.variant AS variant,
+                count(winsorized_entity_metrics.entity_id) AS num_users,
+                sum(winsorized_entity_metrics.value) AS total_sum,
+                sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
+            FROM winsorized_entity_metrics
+            GROUP BY winsorized_entity_metrics.variant
+            """,
+            placeholders=placeholders,
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _build_conversion_window_predicate(self) -> ast.Expr:
+        """
+        Build the predicate for limiting metric events to the conversion window for the user.
+        """
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds > 0:
+            return parse_expr(
+                """
+                metric_events.timestamp >= exposures.first_exposure_time
+                AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
+                """,
+                placeholders={
+                    "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                },
+            )
+        else:
+            return parse_expr("metric_events.timestamp >= exposures.first_exposure_time")
+
+    def _build_metric_predicate(self) -> ast.Expr:
+        """
+        Builds the metric predicate as an AST expression.
+        """
+
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # TODO: Implement support for DatawarehouseNode
+        assert isinstance(self.metric.source, EventsNode | ActionsNode)
+
+        metric_event_filter = event_or_action_to_filter(self.team, self.metric.source)
+
+        conversion_window_seconds = self._get_conversion_window_seconds()
+
+        return parse_expr(
+            """
+            timestamp >= {date_from}
+            AND timestamp < {date_to} + toIntervalSecond({conversion_window_seconds})
+            AND {metric_event_filter}
+            """,
+            placeholders={
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                "metric_event_filter": metric_event_filter,
+            },
+        )
+
+    def _build_value_expr(self) -> ast.Expr:
+        """
+        Extracts the value expression from the metric source configuration.
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+        return get_source_value_expr(self.metric.source)
+
+    def _build_value_aggregation_expr(self) -> ast.Expr:
+        """
+        Returns the value aggregation expression based on math type.
+        """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+
+        # Get metric source details
+        math_type = getattr(self.metric.source, "math", ExperimentMetricMathType.TOTAL)
+
+        if math_type in [
+            ExperimentMetricMathType.UNIQUE_SESSION,
+            ExperimentMetricMathType.DAU,
+            ExperimentMetricMathType.UNIQUE_GROUP,
+        ]:
+            # Count distinct values, filtering out null UUIDs and empty strings
+            # This matches the old implementation's behavior
+            return parse_expr(
+                """toFloat(count(distinct
+                    multiIf(
+                        toTypeName(metric_events.value) = 'UUID' AND reinterpretAsUInt128(metric_events.value) = 0, NULL,
+                        toString(metric_events.value) = '', NULL,
+                        metric_events.value
+                    )
+                ))"""
+            )
+        elif math_type == ExperimentMetricMathType.MIN:
+            return parse_expr("min(coalesce(toFloat(metric_events.value), 0))")
+        elif math_type == ExperimentMetricMathType.MAX:
+            return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
+        elif math_type == ExperimentMetricMathType.AVG:
+            return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
+        elif math_type == ExperimentMetricMathType.HOGQL:
+            math_hogql = getattr(self.metric.source, "math_hogql", None)
+            if math_hogql is not None:
+                aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
+                if aggregation_function:
+                    return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"sum(coalesce(toFloat(metric_events.value), 0))")
+        else:
+            return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+
     def _build_test_accounts_filter(self) -> ast.Expr:
         if (
             self.filter_test_accounts
@@ -264,6 +527,51 @@ class ExperimentQueryBuilder:
             )
         )
 
+    def _build_exposure_select_query(self) -> ast.SelectQuery:
+        exposure_query = parse_select(
+            """
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_expr} AS variant,
+                    minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
+                    argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
+                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
+                FROM events
+                WHERE {exposure_predicate}
+                GROUP BY entity_id
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.entity_key),
+                "variant_expr": self._build_variant_expr_for_mean(),
+                "exposure_predicate": self._build_exposure_predicate(),
+            },
+        )
+        assert isinstance(exposure_query, ast.SelectQuery)
+        return exposure_query
+
+    def _build_variant_expr_for_mean(self) -> ast.Expr:
+        """
+        Builds the variant selection expression for mean metrics based on multiple variant handling.
+        """
+
+        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            return parse_expr(
+                "argMinIf({variant_property}, timestamp, {exposure_predicate})",
+                placeholders={
+                    "variant_property": self._build_variant_property(),
+                    "exposure_predicate": self._build_exposure_predicate(),
+                },
+            )
+        else:
+            return parse_expr(
+                "if(uniqExactIf({variant_property}, {exposure_predicate}) > 1, {multiple_key}, anyIf({variant_property}, {exposure_predicate}))",
+                placeholders={
+                    "variant_property": self._build_variant_property(),
+                    "exposure_predicate": self._build_exposure_predicate(),
+                    "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
+                },
+            )
+
     def _build_funnel_step_columns(self) -> list[ast.Alias]:
         """
         Builds list of step column AST expressions: step_0, step_1, etc.
@@ -283,11 +591,34 @@ class ExperimentQueryBuilder:
 
     def _build_funnel_steps_filter(self) -> ast.Expr:
         """
-        Returns the OR expression for all funnel steps (matches ANY step).
-        NB: Includes the exposure criteria as the first step!
+        Returns the expression to filter funnel steps (matches ANY step) within
+        the time period of the experiment + the conversion window if set.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
-        return funnel_steps_to_filter(self.team, self.metric.series)
+
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds > 0:
+            date_to = parse_expr(
+                "{to_date} + toIntervalSecond({conversion_window_seconds})",
+                placeholders={
+                    "to_date": self.date_range_query.date_to_as_hogql(),
+                    "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                },
+            )
+        else:
+            date_to = self.date_range_query.date_to_as_hogql()
+
+        return parse_expr(
+            """
+            timestamp >= {date_from} AND timestamp <= {date_to}
+            AND {funnel_steps_filter}
+            """,
+            placeholders={
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": date_to,
+                "funnel_steps_filter": funnel_steps_to_filter(self.team, self.metric.series),
+            },
+        )
 
     def _build_funnel_aggregation_expr(self) -> ast.Expr:
         """

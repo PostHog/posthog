@@ -66,7 +66,7 @@ pub fn upload(input_sets: &[SymbolSetUpload], batch_size: usize) -> Result<()> {
         let start_response = start_upload(batch)?;
 
         let id_map: HashMap<_, _> = batch
-            .into_iter()
+            .iter()
             .map(|u| (u.chunk_id.as_str(), u))
             .collect();
 
@@ -151,7 +151,7 @@ fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
                 }
             }
             Result::Err(e) => {
-                last_err = Some(anyhow!("Failed to upload chunk: {}", e));
+                last_err = Some(anyhow!("Failed to upload chunk: {e}"));
             }
         }
         if attempt < 3 {
