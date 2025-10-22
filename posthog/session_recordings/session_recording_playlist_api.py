@@ -534,11 +534,14 @@ class SessionRecordingPlaylistViewSet(
     def recordings(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         playlist = self.get_object()
 
+        limit = int(request.GET.get("limit", 50))
+        offset = int(request.GET.get("offset", 0))
+
         # Handle synthetic playlists differently
         if getattr(playlist, "_is_synthetic", False):
             synthetic_def = get_synthetic_playlist(playlist.short_id)
             if synthetic_def:
-                playlist_items = synthetic_def.get_session_ids(self.team, cast(User, request.user))
+                playlist_items = synthetic_def.get_session_ids(self.team, cast(User, request.user), limit, offset)
             else:
                 playlist_items = []
         else:
