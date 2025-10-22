@@ -21,7 +21,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
     },
     connect: {
         values: [featureFlagsLogic, ['featureFlags'], experimentsLogic, ['experiments']],
-        actions: [createExperimentLogic, ['setExperimentValue']],
+        actions: [createExperimentLogic, ['setExperimentValue', 'setFeatureFlagConfig']],
     },
     actions: {
         validateFeatureFlagKey: (key: string) => ({ key }),
@@ -32,6 +32,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         generateFeatureFlagKey: (name: string) => ({ name }),
         setMode: (mode: 'create' | 'link') => ({ mode }),
         setFeatureFlagKeyDirty: true,
+        setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
     },
     reducers: {
         featureFlagKeyError: [
@@ -51,6 +52,13 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
             {
                 setFeatureFlagKeyDirty: () => true,
                 setMode: () => false, // Reset dirty flag when switching modes
+            },
+        ],
+        linkedFeatureFlag: [
+            null as FeatureFlagType | null,
+            {
+                setLinkedFeatureFlag: (_, { flag }) => flag,
+                setMode: () => null, // Reset linked flag when switching modes
             },
         ],
     },
@@ -185,7 +193,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         },
         generateFeatureFlagKeySuccess: ({ generatedKey }) => {
             if (generatedKey) {
-                actions.setExperimentValue('feature_flag_key', generatedKey)
+                actions.setFeatureFlagConfig({ feature_flag_key: generatedKey })
                 actions.validateFeatureFlagKey(generatedKey)
             }
         },
