@@ -106,3 +106,9 @@ pub const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_status";
 
 /// Counter for checkpoint files tracked in each attempt plan tagged by action taken
 pub const CHECKPOINT_PLAN_FILE_TRACKED_COUNTER: &str = "checkpoint_plan_file_tracked";
+
+/// Histogram for checkpoint metadata file fetch duration; only measured on success
+pub const CHECKPOINT_FILE_FETCH_HISTOGRAM: &str = "checkpoint_file_fetch_seconds";
+
+/// Histogram for checkpoint metadata file list duration; only measured on success
+pub const CHECKPOINT_LIST_METADATA_HISTOGRAM: &str = "checkpoint_list_metadata_seconds";
