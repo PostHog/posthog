@@ -38,7 +38,7 @@ def sessions_v3_backfill(context: AssetExecutionContext):
     backfill_sql = RAW_SESSION_TABLE_BACKFILL_SQL_V3(where=where_clause)
 
     context.log.info(
-        f"Running backfill for {context.partition_key} (where='{where_clause}') using commit {get_git_commit_short()} "
+        f"Running backfill for {context.partition_key} (where='{where_clause}') using commit {get_git_commit_short() or 'unknown'} "
     )
 
     sync_execute(backfill_sql)
